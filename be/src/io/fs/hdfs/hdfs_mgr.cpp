@@ -30,7 +30,9 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "util/jvm_launcher.h"
+#include "util/thread.h"
 
 namespace doris::io {
 
@@ -223,6 +225,15 @@ Status HdfsMgr::_create_hdfs_fs(const THdfsParams& hdfs_params, const std::strin
     auto btx = bthread::butex_create();
     *(int*)btx = 0;
     std::thread t([&] {
+        // Named and given a thread context like every other pthread the BE starts. This one is
+        // where the JVM is most often created for the first time: _create_hdfs_fs_impl() calls
+        // ensure_jvm(), and ensure_jvm() only switches to a pthread of its own when it is called
+        // FROM a bthread - which it is not here, because this switch already happened. Without
+        // these two lines the whole bootstrap - seconds of hadoop ServiceLoader scanning, and any
+        // hang inside it - runs on an anonymous thread with no memory tracking, and an operator
+        // looking at the stacks has nothing to grep for.
+        SCOPED_INIT_THREAD_CONTEXT();
+        Thread::set_self_name("hdfs_fs_connect");
         st = _create_hdfs_fs_impl(hdfs_params, fs_name, fs_handler);
         *(int*)btx = 1;
         bthread::butex_wake_all(btx);

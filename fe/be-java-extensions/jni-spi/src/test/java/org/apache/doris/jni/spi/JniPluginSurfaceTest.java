@@ -17,21 +17,11 @@
 
 package org.apache.doris.jni.spi;
 
-import org.apache.doris.jni.spi.utils.JNINativeMethod;
-import org.apache.doris.jni.spi.utils.JniUtil;
-import org.apache.doris.jni.spi.utils.OffHeap;
-import org.apache.doris.jni.spi.utils.TypeNativeBytes;
-import org.apache.doris.jni.spi.vec.ColumnType;
-import org.apache.doris.jni.spi.vec.ColumnValue;
-import org.apache.doris.jni.spi.vec.ColumnValueConverter;
-import org.apache.doris.jni.spi.vec.NativeColumnValue;
-import org.apache.doris.jni.spi.vec.VectorColumn;
-import org.apache.doris.jni.spi.vec.VectorTable;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -40,15 +30,25 @@ import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Deque;
+import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * Freezes the JNI plugin API surface, so that changing it cannot happen without also deciding the
@@ -91,26 +91,19 @@ public class JniPluginSurfaceTest {
         Assertions.assertEquals("3.0", SpiVersion.version());
     }
 
-    /** Everything a plugin compiles against: the entry points, the factories, the data plane. */
-    private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
-            DorisPlugin.class,
-            JniScanner.class,
-            JniScannerFactory.class,
-            JniWriter.class,
-            JniWriterFactory.class,
-            UdfExecutorFactory.class,
-            SpiVersion.class,
-            ThreadContextClassLoader.class,
-            JNINativeMethod.class,
-            JniUtil.class,
-            OffHeap.class,
-            TypeNativeBytes.class,
-            ColumnType.class,
-            ColumnValue.class,
-            ColumnValueConverter.class,
-            NativeColumnValue.class,
-            VectorColumn.class,
-            VectorTable.class);
+    /** The package the frozen surface is, entirely: everything shipped in doris-jni-spi.jar. */
+    private static final String SPI_PACKAGE = "org/apache/doris/jni/spi/";
+
+    /**
+     * Anchors, so that a discovery that silently finds nothing cannot pass. Not the frozen set -
+     * that is {@link #frozenTypes()}, derived from the artifact - just the handful whose absence
+     * means the walk broke rather than that the SPI shrank.
+     */
+    private static final List<String> SURFACE_ANCHORS = Arrays.asList(
+            "org.apache.doris.jni.spi.DorisPlugin",
+            "org.apache.doris.jni.spi.JniScanner",
+            "org.apache.doris.jni.spi.JniWriter",
+            "org.apache.doris.jni.spi.vec.VectorTable");
 
     @Test
     public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException {
@@ -175,7 +168,7 @@ public class JniPluginSurfaceTest {
      *       part of a baseline, and is not inlined into callers either.</li>
      * </ul>
      */
-    private static TreeSet<String> renderSurface() {
+    private static TreeSet<String> renderSurface() throws IOException {
         TreeSet<String> rendered = new TreeSet<>();
         for (Class<?> frozen : frozenClosure()) {
             rendered.add(declaration(frozen));
@@ -314,9 +307,82 @@ public class JniPluginSurfaceTest {
     }
 
     /** The frozen types plus every non-private type nested inside one of them, transitively. */
-    private static List<Class<?>> frozenClosure() {
+    /**
+     * Every public top-level type shipped in the SPI package, read off the artifact this module
+     * just built rather than listed by hand.
+     *
+     * <p>A hand-written list is the one thing this whole test cannot afford: adding a type to the
+     * SPI is a MAJOR change by the contract above, and a list that has to be edited to notice one
+     * is a gate that stays green through exactly the change it is for. Derived from the code source
+     * of a class that is certainly in it, so the answer is "what is in the jar", not "what a test
+     * remembered".
+     *
+     * <p>Nested types are not collected here - {@link #frozenClosure()} expands them from their
+     * enclosing type, which also catches a nested type added to a class that was already frozen.
+     */
+    private static List<Class<?>> frozenTypes() throws IOException {
+        List<String> binaryNames = new ArrayList<>();
+        URL location = DorisPlugin.class.getProtectionDomain().getCodeSource().getLocation();
+        Path root;
+        try {
+            root = Paths.get(location.toURI());
+        } catch (URISyntaxException e) {
+            throw new IOException("cannot read the SPI code source at " + location, e);
+        }
+        if (Files.isDirectory(root)) {
+            Path packageRoot = root.resolve(SPI_PACKAGE);
+            try (Stream<Path> entries = Files.walk(packageRoot)) {
+                for (Path entry : (Iterable<Path>) entries::iterator) {
+                    collectTopLevel(root.relativize(entry).toString().replace(File.separatorChar, '/'),
+                            binaryNames);
+                }
+            }
+        } else {
+            try (ZipFile jar = new ZipFile(root.toFile())) {
+                Enumeration<? extends ZipEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    collectTopLevel(entries.nextElement().getName(), binaryNames);
+                }
+            }
+        }
+
+        List<Class<?>> types = new ArrayList<>();
+        for (String name : binaryNames) {
+            try {
+                Class<?> type = Class.forName(name, false, JniPluginSurfaceTest.class.getClassLoader());
+                if (Modifier.isPublic(type.getModifiers())) {
+                    types.add(type);
+                }
+            } catch (ClassNotFoundException e) {
+                throw new IOException("the SPI artifact holds " + name + " but it cannot be loaded", e);
+            }
+        }
+        types.sort(Comparator.comparing(Class::getName));
+        List<String> discovered = new ArrayList<>();
+        types.forEach(type -> discovered.add(type.getName()));
+        Assertions.assertTrue(discovered.containsAll(SURFACE_ANCHORS),
+                "the SPI surface walk found " + discovered + ", which is missing one of the types"
+                        + " that must always be there (" + SURFACE_ANCHORS + "). The walk is broken,"
+                        + " not the surface - fix it before reading anything into a passing run.");
+        return types;
+    }
+
+    /** Records {@code path} as a frozen candidate when it is a top-level class of the SPI package. */
+    private static void collectTopLevel(String path, List<String> binaryNames) {
+        if (!path.startsWith(SPI_PACKAGE) || !path.endsWith(".class")) {
+            return;
+        }
+        String name = path.substring(0, path.length() - ".class".length());
+        // Nested types come from their enclosing one, and package-info carries no members.
+        if (name.indexOf('$') >= 0 || name.endsWith("/package-info")) {
+            return;
+        }
+        binaryNames.add(name.replace('/', '.'));
+    }
+
+    private static List<Class<?>> frozenClosure() throws IOException {
         Set<Class<?>> seen = new LinkedHashSet<>();
-        Deque<Class<?>> pending = new ArrayDeque<>(FROZEN_TYPES);
+        Deque<Class<?>> pending = new ArrayDeque<>(frozenTypes());
         while (!pending.isEmpty()) {
             Class<?> type = pending.removeFirst();
             if (!seen.add(type)) {

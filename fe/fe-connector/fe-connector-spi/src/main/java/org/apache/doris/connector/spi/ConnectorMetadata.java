@@ -126,7 +126,10 @@ public interface ConnectorMetadata extends
      * <p>Breaking that promise degrades quietly rather than failing: each mismatched partition is
      * skipped inside a per-partition catch, the pinned item map ends up shorter than the listed name
      * set, and the table is reported UNPARTITIONED. Rows are still correct - pruning and
-     * {@code partition=N/M} are what is lost, and the only signal is one WARN per partition. Note
+     * {@code partition=N/M} are what is lost. Two signals in the log: one WARN per skipped
+     * partition, and - when EVERY partition was skipped, which is what a schema that never matched
+     * produces as opposed to iceberg spec evolution - one aggregate WARN naming both counts and the
+     * partition columns, from {@code PluginDrivenMvccExternalTable}. Note
      * that a connector whose at-snapshot schema resolution can degrade to an empty column list on
      * error - hudi's {@code getSchemaFromMetaClient} swallows a failed metadata read into one -
      * produces exactly this shape from a transient fault.</p>

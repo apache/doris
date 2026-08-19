@@ -33,39 +33,51 @@ Five checks, four of which have caught a real regression during the plugin migra
                         bytes in different jars. One directory is one flat classloader, so the
                         winner is jar-name order - not a decision anyone made.
   closure-self-contained
-                        Every class that Doris's OWN code in a plugin references resolves inside
-                        that plugin directory (plus the SPI jar and the JDK). This is the check
-                        that fires when a dependency is switched to `provided` and its jar stops
-                        being deployed while the code still calls into it.
+                        Every class referenced from a plugin's ROOT jars resolves inside that
+                        plugin directory (plus the SPI jar and the JDK). The roots are Doris's own
+                        jars AND every jar holding a class Doris hands to hadoop as a string -
+                        the fs.*.impl and credentials-provider values in fe/fe-filesystem/**, see
+                        _NAMED_BY_DORIS. This is the check that fires when a dependency is
+                        switched to `provided` and its jar stops being deployed while the code
+                        still calls into it, and - because of that second root set - when a
+                        bundled filesystem is missing a library of its OWN.
   api-version-stamp     The jar declaring the DorisPlugin service carries the
                         Doris-Jni-Plugin-Api-Version this build serves. That attribute is the only
                         thing PluginRuntime's version gate reads, and until this check existed
                         nothing verified it reached the artifact.
 
-WHAT THIS DOES NOT PROVE. The last check is static and starts from Doris's own classes only, so
-it says nothing about anything reached by ServiceLoader or reflection - filesystem providers,
-JDBC drivers, logging backends, jackson modules. A jar can disappear from a plugin directory,
-pass every check here, and still fail at runtime. The only thing that proves a closure complete
-is loading the plugin out of the deployed directory for real. Treat a green run as "no
-STATICALLY visible hole", nothing more.
+WHAT THIS DOES NOT PROVE. The last check is static, so it says nothing about anything reached by
+a ServiceLoader or by a reflective lookup Doris does not make itself - JDBC drivers, logging
+backends, jackson modules. A jar can disappear from a plugin directory, pass every check here, and
+still fail at runtime. The only thing that proves a closure complete is loading the plugin out of
+the deployed directory for real. Treat a green run as "no STATICALLY visible hole", nothing more.
 
-BUNDLED THIRD-PARTY FILESYSTEMS are the sharpest edge of that, and have drawn blood twice. A
-plugin packages hadoop-huaweicloud or hadoop-azure for one URI scheme; hadoop reaches it by class
-NAME out of a Configuration, so no Doris class references it and the closure walk never enters it.
-Its own dependencies are then invisible too - hadoop-huaweicloud calls commons-lang 2.x from
-seven classes and carries no copy, which used to come from the shared preload classpath and now
-has to be declared by each plugin that bundles it. The per-plugin
-resolvesEveryFilesystemSchemeAScanCanArriveOn tests do not close the gap either: getFileSystemClass
-returns a Class without linking it, so a provider whose own dependencies are missing still
-resolves. Whenever a plugin gains a filesystem jar, read ITS constant pool, not just Doris's.
+BUNDLED THIRD-PARTY FILESYSTEMS used to be the sharpest edge of that and have drawn blood twice. A
+plugin packages hadoop-aws or hadoop-huaweicloud for one URI scheme; hadoop reaches it by class
+NAME out of a Configuration, so no Doris class references it and a walk rooted at Doris's own jars
+never entered it. Its own dependencies were then invisible too - hadoop-huaweicloud calls
+commons-lang 2.x from seven classes and hadoop-aws's AssumedRoleCredentialProvider calls
+software.amazon.awssdk.services.sts from twenty-three, and neither jar carries a copy. Both used to
+come from the shared preload classpath and now have to be declared by each plugin that bundles
+them; both shipped broken before this was checked.
+
+_NAMED_BY_DORIS closes that particular hole by making those jars roots. Note what it is NOT: it
+does not follow a Class.forName and it is not reflection analysis. It is a hand-maintained list of
+the class names Doris itself writes into a Configuration, and every reference it then finds is an
+ordinary constant-pool entry. A filesystem Doris reaches some other way is still invisible, and so
+is anything those roots reach reflectively - the per-plugin
+resolvesEveryFilesystemSchemeAScanCanArriveOn tests do not close that either, because
+getFileSystemClass returns a Class without linking it.
 
 The shared filesystem directory (plugins/jni_fs, appended to every plugin classloader for
 jindofs/juicefs) is outside this check entirely: it is not a plugin directory, so nothing here
-looks at it and nothing here accounts for classes a plugin resolves out of it.
+looks at it - not the duplicate scan, and not the closure walk, which will happily report a class
+as missing that a BE resolves out of there at runtime.
 
 Exit status: 0 if every check passes, 1 if any fails, 2 if the tree or the tools are unusable.
 """
 import collections
+import functools
 import os
 import subprocess
 import sys
@@ -78,49 +90,6 @@ _OBS = ("Two builds of the Huawei OBS SDK: the standalone esdk-obs-java-optimise
         "shaded into the hadoop-huaweicloud fat jar. Both are present on BE's system classpath "
         "today with the same overlap, and PluginRuntime sorts jar URLs, so the copy that wins "
         "here is the copy that wins today.")
-
-_JINDO = ("build.sh copies the JindoFS jars into the iceberg and paimon plugin directories after "
-          "post-build.sh packages them (DISABLE_BUILD_JINDOFS=OFF), because a plugin classloader "
-          "cannot reach the system classpath those jars otherwise live on and paimon-jindo / "
-          "fs.oss.impl name com.aliyun.jindodata.* as the oss:// implementation. jindo-sdk carries "
-          "a handful of hadoop and jsr305 classes of its own, which is what collides. ")
-
-# WHY THE WINNER DOES NOT MATTER, entry by entry - derived by comparing the two copies with javap,
-# not by assuming. PluginRuntime.jarsIn() sorts by file name, so the winner is the alphabetically
-# first jar: hadoop-common-3.4.2.jar beats jindo-sdk-6.10.4.jar ('h' < 'j'), and jindo-sdk beats
-# jsr305-3.0.2.jar ('j','i' < 'j','s').
-#
-# CAVEAT: that ordering is an accident of two file names, and either version can be bumped without
-# anyone here noticing - jindofs to a name sorting before hadoop-common would silently flip every
-# fs/** collision. Re-derive these entries (javap both copies, compare) whenever either version
-# moves, and name them one by one rather than allowing a prefix, so that a NEW collision the next
-# version brings still fails the build instead of being waved through.
-_JINDO_HADOOP_FS = [
-    ("prefix", "org/apache/hadoop/fs/StreamCapabilities.class",
-     _JINDO + "hadoop-common wins and its copy is a superset: it declares one constant more "
-     "(VECTOREDIO_BUFFERS_SLICED) and is otherwise identical."),
-    ("prefix", "org/apache/hadoop/fs/StreamCapabilities$StreamCapability.class",
-     _JINDO + "hadoop-common wins; the two copies are semantically identical."),
-    ("prefix", "org/apache/hadoop/fs/PositionedReadable.class",
-     _JINDO + "hadoop-common wins, and it is the more capable copy: it implements readVectored "
-     "where jindo-sdk's throws UnsupportedOperationException."),
-    ("prefix", "org/apache/hadoop/fs/impl/AbstractFSBuilderImpl.class",
-     _JINDO + "hadoop-common wins; the two copies are semantically identical."),
-]
-
-_JINDO_JSR305 = [
-    ("prefix", name,
-     _JINDO + "jindo-sdk wins over jsr305, and the two copies are semantically identical - these "
-     "are annotation types and their trivial nested Checker classes.")
-    for name in (
-        "javax/annotation/MatchesPattern$Checker.class",
-        "javax/annotation/Nonnegative$Checker.class",
-        "javax/annotation/Nonnull$Checker.class",
-        "javax/annotation/RegEx$Checker.class",
-        "javax/annotation/Syntax.class",
-        "javax/annotation/meta/When.class",
-    )
-]
 
 # Classes allowed to appear with DIFFERING bytes in two jars of the same plugin directory.
 # Adding an entry means claiming the arbitrary winner is harmless - write down why.
@@ -135,9 +104,14 @@ DUPLICATE_ALLOWLIST = {
          "which carry only its InterfaceAudience/InterfaceStability documentation annotations, "
          "so which one wins changes nothing that executes."),
     ],
-    "iceberg": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)] + _JINDO_HADOOP_FS
-              + _JINDO_JSR305,
-    "paimon": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)] + _JINDO_HADOOP_FS,
+    # No JindoFS entries any more. This build no longer copies the JindoFS jars into the iceberg
+    # and paimon directories - plugins/jni_fs is appended to every plugin classloader instead - so
+    # the ten class paths those copies used to collide on (org/apache/hadoop/fs/StreamCapabilities,
+    # PositionedReadable, four javax/annotation Checker types and their siblings) are back under
+    # this check. A real collision on any of them must fail the build rather than be waved through
+    # by an exemption whose reason no longer exists.
+    "iceberg": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)],
+    "paimon": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)],
     "hudi": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)],
 }
 
@@ -150,10 +124,60 @@ _TRIMMED = ("Reached only from {} inside a shared Doris jar that the plugin need
             "on any BE path, so the class is never loaded and the missing library never resolves.")
 _FASTUTIL = _TRIMMED.format(
     "fe-foundation's ConcurrentLong2LongHashMap / ConcurrentLong2ObjectHashMap", "fastutil")
+# Holes INSIDE the bundled cloud filesystems, surfaced by the widened root set (_NAMED_BY_DORIS).
+# These are not Doris's code and not Doris's choices; each entry says why the reference is never
+# linked on a BE path, and every one of them was checked with javap against the deployed jar
+# rather than assumed. Adding hadoop-aws or hadoop-huaweicloud to a plugin brings the whole list.
+_S3A_CSE = ("hadoop-aws's EncryptionS3ClientFactory, the S3 client-side-encryption path "
+            "(fs.s3a.encryption.algorithm=CSE-KMS). It needs the Amazon S3 Encryption Client "
+            "(software.amazon.encryption.s3), which is not a transitive dependency of anything "
+            "here and was not on the shared preload classpath this plugin layout replaced either "
+            "- CSE-KMS therefore did not work before this change and does not now. Shipping the "
+            "kms module alone would not fix it. Doris never writes that property.")
+_SDK_BUNDLE = ("the AWS SDK's own shaded HTTP client, which ships only in its `bundle` uber-jar; "
+               "the plugins deploy the modular `apache-client` instead. The two reference sites "
+               "are STSClientFactory.getSTSEndpoint (private, called only when "
+               "fs.s3a.assumed.role.sts.endpoint is set - Doris never writes it) and "
+               "ConfigureShadedAWSSocketFactory (reached only for fs.s3a.ssl.channel.mode values "
+               "naming the shaded OpenSSL path, which Doris never writes either).")
+_SDK_V1 = ("hadoop-aws's V1ToV2AwsCredentialProviderAdapter, the shim for credential providers "
+           "written against AWS SDK v1. It is instantiated only for a provider CLASS NAME under "
+           "com.amazonaws.*, and every provider Doris names is either hadoop's own or an SDK v2 "
+           "one (see _NAMED_BY_DORIS). No plugin ships SDK v1 at all.")
+_LOG4J1 = ("hadoop-aws's Log4JController, an optional log4j 1.x bridge that LogControllerFactory "
+           "loads reflectively and skips when it is absent. Doris runs log4j2.")
+_OKHTTP_PLATFORM = ("the OBS SDK's shaded okhttp, whose Platform.findPlatform() probes for an "
+                    "Android or Conscrypt runtime and catches ClassNotFoundException. Neither is "
+                    "present in a BE, which is what the probe is for.")
+_OBS_BASE64 = ("the OBS SDK's shaded XML builder, which prefers net.iharder.Base64 when it is on "
+               "the classpath and falls back to its own encoder when it is not.")
+_GUAVA_CHECKED_FUTURE = ("Futures.immediateFailedCheckedFuture, removed in Guava 26; "
+                         "hadoop-huaweicloud 3.1.1-hw-46 was built against an older one. Reached "
+                         "only from SemaphoredDelegatingExecutor.submit()'s InterruptedException "
+                         "branch. Pre-existing and byte-identical to what BE's system classpath "
+                         "carried before this layout - no plugin can fix it without shipping a "
+                         "Guava that the rest of the tree has moved past.")
+_S3A_COMMITTER = ("hadoop-aws's S3A output committers, which extend hadoop-mapreduce-client-core "
+                  "types. BE reads table formats; it never runs a MapReduce job, and nothing "
+                  "here resolves a committer.")
+_BUNDLED_S3A = [
+    ("software.amazon.encryption.s3.", _S3A_CSE),
+    ("software.amazon.awssdk.services.kms.", _S3A_CSE),
+    ("software.amazon.awssdk.thirdparty.", _SDK_BUNDLE),
+    ("com.amazonaws.", _SDK_V1),
+    ("org.apache.log4j.", _LOG4J1),
+    ("org.apache.hadoop.mapreduce.", _S3A_COMMITTER),
+]
+_BUNDLED_OBS = [
+    ("android.", _OKHTTP_PLATFORM),
+    ("org.conscrypt.", _OKHTTP_PLATFORM),
+    ("net.iharder.", _OBS_BASE64),
+    ("com.google.common.util.concurrent.CheckedFuture", _GUAVA_CHECKED_FUTURE),
+]
 CLOSURE_ALLOWLIST = {
-    "iceberg": [("it.unimi.dsi.fastutil.", _FASTUTIL)],
-    "paimon": [("it.unimi.dsi.fastutil.", _FASTUTIL)],
-    "hudi": [("it.unimi.dsi.fastutil.", _FASTUTIL)],
+    "iceberg": [("it.unimi.dsi.fastutil.", _FASTUTIL)] + _BUNDLED_S3A + _BUNDLED_OBS,
+    "paimon": [("it.unimi.dsi.fastutil.", _FASTUTIL)] + _BUNDLED_S3A + _BUNDLED_OBS,
+    "hudi": [("it.unimi.dsi.fastutil.", _FASTUTIL)] + _BUNDLED_S3A + _BUNDLED_OBS,
     "java-udf": [
         ("it.unimi.dsi.fastutil.", _FASTUTIL),
         ("org.roaringbitmap.", _TRIMMED.format("fe-common's org.apache.doris.common.io codecs",
@@ -187,9 +211,14 @@ def _class_entries(jar):
         return [(i.filename, i.CRC) for i in zf.infolist() if i.filename.endswith(".class")]
 
 
+# Memoized because the same jar is read by four of the five checks - the duplicate scan, the
+# sole-provider scan, the api-version scan and the root selection below - and a lake-format
+# plugin directory holds a hundred of them, one of which is a 180 MB fat jar. A tuple rather than
+# the list zipfile hands back, so a caller cannot mutate what the next one reads.
+@functools.lru_cache(maxsize=None)
 def _names(jar):
     with zipfile.ZipFile(jar) as zf:
-        return zf.namelist()
+        return tuple(zf.namelist())
 
 
 def check_spi_jar_purity(spi_dir, fail):
@@ -290,7 +319,8 @@ def check_api_version_stamp(plugin, jars, served, fail):
     Every other stamped jar in the directory is reported as a warning instead. Nothing at runtime
     reads those stamps, so a mismatch there is not a defect in the deployed tree - but it is a
     reliable sign of a jar that was not rebuilt, which nothing else in this script can see (this
-    check opens one jar per plugin, the closure check does not care when a class was compiled).
+    check reads every jar's entry list, which _names memoizes; the closure check does not care
+    when a class was compiled).
     That is not hypothetical: a tree where every jar was stamped 3.0 except one left over at 2.0
     passed all five checks, and the leftover was a stale build artifact, not a deliberate one.
     """
@@ -345,13 +375,55 @@ def _doris_owned(jars):
     return owned
 
 
+# Implementation classes Doris hands to hadoop AS A STRING, so that no Doris class references
+# them and the walk from Doris's own jars never enters the jar they live in. Every one of these
+# is written into a Configuration by fe/fe-filesystem/**; the list is short because the write
+# points are - fs.*.impl and the two credentials-provider keys, nothing else.
+#
+# Why this matters more than it looks: hadoop-aws's AssumedRoleCredentialProvider resolves
+# software.amazon.awssdk.services.sts.* from its constant pool, and hadoop-huaweicloud's
+# OBSFileSystem resolves org.apache.commons.lang.*. Both are ordinary static references that jdeps
+# reports the moment the jar holding them is a root - and both were real, shipped holes that every
+# other check here passed over. Treating the jar as a root is not the same as trusting reflection
+# analysis: nothing here follows a Class.forName, it just starts the walk somewhere Doris pointed.
+#
+# Entries are class file paths. A name absent from a plugin costs nothing: that plugin simply
+# bundles no such filesystem, and the root set is what it was.
+_NAMED_BY_DORIS = (
+    # fs.s3.impl / fs.s3a.impl / fs.cos.impl / fs.cosn.impl / fs.gs.impl, and the fallback
+    # fs.obs.impl - one jar, hadoop-aws, and the S3A credential providers live in it too.
+    "org/apache/hadoop/fs/s3a/S3AFileSystem.class",
+    "org/apache/hadoop/fs/s3a/SimpleAWSCredentialsProvider.class",
+    "org/apache/hadoop/fs/s3a/auth/AssumedRoleCredentialProvider.class",
+    # fs.obs.impl and fs.AbstractFileSystem.obs.impl - hadoop-huaweicloud.
+    "org/apache/hadoop/fs/obs/OBSFileSystem.class",
+    "org/apache/hadoop/fs/obs/OBS.class",
+    # fs.s3a.aws.credentials.provider and fs.s3a.assumed.role.credentials.provider, when the
+    # catalog names a provider type rather than a key pair - the AWS SDK's own auth module.
+    "software/amazon/awssdk/auth/credentials/WebIdentityTokenFileCredentialsProvider.class",
+    "software/amazon/awssdk/auth/credentials/InstanceProfileCredentialsProvider.class",
+    "software/amazon/awssdk/auth/credentials/ContainerCredentialsProvider.class",
+    # fs.oss.impl / fs.AbstractFileSystem.oss.impl. Deployed to plugins/jni_fs rather than into a
+    # plugin directory, so normally absent here; listed so that a plugin which does bundle
+    # JindoFS gets the same treatment as the rest.
+    "com/aliyun/jindodata/oss/JindoOssFileSystem.class",
+)
+
+
+def _named_by_doris(jars):
+    """Jars holding a class Doris names by string. See _NAMED_BY_DORIS."""
+    wanted = set(_NAMED_BY_DORIS)
+    return [jar for jar in jars if wanted.intersection(_names(jar))]
+
+
 def check_closure_self_contained(plugin, jars, spi_jar, fail):
-    roots = _doris_owned(jars)
-    if not roots:
+    owned = _doris_owned(jars)
+    if not owned:
         fail("closure-self-contained",
              "plugin '%s' has no jar containing %s classes; it cannot implement the SPI."
              % (plugin, DORIS_PREFIX))
         return
+    roots = owned + [jar for jar in _named_by_doris(jars) if jar not in owned]
     classpath = os.pathsep.join(jars + [spi_jar])
     proc = subprocess.run(["jdeps", "--multi-release", "17", "-verbose:class", "-cp", classpath]
                           + roots,

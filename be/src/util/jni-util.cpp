@@ -66,7 +66,18 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     // rejected caller that had already attached would stay bound to the JVM - one JVM thread
     // structure and one stack reservation each - for the rest of its life, on a deployment where
     // it can never run a line of Java. With the base broken and load arriving, that is every
-    // scanner thread, every pipeline thread and both metrics daemons.
+    // scanner thread and every pipeline thread. Not the metrics daemons: the jvm_* metrics are
+    // published whenever a JVM exists, base or no base, so they take their env from
+    // JvmLauncher::ScopedVmEnv and never come through here.
+    //
+    // Never the call that RUNS the resolution, only the one that reads its answer: ensure_jvm()
+    // above returned OK, which means _bootstrap() ran to its end on some thread and its last step
+    // was ensure_jni_base(). That is what keeps this line from re-entering a call_once from an
+    // unattached thread, and it is the whole reason the order above is the order above - so it is
+    // asserted rather than left to be rediscovered.
+    DCHECK(Util::jni_base_outcome().has_value())
+            << "the JNI base has no outcome yet, so this call would run the resolution instead of "
+               "reading it - see the ordering note above";
     RETURN_IF_ERROR(Util::ensure_jni_base());
 
     // Finally the attach. On failure tls_env_ is left untouched, so the thread still looks
@@ -90,7 +101,14 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     // its own throwing would land here with no way to render the throwable, and a DCHECK is a
     // no-op in a release build. Degrade to a plain message rather than dereference null: this
     // function exists to turn a Java exception into a Status, and it can still do that much.
-    if (jni_util_cl_ == nullptr || throwable_to_string_id_ == nullptr) {
+    //
+    // All THREE, not just the two this function uses first: init_throw_exception() assigns them
+    // in order, so a failure at its last step leaves the class and toString set and
+    // toStackTrace null, and the log_stack branch below - log_stack defaults to true - would then
+    // call CallStaticObjectMethod with a null jmethodID, which is the very SIGSEGV this guard is
+    // here to prevent.
+    if (jni_util_cl_ == nullptr || throwable_to_string_id_ == nullptr ||
+        throwable_to_stack_trace_id_ == nullptr) {
         env->ExceptionDescribe();
         env->ExceptionClear();
         return Status::JniError(

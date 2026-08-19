@@ -254,44 +254,75 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
-# jindofs and juicefs go on the system classpath so the native libhdfs reader can resolve
-# oss-hdfs:// and jfs://. They must come after lib/hadoop_hdfs or they override its hadoop jars.
+# The third-party hadoop filesystems - JindoFS for oss-hdfs://, JuiceFS for jfs:// - go on the
+# system classpath so the native libhdfs reader can resolve those schemes. They must come after
+# lib/hadoop_hdfs or they override its hadoop jars.
 #
-# plugins/jni_fs/<name> is where this build deploys them, and it is deliberately NOT only for
-# libhdfs: PluginRegistry appends the same jars to every Java plugin's own classpath (BE config
-# jni_plugin_fs_dir), because a plugin classloader cannot reach this class path and would
-# otherwise have no oss:// or jfs:// at all. Two readers, one copy on disk - the JuiceFS Hadoop
-# SDK alone is a 180 MB fat jar.
+# The directory they live in is deliberately NOT only for libhdfs: PluginRuntime appends the same
+# jars to every Java plugin's own classpath, because a plugin classloader cannot reach this class
+# path and would otherwise have no oss:// or jfs:// at all. Two readers, one copy on disk - the
+# JuiceFS Hadoop SDK alone is a 180 MB fat jar.
 #
+# Which directory that is comes from be.conf, not from a path spelled out here. It is BE config
+# jni_plugin_fs_dir, the JVM half honours it (JvmLauncher turns it into -Ddoris.jni.fs.dir), and
+# an operator who points it at a path shared between deployments has to move BOTH halves - a
+# hard-coded path here would move the Java plugins and silently leave the native reader without
+# oss-hdfs:// and jfs://, with nothing in the log saying so. Read by hand because the export loop
+# at the top of this script only picks up UPPERCASE keys, the same reason set_tcmalloc_heap_limit
+# reads mem_limit by hand; `|| true` because the key is normally absent, and the eval expands a
+# value written as ${DORIS_HOME}/... exactly as the BE's own config loader does.
+jni_fs_dir="$(grep -E '^[[:blank:]]*jni_plugin_fs_dir[[:blank:]]*=' "${DORIS_HOME}/conf/be.conf" | tail -n 1 || true)"
+jni_fs_dir="$(echo "${jni_fs_dir#*=}" | sed 's/^[[:blank:]]*//; s/[[:blank:]]*$//')"
+if [[ -z "${jni_fs_dir}" ]]; then
+    jni_fs_dir="${DORIS_HOME}/plugins/jni_fs"
+else
+    jni_fs_dir="$(eval echo "${jni_fs_dir}")"
+fi
+
+# Every subdirectory holding jars, which is what PluginRuntime.sharedFilesystemJars() takes, so
+# that the two readers of this one directory really do see the same jars. Enumerating instead of
+# naming jindofs and juicefs is what makes a third filesystem dropped in here reach both.
+fs_dirs=()
+for fs_dir in "${jni_fs_dir}"/*/; do
+    fs_dir="${fs_dir%/}"
+    if [[ -d "${fs_dir}" ]] && compgen -G "${fs_dir}/*.jar" > /dev/null; then
+        fs_dirs+=("${fs_dir}")
+    fi
+done
+
 # The two older locations are still read so that an in-place upgrade keeps resolving these schemes
 # for libhdfs before the new tree is laid down: lib/<name> is where both FE and BE put them until
 # this release, and lib/java_extensions/<name> is where BE alone put them before that. Neither
-# reaches the plugins - only the first location does - so the WARN is worth acting on.
+# reaches the plugins - only the configured directory does - so the WARN is worth acting on. Only
+# the two filesystems that ever had those locations, because only they can be there.
 #
 # The choice is made on jar presence, not directory presence: post-build.sh creates the directory
 # before it tries to populate it, so an empty one is reachable (e.g. a --juicefs build with no
 # network to fetch the jar from) and must not silently win over a populated older location - that
 # would resolve neither, without a warning saying why.
 for fs_libs in jindofs juicefs; do
-    fs_dir="${DORIS_HOME}/plugins/jni_fs/${fs_libs}"
-    if ! compgen -G "${fs_dir}/*.jar" > /dev/null; then
-        for legacy in "lib/${fs_libs}" "lib/java_extensions/${fs_libs}"; do
-            if compgen -G "${DORIS_HOME}/${legacy}/*.jar" > /dev/null; then
-                fs_dir="${DORIS_HOME}/${legacy}"
-                echo "WARN: ${fs_libs} found under the deprecated ${legacy}; the native reader" \
-                     "will use it, but Java plugins will NOT - move it to" \
-                     "plugins/jni_fs/${fs_libs}, which is where this build deploys it." >&2
-                break
-            fi
-        done
+    if compgen -G "${jni_fs_dir}/${fs_libs}/*.jar" > /dev/null; then
+        continue
     fi
-    if compgen -G "${fs_dir}/*.jar" > /dev/null; then
+    for legacy in "lib/${fs_libs}" "lib/java_extensions/${fs_libs}"; do
+        if compgen -G "${DORIS_HOME}/${legacy}/*.jar" > /dev/null; then
+            fs_dirs+=("${DORIS_HOME}/${legacy}")
+            echo "WARN: ${fs_libs} found under the deprecated ${legacy}; the native reader" \
+                 "will use it, but Java plugins will NOT - move it to" \
+                 "${jni_fs_dir}/${fs_libs}, which is where this build deploys it." >&2
+            break
+        fi
+    done
+done
+
+if [[ "${#fs_dirs[@]}" -gt 0 ]]; then
+    for fs_dir in "${fs_dirs[@]}"; do
         for f in "${fs_dir}"/*.jar; do
             DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         done
-    fi
-done
-unset fs_libs fs_dir legacy
+    done
+fi
+unset fs_libs fs_dir fs_dirs legacy
 
 # custom_lib and plugins/java_extensions hold user Java function jars, and they are deliberately
 # NOT put on this classpath any more: the java-udf plugin reads those two directories itself and
@@ -600,6 +631,16 @@ add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal
 if [[ -f "${DORIS_HOME}/conf/hadoop_log4j2.properties" ]]; then
     add_java_opt_if_missing "-Ddoris.log.dir=${DORIS_HOME}/log"
     add_java_opt_if_missing "-Dlog4j2.configurationFile=file:${DORIS_HOME}/conf/hadoop_log4j2.properties"
+else
+    # Said out loud rather than passed over in silence, because the deployments that reach this
+    # branch are the ones most likely to want the file: an in-place upgrade keeps conf/, so a BE
+    # upgraded onto this release has the new lib/ and the old conf/ and gets no hadoop logging at
+    # all - which is only noticed while debugging an HDFS problem, at the worst possible moment.
+    # A fresh install always has the file, so this is never noise on one.
+    echo "WARN: conf/hadoop_log4j2.properties is missing, so hadoop's own INFO and WARN lines" \
+         "(the native libhdfs reader) are not written to log/hadoop.log. It ships with this" \
+         "release; an in-place upgrade keeps the old conf/ and does not lay it down. Copy it" \
+         "from the release package into ${DORIS_HOME}/conf/ to get those lines back." >&2
 fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs

@@ -240,6 +240,53 @@ class JdbcDriverUtilsTest {
     }
 
     /**
+     * The same discard, for the catalog that had NO checksum when it was created - which is the
+     * ordinary way to get here and the way the discard used to miss entirely.
+     *
+     * <p>The sequence an operator actually performs: CREATE CATALOG naming a driver URL and no
+     * checksum, then later replace the jar behind that URL and ALTER the catalog to declare what it
+     * now is. Nothing records an expectation in step one, so step two used to find no previous
+     * entry, read it as "first time", and skip the discard - the freshly verified checksum then
+     * passed against bytes that no query would ever run, for the life of the process. This is the
+     * case {@code newChecksumForTheSameJarReplacesTheClassLoader} above does NOT cover: it declares
+     * a checksum both times.
+     */
+    @Test
+    void checksumDeclaredLaterStillReplacesALoaderBuiltWithoutOne(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "checksum-added-later.jar");
+        ClassLoader parent = getClass().getClassLoader();
+
+        ClassLoader before = JdbcDriverUtils.driverClassLoader(jar, parent, null);
+
+        Files.write(Path.of(URI.create(jar)), "a different driver".getBytes(StandardCharsets.UTF_8));
+        ClassLoader after = JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(md5Of(jar)));
+
+        Assertions.assertNotSame(before, after,
+                "the loader was built from the old bytes and the checksum was verified against the"
+                        + " new ones, so the old loader must not be handed back");
+        Assertions.assertSame(after, JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(md5Of(jar))),
+                "and the replacement is cached, so the same question does not rebuild again");
+    }
+
+    /**
+     * The other half of that: re-asking with no checksum, twice, must not rebuild anything. Without
+     * a sentinel distinguishing "no expectation was stated" from "nothing is recorded", the obvious
+     * fix for the case above is to record something on every load - and if that something changed
+     * per call, every un-checksummed query would discard the loader it just built.
+     */
+    @Test
+    void repeatedLoadsWithoutAChecksumKeepTheSameLoader(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "never-checksummed.jar");
+        ClassLoader parent = getClass().getClassLoader();
+
+        ClassLoader first = JdbcDriverUtils.driverClassLoader(jar, parent, null);
+        Assertions.assertSame(first, JdbcDriverUtils.driverClassLoader(jar, parent, null));
+        Assertions.assertSame(first, JdbcDriverUtils.driverClassLoader(jar, parent));
+    }
+
+    /**
      * A catalog defined without a checksum has nothing to verify against. Inventing an expectation
      * there would reject every such catalog, so "no checksum" has to mean "no verifier".
      */

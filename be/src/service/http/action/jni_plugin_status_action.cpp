@@ -84,7 +84,8 @@ void JniPluginStatusAction::handle(HttpRequest* req) {
 
     if (!config::enable_java_support) {
         HttpChannel::send_reply(req, HttpStatus::OK,
-                                R"({"javaSupport":false,"plugins":[]})"
+                                R"({"javaSupport":false,"registryInitialized":false,)"
+                                R"("plugins":[]})"
                                 "\n");
         return;
     }
@@ -138,6 +139,14 @@ void JniPluginStatusAction::handle(HttpRequest* req) {
                                             "\n",
                                             json_string(st.to_string())));
         return;
+    }
+    // The healthy shape is rendered on the Java side, which knows neither of these two:
+    // enable_java_support is a BE config, and "the registry is up" is what the branch above just
+    // established. Spliced in rather than left out so that all four shapes this endpoint can emit
+    // carry the same keys - monitoring that keys on javaSupport would otherwise read a perfectly
+    // working BE as one whose Java support is unknown, which is the only state it never is here.
+    if (status.size() > 2 && status.front() == '{' && status[1] != '}') {
+        status.insert(1, R"("javaSupport":true,"registryInitialized":true,)");
     }
     HttpChannel::send_reply(req, HttpStatus::OK, status + "\n");
 }

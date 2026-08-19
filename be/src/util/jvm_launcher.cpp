@@ -94,10 +94,12 @@ std::string scan_class_path() {
     collect_jars(doris_home + "/custom_lib", &class_path);
     // Named separately because it is the one thing libhdfs needs that does NOT live under lib/:
     // the third-party filesystem jars moved to plugins/jni_fs when the Java plugins started
-    // reading them too (BE config jni_plugin_fs_dir, which this fallback cannot consult - it runs
-    // before config is loaded in the cases it exists for). Leaving it out would silently drop
-    // oss-hdfs:// and jfs:// for exactly the processes this branch serves.
-    collect_jars(doris_home + "/plugins/jni_fs", &class_path);
+    // reading them too. Leaving it out would silently drop oss-hdfs:// and jfs:// for exactly the
+    // processes this branch serves. Read from the config rather than spelled out, because this
+    // runs from _build_options() - well after config is loaded - and an operator who points
+    // jni_plugin_fs_dir somewhere else must not end up with the Java plugins reading one
+    // directory and the native reader another.
+    collect_jars(config::jni_plugin_fs_dir, &class_path);
 
     const std::string hadoop_conf_dir = env_value("HADOOP_CONF_DIR");
     if (!hadoop_conf_dir.empty()) {
@@ -387,9 +389,13 @@ Status JvmLauncher::_bootstrap() {
     // it up and whether or not the plugin SPI resolved. Publishing them anywhere but here would
     // mean a BE that has a JVM but reached it through libhdfs (an HDFS catalog served by the
     // native reader, no JNI table format and no Java UDF anywhere) exports no jvm_* series at all
-    // and has its whole Java heap counted as untracked memory. Before reset_tls_env() below: the
-    // constructor calls into JNI, and off the fast path it would re-enter ensure_jvm() and
-    // deadlock on the once flag this bootstrap is holding.
+    // and has its whole Java heap counted as untracked memory.
+    //
+    // Reached from inside this call_once, so it must not touch anything that leads back to
+    // ensure_jvm(). What keeps it off that path is ScopedVmEnv, which JvmStats::init() takes and
+    // holds across its whole body; the primed env above is not what makes this safe and neither
+    // is the position before reset_tls_env(), because the metrics daemon reruns the same code
+    // later on a thread that was never primed at all.
     DorisMetrics::instance()->init_jvm_metrics();
 
     if (!base.ok()) {
@@ -472,6 +478,39 @@ Status JvmLauncher::_bootstrap_guarded() {
 Status JvmLauncher::attach_current_thread(JNIEnv** env) {
     RETURN_IF_ERROR(ensure_jvm());
     return _attach_current_thread(env);
+}
+
+JNIEnv* JvmLauncher::_tls_env() {
+    return Env::tls_env();
+}
+
+void JvmLauncher::_set_tls_env(JNIEnv* env) {
+    Env::set_tls_env(env);
+}
+
+Status JvmLauncher::ScopedVmEnv::attach(JNIEnv** env) {
+    DCHECK(!_primed) << "ScopedVmEnv::attach() called twice on one guard";
+    if (_vm == nullptr) {
+        return Status::JniError(
+                "This process has no JVM, so there is no JNIEnv to look at. ScopedVmEnv "
+                "deliberately does not create one.");
+    }
+    JNIEnv* attached = nullptr;
+    RETURN_IF_ERROR(_attach_current_thread(&attached));
+    // Read before the write, and put back rather than cleared in the destructor: this runs on the
+    // bootstrap thread too, which primed the cache itself before calling in and still needs it
+    // afterwards to finish resolving the JNI base.
+    _previous = _tls_env();
+    _set_tls_env(attached);
+    _primed = true;
+    *env = attached;
+    return Status::OK();
+}
+
+JvmLauncher::ScopedVmEnv::~ScopedVmEnv() {
+    if (_primed) {
+        _set_tls_env(_previous);
+    }
 }
 
 Status JvmLauncher::_attach_current_thread(JNIEnv** env) {

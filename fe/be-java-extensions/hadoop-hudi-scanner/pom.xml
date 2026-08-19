@@ -298,7 +298,13 @@ under the License.
           s3 brings the client and its protocol/auth/http closure, apache-client is the http
           implementation hadoop-aws wires up, and s3-transfer-manager is not optional either -
           S3AFileSystem's own methods reference software.amazon.awssdk.transfer.s3, so the class
-          does not load without it.
+          does not load without it. sts is not optional either: hadoop-aws's
+          AssumedRoleCredentialProvider resolves software.amazon.awssdk.services.sts.* from its
+          constant pool, and Doris names that class by string whenever a catalog carries
+          s3.role_arn - fs.s3a.aws.credentials.provider is set to it in S3FileSystemProperties.
+          The web_identity and container provider types, and the default provider chain an
+          EKS/IRSA deployment lands on, reach the same module. Without it the first split of the
+          first scan dies with ClassNotFoundException on sts.model.AssumeRoleRequest.
         -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
@@ -315,11 +321,42 @@ under the License.
             <artifactId>s3-transfer-manager</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Reached transitively through java-common until this module became a plugin. -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+        </dependency>
+
+        <!--
+          commons-lang 2.x, NOT lang3, and NOT inside the `obs` profile the way iceberg's and
+          paimon's copies are. Two consumers here, and only one of them goes away with OBS:
+
+          1. hadoop-huaweicloud (the `obs` profile below). Seven of its classes call
+             org.apache.commons.lang.StringUtils - OBSFileSystem, OBSCommonUtils, OBSLoginHelper,
+             DefaultOBSClientFactory, OBSInputStream, OBSObjectBucketUtils - and the fat jar
+             carries no copy of its own.
+          2. hive-apache-shade, which this plugin needs for the HMS side regardless of OBS. Its
+             relocation moved most of commons-lang under io.trino.hive.$internal, but
+             org.apache.hadoop.hive.common.ValidReadTxnList still references the UNRELOCATED
+             org.apache.commons.lang.ArrayUtils and StringUtils, and the jar ships neither.
+
+          Both used to be served by preload-extensions' runtime classpath, the shared parent of
+          every JNI scanner; that module is gone and a plugin classloader cannot see the system
+          classpath. Scoping this to the `obs` profile - which is what the other two plugins
+          correctly do - would leave consumer 2 dangling in a -Ddisable.obs=true build, and
+          nothing static reports it: hive-apache-shade is neither a Doris jar nor a jar Doris
+          names by string, so it is not a root of check_plugin_layout.py's closure walk.
+        -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!--
@@ -402,23 +439,9 @@ under the License.
                     <artifactId>hadoop-huaweicloud</artifactId>
                     <scope>runtime</scope>
                 </dependency>
-                <!-- commons-lang 2.x, NOT lang3: seven classes of the fat jar above call
-                     org.apache.commons.lang.StringUtils - OBSFileSystem, OBSCommonUtils,
-                     OBSLoginHelper, DefaultOBSClientFactory, OBSInputStream,
-                     OBSObjectBucketUtils - and it carries no copy of its own. It used to reach
-                     them from preload-extensions' runtime classpath, the shared parent of every
-                     JNI scanner; that module is gone and a plugin classloader cannot see the
-                     system classpath, so without this the FIRST obs:// path a scanner opens dies
-                     linking OBSFileSystem.initialize() with NoClassDefFoundError. Inside this
-                     profile, so -Ddisable.obs=true drops it along with the filesystem that needs
-                     it. Nothing static can catch this: check_plugin_layout.py's closure check
-                     starts from Doris's own classes, and a filesystem provider is reached by
-                     name through hadoop's Configuration. -->
-                <dependency>
-                    <groupId>commons-lang</groupId>
-                    <artifactId>commons-lang</artifactId>
-                    <scope>runtime</scope>
-                </dependency>
+                <!-- commons-lang lives in this module's main <dependencies>, not here: unlike
+                     iceberg and paimon, this plugin has a SECOND consumer of it that survives
+                     -Ddisable.obs=true. See the note there. -->
             </dependencies>
             <repositories>
                 <repository>
