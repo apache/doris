@@ -192,6 +192,15 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
 
                 qt_complex_12 """ select * from ${table} where id%2 = 0 order by id limit ${limit}; """
                 qt_complex_13 """ select * from ${table} where id%2 = 1 order by id limit ${limit}; """                
+
+                // Duplicate projected columns over nested types. The scalar cases above only
+                // cover text/double/boolean; a STRUCT or MAP column reaches the row-id fetch as a
+                // different column shape, so dedup and the result remap need coverage here too.
+                qt_complex_dup_struct """ select col2 x, col2 y from ${table} order by id limit ${limit}; """
+                qt_complex_dup_map """ select col3 m, col3 n from ${table} order by id limit ${limit}; """
+                qt_complex_dup_string """ select col1 a, col1 b from ${table} order by id limit ${limit}; """
+                qt_complex_dup_mixed """ select id, col2 a, col1 b, col2 c, col3 d, col1 e from ${table} order by id limit ${limit}; """
+                qt_complex_dup_pred """ select col2 x, col2 y, col1 z from ${table} where col1 like 'text_1%' order by id limit ${limit}; """
             }
         }
     }

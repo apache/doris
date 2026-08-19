@@ -159,6 +159,8 @@ private:
 
     static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
 
+    friend class RowIdStorageReaderTest;
+
     static Status submit_external_scan_tasks(
             ScannerScheduler* scheduler, std::counting_semaphore<>& semaphore, size_t task_count,
             const std::function<std::string(size_t)>& make_task_id,
