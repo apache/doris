@@ -20,6 +20,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -41,6 +42,8 @@ class AtomicGauge;
 using UIntGauge = AtomicGauge<uint64_t>;
 class MetricEntity;
 struct MetricPrototype;
+class QueryContext;
+class ResourceContext;
 
 class SpillFileManager;
 class SpillDataDir {
@@ -61,6 +64,9 @@ public:
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
     bool reach_capacity_limit(int64_t incoming_data_size);
+
+    // Atomically check the capacity limit and reserve spill usage for an external writer.
+    bool try_reserve_spill_data(int64_t incoming_data_size);
 
     Status update_capacity();
 
@@ -113,6 +119,43 @@ private:
     IntGauge* spill_disk_has_spill_data = nullptr;
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
 };
+
+// Owns the Doris-side lifecycle and accounting for a directory written by an external spill
+// implementation. The external writer owns the physical files, while this session owns capacity
+// reservations and query/global spill metrics.
+class ExternalSpillDirectory {
+public:
+    ~ExternalSpillDirectory();
+
+    Status get_paths(std::vector<std::string>* paths);
+
+    Status reserve(const std::string& path, int64_t bytes);
+
+    void update_accounting(const std::string& path, int64_t current_bytes_delta,
+                           int64_t write_bytes, int64_t read_bytes);
+
+private:
+    friend class SpillFileManager;
+
+    struct ManagedPath {
+        SpillDataDir* data_dir;
+        std::string path;
+        int64_t accounted_bytes = 0;
+    };
+
+    ExternalSpillDirectory(SpillFileManager* manager, QueryContext* query_context,
+                           std::string relative_path);
+    ManagedPath* _find_managed_path(const std::string& path);
+
+    SpillFileManager* _manager;
+    QueryContext* _query_context;
+    std::shared_ptr<ResourceContext> _resource_context;
+    std::string _query_id;
+    std::string _relative_path;
+    std::optional<ManagedPath> _managed_path;
+    std::mutex _mutex;
+};
+
 class SpillFileManager {
 public:
     ~SpillFileManager();
@@ -127,6 +170,12 @@ public:
     // @param relative_path  Operator-formatted path under the spill root,
     //                       e.g. "query_id/sort-node_id-task_id-unique_id"
     Status create_spill_file(const std::string& relative_path, SpillFileSPtr& spill_file);
+
+    // Create a lazy managed session for an external spill implementation. A spill root is selected
+    // and registered only when the external implementation actually requests its path.
+    Status create_external_spill_directory(
+            const std::string& relative_path, QueryContext* query_context,
+            std::unique_ptr<ExternalSpillDirectory>* spill_directory);
 
     /// Get a unique ID for constructing spill file paths.
     uint64_t next_id() { return id_++; }
@@ -145,6 +194,8 @@ public:
     void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
 private:
+    friend class ExternalSpillDirectory;
+
     struct PendingQuerySpillDirectory {
         int failed_count {0};
         std::string query_dir;
@@ -155,7 +206,12 @@ private:
     void _spill_gc_thread_callback();
     Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
     void _retry_pending_query_spill_directories();
+    Status _initialize_external_spill_directory(ExternalSpillDirectory* spill_directory);
+    void _release_external_spill_directory(const ExternalSpillDirectory* spill_directory);
+    bool _has_external_spill_lease(const std::string& query_dir);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
+    std::vector<SpillDataDir*> _get_stores_for_spill();
+    SpillDataDir* _get_store_for_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
@@ -164,6 +220,9 @@ private:
 
     std::mutex _pending_query_spill_directories_mutex;
     std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
+
+    std::mutex _external_spill_leases_mutex;
+    std::unordered_map<std::string, size_t> _external_spill_leases;
 
     std::atomic_uint64_t id_ = 0;
 

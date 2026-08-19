@@ -35,6 +35,7 @@ class Schema;
 
 namespace doris {
 
+class ExternalSpillDirectory;
 class RuntimeState;
 
 extern const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE;
@@ -57,6 +58,7 @@ struct PaimonJniWriterOpenMode {
 /// common backend contract.
 class JniPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
+    JniPaimonWriteBackend();
     ~JniPaimonWriteBackend() override;
 
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
@@ -67,7 +69,6 @@ public:
 
 private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
-    Status _load_writer_class(JNIEnv* env, jclass* writer_class);
     void _refresh_memory_profile();
 
     // JNI global references — live for the duration of this backend.
@@ -82,6 +83,7 @@ private:
 
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     std::shared_ptr<arrow::Schema> _arrow_schema;
+    std::unique_ptr<ExternalSpillDirectory> _spill_directory;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
     bool _opened = false;
