@@ -66,7 +66,25 @@ public class RowLevelDmlRowIdUtils {
      * iceberg's.
      */
     public static String rowIdColumnName(ExternalTable table) {
-        return getRowIdColumn(table).getName();
+        List<Column> fullSchema = table.getFullSchema();
+        if (fullSchema != null) {
+            for (Column column : fullSchema) {
+                if (isRowIdColumnName(column.getName())) {
+                    return column.getName();
+                }
+            }
+        }
+        if (table instanceof PluginDrivenExternalTable) {
+            for (Column column : ((PluginDrivenExternalTable) table).getSyntheticWriteColumns()) {
+                if (isRowIdColumnName(column.getName())) {
+                    return column.getName();
+                }
+            }
+        }
+        // No declaration reachable (a partially-mocked table, or a connector that has not appended
+        // its synthetic columns yet): keep the historical iceberg default rather than failing the
+        // whole synthesis for a NAME the bind step would re-validate anyway.
+        return Column.ICEBERG_ROWID_COL;
     }
 
     /**
