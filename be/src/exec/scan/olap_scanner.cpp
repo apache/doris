@@ -467,19 +467,6 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
 
-    std::vector<bool> selected_return_columns(tablet_schema->num_columns(), false);
-    for (uint32_t cid : _tablet_reader_params.return_columns) {
-        DCHECK_LT(cid, selected_return_columns.size());
-        selected_return_columns[cid] = true;
-    }
-    auto add_return_column_if_absent = [&](uint32_t cid) {
-        DCHECK_LT(cid, selected_return_columns.size());
-        if (!selected_return_columns[cid]) {
-            _tablet_reader_params.return_columns.push_back(cid);
-            selected_return_columns[cid] = true;
-        }
-    };
-
     // MIN_DELTA / DETAIL row-binlog scans reconstruct change rows in BlockReader through a
     // key-ordered merge. They must read every key column, every requested value column, the
     // binlog meta columns (tso / op) and their __BEFORE__ mirrors. APPEND_ONLY streams rows
@@ -489,6 +476,19 @@ Status OlapScanner::_init_tablet_reader_params(
     const bool is_binlog_merge_scan =
             is_min_delta_scan || _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
     if (is_binlog_merge_scan) {
+        std::vector<bool> selected_return_columns(tablet_schema->num_columns(), false);
+        for (uint32_t cid : _tablet_reader_params.return_columns) {
+            DCHECK_LT(cid, selected_return_columns.size());
+            selected_return_columns[cid] = true;
+        }
+        auto add_return_column_if_absent = [&](uint32_t cid) {
+            DCHECK_LT(cid, selected_return_columns.size());
+            if (!selected_return_columns[cid]) {
+                _tablet_reader_params.return_columns.push_back(cid);
+                selected_return_columns[cid] = true;
+            }
+        };
+
         std::vector<binlog::RowBinlogValueColumnPair> value_column_pairs;
         const bool has_value_column_pairs =
                 binlog::get_row_binlog_value_column_pairs(*tablet_schema, &value_column_pairs);
