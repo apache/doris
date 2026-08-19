@@ -450,7 +450,9 @@ _thirdparty_change_affects_artifacts() {
     local af="$1"
     if [[ "${af}" == 'thirdparty/test/'* ]] ||
         [[ "${af}" == 'thirdparty/CHANGELOG.md' ]] ||
-        [[ "${af}" == 'thirdparty/LICENSE.txt' ]]; then
+        [[ "${af}" == 'thirdparty/LICENSE.txt' ]] ||
+        [[ "${af}" == 'thirdparty/arrow-paimon-vars.sh' ]] ||
+        [[ "${af}" == 'thirdparty/build-thirdparty.sh' ]]; then
         return 1
     fi
     return 0
