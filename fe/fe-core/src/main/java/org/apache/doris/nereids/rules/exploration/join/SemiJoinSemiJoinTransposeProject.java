@@ -77,8 +77,12 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 // evaluated on fewer rows and its required error could be suppressed - the
                 // very behavior the retained mark form preserves - so the transpose must be
                 // rejected in that case
-                .whenNot(this::isBottomSemiSensitive)
-                // the transpose swaps the bottom semi join to the top, so the mark slot
+                .whenNot(this::isBottomSemiSensitive)                // the transpose installs the old top semi join as the new BOTTOM semi join
+                // (over A x C), evaluated BEFORE the new top semi join prunes with B: a
+                // NoneMovableFunction (assert_true) or volatile expression owned by the old top
+                // semi join would then run on rows the original semi join removed, turning a
+                // successful query into an error, so the transpose must also be rejected then
+                .whenNot(this::isTopSemiSensitive)                // the transpose swaps the bottom semi join to the top, so the mark slot
                 // produced by the bottom mark join would be produced by the new top semi
                 // join. if the top semi join references the mark slot in its conjuncts,
                 // those conjuncts would be moved to the new bottom semi join whose children
@@ -149,6 +153,19 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
         return bottomSemi.getExpressions().stream()
                 .anyMatch(expr -> expr.containsNoneMovableOrVolatile())
                 || JoinUtils.groupContainsSensitiveExpression(bottomSemi.right());
+    }
+
+    /**
+     * whether the old top semi join's own conjuncts contain a NoneMovableFunction (assert_true)
+     * or a volatile expression. the transpose installs the old top semi join as the new BOTTOM
+     * semi join (over A x C), evaluated BEFORE the new top semi join prunes with B: a sensitive
+     * expression there would then run on rows the original semi join removed, turning a
+     * successful query into an error. the transpose must be rejected.
+     */
+    private boolean isTopSemiSensitive(
+            LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi) {
+        return topSemi.getExpressions().stream()
+                .anyMatch(expr -> expr.containsNoneMovableOrVolatile());
     }
 
     /**

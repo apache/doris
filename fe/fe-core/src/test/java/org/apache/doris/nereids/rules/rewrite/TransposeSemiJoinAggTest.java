@@ -18,7 +18,14 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -55,6 +62,42 @@ class TransposeSemiJoinAggTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .agg(ImmutableList.of(), ImmutableList.of((new Sum(scan1.getOutput().get(0))).alias("sum")))
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new TransposeSemiJoinAgg())
+                .matchesFromRoot(leftSemiLogicalJoin(logicalAggregate(), logicalOlapScan()));
+    }
+
+    @Test
+    void rejectSensitiveAggregateExpression() {
+        // count(assert_true(v > 0, 'bad')): the transpose would aggregate on rows the semi join
+        // removes, turning returned rows into errors. the rule must not fire.
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .agg(ImmutableList.of(scan1.getOutput().get(0)),
+                        ImmutableList.of(
+                                scan1.getOutput().get(0),
+                                new Alias(new Count(new AssertTrue(
+                                        new GreaterThan(scan1.getOutput().get(1), Literal.of(0)),
+                                        new StringLiteral("msg"))), "cnt")
+                        ))
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new TransposeSemiJoinAgg())
+                .matchesFromRoot(leftSemiLogicalJoin(logicalAggregate(), logicalOlapScan()));
+    }
+
+    @Test
+    void rejectSensitiveJoinConjunct() {
+        // a NoneMovableFunction join conjunct would change from per-input-row to per-group
+        // evaluation; the rule must not fire.
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggAllUsingIndex(ImmutableList.of(0, 1), ImmutableList.of(0, 1))
+                .join(scan2, JoinType.LEFT_SEMI_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        ImmutableList.of(new AssertTrue(
+                                new GreaterThan(scan1.getOutput().get(0), Literal.of(0)),
+                                new StringLiteral("msg"))))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new TransposeSemiJoinAgg())

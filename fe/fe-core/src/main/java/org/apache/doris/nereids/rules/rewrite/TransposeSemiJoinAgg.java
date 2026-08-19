@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -51,6 +52,15 @@ public class TransposeSemiJoinAgg extends OneRewriteRuleFactory {
      */
     public static boolean canTranspose(LogicalAggregate<? extends Plan> aggregate,
             LogicalJoin<? extends Plan, ? extends Plan> join) {
+        // the transpose evaluates the aggregate (and its arguments) on rows the semi join would
+        // otherwise prune, and changes a volatile join conjunct from per-input-row to
+        // per-aggregate-group evaluation. a NoneMovableFunction (e.g. assert_true) or volatile
+        // expression in either would change error behavior or results, so the transpose must be
+        // rejected.
+        if (aggregate.getExpressions().stream().anyMatch(Expression::containsNoneMovableOrVolatile)
+                || join.getExpressions().stream().anyMatch(Expression::containsNoneMovableOrVolatile)) {
+            return false;
+        }
         Set<Slot> canPushDownSlots = PushDownFilterThroughAggregation.getCanPushDownSlots(aggregate);
         // avoid push down scalar agg.
         if (canPushDownSlots.isEmpty()) {

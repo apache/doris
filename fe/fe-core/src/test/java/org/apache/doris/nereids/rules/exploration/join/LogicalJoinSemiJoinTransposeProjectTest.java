@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -150,6 +151,109 @@ class LogicalJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSupport
         Expression assertTrueExpr = new AssertTrue(
                 new GreaterThan(scan2.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg"));
         LogicalPlan sensitiveRhs = new LogicalFilter<>(ImmutableSet.of(assertTrueExpr), scan2);
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(sensitiveRhs, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .project(ImmutableList.of(0, 1))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t3.id
+                .projectAll()
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                // the transposed shape semi(inner(t1, t3), t2) must not appear
+                .nonMatch(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(group())
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testRejectedWhenTopJoinConjunctSensitive() {
+        /*
+         * the transpose must be rejected when the OLD TOP join owns a NoneMovableFunction
+         * (assert_true) conjunct: the transpose installs the old top join as the new bottom join
+         * (over t1 x t3), evaluated before the new top semi join prunes with t2, so the
+         * assertion would run on rows the original semi join removed (B removes the failing A
+         * row first). the plan keeps the original order.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .project(ImmutableList.of(0, 1))
+                .join(scan3, JoinType.INNER_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0))),
+                        ImmutableList.of(assertTrueExpr))
+                .projectAll()
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                // the transposed shape semi(inner(t1, t3), t2) must not appear
+                .nonMatch(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(group())
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testRejectedWhenTopJoinConjunctSensitiveRight() {
+        /*
+         * right-hand construction: the transpose must be rejected when the OLD TOP join owns a
+         * NoneMovableFunction (assert_true) conjunct (same reversal as the left variant).
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan bottomSemi = new LogicalPlanBuilder(scan2)
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t2.id = t3.id
+                .project(ImmutableList.of(0, 1))
+                .build();
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(bottomSemi, JoinType.INNER_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        ImmutableList.of(assertTrueExpr))
+                .projectAll()
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                // the transposed shape semi(inner(t1, t2), t3) must not appear
+                .nonMatch(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                                        )),
+                                        logicalProject(group())
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testRejectedWhenBottomSemiRhsSensitiveHiddenByProject() {
+        /*
+         * the transpose must be rejected when the bottom semi join's right subtree contains a
+         * NoneMovableFunction (assert_true) hidden behind a column-pruned project: in the memo
+         * the project group's child is a GroupPlan wrapping the sensitive filter group, so the
+         * fence must descend into child groups to find it.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan2.getOutput().get(1), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan sensitiveRhs = new LogicalProject<>(ImmutableList.of(scan2.getOutput().get(0)),
+                new LogicalFilter<>(ImmutableSet.of(assertTrueExpr), scan2));
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(sensitiveRhs, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .project(ImmutableList.of(0, 1))

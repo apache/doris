@@ -22,12 +22,16 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -162,6 +166,42 @@ public class PushProjectThroughUnionTest {
                 new Alias(new ExprId(102), new Cast(secondOutput, BigIntType.INSTANCE), "b"),
                 new Alias(new ExprId(103), new Cast(firstOutput, BigIntType.INSTANCE), "a"));
         Assertions.assertTrue(PushProjectThroughUnion.canPushProject(permutationProjects, unionDistinct));
+    }
+
+    @Test
+    public void testDoNotPushProjectThroughUnionWithNoneMovableConst() {
+        // a constant UNION row holding a NoneMovableFunction (assert_true) must not be pushed
+        // through the union: substitution would copy it into every constant row (and regular
+        // child), and folding can eliminate it, suppressing a required error. the rule must not
+        // fire.
+        SlotReference s = new SlotReference(new ExprId(10), "s",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference x = new SlotReference(new ExprId(11), "x",
+                BooleanType.INSTANCE, true, ImmutableList.of());
+        NamedExpression rowS = new Alias(new ExprId(1), new IntegerLiteral(1), "1");
+        NamedExpression rowX = new Alias(new ExprId(2), new AssertTrue(
+                BooleanLiteral.of(false), new StringLiteral("bad")), "x");
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(s, x),
+                ImmutableList.of(),
+                ImmutableList.of(ImmutableList.of(rowS, rowX)),
+                false,
+                ImmutableList.of());
+        // parent project references both union outputs (s and x)
+        LogicalProject<LogicalUnion> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(
+                        new Alias(new ExprId(100), s, "y"),
+                        new Alias(new ExprId(101), x, "z")),
+                union);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushProjectThroughUnion())
+                .getPlan();
+
+        // the rule must not fire: the project stays above the union.
+        Assertions.assertTrue(rewritten instanceof LogicalProject, rewritten.treeString());
+        Assertions.assertTrue(((LogicalProject<?>) rewritten).child() instanceof LogicalUnion,
+                rewritten.treeString());
     }
 
     private LogicalUnion findUnion(Plan p) {

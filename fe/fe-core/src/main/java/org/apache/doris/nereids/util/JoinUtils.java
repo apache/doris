@@ -26,6 +26,9 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
@@ -501,23 +504,41 @@ public class JoinUtils {
     }
 
     /**
-     * whether any logical expression of the group contains a NoneMovableFunction (e.g.
-     * assert_true) or a volatile expression.
+     * whether any logical expression of the group (walking child groups recursively) contains
+     * a NoneMovableFunction (e.g. assert_true) or a volatile expression.
      */
     public static boolean groupContainsSensitiveExpression(GroupPlan groupPlan) {
-        return groupPlan.getGroup().getLogicalExpressions().stream()
-                .anyMatch(groupExpression -> planContainsSensitiveExpression(groupExpression.getPlan()));
+        return groupContainsSensitiveExpression(groupPlan, new HashSet<>());
     }
 
-    private static boolean planContainsSensitiveExpression(Plan plan) {
+    private static boolean groupContainsSensitiveExpression(GroupPlan groupPlan, Set<GroupId> visitedGroups) {
+        Group group = groupPlan.getGroup();
+        if (!visitedGroups.add(group.getGroupId())) {
+            return false;
+        }
+        for (GroupExpression groupExpression : group.getLogicalExpressions()) {
+            if (planContainsSensitiveExpression(groupExpression.getPlan(), visitedGroups)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean planContainsSensitiveExpression(Plan plan, Set<GroupId> visitedGroups) {
         if (plan.getExpressions().stream().anyMatch(Expression::containsNoneMovableOrVolatile)) {
             return true;
         }
         for (Plan child : plan.children()) {
-            // do not expand nested GroupPlans: the sensitive expression sits in the subquery
-            // plan's filter/project node one level up in this tree, and walking into the memo
-            // DAG could revisit groups and cycle
-            if (!(child instanceof GroupPlan) && planContainsSensitiveExpression(child)) {
+            if (child instanceof GroupPlan) {
+                // Memo.init replaces ordinary children with GroupPlans: a column-pruned child
+                // like Project(B.x) -> Filter(assert_true(B.y > 0)) becomes a harmless Project
+                // group expression whose child is GroupPlan(filterGroup). descend into the
+                // child group to find the sensitive expression, guarding against memo DAG
+                // cycles with a visited group-id set.
+                if (groupContainsSensitiveExpression((GroupPlan) child, visitedGroups)) {
+                    return true;
+                }
+            } else if (planContainsSensitiveExpression(child, visitedGroups)) {
                 return true;
             }
         }
