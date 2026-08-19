@@ -17,22 +17,22 @@
 
 #pragma once
 
-#include "format/arrow/arrow_block_convertor.h"
+#include <memory>
+
+#include "common/status.h"
+
+namespace arrow {
+class Schema;
+}
 
 namespace doris {
 
-class PaimonArrowWriteConverter final : public ArrowWriteConverter {
-public:
-    Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
-                        const IColumn& column, const NullMap* null_map,
-                        const std::shared_ptr<arrow::Field>& field,
-                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                        const cctz::time_zone& ctz) const override;
-};
+class Block;
 
-const PaimonArrowWriteConverter& paimon_arrow_write_converter();
+namespace paimon {
 
 Status get_paimon_arrow_schema_from_block(const Block& block,
                                           std::shared_ptr<arrow::Schema>* result);
 
+} // namespace paimon
 } // namespace doris

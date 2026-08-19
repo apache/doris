@@ -15,11 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/paimon_arrow_write_converter.h"
+#include "format/table/paimon/paimon_arrow_schema.h"
 
 #include <arrow/type.h>
 
+#include <string>
+#include <vector>
+
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -28,7 +32,7 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
 
-namespace doris {
+namespace doris::paimon {
 #include "common/compile_check_begin.h"
 namespace {
 
@@ -80,22 +84,6 @@ Status convert_to_paimon_arrow_type(const DataTypePtr& origin_type,
 
 } // namespace
 
-Status PaimonArrowWriteConverter::write_column(const std::shared_ptr<const IDataType>& type,
-                                               const DataTypeSerDe& serde, const IColumn& column,
-                                               const NullMap* null_map,
-                                               const std::shared_ptr<arrow::Field>& field,
-                                               arrow::ArrayBuilder* array_builder, int64_t start,
-                                               int64_t end, const cctz::time_zone& ctz) const {
-    return serde.write_column_to_paimon(type, column, null_map,
-                                        field->WithType(array_builder->type()), array_builder,
-                                        start, end, ctz);
-}
-
-const PaimonArrowWriteConverter& paimon_arrow_write_converter() {
-    static const PaimonArrowWriteConverter converter;
-    return converter;
-}
-
 Status get_paimon_arrow_schema_from_block(const Block& block,
                                           std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
@@ -112,4 +100,4 @@ Status get_paimon_arrow_schema_from_block(const Block& block,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::paimon
