@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -253,7 +254,11 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             return false;
         }
         DatabaseIf<?> database = catalog.getDbNullable(qualifiedName.get(1));
-        return database != null && database.isTableExist(qualifiedName.get(2));
+        String tableName = qualifiedName.get(2);
+        if (createTableInfo.isTemp()) {
+            tableName = Util.generateTempTableInnerName(tableName);
+        }
+        return database != null && database.isTableExist(tableName);
     }
 
     private String getAutoRangePartitionNameOrNull() {

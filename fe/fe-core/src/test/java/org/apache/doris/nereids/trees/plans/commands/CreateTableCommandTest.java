@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -34,6 +39,41 @@ import java.util.List;
 import java.util.Optional;
 
 class CreateTableCommandTest {
+
+    @Test
+    void temporaryCtasChecksSessionScopedTableName() {
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        List<String> tableNameParts = ImmutableList.of("catalog", "database", "target");
+        List<String> qualifiedName = ImmutableList.of("catalog", "database", "target");
+        String innerTableName = "session-id_#TEMP#_target";
+
+        Mockito.when(createTableInfo.getTableNameParts()).thenReturn(tableNameParts);
+        Mockito.when(createTableInfo.isTemp()).thenReturn(true);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog("catalog")).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("database")).thenReturn(database);
+        Mockito.when(database.isTableExist(innerTableName)).thenReturn(false);
+        CreateTableCommand command = new CreateTableCommand(Optional.empty(), createTableInfo);
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<RelationUtil> relationMock = Mockito.mockStatic(RelationUtil.class);
+                MockedStatic<Util> utilMock = Mockito.mockStatic(Util.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            relationMock.when(() -> RelationUtil.getQualifierName(context, tableNameParts))
+                    .thenReturn(qualifiedName);
+            utilMock.when(() -> Util.generateTempTableInnerName("target")).thenReturn(innerTableName);
+
+            org.junit.jupiter.api.Assertions.assertFalse(command.targetTableExists(context));
+
+            Mockito.verify(database).isTableExist(innerTableName);
+            Mockito.verify(database, Mockito.never()).isTableExist("target");
+        }
+    }
 
     @Test
     void ctasIfNotExistsReturnsBeforeUnsupportedSinkValidation() throws Exception {
