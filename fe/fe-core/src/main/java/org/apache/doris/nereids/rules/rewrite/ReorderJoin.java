@@ -22,6 +22,7 @@ import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.joinorder.JoinReorderGreedy;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.DistributeType;
@@ -119,7 +120,17 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 MultiJoin multiJoin = (MultiJoin) plan;
                 ctx.statementContext.addJoinFilters(multiJoin.getJoinFilter());
                 ctx.statementContext.setMaxNAryInnerJoin(multiJoin.children().size());
-                Plan after = multiJoinToJoin(multiJoin, planToHintType);
+
+                Plan after;
+                JoinReorderGreedy reorderGreedy = new JoinReorderGreedy();
+                if (multiJoin.getJoinType().isInnerOrCrossJoin()) {
+                    reorderGreedy.reorder(multiJoin.children(), multiJoin.getJoinFilter());
+                    List<Plan> results = reorderGreedy.getResult();
+                    after = results.get(0);
+                } else {
+                    after = multiJoinToJoin(multiJoin, planToHintType);
+                }
+
                 if (after != null && !after.equals(nonUniqueExprFilter)) {
                     return PlanUtils.filterOrSelf(uniqueExprConjuncts, after);
                 } else {
