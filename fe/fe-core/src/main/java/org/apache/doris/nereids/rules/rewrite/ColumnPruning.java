@@ -410,7 +410,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         List<Integer> extractColumnIndex = Lists.newArrayList();
         for (int i = 0; i < originOutput.size(); i++) {
             NamedExpression output = originOutput.get(i);
-            if (context.requiredSlotsIds.contains(output.getExprId().asInt())) {
+            if (context.requiredSlotsIds.contains(output.getExprId().asInt())
+                    || isSensitiveConstantColumn(i, constantExprsList)) {
                 prunedOutputs.add(output);
                 extractColumnIndex.add(i);
             }
@@ -468,6 +469,21 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return union.withNewOutputsChildrenAndConstExprsList(prunedOutputs, children,
                     prunedRegularChildrenOutputs, prunedConstantExprsList.build());
         }
+    }
+
+    /**
+     * whether any constant row of the given column holds a NoneMovableFunction (e.g.
+     * assert_true) or a volatile expression. such columns must survive UNION output pruning:
+     * the original UNION materializes the constant cell (and e.g. errors on assert_true), so
+     * pruning it away would suppress a required error.
+     */
+    private boolean isSensitiveConstantColumn(int columnIndex, List<List<NamedExpression>> constantExprsList) {
+        for (List<NamedExpression> row : constantExprsList) {
+            if (row.get(columnIndex).containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private <P extends Plan> P pruneChildren(P plan, RoaringBitmap parentRequiredSlotIds) {

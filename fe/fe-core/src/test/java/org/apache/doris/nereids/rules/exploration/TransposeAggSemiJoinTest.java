@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -101,6 +102,32 @@ class TransposeAggSemiJoinTest implements MemoPatternMatchSupported {
                         ImmutableList.of(
                                 scan1.getOutput().get(0),
                                 new Alias(new Sum(scan1.getOutput().get(1)), "sum")
+                        )
+                )
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(TransposeAggSemiJoinProject.INSTANCE.build())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
+    }
+
+    @Test
+    void testTransposeAggSemiJoinProjectRejectedWhenAggregateContainsNoneMovableFunction() {
+        /*
+         * agg(project(count(assert_true(v > 0, 'bad')))(t1 LEFT SEMI JOIN t2)): NormalizeAggregate
+         * leaves the assertion inside the aggregate argument while pushing only its input slots
+         * into the project, so a project-only fence passes. the transpose would aggregate on rows
+         * the semi join removes, turning returned rows into errors. the transpose must be
+         * rejected.
+         */
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .projectExprs(ImmutableList.of(scan1.getOutput().get(0), scan1.getOutput().get(1)))
+                .aggGroupUsingIndex(ImmutableList.of(0),
+                        ImmutableList.of(
+                                scan1.getOutput().get(0),
+                                new Alias(new Count(new AssertTrue(
+                                        new GreaterThan(scan1.getOutput().get(1), Literal.of(0)),
+                                        new StringLiteral("msg"))), "cnt")
                         )
                 )
                 .build();

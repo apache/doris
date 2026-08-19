@@ -57,7 +57,14 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                         // or volatile expression there would be evaluated on fewer rows and
                         // its required error could be suppressed, so the transpose must be
                         // rejected in that case
-                        .whenNot(topJoin -> isBottomSemiSensitive(topJoin.left().child())))
+                        .whenNot(topJoin -> isBottomSemiSensitive(topJoin.left().child()))
+                        // the transpose installs the old top join as the new BOTTOM join (over
+                        // A x C), evaluated BEFORE the new top semi join prunes with B: a
+                        // NoneMovableFunction (assert_true) or volatile expression owned by the
+                        // old top join would then run on rows the original semi join removed,
+                        // turning a successful query into an error, so the transpose must also
+                        // be rejected then
+                        .whenNot(topJoin -> isTopJoinSensitive(topJoin)))
                         .then(topProject -> {
                             LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
                                     = topProject.child();
@@ -96,7 +103,11 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                         // join's conjuncts or its RIGHT subtree contain a NoneMovableFunction
                         // (assert_true) or a volatile expression, which the transpose would
                         // move above the row-pruning new bottom join
-                        .whenNot(topJoin -> isBottomSemiSensitive(topJoin.right().child())))
+                        .whenNot(topJoin -> isBottomSemiSensitive(topJoin.right().child()))
+                        // same as the left variant: reject the transpose when the old top join
+                        // (which becomes the new BOTTOM join over A x B) owns a
+                        // NoneMovableFunction (assert_true) or volatile expression
+                        .whenNot(topJoin -> isTopJoinSensitive(topJoin)))
                         .then(topProject -> {
                             LogicalJoin<GroupPlan, LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin
                                     = topProject.child();
@@ -137,5 +148,17 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
         return bottomSemi.getExpressions().stream()
                 .anyMatch(expr -> expr.containsNoneMovableOrVolatile())
                 || JoinUtils.groupContainsSensitiveExpression(bottomSemi.right());
+    }
+
+    /**
+     * whether the old top join's own conjuncts contain a NoneMovableFunction (assert_true) or a
+     * volatile expression. the transpose installs the old top join as the new BOTTOM join (over
+     * A x C), evaluated BEFORE the new top semi join prunes with B: a sensitive expression there
+     * would then run on rows the original semi join removed, turning a successful query into an
+     * error. the transpose must be rejected.
+     */
+    private static boolean isTopJoinSensitive(LogicalJoin<?, ?> topJoin) {
+        return topJoin.getExpressions().stream()
+                .anyMatch(expr -> expr.containsNoneMovableOrVolatile());
     }
 }
