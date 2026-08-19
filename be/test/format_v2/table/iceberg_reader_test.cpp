@@ -1203,14 +1203,14 @@ TIcebergDeleteFileDesc make_iceberg_position_delete_file(const std::string& path
 
 TIcebergDeleteFileDesc make_iceberg_equality_delete_file(
         const std::string& path, const std::vector<int32_t>& field_ids,
-        TFileFormatType::type file_format = TFileFormatType::FORMAT_PARQUET) {
+        TFileFormatType::type file_format = TFileFormatType::FORMAT_PARQUET,
+        int64_t file_size = -1) {
     TIcebergDeleteFileDesc delete_file;
     delete_file.__set_content(2);
     delete_file.__set_path(path);
     delete_file.__set_field_ids(field_ids);
     delete_file.__set_file_format(file_format);
-    // Set file_size to actual file size, simulating FE propagation from iceberg manifest
-    delete_file.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(path)));
+    delete_file.__set_file_size(file_size);
     return delete_file;
 }
 
@@ -5062,7 +5062,9 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
     auto split_options = build_split_options(file_path);
     split_options.cache = &cache;
     split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
-            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0},
+                                                            TFileFormatType::FORMAT_PARQUET,
+                                                            delete_file_size)}));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     Block block = build_table_block(projected_columns);

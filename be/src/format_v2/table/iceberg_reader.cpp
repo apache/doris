@@ -1165,7 +1165,7 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     desc->path = deletion_vector->path;
     desc->start_offset = deletion_vector->content_offset;
     desc->size = static_cast<int64_t>(bytes_read);
-    desc->file_size = deletion_vector->file_size;
+    desc->file_size = deletion_vector->__isset.file_size ? deletion_vector->file_size : -1;
     desc->format = DeleteFileDesc::Format::ICEBERG;
     *has_delete_file = true;
     return Status::OK();
@@ -1521,7 +1521,9 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
                                     delete_file.file_format);
     }
-    auto delete_range = build_iceberg_delete_file_range(delete_file.path, delete_file.file_size);
+    auto delete_range = build_iceberg_delete_file_range(
+            delete_file.path,
+            delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (_current_task != nullptr && _current_task->data_file != nullptr &&
         !_current_task->data_file->fs_name.empty()) {
         delete_range.__set_fs_name(_current_task->data_file->fs_name);

@@ -40,6 +40,7 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
+#include "util/bvar_helper.h"
 #include "util/obj_lru_cache.h"
 #include "util/slice.h"
 
@@ -117,7 +118,11 @@ Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* read
 Status HdfsFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(dir, _fs_name);
-    int res = hdfsCreateDirectory(_fs_handler->hdfs_fs, real_path.string().c_str());
+    int res;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_create_dir_latency);
+        res = hdfsCreateDirectory(_fs_handler->hdfs_fs, real_path.string().c_str());
+    }
     if (res == -1) {
         return Status::IOError("failed to create directory {}: {}", dir.native(), hdfs_error());
     }
