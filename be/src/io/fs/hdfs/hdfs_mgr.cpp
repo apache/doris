@@ -127,11 +127,6 @@ void HdfsMgr::_cleanup_loop() {
 
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
-    // libhdfs would otherwise create a JVM of its own the first time it connects, one
-    // configured by hadoop rather than by the BE. Getting in first is also what turns
-    // "java support is off" into a readable error here. ensure_jvm() switches to a pthread
-    // itself, so it is safe to call from a bthread, unlike the connection below.
-    RETURN_IF_ERROR(Jni::JvmLauncher::ensure_jvm());
     uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
 
     // First check without lock
@@ -183,6 +178,18 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
 
 Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
                                      std::shared_ptr<HdfsHandler>* fs_handler) {
+    // Right next to the connect, because the connect is the thing it guards: hdfsBuilderConnect()
+    // below is the one libhdfs entry point of the BE that creates a JVM when it finds none, and
+    // the one it creates is configured by hadoop out of CLASSPATH and LIBHDFS_OPTS rather than by
+    // us. Getting in first is also what turns "java support is off" into a readable error, on the
+    // path that needs Java - a handler already in the cache needed it once and does not again.
+    //
+    // Here rather than at the top of get_or_create_fs(): that is above the seam hdfs_mgr_test.cpp
+    // mocks (this method), so a JVM would come up inside doris_be_test, where an ASAN-instrumented
+    // process cannot survive its own exit with one running.
+    //
+    // No thread switch needed: _create_hdfs_fs() has put us on a pthread already.
+    RETURN_IF_ERROR(Jni::JvmLauncher::ensure_jvm());
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
     // release(), not get(): hdfsBuilderConnect() frees the builder it is handed, so this is
