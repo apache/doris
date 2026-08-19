@@ -373,7 +373,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_paimon(
     const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
                                                 : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
                                                                         : arrow::TimeUnit::SECOND;
-    if (timestamp.unit() != expected_unit || !timestamp.timezone().empty()) {
+    if (timestamp.unit() != expected_unit) {
         return Status::InvalidArgument(
                 "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
                 type->get_name(), field->ToString());
