@@ -187,6 +187,7 @@ public class BaseController {
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
         authInfo.password = sessionValue.password;
+        authInfo.userIdentity = sessionValue.currentUser;
         return authInfo;
     }
 
