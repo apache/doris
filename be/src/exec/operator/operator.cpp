@@ -190,10 +190,6 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
     std::string node_name = print_plan_node_type(tnode.node_type);
     _nereids_id = tnode.nereids_id;
-    if (tnode.__isset.projections != tnode.__isset.output_tuple_id) {
-        return Status::InternalError(
-                "projections and output tuple id should be set at the same time");
-    }
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
         if (!has_projection()) {
             return Status::InternalError("no final output tuple id");
