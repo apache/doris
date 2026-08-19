@@ -47,6 +47,9 @@ import { useWebSqlSession } from './playground/useWebSqlSession';
 
 const INITIAL_SQL = `SELECT COUNT(*) AS row_count
 FROM tpcds.store_sales;`;
+
+const QUERY_TABLE_LIMITS = [10, 50, 100, 500, 1000, 5000];
+const DEFAULT_QUERY_TABLE_LIMIT = 100;
 interface QueryResultTab {
   key: string;
   label: string;
@@ -229,6 +232,7 @@ export function PlaygroundPage() {
   const [catalog, setCatalog] = useState<string>();
   const [database, setDatabase] = useState<string>();
   const [table, setTable] = useState<string>();
+  const [queryTableLimit, setQueryTableLimit] = useState(DEFAULT_QUERY_TABLE_LIMIT);
   const [metadataRequestCount, setMetadataRequestCount] = useState(0);
   const [metadataError, setMetadataError] = useState<string>();
   const [metadataWidth, setMetadataWidth] = useState(320);
@@ -551,7 +555,7 @@ export function PlaygroundPage() {
 
   const insertTableQuery = () => {
     if (!catalog || !database || !table) return;
-    const template = `SELECT * FROM ${qualifiedName(catalog, database, table)} LIMIT 100;`;
+    const template = `SELECT * FROM ${qualifiedName(catalog, database, table)} LIMIT ${queryTableLimit};`;
     schemaInsertionRef.current = null;
     const view = editorRef.current;
     if (!view) {
@@ -678,7 +682,7 @@ export function PlaygroundPage() {
         style={{ gridTemplateColumns: `${metadataWidth}px 8px minmax(0, 1fr)` }}
       >
         <aside className="metadata-browser" aria-label="Metadata browser">
-          <div className="panel-title"><div><p className="ui-label">Object explorer</p><h2>Metadata</h2></div>{metadataLoading && <Spin size="small" />}</div>
+          <div className="panel-title"><h2>Metadata</h2>{metadataLoading && <Spin size="small" />}</div>
           {metadataError && <Alert type="error" showIcon title="Metadata unavailable" description={metadataError} />}
           <label>Catalog<Select aria-label="Catalog" value={catalog} loading={metadataLoading && catalogs.length === 0} options={catalogs.map((item) => ({ value: item.name, label: `${item.name} | ${item.type}` }))} onChange={setCatalog} placeholder="Select catalog" /></label>
           <div className="metadata-search">
@@ -747,9 +751,9 @@ export function PlaygroundPage() {
                 <strong tabIndex={0}>{session.status}</strong>
               </Tooltip>
             </div>
-            <Button onClick={formatEditor} disabled={running}>Format</Button>
-            <Button danger onClick={() => void cancel()} disabled={!running}>Cancel</Button>
-            <Button type="primary" onClick={() => void run()} loading={running} disabled={running || session.status !== 'ready'}>Run</Button>
+            <Button size="small" onClick={formatEditor} disabled={running}>Format</Button>
+            <Button size="small" danger onClick={() => void cancel()} disabled={!running}>Cancel</Button>
+            <Button size="small" type="primary" onClick={() => void run()} loading={running} disabled={running || session.status !== 'ready'}>Run</Button>
           </div>
           <CodeMirror
             aria-label="SQL editor"
@@ -767,8 +771,9 @@ export function PlaygroundPage() {
             basicSetup={{ foldGutter: true, highlightActiveLine: true, highlightSelectionMatches: true }}
           />
           <div className="session-toolbar">
-            <Button onClick={() => void reset()} loading={resetting} disabled={running || session.status !== 'ready'}>Reset connection</Button>
-            <Button danger onClick={() => void close()} loading={closing} disabled={running || session.status !== 'ready'}>Close session</Button>
+            <Select aria-label="Row limit for the generated query" title="Row limit used by Query table" size="small" className="query-limit-select" value={queryTableLimit} onChange={setQueryTableLimit} options={QUERY_TABLE_LIMITS.map((limit) => ({ value: limit, label: `LIMIT ${limit}` }))} />
+            <Button size="small" onClick={() => void reset()} loading={resetting} disabled={running || session.status !== 'ready'}>Reset connection</Button>
+            <Button size="small" danger onClick={() => void close()} loading={closing} disabled={running || session.status !== 'ready'}>Close session</Button>
           </div>
           <div
             className="workbench-splitter"
