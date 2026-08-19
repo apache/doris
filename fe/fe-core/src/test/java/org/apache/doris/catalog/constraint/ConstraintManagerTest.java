@@ -19,11 +19,16 @@ package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Version;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -40,6 +45,7 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -117,6 +123,77 @@ class ConstraintManagerTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> mgr.addConstraintWithResolvedTables(T1, "pk", pk, resolvedTable, null));
         Assertions.assertNull(mgr.getConstraint(T1, "pk"));
+    }
+
+    @Test
+    void addDistributionMappingAllowsUniformFrontendVersions() {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Frontend frontend = Mockito.mock(Frontend.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Column determinantColumn = Mockito.mock(Column.class);
+        Column distributionColumn = Mockito.mock(Column.class);
+        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+
+        Mockito.when(env.getFrontends(null)).thenReturn(List.of(frontend));
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(frontend.getVersion()).thenReturn(currentVersion);
+        Mockito.when(table.getColumn("d1")).thenReturn(determinantColumn);
+        Mockito.when(table.getColumn("k1")).thenReturn(distributionColumn);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distributionColumn));
+        Mockito.when(distributionColumn.getName()).thenReturn("k1");
+        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mgr.addConstraintWithResolvedTables(T1, mapping.getName(), mapping, table, null);
+        }
+
+        Assertions.assertSame(mapping, mgr.getConstraint(T1, mapping.getName()));
+        Mockito.verify(env).getEditLog();
+    }
+
+    @Test
+    void addDistributionMappingRejectsMixedOrUnknownFrontendVersions() {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        Env env = Mockito.mock(Env.class);
+        Frontend currentFrontend = Mockito.mock(Frontend.class);
+        Frontend oldFrontend = Mockito.mock(Frontend.class);
+        Frontend unknownFrontend = Mockito.mock(Frontend.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+
+        Mockito.when(env.getFrontends(null))
+                .thenReturn(List.of(currentFrontend, oldFrontend, unknownFrontend));
+        Mockito.when(currentFrontend.getVersion()).thenReturn(currentVersion);
+        Mockito.when(oldFrontend.getNodeName()).thenReturn("old-fe");
+        Mockito.when(oldFrontend.getVersion()).thenReturn("old-version");
+        Mockito.when(unknownFrontend.getNodeName()).thenReturn("unknown-fe");
+
+        AnalysisException exception;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> mgr.addConstraintWithResolvedTables(
+                            T1, mapping.getName(), mapping, table, null));
+        }
+
+        Assertions.assertTrue(exception.getMessage().contains("old-fe(old-version)"));
+        Assertions.assertTrue(exception.getMessage().contains("unknown-fe(null)"));
+        Assertions.assertNull(mgr.getConstraint(T1, mapping.getName()));
+        Mockito.verify(env, Mockito.never()).getEditLog();
+        Mockito.verify(currentFrontend).getVersion();
+        Mockito.verify(oldFrontend).getVersion();
+        Mockito.verify(unknownFrontend).getVersion();
+        Mockito.verify(oldFrontend, Mockito.never()).isAlive();
+        Mockito.verify(unknownFrontend, Mockito.never()).isAlive();
     }
 
     @Test

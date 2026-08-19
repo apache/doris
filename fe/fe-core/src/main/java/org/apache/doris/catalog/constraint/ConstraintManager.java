@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
@@ -34,6 +35,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -122,6 +125,9 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         try {
             TableIf table = null;
             if (!replay) {
+                if (constraint instanceof DistributionMappingConstraint) {
+                    validateFrontendVersionsForDistributionMappingConstraint();
+                }
                 if (resolvedTable == null) {
                     table = validateTableAndColumns(tableNameInfo, constraint);
                 } else {
@@ -1259,6 +1265,23 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                         + " must be an ordered subset of table distribution columns");
             }
             previousIndex = index;
+        }
+    }
+
+    private void validateFrontendVersionsForDistributionMappingConstraint() {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        List<String> incompatibleFrontends = new ArrayList<>();
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            String frontendVersion = frontend.getVersion();
+            if (!currentVersion.equals(frontendVersion)) {
+                incompatibleFrontends.add(frontend.getNodeName() + "(" + frontendVersion + ")");
+            }
+        }
+        Collections.sort(incompatibleFrontends);
+        if (!incompatibleFrontends.isEmpty()) {
+            throw new AnalysisException("Cannot add distribution mapping constraint while frontend versions"
+                    + " are mixed or unknown. Current version: " + currentVersion
+                    + ", incompatible frontends: " + incompatibleFrontends);
         }
     }
 
