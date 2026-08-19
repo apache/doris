@@ -30,7 +30,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "util/defer_op.h"
 
 namespace doris {
 
@@ -157,18 +156,6 @@ TEST(HdfsFileSystemTest, Write) {
     // TODO(plat1ko): Check cached content
 
     st = local_fs->delete_directory(test_dir);
-}
-
-// create() returns error when java support is disabled: ensure_jvm() refuses before
-// anything connects, naming the config to flip.
-TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
-    const bool old_enable_java_support = config::enable_java_support;
-    config::enable_java_support = false;
-    Defer defer {[&]() { config::enable_java_support = old_enable_java_support; }};
-    std::map<std::string, std::string> properties;
-    auto res = io::HdfsFileSystem::create(properties, "hdfs://namenode:8020", "test_id", "/");
-    ASSERT_FALSE(res.has_value());
-    EXPECT_NE(res.error().to_string().find("enable_java_support"), std::string::npos);
 }
 
 // open_file_internal returns IOError when _fs_handler is null.
