@@ -13,8 +13,7 @@ from pathlib import Path
 BEGIN_MARKER = "<!-- doris-repo-review:v1:begin -->"
 END_MARKER = "<!-- doris-repo-review:v1:end -->"
 SCHEMA = "doris-repo-review/v1"
-MAX_AGE = dt.timedelta(hours=48)
-MAX_CLOCK_SKEW = dt.timedelta(minutes=5)
+MAX_BASE_LAG = dt.timedelta(hours=48)
 
 ALLOWED_MODELS = frozenset(
     {
@@ -43,6 +42,7 @@ EXPECTED_FIELDS = (
 FINDINGS_RE = re.compile(
     r"\{blocker: (\d+), major: (\d+), minor: (\d+), nit: (\d+)\}"
 )
+SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
 
 
 class ValidationError(ValueError):
@@ -95,8 +95,11 @@ def validate_comment(
     repository: str,
     pr_number: int,
     head_sha: str,
+    live_base_sha: str,
+    base_compare_status: str,
+    reviewed_base_committed_at: str | None,
+    live_base_committed_at: str | None,
     comment_author: str,
-    now: dt.datetime | None = None,
 ) -> dict[str, object]:
     fields = parse_comment(comment)
 
@@ -108,12 +111,31 @@ def validate_comment(
         raise ValidationError("comment targets a different pull request")
 
     reviewed_commit = str(fields["commit"])
-    if re.fullmatch(r"[0-9a-fA-F]{40}", reviewed_commit) is None:
-        raise ValidationError("commit is not a full SHA")
+    require_full_sha("commit", reviewed_commit)
     if reviewed_commit.casefold() != head_sha.casefold():
         raise ValidationError("reviewed commit does not match the current PR head")
-    if re.fullmatch(r"[0-9a-fA-F]{40}", str(fields["base"])) is None:
-        raise ValidationError("base is not a full SHA")
+    reviewed_base_sha = str(fields["base"])
+    require_full_sha("base", reviewed_base_sha)
+    require_full_sha("live base", live_base_sha)
+
+    same_base = reviewed_base_sha.casefold() == live_base_sha.casefold()
+    if same_base:
+        if base_compare_status != "identical":
+            raise ValidationError("equal base SHAs must have compare status identical")
+    else:
+        if base_compare_status != "ahead":
+            raise ValidationError("reviewed base is not an ancestor of the current PR base")
+        reviewed_base_time = parse_timestamp(
+            "reviewed base commit time", reviewed_base_committed_at
+        )
+        live_base_time = parse_timestamp("current base commit time", live_base_committed_at)
+        base_lag = live_base_time.astimezone(dt.timezone.utc) - reviewed_base_time.astimezone(
+            dt.timezone.utc
+        )
+        if base_lag < dt.timedelta(0):
+            raise ValidationError("reviewed base commit time is after the current base commit time")
+        if base_lag > MAX_BASE_LAG:
+            raise ValidationError("reviewed base is more than 48 hours behind the current PR base")
 
     if str(fields["reviewer"]).casefold() != comment_author.casefold():
         raise ValidationError("reviewer does not match the GitHub comment author")
@@ -130,44 +152,67 @@ def validate_comment(
     if not 1 <= int(fields["rounds"]) <= 3:
         raise ValidationError("rounds must be between 1 and 3")
 
-    try:
-        reviewed_at = dt.datetime.fromisoformat(str(fields["reviewed_at"]))
-    except ValueError as exc:
-        raise ValidationError("reviewed_at is not a valid ISO-8601 timestamp") from exc
-    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
-        raise ValidationError("reviewed_at must include a timezone offset")
-
-    current_time = now or dt.datetime.now(dt.timezone.utc)
-    if current_time.tzinfo is None or current_time.utcoffset() is None:
-        raise ValueError("now must be timezone-aware")
-    age = current_time.astimezone(dt.timezone.utc) - reviewed_at.astimezone(dt.timezone.utc)
-    if age < -MAX_CLOCK_SKEW:
-        raise ValidationError("reviewed_at is too far in the future")
-    if age > MAX_AGE:
-        raise ValidationError("review is older than 48 hours")
+    parse_timestamp("reviewed_at", str(fields["reviewed_at"]))
 
     return fields
 
 
+def parse_timestamp(name: str, value: str | None) -> dt.datetime:
+    if value is None:
+        raise ValidationError(f"{name} is required")
+    try:
+        timestamp = dt.datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValidationError(f"{name} is not a valid ISO-8601 timestamp") from exc
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValidationError(f"{name} must include a timezone offset")
+    return timestamp
+
+
+def require_full_sha(name: str, value: str) -> None:
+    if SHA_RE.fullmatch(value) is None:
+        raise ValidationError(f"{name} is not a full SHA")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--comment-file", type=Path, required=True)
-    parser.add_argument("--repository", required=True)
-    parser.add_argument("--pr-number", type=int, required=True)
-    parser.add_argument("--head-sha", required=True)
-    parser.add_argument("--comment-author", required=True)
-    parser.add_argument("--now", help="ISO-8601 time override for deterministic checks")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    extract_parser = subparsers.add_parser("extract-base")
+    extract_parser.add_argument("--comment-file", type=Path, required=True)
+
+    validate_parser = subparsers.add_parser("validate")
+    validate_parser.add_argument("--comment-file", type=Path, required=True)
+    validate_parser.add_argument("--repository", required=True)
+    validate_parser.add_argument("--pr-number", type=int, required=True)
+    validate_parser.add_argument("--head-sha", required=True)
+    validate_parser.add_argument("--live-base-sha", required=True)
+    validate_parser.add_argument("--base-compare-status", required=True)
+    validate_parser.add_argument("--reviewed-base-committed-at")
+    validate_parser.add_argument("--live-base-committed-at")
+    validate_parser.add_argument("--comment-author", required=True)
     args = parser.parse_args()
 
     try:
-        now = dt.datetime.fromisoformat(args.now) if args.now else None
+        comment = args.comment_file.read_text(encoding="utf-8")
+        if args.command == "extract-base":
+            fields = parse_comment(comment)
+            if fields["schema"] != SCHEMA:
+                raise ValidationError(f"unsupported schema: {fields['schema']}")
+            reviewed_base_sha = str(fields["base"])
+            require_full_sha("base", reviewed_base_sha)
+            print(reviewed_base_sha)
+            return 0
         fields = validate_comment(
-            args.comment_file.read_text(encoding="utf-8"),
+            comment,
             repository=args.repository,
             pr_number=args.pr_number,
             head_sha=args.head_sha,
+            live_base_sha=args.live_base_sha,
+            base_compare_status=args.base_compare_status,
+            reviewed_base_committed_at=args.reviewed_base_committed_at,
+            live_base_committed_at=args.live_base_committed_at,
             comment_author=args.comment_author,
-            now=now,
         )
     except (OSError, ValidationError, ValueError) as exc:
         print(f"INVALID: {exc}", file=sys.stderr)
