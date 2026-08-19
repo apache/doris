@@ -188,7 +188,7 @@ struct SplitReadOptions {
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
     std::shared_ptr<const FileContext> file_context;
-    // Generated row-group children keep the FE source coordinates in the cache key so serial and
+    // Generated physical children keep the FE source coordinates in the cache key so serial and
     // refined scans address the same predicate bitmap.
     std::optional<std::pair<int64_t, int64_t>> condition_cache_source_range;
     std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;

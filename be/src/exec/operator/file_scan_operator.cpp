@@ -160,7 +160,7 @@ bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& quer
         return false;
     }
     const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
-    if (format == TFileFormatType::FORMAT_PARQUET) {
+    if (format == TFileFormatType::FORMAT_PARQUET || format == TFileFormatType::FORMAT_ORC) {
         // Keep scanner creation aligned with the downstream refinement guard. Otherwise an
         // Iceberg delete split creates idle scanners even though it can never publish children.
         return FileScannerV2::can_refine_source_split(range);
@@ -171,7 +171,8 @@ bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& quer
         return false;
     }
     const auto& paimon = range.table_format_params.paimon_params;
-    return paimon.__isset.file_format && paimon.file_format == "parquet" &&
+    return paimon.__isset.file_format &&
+           (paimon.file_format == "parquet" || paimon.file_format == "orc") &&
            !paimon.__isset.paimon_split;
 }
 
@@ -286,10 +287,9 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (_split_source == nullptr) {
             _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges, _max_scanners);
         }
-        // A single FE Parquet split can publish many row-group children after its footer is read.
-        // Keep the requested scanner concurrency in that case; capping it to the initial range
-        // count would leave the generated children serial even though they share one footer.
-        bool can_generate_parquet_splits = false;
+        // One FE columnar split can publish many format-local children after metadata planning.
+        // Keep the requested scanner concurrency so those children do not run serially.
+        bool can_generate_physical_splits = false;
         const TFileScanRangeParams* common_params = nullptr;
         if (state->get_query_ctx() != nullptr &&
             state->get_query_ctx()->file_scan_range_params_map.contains(parent_id())) {
@@ -305,19 +305,19 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
             }
             const bool is_load =
                     state->desc_tbl().get_tuple_descriptor(params->src_tuple_id) != nullptr;
-            can_generate_parquet_splits =
+            can_generate_physical_splits =
                     std::ranges::any_of(file_scan_range.ranges, [&](const auto& range) {
                         return _can_generate_physical_splits(state->query_options(), is_load,
                                                              *params, range);
                     });
-            if (can_generate_parquet_splits) {
+            if (can_generate_physical_splits) {
                 break;
             }
         }
         // Currently the total number of remote splits cannot be accurately obtained, so batch
         // mode already skips this cap.
         _max_scanners = _adjust_scanner_count(_max_scanners, _split_source->num_scan_ranges(),
-                                              can_generate_parquet_splits);
+                                              can_generate_physical_splits);
     }
 
     if (!scan_ranges.empty() &&

@@ -121,7 +121,7 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
         range.table_format_params.hudi_params.__isset.delta_logs &&
         !range.table_format_params.hudi_params.delta_logs.empty()) {
         // Hudi MOR splits need log-file merge semantics and must stay on the existing JNI path.
-        // FileScannerV2 currently supports native Parquet data files only.
+        // FileScannerV2 currently supports only native columnar data files for Hudi.
         return false;
     }
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
@@ -465,8 +465,9 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    // The first split may open its physical reader eagerly while refining row groups. Synchronize
-    // ready filters first so COUNT(*) never treats a future RF carrier as a disposable placeholder.
+    // The first split may open its physical reader eagerly while refining physical children.
+    // Synchronize ready filters first so COUNT(*) never treats a future RF carrier as a disposable
+    // placeholder.
     const auto rf_status = try_append_late_arrival_runtime_filter();
     if (!rf_status.ok()) {
         // Late RF pushdown is optional and the scheduler already treats refresh failures as
@@ -482,7 +483,7 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
         // Refine the first source split before yielding the scanner worker. Other scanners may be
-        // waiting for its row-group children, so deferring publication until a later get_block()
+        // waiting for its physical children, so deferring publication until a later get_block()
         // turn could let those waiters occupy the scan thread pool ahead of the producer.
         bool eos = false;
         RETURN_IF_ERROR(_prepare_next_split(&eos));
@@ -698,7 +699,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             }
         }
         if (_current_split.is_source_split) {
-            // Non-Parquet and metadata-only source splits are already fully prepared and cannot
+            // Non-refinable and metadata-only source splits are already fully prepared and cannot
             // publish children. Release the source reservation before yielding the scanner worker
             // so waiters never depend on a later get_block() turn to observe completion.
             RETURN_IF_ERROR(_retire_current_source_split());
@@ -863,7 +864,7 @@ bool FileScannerV2::can_refine_source_split(const TFileRangeDesc& range) {
     }
     const auto& iceberg = range.table_format_params.iceberg_params;
     // Iceberg delete readers build split-local delete state. Refining the data file would rebuild
-    // that state for every row-group child, so keep the already prepared source reader instead.
+    // that state for every physical child, so keep the already prepared source reader instead.
     return !iceberg.__isset.delete_files || iceberg.delete_files.empty();
 }
 
@@ -877,7 +878,7 @@ bool FileScannerV2::_should_refine_source_split(const TFileRangeDesc& range,
 void FileScannerV2::_update_file_counter(RuntimeProfile::Counter* counter,
                                          const FileScanSplit& split) {
     if (split.is_source_split) {
-        // FileNumber describes FE source ranges, so BE-local row-group children must not change it.
+        // FileNumber describes FE source ranges, so BE-local physical children must not change it.
         COUNTER_UPDATE(counter, 1);
     }
 }
@@ -1137,7 +1138,7 @@ void FileScannerV2::_init_adaptive_batch_size_state(TFileFormatType::type format
         const auto source_history = _current_split.source_progress->adaptive_batch_bytes_per_row();
         if (source_history.has_value()) {
             // Generated children share one FE source budget. Seed the per-scanner predictor from
-            // that source so row-group refinement does not restart the probe for every child.
+            // that source so physical refinement does not restart the probe for every child.
             _block_size_predictor->seed_history(*source_history);
         }
     }

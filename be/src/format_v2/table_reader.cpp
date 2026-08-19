@@ -111,7 +111,7 @@ std::vector<PhysicalFileSplit> coalesce_physical_splits(std::vector<PhysicalFile
                                      current_id_end < std::numeric_limits<int64_t>::max() &&
                                      next.format_split_id == current_id_end + 1;
         // Coalescing changes only scheduling granularity. Exact format ids remain attached so byte
-        // padding or skipped row groups cannot change which rows a child owns.
+        // padding or skipped physical granules cannot change which rows a child owns.
         const bool fits_target = valid_ranges && current.file_context == next.file_context &&
                                  consecutive_ids && next_start >= current_start &&
                                  next_end >= current_end && next_end - current_start <= target_size;
@@ -1223,7 +1223,7 @@ void TableReader::_finalize_reader_condition_cache() {
             --split_context.remaining_children;
             if (split_context.remaining_children == 0 && split_context.valid &&
                 !split_context.cache_hit_seen && !split_context.merged_filter_result.empty()) {
-                // A source-level entry is visible only after every row-group child reaches EOF;
+                // A source-level entry is visible only after every physical child reaches EOF;
                 // publishing an earlier partial MISS would let a sibling HIT skip valid rows.
                 published_base_granule = split_context.base_granule;
                 published_filter = std::make_shared<std::vector<bool>>(
@@ -1330,7 +1330,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, _file_context_registry,
+                _current_task->file_context);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {
@@ -1482,7 +1483,7 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
     DORIS_CHECK(was_split != nullptr);
     splits->clear();
     *was_split = false;
-    if (_format != FileFormat::PARQUET || _current_split_pruned ||
+    if ((_format != FileFormat::PARQUET && _format != FileFormat::ORC) || _current_split_pruned ||
         _current_split_uses_metadata_count || _current_task == nullptr) {
         return Status::OK();
     }
@@ -1544,8 +1545,9 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
                     aggregate_request, &aggregate_result);
         }
         if (aggregate_status.ok()) {
-            // The planning reader already owns the exact pruned row-group set. Retaining it avoids
-            // replacing one footer-only aggregate with N children that repeat the same reduction.
+            // The planning reader already owns the exact pruned physical-granule set. Retaining it
+            // avoids replacing one metadata-only aggregate with N children that repeat the
+            // reduction.
             _metadata_aggregate_result = std::move(aggregate_result);
             return Status::OK();
         }
@@ -1572,8 +1574,8 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
     }
     if (!*was_split || physical_splits.size() == 1) {
         // Reuse the fully planned reader when refinement is unnecessary. Besides avoiding another
-        // footer parse, this preserves the request snapshot whose footer pruning selected the
-        // single surviving row group.
+        // footer parse, this preserves the request snapshot whose metadata pruning selected the
+        // single surviving physical granule.
         splits->clear();
         *was_split = false;
         return Status::OK();

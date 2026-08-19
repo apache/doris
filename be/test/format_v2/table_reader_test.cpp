@@ -2091,6 +2091,54 @@ TEST(TableReaderTest, PhysicalSplitsUseFeTargetAndMergeSmallTail) {
     EXPECT_EQ(children[1].format_split_id, 2);
 }
 
+TEST(TableReaderTest, OrcPhysicalSplitsUseFeTargetSize) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->physical_split_count = 5;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::ORC,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-orc-table-reader-input");
+    split_options.current_range.__set_start_offset(0);
+    split_options.current_range.__set_size(500);
+    split_options.current_range.__set_file_size(500);
+    split_options.current_range.__set_target_split_size(250);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    FileScanSplit source_split;
+    source_split.range = split_options.current_range;
+    source_split.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(children.size(), 2);
+    EXPECT_EQ(children[0].start_offset, 0);
+    EXPECT_EQ(children[0].size, 200);
+    EXPECT_EQ(children[0].format_split_id, 0);
+    EXPECT_EQ(children[0].format_split_id_end, 1);
+    EXPECT_EQ(children[1].start_offset, 200);
+    EXPECT_EQ(children[1].size, 300);
+    EXPECT_EQ(children[1].format_split_id, 2);
+    EXPECT_EQ(children[1].format_split_id_end, 4);
+}
+
 TEST(TableReaderTest, PhysicalSplitPlanningProfilesAndClosesFailedReaders) {
     for (const bool fail_during_init : {true, false}) {
         SCOPED_TRACE(fail_during_init ? "init" : "build");

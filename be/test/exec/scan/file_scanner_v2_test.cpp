@@ -986,6 +986,32 @@ TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {
     EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(query_options, false, params,
                                                                       range));
     EXPECT_EQ(FileScanLocalState::TEST_adjust_scanner_count(16, 1, true), 16);
+
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    range.__set_format_type(TFileFormatType::FORMAT_ORC);
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(query_options, false, params,
+                                                                      range));
+    range.table_format_params.iceberg_params.__set_delete_files({delete_file});
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(query_options, false, params,
+                                                                       range));
+}
+
+TEST(FileScannerV2Test, NativePaimonOrcCanGeneratePhysicalSplits) {
+    TQueryOptions query_options;
+    query_options.__set_enable_file_scanner_v2(true);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("paimon");
+    TPaimonFileDesc paimon;
+    paimon.__set_file_format("orc");
+    table_format.__set_paimon_params(paimon);
+    range.__set_table_format_params(table_format);
+
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(query_options, false, params,
+                                                                      range));
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

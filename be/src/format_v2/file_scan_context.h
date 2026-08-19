@@ -93,7 +93,7 @@ public:
         DORIS_CHECK(bytes_per_row > 0);
         std::lock_guard lock(_adaptive_batch_lock);
         // Sibling scanners can finish probes concurrently. Merge their samples under the source
-        // lock so later row-group children never regress to a fresh small probe.
+        // lock so later physical children never regress to a fresh small probe.
         const bool first_source_sample = !_adaptive_batch_bytes_per_row.has_value();
         _adaptive_batch_bytes_per_row =
                 _adaptive_batch_bytes_per_row.has_value()
