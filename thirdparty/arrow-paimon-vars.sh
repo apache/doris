@@ -45,6 +45,25 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
+# Bump the corresponding schema version whenever output-affecting build options or
+# helper behavior in build_arrow() or build_paimon_cpp() changes. The fingerprints
+# below intentionally describe only this component stack so master and release
+# branches can reuse the same shared prebuilt when their semantic inputs match.
+ARROW_BUILD_SCHEMA_VERSION="1"
+PAIMON_BUILD_SCHEMA_VERSION="1"
+
+# The current shared automation prebuilt was published from master with the former
+# whole-script fingerprint. Keep these exact markers during the schema transition;
+# version and complete artifact validation are still mandatory before reuse.
+ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="ab79ab0bbfbf93f9860050fb751b20fee9e40d96"
+PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="cb82e41ba46f534e611cdd52e66b53c227d49bf8"
+ARROW_LEGACY_BUILD_FINGERPRINTS=(
+    9d03645dd1cded5184a8126f5c7f4a6eb9b92b53
+)
+PAIMON_LEGACY_BUILD_FINGERPRINTS=(
+    dbb6ca6e243cb3aa783b7a8011f97afda9e7ea28
+)
+
 # Arrow consumes xsimd and Brotli as bundled source archives, but neither is a
 # build target in the focused Arrow/Paimon recovery path.
 ARROW_PAIMON_BUILD_PACKAGES=(arrow paimon_cpp)
@@ -82,23 +101,42 @@ prepare_arrow_paimon_download_packages() {
     done
 }
 
-# Identify the checked-in source, patch, and build inputs selected for Arrow.
-# Arrow and Paimon publish separate installed markers so a package-only build
-# cannot certify a component that it did not rebuild.
+# Print stable path-and-content records for fingerprint inputs. Including the path
+# makes patch selection and ordering part of the contract, not only file contents.
+arrow_paimon_fingerprint_files() {
+    local file
+    local blob
+    while IFS= read -r file; do
+        blob="$(git hash-object "${file}")" || return 1
+        printf 'file=%s\n' "${file}"
+        printf 'blob=%s\n' "${blob}"
+    done < <(printf '%s\n' "$@" | LC_ALL=C sort)
+}
+
+# Identify only the source, patch, and explicit build-schema inputs selected for
+# Arrow. Arrow and Paimon publish separate installed markers so a package-only
+# build cannot certify a component that it did not rebuild.
 arrow_build_fingerprint() {
     local vars_dir
     vars_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     (
+        set -o pipefail
         cd "${vars_dir}" || return 1
-        LC_ALL=C
-        git hash-object \
-            ../env.sh \
-            arrow-paimon-vars.sh \
-            vars.sh \
-            download-thirdparty.sh \
-            build-thirdparty.sh \
-            patches/apache-arrow-"${ARROW_VERSION}"-*.patch |
-            git hash-object --stdin
+        {
+            printf 'schema=%s\n' "${ARROW_BUILD_SCHEMA_VERSION}"
+            printf 'ARROW_VERSION=%s\n' "${ARROW_VERSION}"
+            printf 'ARROW_NAME=%s\n' "${ARROW_NAME}"
+            printf 'ARROW_SOURCE=%s\n' "${ARROW_SOURCE}"
+            printf 'ARROW_MD5SUM=%s\n' "${ARROW_MD5SUM}"
+            printf 'BROTLI_NAME=%s\n' "${BROTLI_NAME}"
+            printf 'BROTLI_SOURCE=%s\n' "${BROTLI_SOURCE}"
+            printf 'BROTLI_MD5SUM=%s\n' "${BROTLI_MD5SUM}"
+            printf 'XSIMD_NAME=%s\n' "${XSIMD_NAME}"
+            printf 'XSIMD_SOURCE=%s\n' "${XSIMD_SOURCE}"
+            printf 'XSIMD_MD5SUM=%s\n' "${XSIMD_MD5SUM}"
+            arrow_paimon_fingerprint_files \
+                patches/apache-arrow-"${ARROW_VERSION}"-*.patch
+        } | git hash-object --stdin
     )
 }
 
@@ -106,15 +144,15 @@ paimon_build_fingerprint() {
     local vars_dir
     vars_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     (
+        set -o pipefail
         cd "${vars_dir}" || return 1
-        LC_ALL=C
         {
             arrow_build_fingerprint
-            git hash-object \
-                arrow-paimon-vars.sh \
-                vars.sh \
-                download-thirdparty.sh \
-                build-thirdparty.sh \
+            printf 'schema=%s\n' "${PAIMON_BUILD_SCHEMA_VERSION}"
+            printf 'PAIMON_CPP_NAME=%s\n' "${PAIMON_CPP_NAME}"
+            printf 'PAIMON_CPP_SOURCE=%s\n' "${PAIMON_CPP_SOURCE}"
+            printf 'PAIMON_CPP_MD5SUM=%s\n' "${PAIMON_CPP_MD5SUM}"
+            arrow_paimon_fingerprint_files \
                 paimon-cpp-cache.cmake \
                 patches/paimon-cpp-*.patch
         } | git hash-object --stdin
@@ -128,6 +166,27 @@ arrow_paimon_build_fingerprint() {
         arrow_build_fingerprint
         paimon_build_fingerprint
     } | git hash-object --stdin
+}
+
+arrow_paimon_fingerprint_matches() {
+    local installed_fingerprint="$1"
+    local expected_fingerprint="$2"
+    local legacy_compatible_expected_fingerprint="$3"
+    shift 3
+    local compatible_fingerprint
+
+    if [[ "${installed_fingerprint}" == "${expected_fingerprint}" ]]; then
+        return 0
+    fi
+    if [[ "${expected_fingerprint}" != "${legacy_compatible_expected_fingerprint}" ]]; then
+        return 1
+    fi
+    for compatible_fingerprint in "$@"; do
+        if [[ "${installed_fingerprint}" == "${compatible_fingerprint}" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 ARROW_REQUIRED_LIBRARIES=(
@@ -216,7 +275,9 @@ arrow_prebuilt_valid() {
     fi
     expected_fingerprint="$(arrow_build_fingerprint)"
     installed_fingerprint="$(<"${arrow_fingerprint_mark}")"
-    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
+    if ! arrow_paimon_fingerprint_matches "${installed_fingerprint}" \
+        "${expected_fingerprint}" "${ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" \
+        "${ARROW_LEGACY_BUILD_FINGERPRINTS[@]}"; then
         echo "Arrow build fingerprint does not match selected inputs" >&2
         return 1
     fi
@@ -235,7 +296,9 @@ paimon_prebuilt_valid() {
     fi
     expected_fingerprint="$(paimon_build_fingerprint)"
     installed_fingerprint="$(<"${paimon_fingerprint_mark}")"
-    if [[ "${installed_fingerprint}" != "${expected_fingerprint}" ]]; then
+    if ! arrow_paimon_fingerprint_matches "${installed_fingerprint}" \
+        "${expected_fingerprint}" "${PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" \
+        "${PAIMON_LEGACY_BUILD_FINGERPRINTS[@]}"; then
         echo "Paimon build fingerprint does not match selected inputs" >&2
         return 1
     fi
