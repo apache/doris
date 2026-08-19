@@ -145,6 +145,17 @@ public class HadoopHudiPluginTest {
      * classpath too. Which class serves which scheme is FE's choice - see the fe-filesystem property
      * classes, which point cosn and (in some configurations) obs at S3A rather than at a vendor
      * filesystem.
+     *
+     * <p>WHAT IT DOES NOT PROVE, and the distinction matters because it is easy to read this as more
+     * than it is: {@code getFileSystemClass} RESOLVES a class, it does not LINK or initialize one. A
+     * provider whose own dependencies are missing still passes here and fails on the first open. The
+     * {@code wasb} entry is exactly that case today - {@code NativeAzureFileSystem} reaches
+     * {@code AzureNativeFileSystemStore}, whose static initializer needs a jetty class the bundled
+     * jetty 12 does not carry - and that is a pre-existing runtime state of the {@code wasb://}
+     * scheme rather than anything this layout changed. The entry stays because the resolution is
+     * still the thing a missing hadoop-azure would break; the deeper gap is what
+     * {@code check_plugin_layout.py} covers by walking the constant pool of the bundled filesystem
+     * jars themselves.
      */
     @Test
     public void resolvesEveryFilesystemSchemeAScanCanArriveOn() throws IOException {

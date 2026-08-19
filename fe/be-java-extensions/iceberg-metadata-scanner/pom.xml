@@ -271,9 +271,10 @@ under the License.
                      system classpath, so without this the FIRST obs:// path a scanner opens dies
                      linking OBSFileSystem.initialize() with NoClassDefFoundError. Inside this
                      profile, so -Ddisable.obs=true drops it along with the filesystem that needs
-                     it. Nothing static can catch this: check_plugin_layout.py's closure check
-                     starts from Doris's own classes, and a filesystem provider is reached by
-                     name through hadoop's Configuration. -->
+                     it. This IS caught statically now: check_plugin_layout.py walks every jar
+                     holding a class Doris names by string into a hadoop Configuration, and
+                     fs.obs.impl names OBSFileSystem - so dropping this dependency fails the build
+                     rather than the first obs:// scan. It did not, when the hole shipped. -->
                 <dependency>
                     <groupId>commons-lang</groupId>
                     <artifactId>commons-lang</artifactId>

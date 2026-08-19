@@ -1619,13 +1619,21 @@ EOF
     # isolation - a single shared loader for these jars is impossible, since they need the hadoop
     # that lives inside each plugin.
 
-    # The layout the isolation rests on, checked on the tree that was just deployed, so what the
-    # check sees is what a BE will load: the SPI jars carry nothing but the SPI, no plugin ships a
-    # copy of them, no plugin directory holds the same class twice, every plugin's dependency
-    # closure is complete, and the jar declaring the service carries the API version this build
-    # serves. Four of the five have caught a real regression, and none of
-    # them is visible in a compiler error - a dependency that turns into <scope>provided</scope>
-    # by accident builds fine and fails in a user's query.
+    # The layout the isolation rests on, checked on the tree that was just deployed: the SPI jars
+    # carry nothing but the SPI, no plugin ships a copy of them, no plugin directory holds the same
+    # class twice, no class reachable from a plugin's Doris code - or from a filesystem or
+    # credential provider Doris names by string - is missing, and the jar declaring the service
+    # carries the API version this build serves. Four of the five have caught a real regression,
+    # and none of them is visible in a compiler error - a dependency that turns into
+    # <scope>provided</scope> by accident builds fine and fails in a user's query.
+    #
+    # What the check does NOT see, so that nobody reads more into a green run than is there:
+    #   - plugins/jni_fs, which PluginRuntime appends to every plugin classloader. Those jars are
+    #     not in a plugin directory, so neither the duplicate scan nor the closure walk covers
+    #     them - and they do collide with a lake-format plugin on ~1500 class names, resolved
+    #     deterministically by the plugin's own jars coming first in the URL list.
+    #   - anything reached only by ServiceLoader or by a reflective lookup that Doris does not
+    #     make itself. See the header of check_plugin_layout.py.
     #
     # Here rather than in a GitHub workflow because it needs a built output tree, which only a full
     # BE build produces. python3 is not a build requirement, so its absence is a warning.

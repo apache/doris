@@ -163,6 +163,38 @@ public class PluginRegistryDefaultDirTest {
     }
 
     /**
+     * The same case again, but through the PRODUCTION entry point rather than the seam.
+     *
+     * <p>Every case above hands {@code hadoopConfDir} a default directory of its own, which is what
+     * makes them writable at all - a unit test cannot set {@code $DORIS_HOME}. The cost is that the
+     * one-argument form, the only one a BE ever calls, is then driven by nothing: it derives the
+     * default from {@link PluginRegistry#defaultHadoopConfDir()}, and a change there - or a
+     * {@code namedExplicitly} that goes back to asking "was a property set" - reinstates the
+     * regression that shipped twice while every case above stays green.
+     *
+     * <p>What this pins is the shape a real BE is in: the property carries exactly the value the
+     * production default resolves to, and the environment fallback must still be reachable.
+     */
+    @Test
+    public void theProductionFormStillReachesTheEnvWithThePropertyBePushes(@TempDir Path existing) {
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, PluginRegistry.defaultHadoopConfDir().toString());
+
+        Assertions.assertEquals(existing, PluginRegistry.hadoopConfDir(existing.toString()),
+                "on a real BE the property always carries the resolved default, so treating its "
+                        + "presence as an operator's choice takes $HADOOP_CONF_DIR away from every "
+                        + "Java scanner on an HDFS HA cluster");
+    }
+
+    /** ...and an operator's own path still wins, through the same production entry point. */
+    @Test
+    public void theProductionFormStillHonoursANamedDirectory(@TempDir Path chosen, @TempDir Path existing) {
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, chosen.toString());
+
+        Assertions.assertEquals(chosen, PluginRegistry.hadoopConfDir(existing.toString()),
+                "a directory somebody named is the answer whether or not it holds anything yet");
+    }
+
+    /**
      * ...and only that exact path counts as the default. The test used to be a suffix match, which
      * swept in every path ENDING in plugins/hadoop_conf - {@code /mnt/shared/plugins/hadoop_conf}
      * is a directory an operator chose, on a host where the default is somewhere else entirely, and

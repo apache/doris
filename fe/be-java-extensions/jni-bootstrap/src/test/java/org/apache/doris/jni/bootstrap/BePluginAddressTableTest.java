@@ -68,6 +68,16 @@ public class BePluginAddressTableTest {
     /** The {@code const char* const NAME = "a/b/C"} table at the top of jni_plugin_registry.cpp. */
     private static final Pattern BE_CLASS_NAME = Pattern.compile(
             "const\\s+char\\*\\s+const\\s+(\\w+)\\s*=\\s*\"(org/[^\"]+)\"");
+    /**
+     * The same thing spelled inline: {@code env->FindClass("org/apache/doris/...")}. jni-util.cpp
+     * and jni-util.h resolve two more Doris classes that way rather than through a named constant,
+     * and both of those lines were rewritten by the package moves this table exists to guard.
+     */
+    private static final Pattern BE_INLINE_CLASS_NAME = Pattern.compile(
+            "FindClass\\(\\s*\"(org/apache/doris/[^\"]+)\"\\s*\\)");
+    /** The files those inline lookups live in, relative to the repository root. */
+    private static final List<String> BE_INLINE_CLASS_SOURCES =
+            List.of("be/src/util/jni-util.h", "be/src/util/jni-util.cpp");
 
     /**
      * Every {@code PluginRef} BE declares resolves to a factory some deployed plugin publishes.
@@ -138,12 +148,18 @@ public class BePluginAddressTableTest {
     }
 
     /**
-     * The three Java classes BE resolves by fully qualified name, checked against the tree.
+     * The five Java classes BE resolves by fully qualified name, checked against the tree.
      *
      * <p>Same shape of hole as the {@code (plugin, factory)} pairs and one level below them: these
      * are C++ string literals, so renaming {@code PluginRegistry} or moving {@code JniScanner} to
      * another package compiles on both sides and fails at {@code FindClass} on the first query -
      * for {@code PluginRegistry} that is every Java feature of the BE at once.
+     *
+     * <p>Two of the five are not named constants in jni_plugin_registry.cpp but inline
+     * {@code FindClass} arguments in jni-util - {@code JniUtil} and {@code JNINativeMethod}, the
+     * two classes {@code Util::_init_jni_base()} resolves. They matter more than the other three,
+     * not less: a wrong name there fails the base, and a BE whose base failed runs no Java at all.
+     * Both lines were rewritten by the package moves that made this table necessary.
      *
      * <p>Checks that the source file exists rather than loading the class: {@code JniScanner} and
      * {@code JniWriter} live in jni-spi, which this module has as a {@code provided} dependency, so
@@ -155,7 +171,10 @@ public class BePluginAddressTableTest {
         Assumptions.assumeTrue(repo != null);
 
         Map<String, String> classes = beClassNames(repo);
-        Assertions.assertEquals(Set.of("REGISTRY_CLASS", "SCANNER_CLASS", "WRITER_CLASS"),
+        Assertions.assertEquals(
+                Set.of("REGISTRY_CLASS", "SCANNER_CLASS", "WRITER_CLASS",
+                        "org/apache/doris/jni/spi/utils/JniUtil",
+                        "org/apache/doris/jni/spi/utils/JNINativeMethod"),
                 classes.keySet(),
                 "the set of Java classes BE resolves by name changed; this test names them one by"
                         + " one so that a new one cannot be added without a source file to point at");
@@ -174,6 +193,11 @@ public class BePluginAddressTableTest {
     }
 
     /** Symbol -&gt; binary class name, straight out of the C++ file. */
+    /**
+     * Every Doris class BE names as a string, keyed by how it is spelled: the constant's name for
+     * the jni_plugin_registry.cpp table, the class name itself for the inline {@code FindClass}
+     * calls, which have no constant to be named after.
+     */
     private static Map<String, String> beClassNames(Path repo) throws IOException {
         Map<String, String> names = new LinkedHashMap<>();
         Matcher matcher = BE_CLASS_NAME.matcher(
@@ -184,6 +208,19 @@ public class BePluginAddressTableTest {
         Assertions.assertFalse(names.isEmpty(),
                 "no class name constants parsed out of jni_plugin_registry.cpp; the parser above"
                         + " has gone stale");
+
+        int inlineFound = 0;
+        for (String source : BE_INLINE_CLASS_SOURCES) {
+            Matcher inline = BE_INLINE_CLASS_NAME.matcher(read(repo.resolve(source)));
+            while (inline.find()) {
+                names.put(inline.group(1), inline.group(1));
+                inlineFound++;
+            }
+        }
+        Assertions.assertTrue(inlineFound >= 2,
+                "no inline FindClass(\"org/apache/doris/...\") calls parsed out of "
+                        + BE_INLINE_CLASS_SOURCES + "; either they moved to another file or the"
+                        + " parser above has gone stale - both leave the JNI base unguarded");
         return names;
     }
 

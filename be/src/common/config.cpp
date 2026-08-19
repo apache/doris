@@ -1693,7 +1693,10 @@ DEFINE_String(jni_plugin_hadoop_conf_dir, "${DORIS_HOME}/plugins/hadoop_conf");
 // classpath, AFTER the plugin's jars, so a plugin's own hadoop still wins; each plugin loads its
 // own copy in its own classloader, so the isolation is unchanged. This is also the directory
 // bin/start_be.sh puts on the system class path for the native libhdfs reader, which needs the
-// same jars for the same schemes - one copy on disk serves both.
+// same jars for the same schemes - one copy on disk serves both, and both honour this config:
+// the script reads it out of be.conf by hand (the export loop there only picks up UPPERCASE
+// keys), and JvmLauncher passes it to the JVM as -Ddoris.jni.fs.dir. Every subdirectory holding
+// jars is taken, on both sides.
 //
 // Nothing has to be here: both filesystems are opt-in build flags (DISABLE_BUILD_JINDOFS=OFF,
 // DISABLE_BUILD_JUICEFS=OFF), and a build without them leaves this directory absent.

@@ -566,8 +566,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * <p>When it is, {@link #listPartitions} reads the {@code queryInstant} {@link #applySnapshot} put on the
      * handle and enumerates the partitions that hold data at it, so a {@code FOR TIME/VERSION AS OF} query gets
      * the partition universe of THAT snapshot rather than an empty one. See
-     * {@code HudiScanPlanProvider.listPartitionPathsAsOf}, which decides membership with the same view call the
-     * scan uses to pick each partition's files.
+     * {@code HudiScanPlanProvider.listPartitionPathsAsOf}: it is NOT the same view call the scan makes - it
+     * asks {@code getLatestFileSlicesBeforeOrOn} while the scan asks its own per-table-type views - but the
+     * two share the file group set and the {@code <= queryInstant} cut, and every difference falls on the safe
+     * side, so this listing can only be a superset of the partitions the scan finds files in. Its own javadoc
+     * carries that argument in full.
      *
      * <p>The {@code use_hive_sync_partition} branch cannot promise that, which is why it answers false.
      * {@link #collectPartitions} starts from what HMS holds NOW and can only remove from it, so its result is a

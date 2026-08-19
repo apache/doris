@@ -174,9 +174,11 @@ TEST_F(WarmupTest, ADirectoryIsAPlugin) {
 //
 // Reading process-wide state is what makes this case order-dependent, so it skips rather than
 // fails once a JVM is there: it has nothing left to say, and a case that cannot tell should not
-// be the one reporting. Not that a JVM in doris_be_test would go unnoticed - the process
-// segfaults on its way out, ASAN unmapping its shadow while the JVM's threads still run - which
-// is the failure that actually needs fixing, at whichever case brought the JVM up.
+// be the one reporting. NoJvmInThisBinary below is what keeps the property enforced when it does
+// skip - a skip enforces nothing, and the fallback of "the process segfaults on its way out,
+// ASAN unmapping its shadow while the JVM's threads still run" only catches the regressions that
+// crash. A regression that hangs instead - and the one this guard was written after did exactly
+// that - leaves no trace at all.
 TEST_F(WarmupTest, WarmupTouchesNoJavaWithNothingDeployed) {
     if (JvmLauncher::vm() != nullptr) {
         GTEST_SKIP() << "some earlier test in this binary already started a JVM, so this one "
@@ -185,5 +187,35 @@ TEST_F(WarmupTest, WarmupTouchesNoJavaWithNothingDeployed) {
     EXPECT_TRUE(PluginRegistry::warmup().ok());
     EXPECT_EQ(nullptr, JvmLauncher::vm()) << "warmup created a JVM with no plugin deployed";
 }
+
+// "doris_be_test creates no JVM" as a property of the whole binary rather than of one case.
+//
+// The case above can only speak for itself and skips as soon as anything ran before it, so it
+// cannot carry this; here the question is decidable no matter what ran, because the answer is
+// read once, after every case is done. What it protects is not a nicety: a JVM inside this binary
+// leaves the JVM's threads running while the test process tears its address space down, and BE
+// code reaching one from a unit test means some production path creates a JVM where it must not.
+//
+// Skipped when disabled cases are being run, because one of those - jvm_launcher_test.cpp's
+// DISABLED_TheJvmDoesNotKeepTheShutdownSignals - creates a JVM deliberately and is documented to
+// be run by hand, alone.
+class NoJvmInThisBinary : public ::testing::Environment {
+public:
+    void TearDown() override {
+        if (GTEST_FLAG_GET(also_run_disabled_tests)) {
+            return;
+        }
+        EXPECT_EQ(nullptr, JvmLauncher::vm())
+                << "a test in doris_be_test created a JVM. Find it (the JVM is created by "
+                   "JvmLauncher::ensure_jvm(), reached from Jni::Env::Get() and from the two "
+                   "hdfs entry points) and mock the seam instead";
+    }
+};
+
+// Registered from this file rather than from run_all_tests.cpp so that the property sits next to
+// the case it belongs to. Static initialization is early enough: gtest only reads the list of
+// environments in RUN_ALL_TESTS().
+[[maybe_unused]] const ::testing::Environment* const kNoJvmInThisBinary =
+        ::testing::AddGlobalTestEnvironment(new NoJvmInThisBinary());
 
 } // namespace doris::Jni

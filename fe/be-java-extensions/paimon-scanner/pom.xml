@@ -244,7 +244,13 @@ under the License.
           s3 brings the client and its protocol/auth/http closure, apache-client is the http
           implementation hadoop-aws wires up, and s3-transfer-manager is not optional either -
           S3AFileSystem's own methods reference software.amazon.awssdk.transfer.s3, so the class
-          does not load without it.
+          does not load without it. sts is not optional either: hadoop-aws's
+          AssumedRoleCredentialProvider resolves software.amazon.awssdk.services.sts.* from its
+          constant pool, and Doris names that class by string whenever a catalog carries
+          s3.role_arn - fs.s3a.aws.credentials.provider is set to it in S3FileSystemProperties.
+          The web_identity and container provider types, and the default provider chain an
+          EKS/IRSA deployment lands on, reach the same module. Without it the first split of the
+          first scan dies with ClassNotFoundException on sts.model.AssumeRoleRequest.
 
           This is a second S3 client in the plugin, next to the one paimon-s3 shades. They serve
           different schemes (s3a:// versus s3://) and cannot be merged: paimon-s3's copy is
@@ -264,6 +270,11 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -353,9 +364,10 @@ under the License.
                      system classpath, so without this the FIRST obs:// path a scanner opens dies
                      linking OBSFileSystem.initialize() with NoClassDefFoundError. Inside this
                      profile, so -Ddisable.obs=true drops it along with the filesystem that needs
-                     it. Nothing static can catch this: check_plugin_layout.py's closure check
-                     starts from Doris's own classes, and a filesystem provider is reached by
-                     name through hadoop's Configuration. -->
+                     it. This IS caught statically now: check_plugin_layout.py walks every jar
+                     holding a class Doris names by string into a hadoop Configuration, and
+                     fs.obs.impl names OBSFileSystem - so dropping this dependency fails the build
+                     rather than the first obs:// scan. It did not, when the hole shipped. -->
                 <dependency>
                     <groupId>commons-lang</groupId>
                     <artifactId>commons-lang</artifactId>

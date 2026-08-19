@@ -271,7 +271,11 @@ rather than a runtime error.
 ## 7. Plugin discovery and version
 
 - A plugin is a directory under `plugins/jni/`; the directory name is the name BE addresses it
-  by. All jars in the directory form its classpath.
+  by. All jars in the directory form its classpath, followed by the shared third-party filesystem
+  jars in `plugins/jni_fs/*/` (BE config `jni_plugin_fs_dir`) - JindoFS for `oss://` and
+  `oss-hdfs://`, JuiceFS for `jfs://`. Those are appended, never prepended, so a plugin's own copy
+  of a class always wins; each plugin still loads them in its own classloader, so nothing is shared
+  but the files on disk. They are not part of the plugin's API contract and declare no service.
 - The entry point is found by `ServiceLoader`, from
   `META-INF/services/org.apache.doris.jni.spi.DorisPlugin` inside the plugin's own jars.
 - Within a plugin, each factory is addressed by its `getName()`. BE sends the pair
