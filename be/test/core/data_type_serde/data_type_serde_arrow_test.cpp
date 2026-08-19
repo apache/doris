@@ -93,7 +93,6 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/table/iceberg/iceberg_arrow_write_converter.h"
-#include "format/table/paimon/paimon_arrow_schema.h"
 #include "format/table/paimon/paimon_arrow_write_converter.h"
 #include "runtime/descriptors.cpp"
 #include "util/string_parser.hpp"
@@ -539,39 +538,41 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
-TEST(DataTypeSerDeArrowTest, PaimonTimestampUsesStrictTimezoneFreeBinding) {
+TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     auto block = create_test_block({TYPE_DATETIMEV2}, 2, false);
-    std::shared_ptr<arrow::Schema> paimon_schema;
-    ASSERT_TRUE(paimon::get_paimon_arrow_schema_from_block(*block, &paimon_schema).ok());
-
-    const auto& timestamp_type =
-            assert_cast<const arrow::TimestampType&>(*paimon_schema->field(0)->type());
-    EXPECT_EQ(arrow::TimeUnit::MILLI, timestamp_type.unit());
-    EXPECT_TRUE(timestamp_type.timezone().empty());
+    auto ntz_schema =
+            arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI), false)});
+    auto ltz_schema = arrow::schema(
+            {arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI, "Asia/Shanghai"), false)});
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
 
     const auto convert = [&](const std::shared_ptr<arrow::Schema>& schema,
-                             const ArrowWriteConverter& converter) {
-        std::shared_ptr<arrow::RecordBatch> record_batch;
-        return convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &record_batch,
-                                      cctz::utc_time_zone(), 0, block->rows(), converter);
+                             const ArrowWriteConverter& converter,
+                             std::shared_ptr<arrow::RecordBatch>* record_batch) {
+        return convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), record_batch,
+                                      shanghai, 0, block->rows(), converter);
     };
 
-    Status status = convert(paimon_schema, paimon::paimon_arrow_write_converter());
+    std::shared_ptr<arrow::RecordBatch> ntz_batch;
+    Status status = convert(ntz_schema, paimon::paimon_arrow_write_converter(), &ntz_batch);
     EXPECT_TRUE(status.ok()) << status;
 
-    auto timezone_schema = arrow::schema(
-            {arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI, "UTC"), false)});
-    status = convert(timezone_schema, paimon::paimon_arrow_write_converter());
-    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
+    std::shared_ptr<arrow::RecordBatch> ltz_batch;
+    status = convert(ltz_schema, paimon::paimon_arrow_write_converter(), &ltz_batch);
+    EXPECT_TRUE(status.ok()) << status;
+    const auto& ntz_values = assert_cast<const arrow::TimestampArray&>(*ntz_batch->column(0));
+    const auto& ltz_values = assert_cast<const arrow::TimestampArray&>(*ltz_batch->column(0));
+    EXPECT_EQ(ntz_values.Value(0) - 8 * 60 * 60 * 1000, ltz_values.Value(0));
 
     auto wrong_unit_schema =
             arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
-    status = convert(wrong_unit_schema, paimon::paimon_arrow_write_converter());
+    std::shared_ptr<arrow::RecordBatch> unused_batch;
+    status = convert(wrong_unit_schema, paimon::paimon_arrow_write_converter(), &unused_batch);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 
-    status = convert(paimon_schema, plain_arrow_write_converter());
+    status = convert(ntz_schema, plain_arrow_write_converter(), &unused_batch);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
 }

@@ -29,6 +29,10 @@
 #include "format/parquet/arrow_memory_pool.h"
 #include "runtime/runtime_profile.h"
 
+namespace arrow {
+class Schema;
+}
+
 namespace doris {
 
 class RuntimeState;
@@ -76,10 +80,10 @@ private:
     jmethodID _abort_id = nullptr;
     jmethodID _close_id = nullptr;
 
-    TPaimonTableSink _sink;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
     bool _opened = false;
 };
 
@@ -92,7 +96,7 @@ class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
                     jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    TPaimonTableSink sink);
+                    std::shared_ptr<arrow::Schema> arrow_schema);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
@@ -110,7 +114,7 @@ private:
 
     // Arrow resources owned by this writer adapter.
     std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
-    TPaimonTableSink _sink;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 
 } // namespace doris

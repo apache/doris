@@ -19,6 +19,7 @@
 
 #include <arrow/buffer.h>
 #include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
@@ -34,7 +35,6 @@
 #include "common/logging.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/table/paimon/paimon_arrow_schema.h"
 #include "format/table/paimon/paimon_arrow_write_converter.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -122,6 +122,7 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
 Status JniPaimonWriteBackend::close() {
     if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
         _memory_manager.reset();
+        _arrow_schema.reset();
         _opened = false;
         return Status::OK();
     }
@@ -139,6 +140,7 @@ Status JniPaimonWriteBackend::close() {
         } else {
             _memory_manager.reset();
         }
+        _arrow_schema.reset();
         _opened = false;
         return env_status;
     }
@@ -175,6 +177,7 @@ Status JniPaimonWriteBackend::close() {
         // writers which were already open when the first close failure occurred.
         retain_memory_after_failed_close(std::move(_memory_manager));
     }
+    _arrow_schema.reset();
     _opened = false;
     return close_status;
 }
@@ -229,6 +232,38 @@ static jobject _to_java_options(JNIEnv* env, const std::map<std::string, std::st
     return map_obj;
 }
 
+static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID get_schema_id,
+                                       std::shared_ptr<arrow::Schema>* schema) {
+    auto schema_bytes = static_cast<jbyteArray>(env->CallObjectMethod(writer, get_schema_id));
+    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
+            env, false, "JNI exception in PaimonJniWriter.getArrowSchema: "));
+    if (schema_bytes == nullptr) {
+        return Status::InternalError("PaimonJniWriter.getArrowSchema returned null");
+    }
+
+    const jsize size = env->GetArrayLength(schema_bytes);
+    if (size <= 0) {
+        env->DeleteLocalRef(schema_bytes);
+        return Status::InternalError("PaimonJniWriter.getArrowSchema returned empty data");
+    }
+    std::string serialized_schema(static_cast<size_t>(size), '\0');
+    env->GetByteArrayRegion(schema_bytes, 0, size,
+                            reinterpret_cast<jbyte*>(serialized_schema.data()));
+    env->DeleteLocalRef(schema_bytes);
+    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
+            env, false, "JNI exception while reading Paimon Arrow schema: "));
+
+    auto input = std::make_shared<arrow::io::BufferReader>(
+            arrow::Buffer::FromString(std::move(serialized_schema)));
+    auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(input);
+    if (!reader_result.ok()) {
+        return Status::InternalError("Failed to deserialize Paimon Arrow schema: {}",
+                                     reader_result.status().ToString());
+    }
+    *schema = reader_result.ValueOrDie()->schema();
+    return Status::OK();
+}
+
 Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
     if (paimon_jni_close_failed().load(std::memory_order_acquire)) {
@@ -236,7 +271,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                 "Paimon JNI writes are disabled on this BE because a previous Java writer close "
                 "failed; restart the BE to reclaim retained native memory safely");
     }
-    _sink = sink;
+    _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
     DORIS_CHECK(sink.__isset.serialized_table);
@@ -265,6 +300,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
     jmethodID open_id = env->GetMethodID(_jni_writer_cls, "open", PAIMON_JNI_WRITER_OPEN_SIGNATURE);
+    jmethodID get_arrow_schema_id = env->GetMethodID(_jni_writer_cls, "getArrowSchema", "()[B");
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -319,6 +355,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     env->DeleteLocalRef(string_cls);
 
     if (st.ok()) {
+        st = _get_paimon_arrow_schema(env, _jni_writer_obj, get_arrow_schema_id, &_arrow_schema);
+    }
+    if (st.ok()) {
         _opened = true;
         _refresh_memory_profile();
         LOG(INFO) << "Paimon JNI writer memory limit: "
@@ -333,52 +372,49 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-function-const)
         std::unique_ptr<IPaimonWriter>* writer) {
     DORIS_CHECK(_opened);
+    DORIS_CHECK(_arrow_schema != nullptr);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
                                                 _abort_id, std::make_unique<ArrowMemoryPool<>>(),
-                                                _sink);
+                                                _arrow_schema);
     return Status::OK();
 }
 
 JniPaimonWriter::JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id,
                                  jmethodID prepare_commit_id, jmethodID abort_id,
                                  std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                                 TPaimonTableSink sink)
+                                 std::shared_ptr<arrow::Schema> arrow_schema)
         : _jni_writer_obj(jni_writer_obj),
           _write_id(write_id),
           _prepare_commit_id(prepare_commit_id),
           _abort_id(abort_id),
           _arrow_pool(std::move(arrow_pool)),
-          _sink(std::move(sink)) {}
+          _arrow_schema(std::move(arrow_schema)) {}
 
 Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
 
-    // Use Thrift column_names as the authoritative schema source for both
-    // Arrow schema construction and Java-side write type derivation.
-    DORIS_CHECK(_sink.__isset.column_names);
-    DORIS_CHECK_EQ(_sink.column_names.size(), block.columns());
-    for (size_t i = 0; i < _sink.column_names.size(); ++i) {
-        block.get_by_position(i).name = _sink.column_names[i];
+    if (_arrow_schema == nullptr || _arrow_schema->num_fields() != block.columns()) {
+        return Status::InvalidArgument(
+                "Paimon Arrow schema column count does not match Doris Block: schema={}, block={}",
+                _arrow_schema == nullptr ? 0 : _arrow_schema->num_fields(), block.columns());
+    }
+    for (size_t i = 0; i < block.columns(); ++i) {
+        block.get_by_position(i).name = _arrow_schema->field(static_cast<int>(i))->name();
     }
 
     // Pipeline: Doris Block → Arrow Schema → Arrow RecordBatch → IPC Stream → JNI direct buffer
     //
-    // Step 1: Build Arrow schema from the projected Block.
-    // Paimon write timestamps are transported as civil-time fields. The Java writer uses the
-    // pinned Paimon target type to preserve NTZ values or convert LTZ values with the session zone.
-    // Variant V2 is transported losslessly as its value/metadata pair, including nested Variant.
-    std::shared_ptr<arrow::Schema> arrow_schema;
-    RETURN_IF_ERROR(paimon::get_paimon_arrow_schema_from_block(block, &arrow_schema));
-
-    // Step 2: Convert Doris Block columns to an Arrow RecordBatch.
+    // The target schema is bound once from the pinned Paimon table during open. A timezone-free
+    // timestamp represents Paimon NTZ; a timestamp carrying the session zone represents LTZ.
+    // Step 1: Convert Doris Block columns to an Arrow RecordBatch.
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, _arrow_pool.get(), &record_batch,
                                            state->timezone_obj(), 0, block.rows(),
                                            paimon::paimon_arrow_write_converter()));
 
-    // Step 3: Serialize the RecordBatch to Arrow IPC Stream format in memory.
+    // Step 2: Serialize the RecordBatch to Arrow IPC Stream format in memory.
     auto out_stream_res = arrow::io::BufferOutputStream::Create(4096, _arrow_pool.get());
     if (!out_stream_res.ok()) {
         return Status::InternalError("Arrow BufferOutputStream create failed: {}",
@@ -386,7 +422,7 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
     }
     auto out_stream = *out_stream_res;
 
-    auto writer_res = arrow::ipc::MakeStreamWriter(out_stream, arrow_schema);
+    auto writer_res = arrow::ipc::MakeStreamWriter(out_stream, _arrow_schema);
     if (!writer_res.ok()) {
         return Status::InternalError("Arrow StreamWriter create failed: {}",
                                      writer_res.status().ToString());
@@ -406,7 +442,7 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
     }
     std::shared_ptr<arrow::Buffer> buffer = *buffer_res;
 
-    // Step 4: Wrap the IPC buffer in a JNI direct ByteBuffer (zero-copy) and
+    // Step 3: Wrap the IPC buffer in a JNI direct ByteBuffer (zero-copy) and
     // call PaimonJniWriter.write(ByteBuffer). Java side reads the Arrow IPC
     // stream via ArrowStreamReader.
     JNIEnv* env = nullptr;
