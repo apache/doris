@@ -88,12 +88,13 @@
 #include "core/value/hll.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/arrow_column_to_doris_column.h"
-#include "exec/sink/writer/paimon/paimon_arrow_write_converter.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/table/iceberg/iceberg_arrow_write_converter.h"
+#include "format/table/paimon/paimon_arrow_schema.h"
+#include "format/table/paimon/paimon_arrow_write_converter.h"
 #include "runtime/descriptors.cpp"
 #include "util/string_parser.hpp"
 
@@ -541,7 +542,7 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
 TEST(DataTypeSerDeArrowTest, PaimonTimestampUsesStrictTimezoneFreeBinding) {
     auto block = create_test_block({TYPE_DATETIMEV2}, 2, false);
     std::shared_ptr<arrow::Schema> paimon_schema;
-    ASSERT_TRUE(get_paimon_arrow_schema_from_block(*block, &paimon_schema).ok());
+    ASSERT_TRUE(paimon::get_paimon_arrow_schema_from_block(*block, &paimon_schema).ok());
 
     const auto& timestamp_type =
             assert_cast<const arrow::TimestampType&>(*paimon_schema->field(0)->type());
@@ -555,18 +556,18 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampUsesStrictTimezoneFreeBinding) {
                                       cctz::utc_time_zone(), 0, block->rows(), converter);
     };
 
-    Status status = convert(paimon_schema, paimon_arrow_write_converter());
+    Status status = convert(paimon_schema, paimon::paimon_arrow_write_converter());
     EXPECT_TRUE(status.ok()) << status;
 
     auto timezone_schema = arrow::schema(
             {arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI, "UTC"), false)});
-    status = convert(timezone_schema, paimon_arrow_write_converter());
+    status = convert(timezone_schema, paimon::paimon_arrow_write_converter());
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 
     auto wrong_unit_schema =
             arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
-    status = convert(wrong_unit_schema, paimon_arrow_write_converter());
+    status = convert(wrong_unit_schema, paimon::paimon_arrow_write_converter());
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 

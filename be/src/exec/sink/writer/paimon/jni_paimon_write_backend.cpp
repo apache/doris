@@ -32,9 +32,10 @@
 
 #include "common/check.h"
 #include "common/logging.h"
-#include "exec/sink/writer/paimon/paimon_arrow_write_converter.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/table/paimon/paimon_arrow_schema.h"
+#include "format/table/paimon/paimon_arrow_write_converter.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
@@ -369,13 +370,13 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
     // pinned Paimon target type to preserve NTZ values or convert LTZ values with the session zone.
     // Variant V2 is transported losslessly as its value/metadata pair, including nested Variant.
     std::shared_ptr<arrow::Schema> arrow_schema;
-    RETURN_IF_ERROR(get_paimon_arrow_schema_from_block(block, &arrow_schema));
+    RETURN_IF_ERROR(paimon::get_paimon_arrow_schema_from_block(block, &arrow_schema));
 
     // Step 2: Convert Doris Block columns to an Arrow RecordBatch.
     std::shared_ptr<arrow::RecordBatch> record_batch;
     RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
                                            state->timezone_obj(), 0, block.rows(),
-                                           paimon_arrow_write_converter()));
+                                           paimon::paimon_arrow_write_converter()));
 
     // Step 3: Serialize the RecordBatch to Arrow IPC Stream format in memory.
     auto out_stream_res = arrow::io::BufferOutputStream::Create(4096, _arrow_pool.get());
