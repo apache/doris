@@ -87,7 +87,8 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<DataTypePtr>& data_
     size_t key_byte_size = 0;
 
     for (const auto& data_type : data_types) {
-        if (!data_type->have_maximum_size_of_value()) {
+        if (is_complex_type(data_type->get_primitive_type()) ||
+            !data_type->have_maximum_size_of_value()) {
             return HashKeyType::serialized;
         }
         key_byte_size += data_type->get_size_of_value_in_memory();

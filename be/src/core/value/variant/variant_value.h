@@ -28,6 +28,8 @@
 namespace doris {
 
 struct VariantRef {
+    class ObjectView;
+
     VariantMetadataRef metadata;
     StringRef value;
 
@@ -52,6 +54,7 @@ struct VariantRef {
     std::array<uint8_t, 16> get_uuid() const;
 
     uint32_t num_elements() const;
+    ObjectView object_view() const;
     bool object_find(StringRef key, VariantRef* out) const;
     bool object_find_by_id(uint32_t field_id, VariantRef* out) const;
     VariantRef object_value_at(uint32_t index, uint32_t* field_id_out) const;
@@ -69,11 +72,29 @@ private:
     };
 
     ContainerLayout _container_layout(VariantBasicType expected_type) const;
-    uint32_t _object_field_id(const ContainerLayout& layout, uint32_t index) const;
+    uint32_t _object_field_id(const ContainerLayout& layout, uint32_t index,
+                              const uint32_t* dictionary_size = nullptr) const;
     bool _object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
                             VariantRef* out) const;
     VariantRef _container_value_at(const ContainerLayout& layout, uint32_t index,
                                    bool require_array_boundary) const;
+};
+
+// Parses and validates an object's physical layout and metadata dictionary size once, then reuses
+// them while iterating its children. The referenced metadata and value bytes must outlive the view.
+class VariantRef::ObjectView {
+public:
+    uint32_t size() const { return _layout.count; }
+    VariantRef value_at(uint32_t index, uint32_t* field_id_out = nullptr) const;
+
+private:
+    friend struct VariantRef;
+    ObjectView(VariantRef value, ContainerLayout layout, uint32_t dictionary_size)
+            : _value(value), _layout(layout), _dictionary_size(dictionary_size) {}
+
+    VariantRef _value;
+    ContainerLayout _layout;
+    uint32_t _dictionary_size;
 };
 
 } // namespace doris

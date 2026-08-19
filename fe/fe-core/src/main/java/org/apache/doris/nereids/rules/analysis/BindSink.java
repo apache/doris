@@ -87,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -928,6 +929,18 @@ public class BindSink implements AnalysisRuleFactory {
         }
         LogicalPlan child = ((LogicalPlan) sink.child());
 
+        Optional<PaimonRowChangeSpec> rowChangeSpec = sink.getRowChangeSpec();
+        if (rowChangeSpec.isPresent()) {
+            LogicalPlan rowChange = PaimonRowChangePlanBuilder.build(
+                    writeTarget, rowChangeSpec.get(), child, ctx.cascadesContext);
+            return new LogicalPaimonTableSink<>(database, writeTarget, writeTarget.getSchema(),
+                    rowChange.getOutput().stream()
+                            .map(NamedExpression.class::cast)
+                            .collect(ImmutableList.toImmutableList()),
+                    sink.getDMLCommandType(),
+                    Optional.empty(), Optional.empty(), rowChange);
+        }
+
         Map<String, Expression> staticPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         staticPartitions.putAll(sink.getStaticPartitionKeyValues());
         Set<String> staticPartitionColNames = staticPartitions.keySet();
@@ -1128,9 +1141,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
         UnboundDictionarySink<?> sink = ctx.root;
-        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
-        Dictionary dictionary = pair.second;
+        Database database = sink.getDatabase();
+        Dictionary dictionary = sink.getDictionary();
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // 1. bind target columns: from sink's column names to target tables' Columns
@@ -1264,19 +1276,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an jdbc table");
-    }
-
-    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
-            UnboundDictionarySink<? extends Plan> sink) {
-        Dictionary dictionary = sink.getDictionary();
-        Database db;
-        try {
-            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return Pair.of(db, dictionary);
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

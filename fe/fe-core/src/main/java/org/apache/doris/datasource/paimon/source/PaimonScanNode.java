@@ -27,6 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -46,6 +47,7 @@ import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -88,6 +90,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -99,6 +102,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
+    private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
+    private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
@@ -745,49 +750,240 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (PaimonScanParams.isPinnedEmptyScan(resolvedOptions)) {
                 return Collections.emptyList();
             }
-            Optional<Long> fileCreationTime = PaimonScanParams.getPinnedFileCreationTime(resolvedOptions);
-            if (fileCreationTime.isPresent()) {
-                if (!(paimonTable instanceof FileStoreTable)) {
-                    throw new UserException("Paimon file-creation OPTIONS require a data table.");
+            int[] projectedColumns = new int[0];
+            if (!PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
+                List<String> fieldNames = paimonTable.rowType().getFieldNames();
+                projectedColumns = desc.getSlots().stream().mapToInt(
+                        slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
+                        .toArray();
+                if (Arrays.stream(projectedColumns).anyMatch(index -> index < 0)) {
+                    throw new UserException("Paimon scan schema does not contain all bound Doris columns.");
                 }
-                FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
-                SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
-                        .withMode(ScanMode.ALL)
-                        .withSnapshot(Long.parseLong(
-                                paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
-                        .withManifestEntryFilter(entry ->
-                                entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
-                preserveBatchScanFilters(fileStoreTable, snapshotReader);
-                if (predicates != null) {
-                    predicates.forEach(snapshotReader::withFilter);
-                }
-                return snapshotReader.read().splits();
             }
-            List<String> fieldNames = paimonTable.rowType().getFieldNames();
-            int[] projected = desc.getSlots().stream().mapToInt(
-                    slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
-                    .toArray();
-            if (Arrays.stream(projected).anyMatch(index -> index < 0)) {
-                throw new UserException("Paimon scan schema does not contain all bound Doris columns.");
+            int[] projected = projectedColumns;
+            PaimonSplitTaskCacheKey cacheKey = createPaimonSplitTaskCacheKey(
+                    relationSnapshot, paimonTable, resolvedOptions,
+                    scanParams != null && scanParams.incrementalRead()
+                            ? getIncrReadParams() : Collections.emptyMap(),
+                    projected);
+            if (!canReuseExternalScanTasks()
+                    && !(source.getExternalTable() instanceof PaimonSysExternalTable)) {
+                // Reuse is off (or no statement cache): consume the native splits directly, so an
+                // opt-out never pays the serialization cost of the cache path. System tables keep
+                // the serialized path: their splits must be isolated copies for the JNI reader.
+                return planPaimonSplits(paimonTable, resolvedOptions, projected);
             }
-            ReadBuilder readBuilder = paimonTable.newReadBuilder();
-            TableScan scan = readBuilder.withFilter(predicates)
-                    .withProjection(projected)
-                    .newScan();
-            PaimonMetricRegistry registry = new PaimonMetricRegistry();
-            if (scan instanceof InnerTableScan) {
-                scan = ((InnerTableScan) scan).withMetricRegistry(registry);
+            List<PaimonSerializedScanTask> serializedSplits;
+            try {
+                serializedSplits = getOrLoadExternalScanTasks(cacheKey,
+                        remainingBytes -> serializePaimonSplitsWithinLimit(
+                                planPaimonSplits(paimonTable, resolvedOptions, projected), remainingBytes),
+                        PaimonScanNode::serializedTaskBytes,
+                        StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                        maxRetainedSerializedTaskBytes, maxRetainedSerializedTaskBytes, true);
+            } catch (PaimonTaskCacheLimitException e) {
+                List<org.apache.paimon.table.source.Split> uncachedSplits = e.takePlannedSplits();
+                return uncachedSplits == null
+                        ? planPaimonSplits(paimonTable, resolvedOptions, projected)
+                        : uncachedSplits;
             }
-            List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
-            PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
-            if (!registry.getAllGroups().isEmpty()) {
-                registry.clear();
-            }
-            return splits;
+            return serializedSplits.stream()
+                    .map(PaimonSerializedScanTask::deserialize)
+                    .collect(Collectors.toList());
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to plan Paimon scan tasks", e);
         } finally {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }
+        }
+    }
+
+    private List<org.apache.paimon.table.source.Split> planPaimonSplits(
+            Table paimonTable, Map<String, String> resolvedOptions, int[] projected) throws UserException {
+        Optional<Long> fileCreationTime = PaimonScanParams.getPinnedFileCreationTime(resolvedOptions);
+        if (fileCreationTime.isPresent()) {
+            if (!(paimonTable instanceof FileStoreTable)) {
+                throw new UserException("Paimon file-creation OPTIONS require a data table.");
+            }
+            FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
+            SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
+                    .withMode(ScanMode.ALL)
+                    .withSnapshot(Long.parseLong(
+                            paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
+                    .withManifestEntryFilter(entry ->
+                            entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
+            preserveBatchScanFilters(fileStoreTable, snapshotReader);
+            if (predicates != null) {
+                predicates.forEach(snapshotReader::withFilter);
+            }
+            return snapshotReader.read().splits();
+        }
+        ReadBuilder readBuilder = paimonTable.newReadBuilder();
+        TableScan scan = readBuilder.withFilter(predicates)
+                .withProjection(projected)
+                .newScan();
+        PaimonMetricRegistry registry = new PaimonMetricRegistry();
+        if (scan instanceof InnerTableScan) {
+            scan = ((InnerTableScan) scan).withMetricRegistry(registry);
+        }
+        List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
+        PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
+        if (!registry.getAllGroups().isEmpty()) {
+            registry.clear();
+        }
+        return splits;
+    }
+
+    private PaimonSplitTaskCacheKey createPaimonSplitTaskCacheKey(
+            Optional<MvccSnapshot> relationSnapshot, Table paimonTable,
+            Map<String, String> resolvedOptions, Map<String, String> incrementalOptions,
+            int[] projected) {
+        Long snapshotId = null;
+        Long schemaId = null;
+        if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot) {
+            PaimonSnapshot snapshot = ((PaimonMvccSnapshot) relationSnapshot.get())
+                    .getSnapshotCacheValue().getSnapshot();
+            snapshotId = snapshot.getSnapshotId();
+            schemaId = snapshot.getSchemaId();
+        }
+        return new PaimonSplitTaskCacheKey(
+                source.getCatalog().getId(),
+                source.getExternalTable().getId(),
+                source.getTargetTable().getId(),
+                snapshotId,
+                schemaId,
+                scanParams == null ? null : scanParams.getParamType(),
+                scanParams == null ? Collections.emptyList() : scanParams.getListParams(),
+                resolvedOptions,
+                incrementalOptions,
+                paimonTable.options(),
+                projected,
+                PaimonUtil.encodeObjectToString(predicates));
+    }
+
+    @VisibleForTesting
+    void setMaxRetainedSerializedTaskBytes(long maxRetainedSerializedTaskBytes) {
+        this.maxRetainedSerializedTaskBytes = maxRetainedSerializedTaskBytes;
+    }
+
+    private List<PaimonSerializedScanTask> serializePaimonSplitsWithinLimit(
+            List<org.apache.paimon.table.source.Split> splits, long maxSerializedBytes) {
+        List<PaimonSerializedScanTask> serializedTasks = new ArrayList<>();
+        long serializedBytes = 0;
+        for (org.apache.paimon.table.source.Split split : splits) {
+            Optional<byte[]> serializedSplit = PaimonUtil.serializeObjectWithinLimit(
+                    split, maxSerializedBytes - serializedBytes);
+            if (!serializedSplit.isPresent()) {
+                throw new PaimonTaskCacheLimitException(splits);
+            }
+            PaimonSerializedScanTask task = new PaimonSerializedScanTask(serializedSplit.get());
+            serializedBytes += task.serializedSize();
+            serializedTasks.add(task);
+        }
+        return serializedTasks;
+    }
+
+    private static long serializedTaskBytes(List<PaimonSerializedScanTask> tasks) {
+        return Math.max(1, tasks.stream().mapToLong(PaimonSerializedScanTask::serializedSize).sum());
+    }
+
+    private static final class PaimonSplitTaskCacheKey
+            implements ExternalScanTaskCacheKey<PaimonSerializedScanTask> {
+        private final long catalogId;
+        private final long relationTableId;
+        private final long targetTableId;
+        private final Long snapshotId;
+        private final Long schemaId;
+        private final String scanParamType;
+        private final List<String> listParams;
+        private final Map<String, String> resolvedOptions;
+        private final Map<String, String> incrementalOptions;
+        private final Map<String, String> tableOptions;
+        private final int[] projected;
+        private final String serializedPredicates;
+
+        private PaimonSplitTaskCacheKey(
+                long catalogId, long relationTableId, long targetTableId, Long snapshotId, Long schemaId,
+                String scanParamType, List<String> listParams,
+                Map<String, String> resolvedOptions, Map<String, String> incrementalOptions,
+                Map<String, String> tableOptions, int[] projected,
+                String serializedPredicates) {
+            this.catalogId = catalogId;
+            this.relationTableId = relationTableId;
+            this.targetTableId = targetTableId;
+            this.snapshotId = snapshotId;
+            this.schemaId = schemaId;
+            this.scanParamType = scanParamType;
+            this.listParams = Collections.unmodifiableList(new ArrayList<>(listParams));
+            this.resolvedOptions = Collections.unmodifiableMap(new HashMap<>(resolvedOptions));
+            this.incrementalOptions = Collections.unmodifiableMap(new HashMap<>(incrementalOptions));
+            this.tableOptions = Collections.unmodifiableMap(new HashMap<>(tableOptions));
+            this.projected = Arrays.copyOf(projected, projected.length);
+            this.serializedPredicates = serializedPredicates;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof PaimonSplitTaskCacheKey)) {
+                return false;
+            }
+            PaimonSplitTaskCacheKey that = (PaimonSplitTaskCacheKey) object;
+            return catalogId == that.catalogId
+                    && relationTableId == that.relationTableId
+                    && targetTableId == that.targetTableId
+                    && Objects.equals(snapshotId, that.snapshotId)
+                    && Objects.equals(schemaId, that.schemaId)
+                    && Objects.equals(scanParamType, that.scanParamType)
+                    && listParams.equals(that.listParams)
+                    && resolvedOptions.equals(that.resolvedOptions)
+                    && incrementalOptions.equals(that.incrementalOptions)
+                    && tableOptions.equals(that.tableOptions)
+                    && Arrays.equals(projected, that.projected)
+                    && serializedPredicates.equals(that.serializedPredicates);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(
+                    catalogId, relationTableId, targetTableId, snapshotId, schemaId, scanParamType, listParams,
+                    resolvedOptions, incrementalOptions, tableOptions, serializedPredicates)
+                    + Arrays.hashCode(projected);
+        }
+    }
+
+    private static final class PaimonSerializedScanTask {
+        private final byte[] serializedSplit;
+
+        private PaimonSerializedScanTask(byte[] serializedSplit) {
+            this.serializedSplit = serializedSplit;
+        }
+
+        private org.apache.paimon.table.source.Split deserialize() {
+            return PaimonUtil.deserializeObject(Arrays.copyOf(serializedSplit, serializedSplit.length));
+        }
+
+        private int serializedSize() {
+            return serializedSplit.length;
+        }
+    }
+
+    private static final class PaimonTaskCacheLimitException extends RuntimeException {
+        private List<org.apache.paimon.table.source.Split> plannedSplits;
+
+        private PaimonTaskCacheLimitException(List<org.apache.paimon.table.source.Split> plannedSplits) {
+            this.plannedSplits = plannedSplits;
+        }
+
+        private synchronized List<org.apache.paimon.table.source.Split> takePlannedSplits() {
+            List<org.apache.paimon.table.source.Split> splits = plannedSplits;
+            plannedSplits = null;
+            return splits;
         }
     }
 

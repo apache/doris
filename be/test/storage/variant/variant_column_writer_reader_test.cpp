@@ -240,7 +240,7 @@ static std::string variant_json_at(const IColumn& column, size_t row) {
 TEST(VariantPathBuilderTest, PromotesValuesAndMaterializesMissingRows) {
     VariantBatchBuilder value_builder;
     auto integer_row = value_builder.begin_row();
-    integer_row.add_int(1);
+    integer_row.add_float(1.0F);
     integer_row.finish();
     auto double_row = value_builder.begin_row();
     double_row.add_double(2.5);
@@ -283,7 +283,7 @@ TEST(VariantPathBuilderTest, PromotesValuesAndMaterializesMissingRows) {
     }
 }
 
-TEST(VariantPathBuilderTest, PreservesIntegerWidthAcrossPromotion) {
+TEST(VariantPathBuilderTest, UsesBigintForEncodedIntegersWithoutPromotion) {
     VariantBatchBuilder value_builder;
     auto tiny_row = value_builder.begin_row();
     tiny_row.add_int(1);
@@ -295,9 +295,98 @@ TEST(VariantPathBuilderTest, PreservesIntegerWidthAcrossPromotion) {
 
     segment_v2::VariantPathBuilder builder(PathInData("metric"));
     ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
-    EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_TINYINT);
+    EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_BIGINT);
     ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
-    EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_INT);
+    EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_BIGINT);
+    EXPECT_EQ(builder.promotion_count(), 0);
+}
+
+TEST(VariantPathBuilderTest, MatchesLegacyMixedIntegerDoubleInferenceInEitherOrder) {
+    for (const bool reverse : {false, true}) {
+        SCOPED_TRACE(testing::Message() << "reverse=" << reverse);
+        const std::vector<std::string> jsons =
+                reverse ? std::vector<std::string> {R"({"metric":1.5})", R"({"metric":1})"}
+                        : std::vector<std::string> {R"({"metric":1})", R"({"metric":1.5})"};
+
+        auto legacy = ColumnVariant::create(0, false);
+        auto json = ColumnString::create();
+        for (const std::string& value : jsons) {
+            json->insert_data(value.data(), value.size());
+        }
+        ParseConfig parse_config;
+        parse_config.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+        variant_util::parse_json_to_variant(*legacy, *json, parse_config);
+        legacy->finalize();
+        auto* legacy_metric = legacy->get_subcolumn(PathInData("metric"));
+        ASSERT_NE(legacy_metric, nullptr);
+        EXPECT_EQ(remove_nullable(legacy_metric->get_least_common_type())->get_primitive_type(),
+                  TYPE_JSONB);
+
+        VariantBatchBuilder value_builder;
+        if (reverse) {
+            auto double_row = value_builder.begin_row();
+            double_row.add_double(1.5);
+            double_row.finish();
+            auto integer_row = value_builder.begin_row();
+            integer_row.add_int(1);
+            integer_row.finish();
+        } else {
+            auto integer_row = value_builder.begin_row();
+            integer_row.add_int(1);
+            integer_row.finish();
+            auto double_row = value_builder.begin_row();
+            double_row.add_double(1.5);
+            double_row.finish();
+        }
+        VariantBatchBuilder values = value_builder.finish_batch();
+        segment_v2::VariantPathBuilder builder(PathInData("metric"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        ASSERT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+
+        for (size_t row = 0; row < jsons.size(); ++row) {
+            auto legacy_keys = ColumnString::create();
+            auto legacy_values = ColumnString::create();
+            legacy_metric->serialize_to_binary_column(legacy_keys.get(), "metric",
+                                                      legacy_values.get(), row);
+            ASSERT_EQ(legacy_values->size(), 1);
+            ColumnString::Chars v2_cell;
+            ASSERT_TRUE(builder.write_sparse_cell(row, &v2_cell).ok());
+            const StringRef legacy_cell = legacy_values->get_data_at(0);
+            ASSERT_EQ(v2_cell.size(), legacy_cell.size);
+            EXPECT_EQ(std::memcmp(v2_cell.data(), legacy_cell.data, legacy_cell.size), 0);
+        }
+    }
+}
+
+TEST(VariantPathBuilderTest, CachedBinarySerdeFollowsFloatingPromotion) {
+    VariantBatchBuilder value_builder;
+    auto tiny_row = value_builder.begin_row();
+    tiny_row.add_float(1.0F);
+    tiny_row.finish();
+    auto int_row = value_builder.begin_row();
+    int_row.add_double(2.0);
+    int_row.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder builder(PathInData("metric"));
+    ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+    ColumnString::Chars binary;
+    ASSERT_TRUE(builder.write_sparse_cell(0, &binary).ok());
+    ASSERT_FALSE(binary.empty());
+    EXPECT_EQ(static_cast<FieldType>(binary.front()), FieldType::OLAP_FIELD_TYPE_FLOAT);
+
+    ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+    binary.clear();
+    ASSERT_TRUE(builder.write_sparse_cell(1, &binary).ok());
+    ASSERT_FALSE(binary.empty());
+    EXPECT_EQ(static_cast<FieldType>(binary.front()), FieldType::OLAP_FIELD_TYPE_DOUBLE);
+
+    ASSERT_TRUE(builder.convert_to(std::make_shared<DataTypeInt64>()).ok());
+    binary.clear();
+    ASSERT_TRUE(builder.write_sparse_cell(1, &binary).ok());
+    ASSERT_FALSE(binary.empty());
+    EXPECT_EQ(static_cast<FieldType>(binary.front()), FieldType::OLAP_FIELD_TYPE_BIGINT);
 }
 
 TEST(VariantPathBuilderTest, PromotesCompatibleDecimalScalesInEitherOrderAndInsideArrays) {
@@ -344,6 +433,201 @@ TEST(VariantPathBuilderTest, PromotesCompatibleDecimalScalesInEitherOrderAndInsi
         verify(reverse, false);
         verify(reverse, true);
     }
+}
+
+TEST(VariantPathBuilderTest, EqualFullTypeDoesNotPromoteButDifferentDecimalScaleDoes) {
+    VariantBatchBuilder value_builder;
+    for (const uint8_t scale : {2, 2, 4}) {
+        auto row = value_builder.begin_row();
+        row.add_decimal(123, scale, 16);
+        row.finish();
+    }
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder builder(PathInData("metric"));
+    ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+    EXPECT_EQ(builder.promotion_count(), 0);
+    ASSERT_TRUE(builder.append(values.value_at(2), 2).ok());
+    EXPECT_EQ(builder.promotion_count(), 1);
+    EXPECT_EQ(builder.stable_scalar_append_count(), 1);
+    EXPECT_EQ(remove_nullable(builder.type())->get_scale(), 4);
+}
+
+TEST(VariantPathBuilderTest, StableScalarFastPathPreservesInferenceBoundaries) {
+    const auto verify_encoded = []<typename Append>(Append append) {
+        VariantBatchBuilder value_builder;
+        for (size_t row = 0; row < 2; ++row) {
+            auto value_row = value_builder.begin_row();
+            append(value_row);
+            value_row.finish();
+        }
+        VariantBatchBuilder values = value_builder.finish_batch();
+        segment_v2::VariantPathBuilder builder(PathInData("metric"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        EXPECT_EQ(builder.promotion_count(), 0);
+        EXPECT_EQ(builder.stable_scalar_append_count(), 1);
+    };
+
+    verify_encoded([](auto& row) { row.add_bool(true); });
+    verify_encoded([](auto& row) { row.add_int(1 << 20); });
+    verify_encoded([](auto& row) { row.add_largeint(static_cast<__int128>(1) << 80); });
+    verify_encoded([](auto& row) { row.add_float(1.25F); });
+    verify_encoded([](auto& row) { row.add_double(2.5); });
+    verify_encoded([](auto& row) { row.add_string(StringRef("stable")); });
+    const std::string long_string(80, 'x');
+    verify_encoded([&](auto& row) { row.add_string(StringRef(long_string)); });
+    verify_encoded([](auto& row) { row.add_date(0); });
+    verify_encoded([](auto& row) { row.add_timestamp_micros(1, true); });
+    verify_encoded([](auto& row) { row.add_timestamp_micros(1, false); });
+    verify_encoded([](auto& row) { row.add_decimal(12300, 4, 8); });
+
+    VariantBatchBuilder widening_values_builder;
+    for (const int64_t value : std::array<int64_t, 4> {1, 1LL << 20, 1LL << 40, 1}) {
+        auto row = widening_values_builder.begin_row();
+        row.add_int(value);
+        row.finish();
+    }
+    VariantBatchBuilder widening_values = widening_values_builder.finish_batch();
+    segment_v2::VariantPathBuilder widening(PathInData("widening"));
+    ASSERT_TRUE(widening.append(widening_values.value_at(0), 0).ok());
+    ASSERT_TRUE(widening.append(widening_values.value_at(1), 1).ok());
+    EXPECT_EQ(widening.stable_scalar_append_count(), 1);
+    EXPECT_EQ(widening.promotion_count(), 0);
+    ASSERT_TRUE(widening.append(widening_values.value_at(2), 2).ok());
+    EXPECT_EQ(widening.stable_scalar_append_count(), 2);
+    ASSERT_TRUE(widening.append(widening_values.value_at(3), 3).ok());
+    EXPECT_EQ(widening.stable_scalar_append_count(), 3);
+    EXPECT_EQ(widening.promotion_count(), 0);
+    EXPECT_EQ(widening.type()->to_string(*widening.column(), 3), "1");
+
+    VariantBatchBuilder conflict_values_builder;
+    auto integer_row = conflict_values_builder.begin_row();
+    integer_row.add_int(1);
+    integer_row.finish();
+    for (size_t row = 0; row < 2; ++row) {
+        auto bool_row = conflict_values_builder.begin_row();
+        bool_row.add_bool(true);
+        bool_row.finish();
+    }
+    VariantBatchBuilder conflict_values = conflict_values_builder.finish_batch();
+    segment_v2::VariantPathBuilder conflict(PathInData("conflict"));
+    for (size_t row = 0; row < conflict_values.num_rows(); ++row) {
+        ASSERT_TRUE(conflict.append(conflict_values.value_at(row), row).ok());
+    }
+    EXPECT_EQ(remove_nullable(conflict.type())->get_primitive_type(), TYPE_JSONB);
+    EXPECT_EQ(conflict.stable_scalar_append_count(), 1);
+
+    VariantBatchBuilder binary_values_builder;
+    for (size_t row = 0; row < 2; ++row) {
+        auto binary_row = binary_values_builder.begin_row();
+        binary_row.add_binary(StringRef("binary"));
+        binary_row.finish();
+    }
+    VariantBatchBuilder binary_values = binary_values_builder.finish_batch();
+    segment_v2::VariantPathBuilder binary(PathInData("binary"));
+    ASSERT_TRUE(binary.append(binary_values.value_at(0), 0).ok());
+    ASSERT_TRUE(binary.append(binary_values.value_at(1), 1).ok());
+    EXPECT_EQ(remove_nullable(binary.type())->get_primitive_type(), TYPE_JSONB);
+    EXPECT_EQ(binary.stable_scalar_append_count(), 1);
+
+    VariantBatchBuilder array_values_builder;
+    for (size_t row = 0; row < 2; ++row) {
+        auto value_row = array_values_builder.begin_row();
+        auto array = value_row.start_array();
+        value_row.add_int(1);
+        array.finish();
+        value_row.finish();
+    }
+    VariantBatchBuilder array_values = array_values_builder.finish_batch();
+    segment_v2::VariantPathBuilder arrays(PathInData("arrays"));
+    ASSERT_TRUE(arrays.append(array_values.value_at(0), 0).ok());
+    ASSERT_TRUE(arrays.append(array_values.value_at(1), 1).ok());
+    EXPECT_EQ(arrays.stable_scalar_append_count(), 0);
+
+    const auto verify_out_of_range_falls_back = []<typename Append>(Append append) {
+        VariantBatchBuilder value_builder;
+        auto valid_row = value_builder.begin_row();
+        append(valid_row, false);
+        valid_row.finish();
+        auto invalid_row = value_builder.begin_row();
+        append(invalid_row, true);
+        invalid_row.finish();
+        VariantBatchBuilder values = value_builder.finish_batch();
+
+        segment_v2::VariantPathBuilder builder(PathInData("range"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+        EXPECT_EQ(builder.stable_scalar_append_count(), 0);
+    };
+    verify_out_of_range_falls_back(
+            [](auto& row, bool invalid) { row.add_date(invalid ? 3'000'000 : 0); });
+    verify_out_of_range_falls_back([](auto& row, bool invalid) {
+        row.add_timestamp_micros(invalid ? 253'402'300'800'000'000LL : 0, true);
+    });
+}
+
+TEST(VariantPathBuilderTest, StableScalarGuardRetainsDecimalAndAppendFailureFallbacks) {
+    VariantBatchBuilder value_builder;
+    auto valid_row = value_builder.begin_row();
+    valid_row.add_decimal(1, 1, 16);
+    valid_row.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder decimal(PathInData("decimal"));
+    ASSERT_TRUE(decimal.append(values.value_at(0), 0).ok());
+
+    std::array<char, 18> overflow_decimal {};
+    overflow_decimal[0] = static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::DECIMAL16)
+                                            << VARIANT_VALUE_HEADER_SHIFT);
+    overflow_decimal[1] = 1;
+    unsigned __int128 unscaled = VARIANT_DECIMAL16_MAX + 1;
+    for (size_t byte = 0; byte < 16; ++byte) {
+        overflow_decimal[byte + 2] = static_cast<char>(unscaled >> (byte * 8));
+    }
+    ASSERT_TRUE(
+            decimal.append(VariantRef {.metadata = {},
+                                       .value = {overflow_decimal.data(), overflow_decimal.size()}},
+                           1)
+                    .ok());
+    EXPECT_EQ(remove_nullable(decimal.type())->get_primitive_type(), TYPE_JSONB);
+    EXPECT_EQ(decimal.promotion_count(), 1);
+    EXPECT_EQ(decimal.stable_scalar_append_count(), 0);
+    EXPECT_EQ(decimal.non_null_rows(), 2);
+
+    VariantBatchBuilder narrow_values_builder;
+    auto narrow_row = narrow_values_builder.begin_row();
+    narrow_row.add_decimal(9999, 1, 4);
+    narrow_row.finish();
+    VariantBatchBuilder narrow_values = narrow_values_builder.finish_batch();
+    segment_v2::VariantPathBuilder narrow_decimal(PathInData("narrow_decimal"));
+    ASSERT_TRUE(narrow_decimal.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(narrow_decimal.convert_to(std::make_shared<DataTypeDecimal128>(3, 1)).ok());
+    ASSERT_TRUE(narrow_decimal.append(narrow_values.value_at(0), 1).ok());
+    EXPECT_EQ(remove_nullable(narrow_decimal.type())->get_primitive_type(), TYPE_JSONB);
+    EXPECT_EQ(narrow_decimal.promotion_count(), 2);
+    EXPECT_EQ(narrow_decimal.stable_scalar_append_count(), 0);
+    EXPECT_EQ(narrow_decimal.non_null_rows(), 2);
+
+    VariantBatchBuilder integer_builder;
+    auto integer_row = integer_builder.begin_row();
+    integer_row.add_int(1);
+    integer_row.finish();
+    VariantBatchBuilder integer_values = integer_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder truncated(PathInData("truncated"));
+    ASSERT_TRUE(truncated.append(integer_values.value_at(0), 0).ok());
+    const char truncated_int8 = static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                                                  << VARIANT_VALUE_HEADER_SHIFT);
+    const Status truncated_status =
+            truncated.append(VariantRef {.metadata = {}, .value = {&truncated_int8, 1}}, 1);
+    EXPECT_FALSE(truncated_status.ok());
+    EXPECT_EQ(remove_nullable(truncated.type())->get_primitive_type(), TYPE_JSONB);
+    EXPECT_EQ(truncated.promotion_count(), 1);
+    EXPECT_EQ(truncated.stable_scalar_append_count(), 0);
+    EXPECT_EQ(truncated.non_null_rows(), 1);
 }
 
 TEST(VariantPathBuilderTest, JsonbFallbackPreservesCanonicalNumericBytes) {
@@ -635,6 +919,199 @@ TEST(VariantPathBuilderTest, ShredderReusesCanonicalPathsAcrossAppends) {
     ASSERT_EQ(selected.column->size(), 2);
     EXPECT_EQ(selected.type->to_string(*selected.column, 0), "1");
     EXPECT_EQ(selected.type->to_string(*selected.column, 1), "2");
+}
+
+TEST(VariantShredderTest, ReusesRootAndNestedPathsForSharedMetadata) {
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions format_options;
+    auto values = ColumnVariantV2::create();
+    for (const std::string_view json :
+         {R"({"a":1,"nested":{"x":2,"y":3}})", R"({"a":4,"nested":{"x":5,"y":6}})"}) {
+        Slice slice(json.data(), json.size());
+        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*values, slice, format_options).ok());
+    }
+    ASSERT_EQ(values->read_view().metadata_count(), 1);
+
+    segment_v2::VariantShredderOptions options;
+    options.max_subcolumns_count = 0;
+    options.sparse_bucket_count = 1;
+    segment_v2::VariantShredder shredder(std::move(options));
+    ASSERT_TRUE(shredder.append(values->read_view(), 0, values->size()).ok());
+
+    segment_v2::VariantShreddedColumns shredded;
+    ASSERT_TRUE(shredder.finish(&shredded).ok());
+    ASSERT_EQ(shredded.materialized.size(), 3);
+    const auto expect_path = [&](std::string_view path, std::string_view first,
+                                 std::string_view second) {
+        const auto found = std::ranges::find_if(shredded.materialized, [&](const auto& column) {
+            return column.path.get_path() == path;
+        });
+        ASSERT_NE(found, shredded.materialized.end()) << path;
+        ASSERT_TRUE(found->column);
+        EXPECT_EQ(found->rowids, (DorisVector<uint32_t> {0, 1}));
+        EXPECT_EQ(found->type->to_string(*found->column, 0), first);
+        EXPECT_EQ(found->type->to_string(*found->column, 1), second);
+    };
+    expect_path("a", "1", "4");
+    expect_path("nested.x", "2", "5");
+    expect_path("nested.y", "3", "6");
+}
+
+static void expect_variant_statistics_equal(const segment_v2::VariantStatistics& actual,
+                                            const segment_v2::VariantStatistics& expected) {
+    EXPECT_EQ(actual.subcolumns_non_null_size, expected.subcolumns_non_null_size);
+    EXPECT_EQ(actual.sparse_column_non_null_size, expected.sparse_column_non_null_size);
+    EXPECT_EQ(actual.doc_value_column_non_null_size, expected.doc_value_column_non_null_size);
+    EXPECT_EQ(actual.has_nested_group, expected.has_nested_group);
+}
+
+static void expect_physical_column_data_equal(const IColumn& actual, const IColumn& expected) {
+    ASSERT_EQ(actual.get_name(), expected.get_name());
+    ASSERT_EQ(actual.size(), expected.size());
+    if (const auto* actual_string = check_and_get_column<ColumnString>(actual)) {
+        const auto& expected_string = assert_cast<const ColumnString&>(expected);
+        EXPECT_EQ(actual_string->get_chars(), expected_string.get_chars());
+        EXPECT_EQ(actual_string->get_offsets(), expected_string.get_offsets());
+        return;
+    }
+    if (const auto* actual_nullable = check_and_get_column<ColumnNullable>(actual)) {
+        const auto& expected_nullable = assert_cast<const ColumnNullable&>(expected);
+        EXPECT_EQ(actual_nullable->get_null_map_data(), expected_nullable.get_null_map_data());
+        expect_physical_column_data_equal(actual_nullable->get_nested_column(),
+                                          expected_nullable.get_nested_column());
+        return;
+    }
+    if (const auto* actual_map = check_and_get_column<ColumnMap>(actual)) {
+        const auto& expected_map = assert_cast<const ColumnMap&>(expected);
+        EXPECT_EQ(actual_map->get_offsets(), expected_map.get_offsets());
+        expect_physical_column_data_equal(actual_map->get_keys(), expected_map.get_keys());
+        expect_physical_column_data_equal(actual_map->get_values(), expected_map.get_values());
+        return;
+    }
+    if (const auto* actual_array = check_and_get_column<ColumnArray>(actual)) {
+        const auto& expected_array = assert_cast<const ColumnArray&>(expected);
+        EXPECT_EQ(actual_array->get_offsets(), expected_array.get_offsets());
+        expect_physical_column_data_equal(actual_array->get_data(), expected_array.get_data());
+        return;
+    }
+    for (size_t row = 0; row < actual.size(); ++row) {
+        EXPECT_EQ(actual.compare_at(row, row, expected, -1), 0) << "row=" << row;
+    }
+}
+
+static void expect_physical_columns_equal(const ColumnPtr& actual, const ColumnPtr& expected) {
+    ASSERT_TRUE(actual);
+    ASSERT_TRUE(expected);
+    expect_physical_column_data_equal(*actual, *expected);
+}
+
+static void expect_shredded_columns_equal(const segment_v2::VariantShreddedColumns& actual,
+                                          const segment_v2::VariantShreddedColumns& expected) {
+    ASSERT_EQ(actual.num_rows, expected.num_rows);
+    expect_physical_columns_equal(actual.root_jsonb, expected.root_jsonb);
+
+    ASSERT_EQ(actual.materialized.size(), expected.materialized.size());
+    for (size_t index = 0; index < actual.materialized.size(); ++index) {
+        const auto& actual_path = actual.materialized[index];
+        const auto& expected_path = expected.materialized[index];
+        EXPECT_EQ(actual_path.path, expected_path.path) << "index=" << index;
+        ASSERT_TRUE(actual_path.type);
+        ASSERT_TRUE(expected_path.type);
+        EXPECT_TRUE(actual_path.type->equals(*expected_path.type)) << "index=" << index;
+        EXPECT_EQ(actual_path.rowids, expected_path.rowids) << "index=" << index;
+        expect_physical_columns_equal(actual_path.column, expected_path.column);
+    }
+
+    ASSERT_EQ(actual.binary_buckets.size(), expected.binary_buckets.size());
+    for (size_t bucket = 0; bucket < actual.binary_buckets.size(); ++bucket) {
+        expect_physical_columns_equal(actual.binary_buckets[bucket].column,
+                                      expected.binary_buckets[bucket].column);
+        expect_variant_statistics_equal(actual.binary_buckets[bucket].statistics,
+                                        expected.binary_buckets[bucket].statistics);
+    }
+    expect_variant_statistics_equal(actual.statistics, expected.statistics);
+}
+
+TEST(VariantShredderTest, ChunkedBinaryTransposeMatchesSingleChunkForOrdinaryAndDoc) {
+    const auto path_for_bucket = [](uint32_t bucket, std::string_view prefix) {
+        for (uint32_t suffix = 0; suffix < 1024; ++suffix) {
+            std::string path(prefix);
+            path += std::to_string(suffix);
+            if (variant_util::variant_binary_shard_of({path.data(), path.size()}, 2) == bucket) {
+                return path;
+            }
+        }
+        DORIS_CHECK(false) << "failed to find path for bucket " << bucket;
+        return std::string {};
+    };
+    const std::array<std::string, 3> sparse_paths {
+            path_for_bucket(0, "chunk_left_"),
+            path_for_bucket(0, "chunk_middle_"),
+            path_for_bucket(1, "chunk_right_"),
+    };
+    // Ordinary sparse cells per row are 3,1,0,2,3,1,0,2. A four-cell limit
+    // crosses exact boundaries and empty rows; a two-cell limit also forces the
+    // over-wide-row branch. DOC additionally publishes hot in the binary map, so
+    // both layouts exercise multiple chunks.
+    const std::array<uint8_t, 8> sparse_masks {0b111, 0b001, 0b000, 0b110,
+                                               0b111, 0b100, 0b000, 0b011};
+    auto values = ColumnVariantV2::create();
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions format_options;
+    for (size_t row = 0; row < sparse_masks.size(); ++row) {
+        std::string json = "{\"hot\":" + std::to_string(row);
+        for (size_t path = 0; path < sparse_paths.size(); ++path) {
+            if ((sparse_masks[row] & (1U << path)) != 0) {
+                json += ",\"" + sparse_paths[path] + "\":" + std::to_string(row * 10 + path);
+            }
+        }
+        json += "}";
+        Slice slice(json.data(), json.size());
+        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*values, slice, format_options).ok());
+    }
+
+    for (const auto physical_layout : {segment_v2::VariantShredderPhysicalLayout::ORDINARY,
+                                       segment_v2::VariantShredderPhysicalLayout::DOC}) {
+        SCOPED_TRACE(physical_layout == segment_v2::VariantShredderPhysicalLayout::ORDINARY
+                             ? "ordinary"
+                             : "doc");
+        const segment_v2::VariantShredderOptions options {
+                .physical_layout = physical_layout,
+                .max_subcolumns_count = 1,
+                .sparse_bucket_count = 2,
+                .doc_bucket_count = 2,
+                .doc_materialization_min_rows = sparse_masks.size() + 1,
+        };
+        segment_v2::VariantShredder single_chunk(options);
+        ASSERT_TRUE(single_chunk.append(values->read_view(), 0, values->size()).ok());
+        segment_v2::VariantShreddedColumns expected;
+        ASSERT_TRUE(single_chunk.finish(&expected).ok());
+
+        for (const size_t chunk_limit : {size_t {4}, size_t {2}}) {
+            SCOPED_TRACE(testing::Message() << "chunk_limit=" << chunk_limit);
+            segment_v2::VariantShredder chunked(options);
+            segment_v2::VariantShredder::TestAccess::set_binary_cells_per_chunk(chunked,
+                                                                                chunk_limit);
+            ASSERT_TRUE(chunked.append(values->read_view(), 0, values->size()).ok());
+            segment_v2::VariantShreddedColumns actual;
+            ASSERT_TRUE(chunked.finish(&actual).ok());
+
+            const size_t expected_chunks =
+                    physical_layout == segment_v2::VariantShredderPhysicalLayout::ORDINARY
+                            ? (chunk_limit == 4 ? 4 : 6)
+                            : (chunk_limit == 4 ? 6 : 8);
+            EXPECT_EQ(segment_v2::VariantShredder::TestAccess::binary_chunk_count(chunked),
+                      expected_chunks);
+            expect_shredded_columns_equal(actual, expected);
+            ASSERT_EQ(actual.binary_buckets.size(), 2);
+            for (size_t bucket = 0; bucket < actual.binary_buckets.size(); ++bucket) {
+                const auto& map =
+                        assert_cast<const ColumnMap&>(*actual.binary_buckets[bucket].column);
+                EXPECT_EQ(map.size(), sparse_masks.size());
+                EXPECT_GT(map.get_keys().size(), 0) << "bucket=" << bucket;
+            }
+        }
+    }
 }
 
 static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,

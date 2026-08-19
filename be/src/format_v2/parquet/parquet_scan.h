@@ -105,6 +105,7 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups);
+bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const DataTypePtr& right);
 #ifdef BE_TEST
 void reset_physical_leaf_set_build_count();
 size_t physical_leaf_set_build_count();

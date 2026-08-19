@@ -31,6 +31,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -53,6 +54,7 @@ import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.Equali
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
@@ -119,7 +121,10 @@ import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -132,10 +137,15 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class IcebergScanNode extends FileQueryScanNode {
+    private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
     static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
@@ -154,6 +164,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private long targetSplitSize = 0;
+    private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // Used to avoid repeatedly calculating partition info map for the same
     // partition data and spec.
     private Map<Pair<Integer, PartitionData>, Map<String, String>> partitionMapInfos;
@@ -871,15 +882,24 @@ public class IcebergScanNode extends FileQueryScanNode {
             return TableScanUtil.splitFiles(scan.planFiles(),
                     sessionVariable.getFileSplitSize());
         }
-        if (isBatchMode()) {
+        if (isBatchMode() || tableLevelPushDownCount) {
             // Currently iceberg batch split mode will use max split size.
             // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
+            // A metadata COUNT(*) also consumes only a bounded number of representative splits.
+            // Keep planFiles lazy for that path instead of materializing and retaining the whole
+            // table in the statement cache.
             return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
         }
 
         // Non Batch Mode
         // Materialize planFiles() into a list to avoid iterating the CloseableIterable twice.
         // RISK: It will cost memory if the table is large.
+        List<FileScanTask> fileScanTaskList = getOrPlanFileScanTasks(scan, () -> materializeFileScanTasks(scan));
+        targetSplitSize = determineTargetFileSplitSize(fileScanTaskList);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+    }
+
+    private List<FileScanTask> materializeFileScanTasks(TableScan scan) {
         List<FileScanTask> fileScanTaskList = new ArrayList<>();
         try (CloseableIterable<FileScanTask> scanTasksIter = scan.planFiles()) {
             for (FileScanTask task : scanTasksIter) {
@@ -888,9 +908,108 @@ public class IcebergScanNode extends FileQueryScanNode {
         } catch (Exception e) {
             throw new RuntimeException("Failed to materialize file scan tasks", e);
         }
+        return fileScanTaskList;
+    }
 
-        targetSplitSize = determineTargetFileSplitSize(fileScanTaskList);
-        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+    @VisibleForTesting
+    List<FileScanTask> getOrPlanFileScanTasks(TableScan scan, Supplier<List<FileScanTask>> planner) {
+        try {
+            return getOrPlanSerializedIcebergTasks(createFileScanTaskCacheKey(scan), planner::get);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to plan Iceberg file scan tasks", e);
+        }
+    }
+
+    private IcebergScanTaskCacheKey<IcebergSerializedScanTask<FileScanTask>> createFileScanTaskCacheKey(
+            TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        return new IcebergScanTaskCacheKey<>(
+                source.getCatalog().getId(),
+                source.getTargetTable().getId(),
+                snapshot == null ? null : snapshot.snapshotId(),
+                scan.schema().schemaId(),
+                scan.filter(),
+                scan.isCaseSensitive(),
+                FileScanTask.class.getName());
+    }
+
+    @VisibleForTesting
+    List<PositionDeletesScanTask> getOrPlanPositionDeleteTasks(
+            BatchScan scan, Callable<List<PositionDeletesScanTask>> planner) throws Exception {
+        Snapshot snapshot = scan.snapshot();
+        IcebergScanTaskCacheKey<IcebergSerializedScanTask<PositionDeletesScanTask>> cacheKey
+                = new IcebergScanTaskCacheKey<>(
+                source.getCatalog().getId(),
+                source.getTargetTable().getId(),
+                snapshot == null ? null : snapshot.snapshotId(),
+                scan.schema().schemaId(),
+                scan.filter(),
+                scan.isCaseSensitive(),
+                PositionDeletesScanTask.class.getName());
+        return getOrPlanSerializedIcebergTasks(cacheKey, planner);
+    }
+
+    private <T> List<T> getOrPlanSerializedIcebergTasks(
+            IcebergScanTaskCacheKey<IcebergSerializedScanTask<T>> cacheKey,
+            Callable<List<T>> planner) throws Exception {
+        if (!canReuseExternalScanTasks()) {
+            // Reuse is off (or no statement cache): consume the native tasks directly, so an
+            // opt-out never pays the serialization cost of the cache path.
+            return planner.call();
+        }
+        try {
+            List<IcebergSerializedScanTask<T>> serializedTasks = getOrLoadExternalScanTasks(
+                    cacheKey,
+                    remainingBytes -> serializeIcebergTasksWithinLimit(planner.call(), remainingBytes),
+                    IcebergScanNode::serializedIcebergTaskBytes,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.ICEBERG_SERIALIZED_BYTES,
+                    maxRetainedSerializedTaskBytes, maxRetainedSerializedTaskBytes, true);
+            return serializedTasks.stream()
+                    .map(IcebergSerializedScanTask::deserialize)
+                    .collect(Collectors.toList());
+        } catch (IcebergTaskCacheLimitException e) {
+            List<T> plannedTasks = e.takePlannedTasks();
+            return plannedTasks == null ? planner.call() : plannedTasks;
+        }
+    }
+
+    private <T> List<IcebergSerializedScanTask<T>> serializeIcebergTasksWithinLimit(
+            List<T> tasks, long maxSerializedBytes) {
+        List<IcebergSerializedScanTask<T>> serializedTasks = new ArrayList<>();
+        long serializedBytes = 0;
+        for (T task : tasks) {
+            Optional<byte[]> serializedTask = serializeIcebergTaskWithinLimit(
+                    task, maxSerializedBytes - serializedBytes);
+            if (!serializedTask.isPresent()) {
+                throw new IcebergTaskCacheLimitException(tasks);
+            }
+            serializedTasks.add(new IcebergSerializedScanTask<>(serializedTask.get()));
+            serializedBytes += serializedTask.get().length;
+        }
+        return serializedTasks;
+    }
+
+    @VisibleForTesting
+    static Optional<byte[]> serializeIcebergTaskWithinLimit(Object task, long maxBytes) {
+        LimitedByteArrayOutputStream output = new LimitedByteArrayOutputStream(maxBytes);
+        try (ObjectOutputStream objectOutput = new ObjectOutputStream(output)) {
+            objectOutput.writeObject(task);
+            objectOutput.flush();
+            return Optional.of(output.toByteArray());
+        } catch (SerializationSizeLimitException e) {
+            return Optional.empty();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize Iceberg scan task", e);
+        }
+    }
+
+    private static long serializedIcebergTaskBytes(List<? extends IcebergSerializedScanTask<?>> tasks) {
+        return Math.max(1, tasks.stream().mapToLong(IcebergSerializedScanTask::serializedSize).sum());
+    }
+
+    @VisibleForTesting
+    void setMaxRetainedSerializedTaskBytes(long maxRetainedSerializedTaskBytes) {
+        this.maxRetainedSerializedTaskBytes = maxRetainedSerializedTaskBytes;
     }
 
     private long determineTargetFileSplitSize(Iterable<? extends ContentScanTask<?>> tasks) {
@@ -918,13 +1037,147 @@ public class IcebergScanNode extends FileQueryScanNode {
         return determineTargetFileSplitSize(tasks);
     }
 
+    private static final class IcebergScanTaskCacheKey<T>
+            implements ExternalScanTaskCacheKey<T> {
+        private final long catalogId;
+        private final long tableId;
+        private final Long snapshotId;
+        private final int schemaId;
+        private final byte[] serializedFilter;
+        private final boolean caseSensitive;
+        private final String taskType;
+
+        private IcebergScanTaskCacheKey(
+                long catalogId, long tableId, Long snapshotId, int schemaId,
+                Expression filter, boolean caseSensitive, String taskType) {
+            this.catalogId = catalogId;
+            this.tableId = tableId;
+            this.snapshotId = snapshotId;
+            this.schemaId = schemaId;
+            this.serializedFilter = filter == null ? null : SerializationUtil.serializeToBytes(filter);
+            this.caseSensitive = caseSensitive;
+            this.taskType = taskType;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof IcebergScanTaskCacheKey)) {
+                return false;
+            }
+            IcebergScanTaskCacheKey<?> that = (IcebergScanTaskCacheKey<?>) object;
+            return catalogId == that.catalogId
+                    && tableId == that.tableId
+                    && schemaId == that.schemaId
+                    && caseSensitive == that.caseSensitive
+                    && Objects.equals(snapshotId, that.snapshotId)
+                    && taskType.equals(that.taskType)
+                    && Arrays.equals(serializedFilter, that.serializedFilter);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(catalogId, tableId, snapshotId, schemaId, caseSensitive, taskType)
+                    + Arrays.hashCode(serializedFilter);
+        }
+    }
+
+    private static final class IcebergSerializedScanTask<T> {
+        private final byte[] serializedTask;
+
+        private IcebergSerializedScanTask(byte[] serializedTask) {
+            this.serializedTask = serializedTask;
+        }
+
+        private T deserialize() {
+            return SerializationUtil.deserializeFromBytes(serializedTask);
+        }
+
+        private long serializedSize() {
+            return serializedTask.length;
+        }
+    }
+
+    private static final class IcebergTaskCacheLimitException extends RuntimeException {
+        private List<?> plannedTasks;
+
+        private IcebergTaskCacheLimitException(List<?> plannedTasks) {
+            this.plannedTasks = plannedTasks;
+        }
+
+        @SuppressWarnings("unchecked")
+        private synchronized <T> List<T> takePlannedTasks() {
+            List<T> tasks = (List<T>) plannedTasks;
+            plannedTasks = null;
+            return tasks;
+        }
+    }
+
+    private static final class LimitedByteArrayOutputStream extends OutputStream {
+        private final ByteArrayOutputStream delegate = new ByteArrayOutputStream();
+        private final long maxBytes;
+
+        private LimitedByteArrayOutputStream(long maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureCapacity(1);
+            delegate.write(value);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            ensureCapacity(length);
+            delegate.write(bytes, offset, length);
+        }
+
+        private void ensureCapacity(int additionalBytes) throws SerializationSizeLimitException {
+            if (additionalBytes > maxBytes - delegate.size()) {
+                throw new SerializationSizeLimitException();
+            }
+        }
+
+        private byte[] toByteArray() {
+            return delegate.toByteArray();
+        }
+    }
+
+    private static final class SerializationSizeLimitException extends IOException {
+    }
+
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
+        if (sessionVariable.getFileSplitSize() > 0 || isBatchMode() || tableLevelPushDownCount) {
+            // These paths intentionally stream Iceberg tasks to keep FE memory bounded. The
+            // manifest-cache planner materializes its result, and retaining that list in the
+            // statement cache would defeat the streaming contract.
+            return splitFiles(scan);
+        }
         // Get the snapshot from the scan; return empty if no snapshot exists
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
+        List<FileScanTask> tasks;
+        try {
+            tasks = getOrPlanSerializedIcebergTasks(
+                    createFileScanTaskCacheKey(scan),
+                    () -> loadFileScanTasksWithManifestCache(scan, snapshot));
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Failed to plan Iceberg scan tasks with manifest cache", e);
+        }
+        targetSplitSize = determineTargetFileSplitSize(tasks);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+    }
 
+    @VisibleForTesting
+    protected List<FileScanTask> loadFileScanTasksWithManifestCache(
+            TableScan scan, Snapshot snapshot) throws IOException {
         // Initialize manifest cache for efficient manifest file access
         IcebergExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(source.getCatalog().getId());
         if (!(source.getTargetTable() instanceof ExternalTable)) {
@@ -1036,9 +1289,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
 
-        // Split tasks into smaller chunks based on target split size for parallel processing
-        targetSplitSize = determineTargetFileSplitSize(tasks);
-        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+        return tasks;
     }
 
     /**
@@ -1368,8 +1619,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<Split> splits = new ArrayList<>();
         TableScan scan = createTableScan();
         long startTime = System.currentTimeMillis();
-        try (CloseableIterable<FileScanTask> fileScanTasks = scan.planFiles()) {
-            fileScanTasks.forEach(task -> splits.add(createIcebergSysSplit(task)));
+        try {
+            consumeSystemTableTasks(scan, task -> splits.add(createIcebergSysSplit(task)));
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e);
         } finally {
@@ -1379,6 +1630,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         selectedPartitionNum = 0;
         return splits;
+    }
+
+    @VisibleForTesting
+    static void consumeSystemTableTasks(
+            TableScan scan, Consumer<FileScanTask> consumer) throws IOException {
+        try (CloseableIterable<FileScanTask> fileScanTasks = scan.planFiles()) {
+            fileScanTasks.forEach(consumer);
+        }
     }
 
     private boolean isPositionDeletesSystemTable() {
@@ -1417,14 +1676,21 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         long startTime = System.currentTimeMillis();
         scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
-        try (CloseableIterable<ScanTask> scanTasks = scan.planFiles()) {
-            for (ScanTask task : scanTasks) {
-                if (!(task instanceof PositionDeletesScanTask)) {
-                    throw new UserException("Unexpected Iceberg position_deletes scan task: " + task);
+        BatchScan plannedScan = scan;
+        try {
+            positionDeleteTasks = getOrPlanPositionDeleteTasks(plannedScan, () -> {
+                List<PositionDeletesScanTask> tasks = new ArrayList<>();
+                try (CloseableIterable<ScanTask> scanTasks = plannedScan.planFiles()) {
+                    for (ScanTask task : scanTasks) {
+                        if (!(task instanceof PositionDeletesScanTask)) {
+                            throw new UserException("Unexpected Iceberg position_deletes scan task: " + task);
+                        }
+                        tasks.add((PositionDeletesScanTask) task);
+                    }
                 }
-                positionDeleteTasks.add((PositionDeletesScanTask) task);
-            }
-        } catch (IOException e) {
+                return tasks;
+            });
+        } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         } finally {
             if (getSummaryProfile() != null) {
@@ -1613,6 +1879,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private void recordManifestCacheProfile() {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
+            return;
+        }
+        if (manifestCacheHits == 0 && manifestCacheMisses == 0 && manifestCacheFailures == 0) {
             return;
         }
         SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());

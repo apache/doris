@@ -44,8 +44,6 @@ public:
     HashValType partition_count() const override { return _partition_count; }
     Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
 
-    bool fallback_to_random() const { return _fallback_to_random; }
-
 private:
     struct InsertPartitionField {
         std::string transform;
@@ -66,7 +64,6 @@ private:
     std::vector<TIcebergPartitionField> _partition_fields_spec;
     VExprContextSPtrs _partition_expr_ctxs;
     std::vector<InsertPartitionField> _partition_fields;
-    bool _fallback_to_random = false;
 };
 
 class IcebergDeletePartitionFunction final : public PartitionFunction {

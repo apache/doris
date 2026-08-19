@@ -21,27 +21,22 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 
 import java.util.List;
 
-/**
- * use for shuffle data by partition keys before sink.
- */
-public class DistributionSpecHiveTableSinkHashPartitioned extends DistributionSpec {
+/** Hash Hive partition values and scale hot partitions across writers. */
+public final class DistributionSpecHiveTableSinkHashPartitioned
+        extends DistributionSpecExternalTableSinkHashPartitioned {
 
-    private List<ExprId> outputColExprIds;
-
-    public DistributionSpecHiveTableSinkHashPartitioned() {
-        super();
-    }
-
-    public List<ExprId> getOutputColExprIds() {
-        return outputColExprIds;
-    }
-
-    public void setOutputColExprIds(List<ExprId> outputColExprIds) {
-        this.outputColExprIds = outputColExprIds;
+    /** Create a Hive ownership distribution from partition columns. */
+    public DistributionSpecHiveTableSinkHashPartitioned(List<ExprId> outputColumnExprIds) {
+        super(outputColumnExprIds);
     }
 
     @Override
-    public boolean satisfy(DistributionSpec other) {
-        return other instanceof DistributionSpecHiveTableSinkHashPartitioned;
+    public HashAlgorithm getHashAlgorithm() {
+        return HashAlgorithm.DIRECT_HASH;
+    }
+
+    @Override
+    public WriterAssignment getWriterAssignment() {
+        return WriterAssignment.SKEWED;
     }
 }

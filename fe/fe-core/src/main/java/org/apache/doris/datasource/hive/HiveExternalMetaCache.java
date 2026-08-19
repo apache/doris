@@ -84,9 +84,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -126,6 +128,16 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final ExecutorService fileListingExecutor;
+    // Per-catalog counters that let statement-scoped Hive scan reuse observe global file-cache
+    // version changes. ADVANCE when the global file cache is invalidated (invalidateCatalog /
+    // invalidateDb / invalidateTable / invalidatePartitions) or replaced (loadFileCacheValue),
+    // so a later alias in the same statement builds a different statement key and re-lists instead
+    // of reusing a stale FileCacheValue. Do NOT advance in paths that only read or refresh
+    // metadata without replacing file entries (e.g. schema-only reloads), or the statement cache
+    // would be invalidated for no data change. Both maps are pruned on terminal catalog removal
+    // (invalidateCatalog), because catalog ids are never reused.
+    private final Map<Long, AtomicLong> fileCacheInvalidationGenerations = new ConcurrentHashMap<>();
+    private final Map<Long, AtomicLong> fileCacheValueGenerations = new ConcurrentHashMap<>();
 
     private final EntryHandle<SchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final EntryHandle<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry;
@@ -193,11 +205,30 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     @Override
+    public void invalidateCatalog(long catalogId) {
+        super.invalidateCatalog(catalogId);
+        advanceFileCacheInvalidationGeneration(catalogId);
+        // The catalog is being removed (drop or property-driven full rebuild); its id is never
+        // reused, so drop the generation counters instead of letting them accumulate forever.
+        // The advance above already invalidated any in-flight statement keyed on the old
+        // generation; a later get() rebuilds them from zero for a catalog that no longer exists.
+        fileCacheInvalidationGenerations.remove(catalogId);
+        fileCacheValueGenerations.remove(catalogId);
+    }
+
+    @Override
+    public void invalidateCatalogEntries(long catalogId) {
+        super.invalidateCatalogEntries(catalogId);
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    @Override
     public void invalidateDb(long catalogId, String dbName) {
         schemaEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         partitionValuesEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         partitionEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         fileEntry.get(catalogId).invalidateAll();
+        advanceFileCacheInvalidationGeneration(catalogId);
     }
 
     @Override
@@ -207,6 +238,19 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         partitionEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
         long tableId = Util.genIdByName(dbName, tableName);
         fileEntry.get(catalogId).invalidateIf(key -> key.isSameTable(tableId));
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    public long getFileCacheInvalidationGeneration(long catalogId) {
+        return fileCacheInvalidationGenerations
+                .computeIfAbsent(catalogId, ignored -> new AtomicLong())
+                .get();
+    }
+
+    private void advanceFileCacheInvalidationGeneration(long catalogId) {
+        fileCacheInvalidationGenerations
+                .computeIfAbsent(catalogId, ignored -> new AtomicLong())
+                .incrementAndGet();
     }
 
     @Override
@@ -283,7 +327,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private FileCacheValue loadFileCacheValue(FileCacheKey key) {
-        return loadFiles(key, new FileSystemDirectoryLister(), null);
+        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null);
+        value.setCacheGeneration(fileCacheValueGenerations
+                .computeIfAbsent(key.catalogId, ignored -> new AtomicLong())
+                .incrementAndGet());
+        return value;
     }
 
     private HMSExternalCatalog hmsCatalog(long catalogId) {
@@ -603,6 +651,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         if (fileEntry != null) {
             long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
             fileEntry.invalidateIf(k -> k.isSameTable(tableId));
+            advanceFileCacheInvalidationGeneration(catalogId);
         }
     }
 
@@ -670,12 +719,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 // location, forcing needless re-listing. The exact-key path below (taken when the partition
                 // is cached) already clears a listing regardless of which table id populated it.
                 fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
+                advanceFileCacheInvalidationGeneration(catalogId);
                 partitionEntry.invalidateKey(partKey);
                 return;
             }
 
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
                     null, partition.getPartitionValues()));
+            advanceFileCacheInvalidationGeneration(catalogId);
             partitionEntry.invalidateKey(partKey);
         }
 
@@ -1050,6 +1101,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     @Data
     public static class FileCacheValue {
         private final List<HiveFileStatus> files = Lists.newArrayList();
+        // Monotonic per-catalog load counter stamped by loadFileCacheValue. Statement scan-reuse
+        // keys include this value so an automatic refresh, TTL expiry reload, or capacity-eviction
+        // reload of the global entry produces a different key and cannot be reused by an earlier
+        // alias in the same statement.
+        private long cacheGeneration;
         private boolean isSplittable;
         protected List<String> partitionValues;
         private AcidInfo acidInfo;

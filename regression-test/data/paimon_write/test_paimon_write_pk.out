@@ -44,7 +44,7 @@ emoji_😀	3	emoji_payload
 
 -- !pk_writer_scaling_plan --
 PhysicalPaimonTableSink
---PhysicalDistribute[DistributionSpecGather]
+--PhysicalDistribute[DistributionSpecPaimonTableSinkHashPartitioned]
 ----PhysicalProject
 ------PhysicalTVFRelation
 

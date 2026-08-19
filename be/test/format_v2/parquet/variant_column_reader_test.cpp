@@ -24,6 +24,7 @@
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -66,6 +67,18 @@ MutableColumnPtr nullable_strings(const std::vector<StringRef>& values,
         null_map->get_data().push_back(nulls[row]);
     }
     return ColumnNullable::create(std::move(data), std::move(null_map));
+}
+
+std::string single_key_metadata_bytes(std::string_view key) {
+    EXPECT_LE(key.size(), std::numeric_limits<uint8_t>::max());
+    std::string metadata;
+    metadata.push_back(
+            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK));
+    metadata.push_back(1);
+    metadata.push_back(0);
+    metadata.push_back(static_cast<char>(key.size()));
+    metadata.append(key);
+    return metadata;
 }
 
 ParquetColumnSchema unshredded_schema() {
@@ -570,6 +583,192 @@ TEST(VariantColumnReaderTest, UnshreddedRowsPreserveSqlNullAndVariantNull) {
     EXPECT_TRUE(variants.is_shredded());
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
     EXPECT_TRUE(variants.get_value_ref(2).is_null());
+}
+
+TEST(VariantColumnReaderTest, UnshreddedDirectImportPreservesEncodedBytes) {
+    VariantBatchBuilder metadata_builder;
+    auto metadata_row = metadata_builder.begin_row();
+    auto metadata_object = metadata_row.start_object();
+    metadata_object.add_key(StringRef("unused"));
+    metadata_row.add_int(1);
+    metadata_object.finish();
+    metadata_row.finish();
+    VariantBatchBuilder metadata_batch = metadata_builder.finish_batch();
+    const VariantRef metadata_source = metadata_batch.value_at(0);
+
+    const std::array<char, 2> int_seven {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            7};
+    const StringRef encoded_value(int_seven.data(), int_seven.size());
+    MutableColumns fields;
+    fields.push_back(nullable_strings(
+            {{metadata_source.metadata.data, metadata_source.metadata.size}}, {0}));
+    fields.push_back(nullable_strings({encoded_value}, {0}));
+    auto physical = root_wrapper(std::move(fields));
+
+    RuntimeProfile runtime_profile("unshredded-direct-import");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const Status status = materialize_variant_rows(unshredded_schema(), *physical, output,
+                                                   parquet_profile.column_reader_profile());
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    ASSERT_TRUE(variants.is_shredded());
+    auto* reconstructed_rows = runtime_profile.get_counter("VariantReconstructedRows");
+    auto* reconstruction_time = runtime_profile.get_counter("VariantReconstructionTime");
+    auto* direct_import_time = runtime_profile.get_counter("VariantUnshreddedDirectImportTime");
+    auto* direct_import_rows = runtime_profile.get_counter("VariantUnshreddedDirectImportRows");
+    auto* direct_import_bytes = runtime_profile.get_counter("VariantUnshreddedDirectImportBytes");
+    ASSERT_NE(reconstructed_rows, nullptr);
+    ASSERT_NE(reconstruction_time, nullptr);
+    ASSERT_NE(direct_import_time, nullptr);
+    ASSERT_NE(direct_import_rows, nullptr);
+    ASSERT_NE(direct_import_bytes, nullptr);
+    EXPECT_EQ(direct_import_rows->value(), 0);
+    EXPECT_EQ(direct_import_bytes->value(), 0);
+
+    const VariantRef imported = variants.get_value_ref(0);
+    EXPECT_EQ(StringRef(imported.metadata.data, imported.metadata.size),
+              StringRef(metadata_source.metadata.data, metadata_source.metadata.size));
+    EXPECT_EQ(imported.value, encoded_value);
+    EXPECT_EQ(imported.get_int(), 7);
+    EXPECT_EQ(reconstructed_rows->value(), 1);
+    EXPECT_EQ(direct_import_rows->value(), 1);
+    EXPECT_EQ(direct_import_bytes->value(),
+              static_cast<int64_t>(metadata_source.metadata.size + encoded_value.size));
+    EXPECT_GT(direct_import_time->value(), 0);
+    EXPECT_GE(reconstruction_time->value(), direct_import_time->value());
+}
+
+TEST(VariantColumnReaderTest, UnshreddedDirectImportCrossesMaterializationBatchBoundary) {
+    constexpr size_t ROWS = 4097;
+    const std::array<char, 2> int_seven {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            7};
+    const StringRef encoded_value(int_seven.data(), int_seven.size());
+    std::vector<std::string> metadata_storage;
+    std::vector<StringRef> metadata_rows;
+    metadata_storage.reserve(ROWS);
+    metadata_rows.reserve(ROWS);
+    size_t metadata_bytes = 0;
+    for (size_t row = 0; row < ROWS; ++row) {
+        metadata_storage.push_back(single_key_metadata_bytes("unused-" + std::to_string(row)));
+        metadata_bytes += metadata_storage.back().size();
+        metadata_rows.emplace_back(metadata_storage.back());
+    }
+    MutableColumns fields;
+    fields.push_back(nullable_strings(metadata_rows, std::vector<uint8_t>(ROWS, 0)));
+    fields.push_back(nullable_strings(std::vector<StringRef>(ROWS, encoded_value),
+                                      std::vector<uint8_t>(ROWS, 0)));
+    auto physical = root_wrapper(std::move(fields), NullMap(ROWS, 0));
+
+    RuntimeProfile runtime_profile("unshredded-direct-import-batches");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const Status status = materialize_variant_rows(unshredded_schema(), *physical, output,
+                                                   parquet_profile.column_reader_profile());
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    ASSERT_EQ(variants.size(), ROWS);
+    EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(variants.get_value_ref(4095).get_int(), 7);
+    EXPECT_EQ(variants.get_value_ref(4096).get_int(), 7);
+    EXPECT_EQ(StringRef(variants.get_value_ref(0).metadata.data,
+                        variants.get_value_ref(0).metadata.size),
+              metadata_rows[0]);
+    EXPECT_EQ(StringRef(variants.get_value_ref(4096).metadata.data,
+                        variants.get_value_ref(4096).metadata.size),
+              metadata_rows[4096]);
+    auto* direct_import_rows = runtime_profile.get_counter("VariantUnshreddedDirectImportRows");
+    auto* direct_import_bytes = runtime_profile.get_counter("VariantUnshreddedDirectImportBytes");
+    ASSERT_NE(direct_import_rows, nullptr);
+    ASSERT_NE(direct_import_bytes, nullptr);
+    EXPECT_EQ(direct_import_rows->value(), ROWS);
+    EXPECT_EQ(direct_import_bytes->value(),
+              static_cast<int64_t>(metadata_bytes + ROWS * encoded_value.size));
+}
+
+TEST(VariantColumnReaderTest, UnshreddedDirectImportProfilesImmediateFailureTime) {
+    const std::array<char, 1> invalid_value {static_cast<char>(0xff)};
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    MutableColumns fields;
+    fields.push_back(nullable_strings({metadata}, {0}));
+    fields.push_back(nullable_strings({{invalid_value.data(), invalid_value.size()}}, {0}));
+    auto physical = root_wrapper(std::move(fields));
+
+    RuntimeProfile runtime_profile("unshredded-direct-import-immediate-failure");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const Status status = materialize_variant_rows(unshredded_schema(), *physical, output,
+                                                   parquet_profile.column_reader_profile());
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    EXPECT_THROW((void)variants.get_value_ref(0), Exception);
+
+    auto* reconstructed_rows = runtime_profile.get_counter("VariantReconstructedRows");
+    auto* direct_import_time = runtime_profile.get_counter("VariantUnshreddedDirectImportTime");
+    auto* direct_import_rows = runtime_profile.get_counter("VariantUnshreddedDirectImportRows");
+    auto* direct_import_bytes = runtime_profile.get_counter("VariantUnshreddedDirectImportBytes");
+    ASSERT_NE(reconstructed_rows, nullptr);
+    ASSERT_NE(direct_import_time, nullptr);
+    ASSERT_NE(direct_import_rows, nullptr);
+    ASSERT_NE(direct_import_bytes, nullptr);
+    EXPECT_EQ(reconstructed_rows->value(), 0);
+    EXPECT_GT(direct_import_time->value(), 0);
+    EXPECT_EQ(direct_import_rows->value(), 0);
+    EXPECT_EQ(direct_import_bytes->value(), 0);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedDirectImportProfilesCompletedChunksBeforeFailure) {
+    constexpr size_t VALID_ROWS = 4096;
+    constexpr size_t ROWS = VALID_ROWS + 1;
+    const std::array<char, 2> int_seven {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            7};
+    const std::array<char, 1> invalid_value {static_cast<char>(0xff)};
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    const StringRef encoded_value(int_seven.data(), int_seven.size());
+    std::vector<StringRef> values(VALID_ROWS, encoded_value);
+    values.emplace_back(invalid_value.data(), invalid_value.size());
+    MutableColumns fields;
+    fields.push_back(nullable_strings(std::vector<StringRef>(ROWS, metadata),
+                                      std::vector<uint8_t>(ROWS, 0)));
+    fields.push_back(nullable_strings(values, std::vector<uint8_t>(ROWS, 0)));
+    auto physical = root_wrapper(std::move(fields), NullMap(ROWS, 0));
+
+    RuntimeProfile runtime_profile("unshredded-direct-import-late-failure");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const Status status = materialize_variant_rows(unshredded_schema(), *physical, output,
+                                                   parquet_profile.column_reader_profile());
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    EXPECT_THROW((void)variants.get_value_ref(0), Exception);
+
+    auto* reconstructed_rows = runtime_profile.get_counter("VariantReconstructedRows");
+    auto* direct_import_time = runtime_profile.get_counter("VariantUnshreddedDirectImportTime");
+    auto* direct_import_rows = runtime_profile.get_counter("VariantUnshreddedDirectImportRows");
+    auto* direct_import_bytes = runtime_profile.get_counter("VariantUnshreddedDirectImportBytes");
+    ASSERT_NE(reconstructed_rows, nullptr);
+    ASSERT_NE(direct_import_time, nullptr);
+    ASSERT_NE(direct_import_rows, nullptr);
+    ASSERT_NE(direct_import_bytes, nullptr);
+    EXPECT_EQ(reconstructed_rows->value(), 0);
+    EXPECT_GT(direct_import_time->value(), 0);
+    EXPECT_EQ(direct_import_rows->value(), VALID_ROWS);
+    EXPECT_EQ(direct_import_bytes->value(),
+              static_cast<int64_t>(VALID_ROWS * (metadata.size + encoded_value.size)));
 }
 
 TEST(VariantColumnReaderTest, RequiredPhysicalGroupAppendsToNullableExternalSlot) {
@@ -1690,6 +1889,8 @@ TEST(VariantColumnReaderTest, ShreddedStateOutlivesScannerProfile) {
     reused_profile.init(runtime_profile.get());
     EXPECT_EQ(parquet_profile.variant_reconstructed_rows,
               reused_profile.variant_reconstructed_rows);
+    EXPECT_EQ(parquet_profile.variant_unshredded_direct_import_rows,
+              reused_profile.variant_unshredded_direct_import_rows);
 
     auto visible_output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     ASSERT_TRUE(materialize_variant_rows(shredded_int64_schema(), shredded_int64_physical({7}),
@@ -1699,6 +1900,7 @@ TEST(VariantColumnReaderTest, ShreddedStateOutlivesScannerProfile) {
             assert_cast<const ColumnNullable&>(*visible_output).get_nested_column());
     EXPECT_EQ(visible_variants.get_value_ref(0).get_int(), 7);
     EXPECT_EQ(runtime_profile->get_counter("VariantReconstructedRows")->value(), 1);
+    EXPECT_EQ(runtime_profile->get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     ASSERT_TRUE(materialize_variant_rows(shredded_int64_schema(), shredded_int64_physical({42}),

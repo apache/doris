@@ -190,11 +190,15 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
-            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
-        } else {
-            // When audit log is disabled for prepared statements, still update QPS metrics.
-            AuditLogHelper.updateMetrics(ctx);
+        try {
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+                auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            } else {
+                // When audit log is disabled for prepared statements, still update QPS metrics.
+                AuditLogHelper.updateMetrics(ctx);
+            }
+        } finally {
+            prepCtx.statementContext.clearExternalScanTasks();
         }
     }
 
