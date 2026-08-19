@@ -30,6 +30,7 @@
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_json_extract.hpp"
+#include "benchmark_predicate_vectorization.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "common/config.h"

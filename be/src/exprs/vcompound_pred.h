@@ -559,20 +559,22 @@ private:
         // independent buffers and therefore cannot overwrite their parent's in-flight state.
         _raw_combined_scratch.resize(num_values);
         std::ranges::fill(_raw_combined_scratch, 0);
+        auto* combined_data = _raw_combined_scratch.data();
         for (const auto& child : _children) {
             // resize_fill() initializes only newly appended bytes; explicitly reset a reused mask
             // so matches from an earlier page fragment cannot leak into this OR evaluation.
             _raw_child_scratch.resize(num_values);
             std::ranges::fill(_raw_child_scratch, 1);
             RETURN_IF_ERROR(execute_child(child, _raw_child_scratch.data()));
+            const auto* child_data = _raw_child_scratch.data();
             for (size_t row = 0; row < num_values; ++row) {
-                _raw_combined_scratch[row] |= _raw_child_scratch[row];
+                combined_data[row] |= child_data[row];
             }
         }
         // Raw kernels receive an existing selection mask, so composition must preserve rows that
         // an earlier conjunct already rejected instead of replacing the caller's mask.
         for (size_t row = 0; row < num_values; ++row) {
-            matches[row] &= _raw_combined_scratch[row];
+            matches[row] &= combined_data[row];
         }
         constexpr size_t MAX_RETAINED_RAW_MASK_BYTES = 1UL << 20;
         if (_raw_combined_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
