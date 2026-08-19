@@ -436,19 +436,26 @@ bool AsyncCacheWriteManager::try_submit(AsyncCacheWriteTask task) {
     const int64_t submit_start_us = MonotonicMicros();
     Defer record_submit_latency {
             [&]() { _metrics->record_submit_latency(MonotonicMicros() - submit_start_us); }};
-    _active_submitters.fetch_add(1, std::memory_order_acq_rel);
-    Defer submitter_done {[&]() { _active_submitters.fetch_sub(1, std::memory_order_acq_rel); }};
-    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::try_submit:after_register", &task);
-    if (!_started.load(std::memory_order_acquire) || !_accepting.load(std::memory_order_acquire)) {
-        _metrics->record_task_rejected(Metrics::RejectionReason::NOT_RUNNING);
-        return false;
-    }
-
+    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::try_submit:before_register", &task);
     const size_t task_buffer_bytes = task.buffer_size();
+    bool registered = false;
+    Defer submitter_done {[&]() {
+        if (registered) {
+            _active_submitters.fetch_sub(1, std::memory_order_acq_rel);
+        }
+    }};
     std::optional<AsyncCacheWriteTask> victim;
     {
         TimedQueueLock lock(_queue_mutex, _metrics->queue_lock_wait_latency(),
                             _metrics->queue_lock_hold_latency());
+        if (!_started.load(std::memory_order_acquire) ||
+            !_accepting.load(std::memory_order_acquire)) {
+            _metrics->record_task_rejected(Metrics::RejectionReason::NOT_RUNNING);
+            return false;
+        }
+        _active_submitters.fetch_add(1, std::memory_order_acq_rel);
+        registered = true;
+
         const auto options = _options.load(std::memory_order_acquire);
         const size_t max_pending_bytes = options->max_pending_bytes;
         const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
@@ -776,8 +783,11 @@ uint64_t AsyncCacheWriteManager::evicted_oldest_count() const {
 
 void AsyncCacheWriteManager::shutdown() {
     std::lock_guard lifecycle_lock(_lifecycle_mutex);
-    if (!_accepting.exchange(false, std::memory_order_acq_rel)) {
-        return;
+    {
+        std::lock_guard queue_lock(_queue_mutex);
+        if (!_accepting.exchange(false, std::memory_order_acq_rel)) {
+            return;
+        }
     }
     TEST_SYNC_POINT("AsyncCacheWriteManager::shutdown:after_stop_accepting");
     while (_active_submitters.load(std::memory_order_acquire) != 0) {

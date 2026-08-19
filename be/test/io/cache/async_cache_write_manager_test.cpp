@@ -2139,14 +2139,14 @@ TEST_F(AsyncCacheWriteManagerTest, ShutdownWaitsForConcurrentReplacementAndDrain
     EXPECT_EQ(manager->active_task_count(), 0);
 }
 
-TEST_F(AsyncCacheWriteManagerTest, ShutdownWaitsForRegisteredSubmitterAndRejectsItsTask) {
+TEST_F(AsyncCacheWriteManagerTest, ShutdownRejectsSubmitterWhenShutdownWinsAdmissionRace) {
     auto cache = create_cache("async_write_manager_shutdown");
     auto* manager = cache->async_write_manager();
     ASSERT_NE(manager, nullptr);
 
     std::mutex mutex;
     std::condition_variable cv;
-    bool submitter_registered = false;
+    bool submitter_waiting_to_register = false;
     bool release_submitter = false;
     std::promise<void> shutdown_stopped_accepting;
     auto shutdown_stopped_accepting_future = shutdown_stopped_accepting.get_future();
@@ -2154,10 +2154,10 @@ TEST_F(AsyncCacheWriteManagerTest, ShutdownWaitsForRegisteredSubmitterAndRejects
     SyncPoint::CallbackGuard submit_guard;
     SyncPoint::CallbackGuard shutdown_guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteManager::try_submit:after_register",
+            "AsyncCacheWriteManager::try_submit:before_register",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
-                submitter_registered = true;
+                submitter_waiting_to_register = true;
                 cv.notify_all();
                 cv.wait(lock, [&]() { return release_submitter; });
             },
@@ -2196,14 +2196,15 @@ TEST_F(AsyncCacheWriteManagerTest, ShutdownWaitsForRegisteredSubmitterAndRejects
     });
     {
         std::unique_lock lock(mutex);
-        ASSERT_TRUE(
-                cv.wait_for(lock, std::chrono::seconds(5), [&]() { return submitter_registered; }));
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(1),
+                                [&]() { return submitter_waiting_to_register; }));
     }
 
     shutdown_future = std::async(std::launch::async, [manager]() { manager->shutdown(); });
-    ASSERT_EQ(shutdown_stopped_accepting_future.wait_for(std::chrono::seconds(5)),
+    ASSERT_EQ(shutdown_stopped_accepting_future.wait_for(std::chrono::seconds(1)),
               std::future_status::ready);
-    EXPECT_EQ(shutdown_future.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+    ASSERT_EQ(shutdown_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
+    shutdown_future.get();
     {
         std::lock_guard lock(mutex);
         release_submitter = true;
@@ -2211,7 +2212,6 @@ TEST_F(AsyncCacheWriteManagerTest, ShutdownWaitsForRegisteredSubmitterAndRejects
     cv.notify_all();
 
     EXPECT_FALSE(submit_future.get());
-    ASSERT_EQ(shutdown_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(manager->pending_count(), 0);
 }
 
