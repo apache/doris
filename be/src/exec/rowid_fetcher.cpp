@@ -427,7 +427,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         watch.start();
         BaseTabletSPtr tablet = scope_timer_run(
                 [&]() {
+                    // NOTE: First try cache-only to avoid broadcast remote read (optimization from #50803).
+                    // If cache miss (e.g. tablet_cache_capacity=0 disables cache, or cache evicted),
+                    // fallback to normal load path.
                     auto res = ExecEnv::get_tablet(row_loc.tablet_id(), nullptr, true);
+                    if (!res.has_value()) {
+                        res = ExecEnv::get_tablet(row_loc.tablet_id(), nullptr, false);
+                    }
                     return !res.has_value() ? nullptr
                                             : std::dynamic_pointer_cast<BaseTablet>(res.value());
                 },
