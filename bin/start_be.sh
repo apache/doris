@@ -257,20 +257,33 @@ fi
 # jindofs and juicefs go on the system classpath so the native libhdfs reader can resolve
 # oss-hdfs:// and jfs://. They must come after lib/hadoop_hdfs or they override its hadoop jars.
 #
-# lib/<name> is where both FE and BE put them now; lib/java_extensions/<name> is where BE alone
-# used to, and is still read so an existing deployment keeps resolving those schemes.
+# plugins/jni_fs/<name> is where this build deploys them, and it is deliberately NOT only for
+# libhdfs: PluginRegistry appends the same jars to every Java plugin's own classpath (BE config
+# jni_plugin_fs_dir), because a plugin classloader cannot reach this class path and would
+# otherwise have no oss:// or jfs:// at all. Two readers, one copy on disk - the JuiceFS Hadoop
+# SDK alone is a 180 MB fat jar.
 #
-# The choice is made on jar presence, not directory presence: post-build.sh creates lib/<name>
-# before it tries to populate it, so an empty lib/<name> is reachable (e.g. a --juicefs build with
-# no network to fetch the jar from) and must not silently win over a populated
-# lib/java_extensions/<name> - that would resolve neither, without a warning saying why.
+# The two older locations are still read so that an in-place upgrade keeps resolving these schemes
+# for libhdfs before the new tree is laid down: lib/<name> is where both FE and BE put them until
+# this release, and lib/java_extensions/<name> is where BE alone put them before that. Neither
+# reaches the plugins - only the first location does - so the WARN is worth acting on.
+#
+# The choice is made on jar presence, not directory presence: post-build.sh creates the directory
+# before it tries to populate it, so an empty one is reachable (e.g. a --juicefs build with no
+# network to fetch the jar from) and must not silently win over a populated older location - that
+# would resolve neither, without a warning saying why.
 for fs_libs in jindofs juicefs; do
-    fs_dir="${DORIS_HOME}/lib/${fs_libs}"
-    if ! compgen -G "${fs_dir}/*.jar" > /dev/null \
-            && compgen -G "${DORIS_HOME}/lib/java_extensions/${fs_libs}/*.jar" > /dev/null; then
-        fs_dir="${DORIS_HOME}/lib/java_extensions/${fs_libs}"
-        echo "WARN: ${fs_libs} found under the deprecated lib/java_extensions/${fs_libs};" \
-             "move it to lib/${fs_libs}, which is where this build deploys it." >&2
+    fs_dir="${DORIS_HOME}/plugins/jni_fs/${fs_libs}"
+    if ! compgen -G "${fs_dir}/*.jar" > /dev/null; then
+        for legacy in "lib/${fs_libs}" "lib/java_extensions/${fs_libs}"; do
+            if compgen -G "${DORIS_HOME}/${legacy}/*.jar" > /dev/null; then
+                fs_dir="${DORIS_HOME}/${legacy}"
+                echo "WARN: ${fs_libs} found under the deprecated ${legacy}; the native reader" \
+                     "will use it, but Java plugins will NOT - move it to" \
+                     "plugins/jni_fs/${fs_libs}, which is where this build deploys it." >&2
+                break
+            fi
+        done
     fi
     if compgen -G "${fs_dir}/*.jar" > /dev/null; then
         for f in "${fs_dir}"/*.jar; do
@@ -278,7 +291,7 @@ for fs_libs in jindofs juicefs; do
         done
     fi
 done
-unset fs_libs fs_dir
+unset fs_libs fs_dir legacy
 
 # custom_lib and plugins/java_extensions hold user Java function jars, and they are deliberately
 # NOT put on this classpath any more: the java-udf plugin reads those two directories itself and
@@ -569,6 +582,25 @@ add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UN
 add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+
+# Where the hadoop on this class path - the one C++ libhdfs uses - sends its logging.
+#
+# That hadoop drop binds Log4j2 (lib/hadoop_hdfs/lib carries log4j-core and log4j-slf4j2-impl) and
+# is the only Log4j2 left on this class path, the Java plugins having moved to java.util.logging
+# behind their own classloaders. Nothing configures it any more: the log4j2.properties that used
+# to do so shipped inside java-common, which no longer exists. Log4j2 then falls back to its
+# DefaultConfiguration - ERROR only, to the console - so hadoop's INFO and WARN vanish and what is
+# left lands in be.out, which is where the JVM's crash output goes. Debugging an HDFS problem
+# served by the native reader is exactly when those lines are wanted.
+#
+# Named explicitly rather than dropped on the class path so that an operator can see which file is
+# in force and edit it, and so a build cannot silently replace it. Only when the file is actually
+# there: a deployment without it keeps Log4j2's own default rather than getting a startup error
+# about a configuration that does not exist.
+if [[ -f "${DORIS_HOME}/conf/hadoop_log4j2.properties" ]]; then
+    add_java_opt_if_missing "-Ddoris.log.dir=${DORIS_HOME}/log"
+    add_java_opt_if_missing "-Dlog4j2.configurationFile=file:${DORIS_HOME}/conf/hadoop_log4j2.properties"
+fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"

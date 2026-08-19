@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -44,22 +45,33 @@ jmethodID Env::throwable_to_stack_trace_id_ = nullptr;
 Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
-    // Attaching implies ensure_jvm(), which is where the JNI base is resolved - once per
-    // process, on the thread that brought the JVM up. On failure tls_env_ is left untouched, so
-    // the thread still looks unattached and the next call retries and reports the same
-    // error rather than running without the base.
-    RETURN_IF_ERROR(JvmLauncher::attach_current_thread(&tls_env_));
+    // Three steps, in this order, and the order is the point.
+    //
+    // The JVM first, because the base is resolved inside its bootstrap - once per process, on the
+    // thread that brought the JVM up, with that thread's env primed so this function is not
+    // re-entered while ensure_jni_base()'s call_once is held. Asking for the base before there is
+    // a JVM would run that resolution HERE instead: Env::Init() calls Env::Get(), which lands back
+    // in this slow path and re-enters the same call_once on the same thread.
+    RETURN_IF_ERROR(JvmLauncher::ensure_jvm());
 
-    // The base is asked for again rather than assumed, because the bootstrap no longer fails when
-    // it cannot resolve it: a JVM whose plugin SPI is missing still serves libhdfs, and taking
-    // HDFS down with a Java deployment problem is not this file's call to make. This is where that
-    // gate lives instead - every caller that is about to run Java code comes through here, and
-    // nothing on the libhdfs path does. The call itself is the cached outcome of the one attempt
-    // the bootstrap made; it never re-runs the resolution.
-    if (Status base = Util::ensure_jni_base(); !base.ok()) {
-        tls_env_ = nullptr;
-        return base;
-    }
+    // Then the base, asked for rather than assumed, because the bootstrap no longer fails when it
+    // cannot resolve it: a JVM whose plugin SPI is missing still serves libhdfs, and taking HDFS
+    // down with a Java deployment problem is not this file's call to make. This is where that gate
+    // lives instead - every caller that is about to run Java code comes through here, and nothing
+    // on the libhdfs path does. By now it is the cached outcome of the attempt the bootstrap
+    // already made; it never re-runs the resolution.
+    //
+    // Before the attach, not after: attach_current_thread() both attaches the thread and registers
+    // the pthread-key hook that detaches it again, and neither is undone by clearing tls_env_. A
+    // rejected caller that had already attached would stay bound to the JVM - one JVM thread
+    // structure and one stack reservation each - for the rest of its life, on a deployment where
+    // it can never run a line of Java. With the base broken and load arriving, that is every
+    // scanner thread, every pipeline thread and both metrics daemons.
+    RETURN_IF_ERROR(Util::ensure_jni_base());
+
+    // Finally the attach. On failure tls_env_ is left untouched, so the thread still looks
+    // unattached and the next call retries and reports the same error.
+    RETURN_IF_ERROR(JvmLauncher::attach_current_thread(&tls_env_));
     *env = tls_env_;
     return Status::OK();
 }
@@ -70,8 +82,24 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     if (exc == nullptr) {
         return Status::OK();
     }
+    // Not a DCHECK, and before the ExceptionClear() below so ExceptionDescribe() still has
+    // something to print: these two are set by Env::Init(), the first step of the JNI base, and
+    // since the base stopped being a precondition for having a JVM there is a reachable state
+    // where a JVM exists and they are still null. JvmStats::init() runs in exactly that state -
+    // the jvm_* metrics are published whenever a JVM exists, base or no base - so a JNI call of
+    // its own throwing would land here with no way to render the throwable, and a DCHECK is a
+    // no-op in a release build. Degrade to a plain message rather than dereference null: this
+    // function exists to turn a Java exception into a Status, and it can still do that much.
+    if (jni_util_cl_ == nullptr || throwable_to_string_id_ == nullptr) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return Status::JniError(
+                "{}a Java exception was thrown before the Java plugin SPI was resolved, so it "
+                "cannot be rendered here and was written to stderr instead. That means "
+                "doris-jni-spi.jar is missing or unreadable - see the error logged at startup.",
+                prefix);
+    }
     env->ExceptionClear();
-    DCHECK(throwable_to_string_id_ != nullptr);
     const char* oom_msg_template =
             "$0 threw an unchecked exception. The JVM is likely out "
             "of memory (OOM).";
@@ -250,10 +278,27 @@ Status Util::_init_collect_class() {
 // Env::GetJNIEnvSlowPath() on every thread that is about to run Java code: the bootstrap does not
 // fail when this fails, so somebody has to keep Java callers out afterwards. Only the first call
 // resolves anything; the rest get its outcome.
+namespace {
+std::once_flag jni_base_once;
+Status jni_base_status;
+// Published after jni_base_status is written, and read before it, so that jni_base_outcome()
+// below never reads a Status another thread is still assigning. call_once alone does not order
+// that read: a thread that never calls ensure_jni_base() takes no part in its synchronization.
+std::atomic<bool> jni_base_resolved {false};
+} // namespace
+
 Status Util::ensure_jni_base() {
-    static std::once_flag jni_base_once;
-    static Status jni_base_status;
-    std::call_once(jni_base_once, []() { jni_base_status = _init_jni_base(); });
+    std::call_once(jni_base_once, []() {
+        jni_base_status = _init_jni_base();
+        jni_base_resolved.store(true, std::memory_order_release);
+    });
+    return jni_base_status;
+}
+
+std::optional<Status> Util::jni_base_outcome() {
+    if (!jni_base_resolved.load(std::memory_order_acquire)) {
+        return std::nullopt;
+    }
     return jni_base_status;
 }
 

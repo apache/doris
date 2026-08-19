@@ -100,7 +100,11 @@ public:
         // it would need to do so.
         if (Status status = register_func_id(env); !status.ok()) {
             LOG(WARNING) << "Java-Udaf register_func_id function failed: " << status.to_string();
-            static_cast<void>(close_and_delete_object());
+            // Logged, not discarded: this is the failure that says the Java executor object was
+            // leaked, and it is the only place it can be seen. register_func_id's own failure is
+            // the one returned, since that is what the caller asked for.
+            WARN_IF_ERROR(close_and_delete_object(),
+                          "failed to close the Java UDAF executor after register_func_id failed");
             return status;
         }
         return Status::OK();

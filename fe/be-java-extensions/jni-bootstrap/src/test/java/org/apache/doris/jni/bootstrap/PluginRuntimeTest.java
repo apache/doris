@@ -170,6 +170,89 @@ class PluginRuntimeTest {
     }
 
     // ------------------------------------------------------------------
+    // The shared filesystem directory.
+    // ------------------------------------------------------------------
+
+    /**
+     * A plugin resolves classes out of the shared filesystem directory as well as its own.
+     *
+     * <p>That directory is how oss:// and jfs:// survived the isolation: those jars sat on the
+     * system classpath, which a plugin classloader cannot reach, and no plugin declares them (hadoop
+     * reaches a filesystem by class name out of a Configuration, so nothing links against them).
+     * Without this a Hudi table on jfs:// reads before an upgrade and not after, with
+     * "No FileSystem for scheme" and nothing static able to see it coming.
+     */
+    @Test
+    void pluginAlsoReadsTheSharedFilesystemJars(@TempDir Path plugins, @TempDir Path fsDir)
+            throws Exception {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path jindofs = Files.createDirectories(fsDir.resolve("jindofs"));
+        PluginJars.addClassJar(jindofs, "fake-fs.jar", "com.example.fs.FakeFileSystem");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null, fsDir)
+                .plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state());
+        Assertions.assertNotNull(
+                handle.classLoader().loadClass("com.example.fs.FakeFileSystem"),
+                "the shared filesystem jars must be on the plugin's classpath");
+    }
+
+    /** ...and the plugin's OWN copy wins, which is why they are appended rather than prepended. */
+    @Test
+    void thePluginsOwnJarsWinOverTheSharedFilesystemJars(@TempDir Path plugins, @TempDir Path fsDir)
+            throws Exception {
+        Path sample = PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        // Same class name in both places. A real one: the JuiceFS SDK is a fat jar carrying its own
+        // copies of hadoop and of half a dozen shared libraries, and a plugin's hadoop must win.
+        //
+        // Named so the shared copy sorts FIRST: within one directory the loader orders jars by
+        // name, so an implementation that sorted the two directories together instead of appending
+        // one after the other would hand back the shared copy and fail here. Equal names would
+        // leave that mutation green.
+        PluginJars.addClassJar(sample, "zzz-plugin-own.jar", "com.example.fs.Contested");
+        Path juicefs = Files.createDirectories(fsDir.resolve("juicefs"));
+        PluginJars.addClassJar(juicefs, "aaa-shared.jar", "com.example.fs.Contested");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null, fsDir)
+                .plugin("sample");
+
+        Class<?> loaded = handle.classLoader().loadClass("com.example.fs.Contested");
+        Assertions.assertEquals(sample.resolve("zzz-plugin-own.jar").toUri().toURL().toString(),
+                loaded.getProtectionDomain().getCodeSource().getLocation().toString(),
+                "the plugin's own jar must win; the shared filesystem jars are appended last");
+    }
+
+    /** An absent directory is the ordinary case: both filesystems are opt-in build flags. */
+    @Test
+    void anAbsentSharedFilesystemDirectoryChangesNothing(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null,
+                plugins.resolve("no-such-directory")).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state());
+    }
+
+    /**
+     * A directory holding nothing but shared filesystem jars is still not a plugin: emptiness is
+     * decided on the plugin's own jars, before they are appended.
+     */
+    @Test
+    void pluginDirectoryWithNoJarsOfItsOwnStillFails(@TempDir Path plugins, @TempDir Path fsDir)
+            throws IOException {
+        Files.createDirectories(plugins.resolve("hollow"));
+        Path jindofs = Files.createDirectories(fsDir.resolve("jindofs"));
+        PluginJars.addClassJar(jindofs, "fake-fs.jar", "com.example.fs.FakeFileSystem");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null, fsDir)
+                .plugin("hollow");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains("no jars in"), handle.failure());
+    }
+
+    // ------------------------------------------------------------------
     // Failure containment.
     // ------------------------------------------------------------------
 
@@ -354,12 +437,16 @@ class PluginRuntimeTest {
     void statusIsParseableJsonEvenWhenTheNamesAndMessagesAreHostile(@TempDir Path plugins)
             throws IOException {
         PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
-        // Every character appendJsonString has a case for except the backslash, which cannot reach
-        // here at all: requirePluginName rejects one in a plugin name. Left EMPTY rather than given
-        // a corrupt jar, because "no jars in <dir>" is a failure message that quotes the path - so
-        // these characters are asserted twice over, once through "deployed" and once through the
-        // free-form message that motivated the escaping in the first place.
-        String hostile = "qu\"ote\bback\fform\nfeed\rand\ttabs\u0001control";
+        // Every character appendJsonString has a case for, the backslash included. The backslash
+        // DOES reach here: the "deployed" array is deployedPluginNames(), a raw directory listing
+        // that never passes through requirePluginName, and a backslash is a legal character in a
+        // POSIX file name. Left EMPTY rather than given a corrupt jar, because the failure message
+        // quotes the name either way - so these characters are asserted twice over, once through
+        // "deployed" and once through the free-form message that motivated the escaping in the
+        // first place. That second path also pins warmup()'s "never throws" javadoc: this name is
+        // the one requirePluginName rejects, and containing that rejection is what keeps the
+        // remaining plugins getting warmed up.
+        String hostile = "qu\"ote\\slash\bback\fform\nfeed\rand\ttabs\u0001control";
         try {
             Files.createDirectories(plugins.resolve(hostile));
         } catch (IOException | RuntimeException e) {

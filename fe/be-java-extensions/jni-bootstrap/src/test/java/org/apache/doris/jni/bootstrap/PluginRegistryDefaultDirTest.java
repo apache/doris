@@ -45,12 +45,14 @@ public class PluginRegistryDefaultDirTest {
 
     private static final String PLUGIN_DIR_PROPERTY = "doris.jni.plugin.dir";
     private static final String HADOOP_CONF_DIR_PROPERTY = "doris.jni.hadoop.conf.dir";
+    private static final String FS_DIR_PROPERTY = "doris.jni.fs.dir";
 
     private final Map<String, String> saved = new LinkedHashMap<>();
 
     @BeforeEach
     public void clearProperties() {
-        for (String property : new String[] {PLUGIN_DIR_PROPERTY, HADOOP_CONF_DIR_PROPERTY}) {
+        for (String property : new String[] {PLUGIN_DIR_PROPERTY, HADOOP_CONF_DIR_PROPERTY,
+                FS_DIR_PROPERTY}) {
             saved.put(property, System.getProperty(property));
             System.clearProperty(property);
         }
@@ -124,6 +126,16 @@ public class PluginRegistryDefaultDirTest {
                 PluginRegistry.hadoopConfDir(existing.toString()));
     }
 
+    /**
+     * The shared filesystem directory has no fallback of its own: an absent one means this build
+     * packaged no third-party filesystem, which is the default.
+     */
+    @Test
+    public void fsDirDefaultsUnderDorisHome() {
+        Path dir = PluginRegistry.fsDir();
+        Assertions.assertTrue(dir.endsWith(Paths.get("plugins", "jni_fs")), dir.toString());
+    }
+
     /** A HADOOP_CONF_DIR pointing at nothing is not an answer either. */
     @Test
     public void missingHadoopConfDirEnvLeavesTheDefaultInPlace() {
@@ -139,13 +151,33 @@ public class PluginRegistryDefaultDirTest {
      * $HADOOP_CONF_DIR loses it on upgrade with a green test suite watching.
      */
     @Test
-    public void thePropertyCarryingTheDefaultDoesNotSuppressTheEnv(@TempDir Path existing) {
-        System.setProperty(HADOOP_CONF_DIR_PROPERTY,
-                Paths.get("/opt/doris/be", "plugins", "hadoop_conf").toString());
+    public void thePropertyCarryingTheDefaultDoesNotSuppressTheEnv(@TempDir Path dorisHome,
+            @TempDir Path existing) {
+        Path defaultDir = dorisHome.resolve("plugins").resolve("hadoop_conf");
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, defaultDir.toString());
 
-        Assertions.assertEquals(existing, PluginRegistry.hadoopConfDir(existing.toString()),
+        Assertions.assertEquals(existing,
+                PluginRegistry.hadoopConfDir(existing.toString(), defaultDir),
                 "BE always sets this property, so carrying the default value must count as "
                         + "'not configured'");
+    }
+
+    /**
+     * ...and only that exact path counts as the default. The test used to be a suffix match, which
+     * swept in every path ENDING in plugins/hadoop_conf - {@code /mnt/shared/plugins/hadoop_conf}
+     * is a directory an operator chose, on a host where the default is somewhere else entirely, and
+     * an empty one of those must be the answer rather than fall through to the environment.
+     */
+    @Test
+    public void pathThatMerelyEndsLikeTheDefaultIsStillAnOperatorsChoice(@TempDir Path dorisHome,
+            @TempDir Path chosen, @TempDir Path existing) {
+        Path defaultDir = dorisHome.resolve("plugins").resolve("hadoop_conf");
+        Path named = chosen.resolve("plugins").resolve("hadoop_conf");
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, named.toString());
+
+        Assertions.assertEquals(named, PluginRegistry.hadoopConfDir(existing.toString(), defaultDir),
+                "a path that is not the resolved default was named by somebody, whatever it "
+                        + "happens to end with");
     }
 
     /**
@@ -156,12 +188,12 @@ public class PluginRegistryDefaultDirTest {
     @Test
     public void anEmptyPluginConfDirDoesNotSuppressTheEnv(@TempDir Path emptyDefault,
             @TempDir Path existing) {
-        System.setProperty(HADOOP_CONF_DIR_PROPERTY, emptyDefault.resolve("plugins")
-                .resolve("hadoop_conf").toString());
-        Assertions.assertTrue(emptyDefault.resolve("plugins").resolve("hadoop_conf").toFile()
-                .mkdirs());
+        Path defaultDir = emptyDefault.resolve("plugins").resolve("hadoop_conf");
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, defaultDir.toString());
+        Assertions.assertTrue(defaultDir.toFile().mkdirs());
 
-        Assertions.assertEquals(existing, PluginRegistry.hadoopConfDir(existing.toString()));
+        Assertions.assertEquals(existing,
+                PluginRegistry.hadoopConfDir(existing.toString(), defaultDir));
     }
 
     /** ...and once an operator drops a file in, that directory is the answer again. */
@@ -173,7 +205,7 @@ public class PluginRegistryDefaultDirTest {
         Files.write(conf.resolve("core-site.xml"), "<configuration/>".getBytes(StandardCharsets.UTF_8));
         System.setProperty(HADOOP_CONF_DIR_PROPERTY, conf.toString());
 
-        Assertions.assertEquals(conf, PluginRegistry.hadoopConfDir(existing.toString()));
+        Assertions.assertEquals(conf, PluginRegistry.hadoopConfDir(existing.toString(), conf));
     }
 
     /**
@@ -198,6 +230,10 @@ public class PluginRegistryDefaultDirTest {
                 definedString(text, "jni_plugin_hadoop_conf_dir"),
                 "jni_plugin_hadoop_conf_dir and PluginRegistry.DEFAULT_HADOOP_CONF_SUBDIR name "
                         + "different directories; hadoop configuration would go unread");
+        Assertions.assertEquals("${DORIS_HOME}/plugins/jni_fs",
+                definedString(text, "jni_plugin_fs_dir"),
+                "jni_plugin_fs_dir and PluginRegistry.DEFAULT_FS_SUBDIR name different "
+                        + "directories; every plugin would lose oss:// and jfs://");
     }
 
     private static String definedString(String text, String name) {

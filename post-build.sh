@@ -89,16 +89,38 @@ copy_juicefs_hadoop_jar() {
 
 # --- Install functions ---
 
+# Where a third-party filesystem's jars are deployed, per target.
+#
+# FE keeps lib/<name>: it has exactly one consumer, the FE's own classpath.
+#
+# BE uses plugins/jni_fs/<name>, because it has TWO consumers and they need the same files. The
+# native libhdfs reader wants them on the system class path (bin/start_be.sh puts them there), and
+# every Java plugin wants them on its own classpath (PluginRegistry appends them, BE config
+# jni_plugin_fs_dir) - a plugin classloader cannot reach the system class path by design, which is
+# what took oss:// and jfs:// away from the Java scanners when the plugins were isolated. One
+# directory read by both is one copy on disk; the JuiceFS Hadoop SDK alone is a 180 MB fat jar.
+# It sits under plugins/ rather than lib/ for the same reason plugins/jni does: lib/ is the engine
+# tree a package upgrade replaces wholesale.
+fs_libs_dir() {
+    local target_type="$1"
+    local output_dir="$2"
+    local name="$3"
+
+    if [[ "${target_type}" == "fe" ]]; then
+        echo "${output_dir}/fe/lib/${name}"
+    elif [[ "${target_type}" == "be" ]]; then
+        echo "${output_dir}/be/plugins/jni_fs/${name}"
+    else
+        return 1
+    fi
+}
+
 install_juicefs() {
     local target_type="$1"
     local output_dir="$2"
 
     local target_dir
-    if [[ "${target_type}" == "fe" ]]; then
-        target_dir="${output_dir}/fe/lib/juicefs"
-    elif [[ "${target_type}" == "be" ]]; then
-        target_dir="${output_dir}/be/lib/juicefs"
-    else
+    if ! target_dir="$(fs_libs_dir "${target_type}" "${output_dir}" juicefs)"; then
         echo "ERROR: unknown target type '${target_type}' for install_juicefs"
         return 1
     fi
@@ -112,11 +134,7 @@ install_jindofs() {
     local output_dir="$2"
 
     local target_dir
-    if [[ "${target_type}" == "fe" ]]; then
-        target_dir="${output_dir}/fe/lib/jindofs"
-    elif [[ "${target_type}" == "be" ]]; then
-        target_dir="${output_dir}/be/lib/jindofs"
-    else
+    if ! target_dir="$(fs_libs_dir "${target_type}" "${output_dir}" jindofs)"; then
         echo "ERROR: unknown target type '${target_type}' for install_jindofs"
         return 1
     fi

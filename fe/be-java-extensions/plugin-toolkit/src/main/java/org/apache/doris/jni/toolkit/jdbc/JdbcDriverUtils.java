@@ -51,8 +51,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>The cache is keyed by jar <em>and</em> parent, because "the same jar under two plugins" is two
  * different driver worlds. Note that a driver jar replaced in place at the same URL is not picked
- * up until BE restarts; {@link #checksumVerifier}, which the JDBC scanner, writer and connection
- * tester all pass, is what turns that from a silent stale read into an error.
+ * up on its own; {@link #checksumVerifier}, which the JDBC scanner, writer and connection tester
+ * all pass, is what turns that from a silent stale read into an error - and, once the operator
+ * states the jar's new checksum, into a reload: an expectation that differs from the one the
+ * cached loader was verified under discards it, because otherwise the check would report success
+ * against bytes the process is not running.
  *
  * <p>Whether a jar has been checked is remembered SEPARATELY from the classloader, keyed by jar and
  * expected checksum rather than by jar and parent. Folding the two together looks equivalent and is
@@ -78,6 +81,18 @@ public final class JdbcDriverUtils {
      * checksums are two entries and both get checked; exactly one of them can pass.
      */
     private static final Set<String> VERIFIED = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Per driver jar URL, the expectation the classloaders cached for it were built under.
+     *
+     * <p>This is what connects the two caches above, which are otherwise deliberately independent.
+     * A new expectation for a URL that already has a loader means the operator replaced the jar in
+     * place and told Doris its new checksum; the bytes just verified are then NOT the bytes the
+     * cached loader was built from. Without this the check reports success against the current jar
+     * while every query keeps using the old driver until BE restarts - a verification that passes
+     * for a driver the process is not running.
+     */
+    private static final ConcurrentHashMap<String, String> LOADED_UNDER = new ConcurrentHashMap<>();
 
     private JdbcDriverUtils() {
     }
@@ -185,7 +200,14 @@ public final class JdbcDriverUtils {
             // Before the early return, not after the cache miss: a cached loader says nothing about
             // whether THIS caller's expectation was ever checked against the jar.
             verifyOnce(key.driverUrl, verifier, false);
-            return cached;
+            // Re-read rather than return `cached`: verifyOnce discards the loaders for this jar when
+            // the expectation it just checked is not the one they were built under, and returning
+            // the loader read a moment ago would hand back exactly the stale driver that discovery
+            // was for. A miss here falls through and builds a fresh loader from the new bytes.
+            ClassLoader stillCached = DRIVER_CLASS_LOADERS.get(key);
+            if (stillCached != null) {
+                return stillCached;
+            }
         }
         // Per-key lock plus a second look, rather than computeIfAbsent: verifying a driver jar
         // reads and checksums it and creating the loader opens it, and neither may run while a
@@ -231,6 +253,28 @@ public final class JdbcDriverUtils {
         // both read the jar once, which is a cheap price for not holding a lock across the read.
         verifier.verify(driverJar);
         VERIFIED.add(token);
+
+        // A DIFFERENT expectation than the cached loaders for this jar were built under means the
+        // jar behind the URL changed and the operator said so (ALTER CATALOG ... driver_checksum).
+        // The bytes just verified are the new ones; the loaders hold the old ones. Drop them so the
+        // next request rebuilds from what was actually checked.
+        String previous = LOADED_UNDER.put(driverJar.toString(), expectation);
+        if (previous != null && !previous.equals(expectation)) {
+            dropLoaders(driverJar);
+        }
+    }
+
+    /**
+     * Forgets every cached classloader for one driver jar, whatever parent it was built under.
+     *
+     * <p>Deliberately does not close them: another query may still be resolving classes lazily
+     * through one, and closing it would turn that into a NoClassDefFoundError. They go when the
+     * last reference does. Shared with {@link #invalidate}, which is the same discard reached
+     * deliberately rather than by a changed checksum.
+     */
+    private static void dropLoaders(URL driverJar) {
+        String url = driverJar.toString();
+        DRIVER_CLASS_LOADERS.keySet().removeIf(key -> key.driverUrl.toString().equals(url));
     }
 
     /**
@@ -249,6 +293,10 @@ public final class JdbcDriverUtils {
         // different one by now - that is a reason someone invalidates.
         String prefix = key.driverUrl.toString() + '\0';
         VERIFIED.removeIf(token -> token.startsWith(prefix));
+        // Forgotten too, so that the next verification is a first one rather than a change: with a
+        // stale entry left here, re-verifying the same expectation would look unchanged and
+        // re-verifying a new one would drop loaders that no longer exist.
+        LOADED_UNDER.remove(key.driverUrl.toString());
     }
 
     private static URL toUrl(String driverUrl) {

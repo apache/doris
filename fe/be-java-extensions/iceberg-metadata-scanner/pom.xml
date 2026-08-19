@@ -262,6 +262,23 @@ under the License.
                     <artifactId>hadoop-huaweicloud</artifactId>
                     <scope>runtime</scope>
                 </dependency>
+                <!-- commons-lang 2.x, NOT lang3: seven classes of the fat jar above call
+                     org.apache.commons.lang.StringUtils - OBSFileSystem, OBSCommonUtils,
+                     OBSLoginHelper, DefaultOBSClientFactory, OBSInputStream,
+                     OBSObjectBucketUtils - and it carries no copy of its own. It used to reach
+                     them from preload-extensions' runtime classpath, the shared parent of every
+                     JNI scanner; that module is gone and a plugin classloader cannot see the
+                     system classpath, so without this the FIRST obs:// path a scanner opens dies
+                     linking OBSFileSystem.initialize() with NoClassDefFoundError. Inside this
+                     profile, so -Ddisable.obs=true drops it along with the filesystem that needs
+                     it. Nothing static can catch this: check_plugin_layout.py's closure check
+                     starts from Doris's own classes, and a filesystem provider is reached by
+                     name through hadoop's Configuration. -->
+                <dependency>
+                    <groupId>commons-lang</groupId>
+                    <artifactId>commons-lang</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
             </dependencies>
             <repositories>
                 <repository>

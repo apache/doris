@@ -206,6 +206,40 @@ class JdbcDriverUtilsTest {
     }
 
     /**
+     * A NEW checksum for a jar that already has a classloader replaces the classloader.
+     *
+     * <p>This is the "replaced the driver jar in place" story told end to end: the operator
+     * overwrites the file and runs {@code ALTER CATALOG ... SET ("driver_checksum" = <new>)}. The
+     * verification then reads the new bytes and passes - and without this the method hands back the
+     * loader built from the old ones, so the check reports success for a driver the process is not
+     * running, until BE restarts. The two caches are keyed differently on purpose (see the class
+     * javadoc); this is the one thing that has to cross between them.
+     */
+    @Test
+    void newChecksumForTheSameJarReplacesTheClassLoader(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "replaced-in-place.jar");
+        ClassLoader parent = getClass().getClassLoader();
+        String first = md5Of(jar);
+
+        ClassLoader before = JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(first));
+
+        Files.write(Path.of(URI.create(jar)), "a different driver".getBytes(StandardCharsets.UTF_8));
+        String second = md5Of(jar);
+        Assertions.assertNotEquals(first, second, "the fixture must actually change the bytes");
+
+        ClassLoader after = JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(second));
+
+        Assertions.assertNotSame(before, after,
+                "a checksum verified against new bytes must not hand back the loader built from"
+                        + " the old ones");
+        // ...and the new loader is now the cached one, so the same question does not rebuild again.
+        Assertions.assertSame(after, JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(second)));
+    }
+
+    /**
      * A catalog defined without a checksum has nothing to verify against. Inventing an expectation
      * there would reject every such catalog, so "no checksum" has to mean "no verifier".
      */

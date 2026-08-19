@@ -21,12 +21,15 @@
 
 #include <string>
 
+#include <optional>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
+#include "util/jni-util.h"
 #include "util/jni_plugin_registry.h"
 
 namespace doris {
@@ -87,9 +90,34 @@ void JniPluginStatusAction::handle(HttpRequest* req) {
         return;
     }
 
-    // Java is only reached when the registry is already up. Both branches below report from
-    // this process and from disk alone.
+    // Java is only reached when the registry is already up. Every branch below reports from
+    // this process and from disk alone - none of them creates a JVM, which is why the base is
+    // read through jni_base_outcome() rather than asked for through ensure_jni_base().
     if (!Jni::PluginRegistry::registry_initialized()) {
+        // The state this PR introduced and this endpoint exists to name: the JVM is up but
+        // doris-jni-spi.jar could not be resolved, so no Java code can run in this process - not
+        // a plugin, not warmup, nothing. Reported as its own answer because the alternative is
+        // the "nothing has loaded yet" note below, which is both wrong and actively unhelpful:
+        // it tells an operator to set java_plugin_warmup=true, and warmup fails the same way.
+        // HDFS through libhdfs keeps working here, hence javaSupport false with no other symptom.
+        if (std::optional<Status> base = Jni::Util::jni_base_outcome();
+            base.has_value() && !base->ok()) {
+            HttpChannel::send_reply(
+                    req, HttpStatus::OK,
+                    fmt::format(
+                            R"({{"javaSupport":false,"registryInitialized":false,"pluginDir":{},)"
+                            R"("anyPluginDeployed":{},"plugins":[],"error":{},)"
+                            R"("note":"The JVM is up but the Java plugin SPI could not be)"
+                            R"( resolved, so no Java code can run in this process. HDFS through)"
+                            R"( libhdfs is unaffected. Check that DORIS_HOME/lib/jni/spi holds)"
+                            R"( doris-jni-spi.jar and doris-jni-bootstrap.jar; warmup cannot)"
+                            R"( help, it fails the same way."}})"
+                            "\n",
+                            json_string(config::jni_plugin_dir),
+                            Jni::PluginRegistry::any_plugin_deployed() ? "true" : "false",
+                            json_string(base->to_string())));
+            return;
+        }
         HttpChannel::send_reply(
                 req, HttpStatus::OK,
                 fmt::format(

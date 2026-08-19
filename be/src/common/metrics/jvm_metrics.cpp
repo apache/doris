@@ -23,8 +23,26 @@
 #include "common/metrics/metrics.h"
 #include "util/defer_op.h"
 #include "util/jni-util.h"
+#include "util/jvm_launcher.h"
 
 namespace doris {
+
+namespace {
+// The env these stats run on, taken from the JVM directly rather than through Jni::Env::Get().
+//
+// Env::Get() is the gate for code that runs Java of Doris's own, and it refuses whenever the
+// plugin SPI could not be resolved. These stats are not that: JvmStats reaches only for
+// java.lang.management, which every JVM has and no plugin supplies, and it is published precisely
+// so that a BE whose JVM came up through libhdfs alone still reports its Java heap instead of
+// having it counted as untracked memory. Routing it through the SPI gate undid that in the one
+// deployment it was written for: init() succeeded on the bootstrap thread (env already primed, so
+// Env::Get() took its fast path and never asked), while every later refresh() ran on the metrics
+// daemon, took the slow path, and got the cached base failure - 30 of those and JvmMetrics::update
+// logs "Jvm Stats CLOSE!" and sets every jvm_* gauge to 0. Published once, frozen, then zeroed.
+Status jvm_management_env(JNIEnv** env) {
+    return Jni::JvmLauncher::attach_current_thread(env);
+}
+} // namespace
 
 #define DEFINE_JVM_SIZE_BYTES_METRIC(name, type)                                     \
     DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(name##_##type, MetricUnit::BYTES, "", name, \
@@ -133,8 +151,8 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry) {
 
     // Last, after every register above. MetricRegistry::trigger_all_hooks runs a hook while it
     // holds both its own lock and MetricEntity::_lock, and this hook re-enters JNI through
-    // Jni::Env::Get() - which, on the metrics daemon thread, blocks on the once flag whichever
-    // thread is bringing the JVM up holds. Publishing the hook before these registers means the
+    // attach_current_thread() - which, on the metrics daemon thread, blocks on the once flag
+    // whichever thread is bringing the JVM up holds. Publishing the hook before these registers means the
     // daemon can be holding the very lock they need while it waits for that flag: an ABBA
     // deadlock that leaves /metrics dead for good. Since the JVM is created on demand, the
     // thread running this constructor is any query thread rather than main().
@@ -208,7 +226,7 @@ void JvmMetrics::update() {
 
 Status JvmStats::init() {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    RETURN_IF_ERROR(jvm_management_env(&env));
 
     RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/management/ManagementFactory",
                                           &_managementFactoryClass));
@@ -308,7 +326,7 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
     }
 
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    RETURN_IF_ERROR(jvm_management_env(&env));
 
     Jni::LocalObject memoryMXBeanObj;
     RETURN_IF_ERROR(_managementFactoryClass.call_static_object_method(env, _getMemoryMXBeanMethod)
