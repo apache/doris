@@ -3121,7 +3121,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         ImmutableList<String> args = ctx.args.stream()
                 .map(RuleContext::getText)
                 .collect(ImmutableList.toImmutableList());
-        Expression body = (Expression) visit(ctx.body);
+        // A tuple Lambda body such as (k, v) -> (k * 3, v + 1) is shorthand for
+        // (k, v) -> struct(k * 3, v + 1)
+        Expression body = ctx.body == null
+                ? new UnboundFunction("struct", visit(ctx.bodyItems, Expression.class))
+                : (Expression) visit(ctx.body);
         return new Lambda(args, body);
     }
 

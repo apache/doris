@@ -44,6 +44,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntryArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapLambdaValidator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -194,19 +197,25 @@ public class PlanUtils {
      */
     public static boolean canMergeWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
-        Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
+        boolean containsMapLambda = targetExpressions.stream()
+                .anyMatch(target -> target.containsType(MapEntryArrayMap.class));
+        Set<Slot> nonRepeatableSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
-            if (kv.getValue().containsVolatileExpression()) {
-                uniqueFunctionSlots.add(kv.getKey());
+            Expression value = kv.getValue();
+            if (value.containsVolatileExpression()
+                    || value.containsType(MapEntryArrayMap.class)
+                    || (containsMapLambda && value.getDataType() instanceof MapType
+                    && MapLambdaValidator.requiresSingleEvaluation(value))) {
+                nonRepeatableSlots.add(kv.getKey());
             }
         }
-        if (uniqueFunctionSlots.isEmpty()) {
+        if (nonRepeatableSlots.isEmpty()) {
             return true;
         }
 
         Set<Slot> counterSet = Sets.newHashSet();
         return targetExpressions.stream().noneMatch(target -> target.anyMatch(
-                e -> (e instanceof Slot) && uniqueFunctionSlots.contains(e) && !counterSet.add((Slot) e)));
+                e -> (e instanceof Slot) && nonRepeatableSlots.contains(e) && !counterSet.add((Slot) e)));
     }
 
     public static Plan skipProjectFilterLimit(Plan plan) {

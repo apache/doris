@@ -331,10 +331,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapExists;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromArrays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
@@ -542,6 +546,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileSta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
@@ -915,10 +921,14 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MakeDate.class, "makedate"),
             scalar(MakeSet.class, "make_set"),
             scalar(MakeTime.class, "maketime"),
+            scalar(MapAll.class, "map_all"),
+            scalar(MapApply.class, "map_apply"),
             scalar(MapContainsEntry.class, "map_contains_entry"),
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
             scalar(MapEntries.class, "map_entries"),
+            scalar(MapExists.class, "map_exists"),
+            scalar(MapFilter.class, "map_filter"),
             scalar(MapFromArrays.class, "map_from_arrays"),
             scalar(MapFromEntries.class, "map_from_entries"),
             scalar(MapKeys.class, "map_keys"),
@@ -1134,6 +1144,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TopLevelDomain.class, "top_level_domain"),
             scalar(ToQuantileState.class, "to_quantile_state"),
             scalar(ToSeconds.class, "to_seconds"),
+            scalar(TransformKeys.class, "transform_keys"),
+            scalar(TransformValues.class, "transform_values"),
             scalar(Translate.class, "translate"),
             scalar(Trim.class, "trim"),
             scalar(TrimIn.class, "trim_in"),
