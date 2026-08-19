@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructField;
@@ -38,6 +39,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -324,6 +326,30 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
                 "the row-id STRUCT must carry its field names, not be flattened to a bare tag");
         Assertions.assertEquals(2, rowIdType.getChildren().size(),
                 "the row-id STRUCT must carry its child types, not be flattened to a bare tag");
+    }
+
+    @Test
+    public void rowLevelDmlPreservesNestedComputeVariantCarrierForConnectorSchemaBinding() {
+        Column variant = new Column("variant_data",
+                ArrayType.create(new ConnectorComputeVariantType(), true));
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        Plugin plugin = pluginTable();
+
+        @SuppressWarnings("unchecked")
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(plugin.table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(variant)).when(sink).getCols();
+
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        new PhysicalPlanTranslator(context, null).visitPhysicalExternalRowLevelDeleteSink(sink, context);
+
+        @SuppressWarnings("unchecked")
+        List<ConnectorColumn> connectorColumns = (List<ConnectorColumn>) Deencapsulation.getField(
+                capturePluginSink(childFragment), "connectorColumns");
+        Assertions.assertEquals("VARIANT_COMPUTE_V2",
+                connectorColumns.get(0).getType().getChildren().get(0).getTypeName(),
+                "row-level writes must not report an execution-only external Variant as persisted VARIANT");
     }
 
     // ==================== helpers ====================

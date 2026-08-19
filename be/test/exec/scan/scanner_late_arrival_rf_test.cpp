@@ -58,12 +58,16 @@ namespace doris {
 class TestScanner final : public Scanner {
 public:
     TestScanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
-                RuntimeProfile* profile)
-            : Scanner(state, local_state, limit, profile) {}
+                RuntimeProfile* profile, bool allow_padding = true)
+            : Scanner(state, local_state, limit, profile), _allow_padding(allow_padding) {}
 
     void add_block(Block block) { _blocks.push_back(std::move(block)); }
 
 protected:
+    bool _can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const override {
+        return _allow_padding;
+    }
+
     Status _get_block_impl(RuntimeState* /*state*/, Block* block, bool* eof) override {
         if (_blocks.empty()) {
             *eof = true;
@@ -76,6 +80,7 @@ protected:
     }
 
 private:
+    bool _allow_padding = true;
     std::list<Block> _blocks;
 };
 
@@ -781,6 +786,46 @@ TEST(ScannerProjectionTest, publishes_shared_column_and_reuses_output_block) {
     EXPECT_EQ(output.get_by_position(0).column.get(), second_column);
     EXPECT_EQ(output.get_by_position(0).column->get_int(0), 3);
     EXPECT_EQ(output.get_by_position(0).column->get_int(1), 4);
+}
+
+TEST(ScannerProjectionTest, projects_incompatible_blocks_before_reading_the_next_block) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 8;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    op->_output_row_descriptor =
+            std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &pool);
+    op->_output_tuple_desc = op->_output_row_descriptor->tuple_descriptors()[0];
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile, false);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({0, 1}));
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({2, 3, 4}));
+
+    Block first_output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &first_output, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(first_output.rows(), 2);
+
+    Block second_output;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &second_output, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(second_output.rows(), 3);
+
+    Block final_output;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &final_output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(final_output.rows(), 0);
 }
 
 } // namespace doris

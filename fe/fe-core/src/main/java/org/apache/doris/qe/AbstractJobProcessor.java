@@ -45,6 +45,9 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     private final Logger logger = LogManager.getLogger(getClass());
 
     protected final AtomicBoolean finished = new AtomicBoolean(false);
+    // FINISHED cleanup must wait until all fragment dispatch RPCs, including phase-two starts, complete.
+    private final AtomicBoolean executionFinished = new AtomicBoolean(false);
+    private final AtomicBoolean fragmentDispatchCompleted = new AtomicBoolean(false);
     protected final CoordinatorContext coordinatorContext;
     protected volatile Optional<PipelineExecutionTask> executionTask;
     protected volatile Optional<Map<BackendFragmentId, SingleFragmentPipelineTask>> backendFragmentTasks;
@@ -74,6 +77,20 @@ public abstract class AbstractJobProcessor implements JobProcessor {
 
     @Override
     public void tryFinishSchedule() {
+        executionFinished.set(true);
+        tryBroadcastExecutionFinished();
+    }
+
+    @Override
+    public void markFragmentDispatchCompleted() {
+        fragmentDispatchCompleted.set(true);
+        tryBroadcastExecutionFinished();
+    }
+
+    private void tryBroadcastExecutionFinished() {
+        if (!executionFinished.get() || !fragmentDispatchCompleted.get()) {
+            return;
+        }
         if (finished.compareAndSet(false, true)) {
             this.executionTask.ifPresent(sqlPipelineTask -> {
                 for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {

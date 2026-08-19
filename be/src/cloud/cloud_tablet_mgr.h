@@ -62,6 +62,8 @@ public:
     // Return true if cached tablet meta is found (without triggering RPC) and filled.
     bool peek_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta);
 
+    std::shared_ptr<CloudTablet> get_tablet_if_cached(int64_t tablet_id);
+
     void erase_tablet(int64_t tablet_id);
 
     void vacuum_stale_rowsets(const CountDownLatch& stop_latch);

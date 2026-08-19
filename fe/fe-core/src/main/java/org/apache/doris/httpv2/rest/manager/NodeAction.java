@@ -261,7 +261,7 @@ public class NodeAction extends RestBaseController {
     public Object config(HttpServletRequest request, HttpServletResponse response) {
         // This endpoint lists all FE config, matching the SQL "SHOW FRONTEND CONFIG", which
         // requires ADMIN. Use an unconditional ADMIN check: checkAdminAuth only enforces the
-        // privilege when enable_all_http_auth is true, so it would be a no-op by default.
+        // privilege when enable_all_http_auth is true, which an operator can turn off.
         // Sensitive config values (e.g. fe_meta_auth_token) are additionally masked by ConfigBase,
         // so they are never returned in plaintext even to an admin.
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);

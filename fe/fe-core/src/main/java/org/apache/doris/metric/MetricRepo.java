@@ -120,6 +120,10 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+    public static LongCounterMetric COUNTER_CLONE_BYTES_LOCAL_AZ;
+    public static LongCounterMetric COUNTER_CLONE_BYTES_CROSS_AZ;
+    public static LongCounterMetric COUNTER_CLONE_CROSS_AZ_SLOT_FULL;
+    public static LongCounterMetric COUNTER_CLONE_CROSS_AZ_NO_LOCAL;
 
     public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST;
     public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_ERR;
@@ -545,6 +549,18 @@ public final class MetricRepo {
         COUNTER_QUERY_HIVE_TABLE = new LongCounterMetric("query_hive_table", MetricUnit.REQUESTS,
                 "total query from hive table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
+        COUNTER_CLONE_BYTES_LOCAL_AZ = new LongCounterMetric("clone_bytes_local_az", MetricUnit.BYTES,
+                "total clone bytes within the same tag.location");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_BYTES_LOCAL_AZ);
+        COUNTER_CLONE_BYTES_CROSS_AZ = new LongCounterMetric("clone_bytes_cross_az", MetricUnit.BYTES,
+                "total clone bytes across different tag.location");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_BYTES_CROSS_AZ);
+        COUNTER_CLONE_CROSS_AZ_SLOT_FULL = new LongCounterMetric("clone_cross_az_slot_full", MetricUnit.BYTES,
+                "total cross-AZ clone bytes caused by local source slot exhaustion");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_CROSS_AZ_SLOT_FULL);
+        COUNTER_CLONE_CROSS_AZ_NO_LOCAL = new LongCounterMetric("clone_cross_az_no_local", MetricUnit.BYTES,
+                "total cross-AZ clone bytes caused by no local healthy source");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CLONE_CROSS_AZ_NO_LOCAL);
         USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
             LongCounterMetric userCountQueryAll = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
                     "total query for single user");

@@ -819,6 +819,11 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     return Base::close(state, exec_status);
 }
 
+// An instantiation added outside the macros below needs the matching
+// 'extern template' declaration in the operator's header (enforced by
+// build-support/check-extern-template-pairing.py). Instantiations expanded
+// through DECLARE_OPERATOR are invisible to that check -- macro bodies are
+// skipped -- so their extern pairing has to be kept in sync by hand.
 #define DECLARE_OPERATOR(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR(ResultSinkLocalState)

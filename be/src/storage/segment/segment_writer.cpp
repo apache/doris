@@ -62,6 +62,7 @@
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
+#include "storage/segment/common.h"        // k_segment_magic
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/page_io.h"
@@ -80,9 +81,6 @@ namespace segment_v2 {
 
 using namespace ErrorCode;
 
-const char* k_segment_magic = "D0R1";
-const uint32_t k_segment_magic_length = 4;
-
 inline std::string segment_mem_tracker_name(uint32_t segment_id) {
     return "SegmentWriter:Segment-" + std::to_string(segment_id);
 }
@@ -99,8 +97,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _file_writer(file_writer),
           _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
-          _key_encoder(*_tablet_schema, _is_mow()),
-          _mow_context(std::move(opts.mow_ctx)) {
+          _key_encoder(*_tablet_schema, _is_mow()) {
     CHECK_NOTNULL(file_writer);
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
 }
@@ -190,9 +187,21 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+    // Let SNII select the direct-load PRX zstd level.
+    opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     // indexes for this column
     if (!skip_inverted_index) {
         auto inverted_indexs = schema->inverted_indexs(column);
+        // SNII splits index compaction per (column, index): indexes in the set
+        // are produced by the postings merge, every sibling on the column still
+        // raw-builds here. V2/V3 skip whole columns above instead.
+        if (_opts.rowset_ctx != nullptr &&
+            !_opts.rowset_ctx->snii_indexes_to_do_compaction.empty()) {
+            std::erase_if(inverted_indexs, [&](const TabletIndex* index_meta) {
+                return _opts.rowset_ctx->snii_indexes_to_do_compaction.contains(
+                        {column.unique_id(), index_meta->index_id()});
+            });
+        }
         if (!inverted_indexs.empty()) {
             opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
@@ -334,18 +343,6 @@ Status SegmentWriter::_create_writers(const TabletSchemaSPtr& tablet_schema,
 }
 
 Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t num_rows) {
-    // Fixed partial update blocks arrive full-width, already filled by the transform
-    // chain; only the flexible mode still needs the vertical writer.
-    if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
-        _opts.write_type == DataWriteType::TYPE_DIRECT &&
-        !_opts.rowset_ctx->is_transient_rowset_writer &&
-        !_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
-        return Status::NotSupported<false>(
-                "SegmentWriter doesn't support flexible partial update, please set "
-                "enable_vertical_segment_writer=true in be.conf on all BEs to use "
-                "VerticalSegmentWriter.");
-    }
     if (block->columns() < _column_writers.size()) {
         return Status::InternalError(
                 "block->columns() < _column_writers.size(), block->columns()=" +
@@ -357,8 +354,6 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size()
             << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
-    // Blocks from the seams arrive already transformed (variants parsed, row-store
-    // column materialized); compaction-family callers bring rows that are already final.
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // convert column data from engine format to storage layer format

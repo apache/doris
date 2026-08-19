@@ -306,4 +306,11 @@ using ColumnDecimal128V2 = ColumnDecimal<TYPE_DECIMALV2>;
 using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
 using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
 
+/// Instantiated once in column_decimal.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnDecimal<TYPE_DECIMAL32>;
+extern template class ColumnDecimal<TYPE_DECIMAL64>;
+extern template class ColumnDecimal<TYPE_DECIMALV2>;
+extern template class ColumnDecimal<TYPE_DECIMAL128I>;
+extern template class ColumnDecimal<TYPE_DECIMAL256>;
+
 } // namespace doris

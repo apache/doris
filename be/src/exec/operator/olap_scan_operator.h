@@ -29,6 +29,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
+#include "storage/index/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
@@ -156,6 +157,8 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
+    snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
+    snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
@@ -251,6 +254,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_lookup_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_insert_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
@@ -401,5 +406,9 @@ private:
     std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
     TabletSchemaSPtr _tablet_schema;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<OlapScanLocalState>;
+extern template class ScanLocalState<OlapScanLocalState>;
 
 } // namespace doris

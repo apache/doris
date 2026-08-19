@@ -46,6 +46,7 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
@@ -232,7 +233,15 @@ public class AuditLogHelper {
         } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
-        String cluster = Config.isCloudMode() ? cloudCluster : "";
+        // Load statements resolve their own hint at the scheduling sites and record it on the
+        // context; prefer it over the scan-side query decision so load audits are accurate.
+        BackendSelection.SelectionHint selectionHint = ctx.getLoadBackendSelectionDecisionForAudit();
+        if (selectionHint == null) {
+            selectionHint = ctx.getQueryBackendSelectionDecisionForAudit();
+        }
+        // In cloud mode, compute_group keeps its existing cloud compute group meaning. In integrated
+        // mode, resource groups provide compute affinity, so reuse compute_group for the preferred group.
+        String cluster = Config.isCloudMode() ? cloudCluster : selectionHint.getPreferredKey();
         String stmtType = getStmtType(parsedStmt);
         long queueTimeMs = getQueueTimeMs(ctx);
 

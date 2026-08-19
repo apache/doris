@@ -186,7 +186,7 @@ protected:
             const TabletSharedPtr& tablet, const std::shared_ptr<MowContext>& mow_context,
             const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
             const std::vector<Block*>& blocks, RowsetSharedPtr* rowset,
-            PartialUpdateStats* stats_out = nullptr) {
+            PartialUpdateStats* stats_out = nullptr, int64_t* writer_num_rows = nullptr) {
         RowsetWriterContext context;
         TabletSharedPtr unused_tablet;
         make_rowset_ctx(schema, rowset_numeric_id, version, &context, &unused_tablet);
@@ -209,6 +209,11 @@ protected:
             RETURN_IF_ERROR(writer->flush_memtable(block, segment_id++, nullptr));
         }
         RETURN_IF_ERROR(writer->flush());
+        if (writer_num_rows != nullptr) {
+            // the flusher-level input-row counter behind RowsetWriter::num_rows(),
+            // which the load-close check compares against the received rows
+            *writer_num_rows = writer->num_rows();
+        }
         if (stats_out != nullptr) {
             stats_out->num_rows_updated = writer->num_rows_updated();
             stats_out->num_rows_deleted = writer->num_rows_deleted();
@@ -223,10 +228,11 @@ protected:
                                 const std::shared_ptr<MowContext>& mow_context,
                                 const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
                                 Block* block, RowsetSharedPtr* rowset,
-                                PartialUpdateStats* stats_out = nullptr) {
+                                PartialUpdateStats* stats_out = nullptr,
+                                int64_t* writer_num_rows = nullptr) {
         return flush_partial_rowset_segments(schema, rowset_numeric_id, version, tablet,
                                              mow_context, partial_update_info, {block}, rowset,
-                                             stats_out);
+                                             stats_out, writer_num_rows);
     }
 
     // Reads every row of `rowset` back into `output` in key order, all columns.
@@ -312,7 +318,9 @@ protected:
 
     // (k INT key, v INT, delete-sign, __DORIS_SKIP_BITMAP_COL__) flexible partial update MoW
     // schema: flexible loads carry a full-width block plus the per-row skip bitmap.
-    TabletSchemaSPtr create_flexible_mow_schema() {
+    // Flexible MoW schema. Without seq: k(0) v(1) delete_sign(2) skip_bitmap(3).
+    // With seq: k(0) v(1) seq(2) delete_sign(3) skip_bitmap(4).
+    TabletSchemaSPtr create_flexible_mow_schema(bool has_seq = false) {
         TabletSchemaPB pb;
         pb.set_keys_type(UNIQUE_KEYS);
         pb.set_num_short_key_columns(1);
@@ -344,14 +352,23 @@ protected:
                 c->set_default_value(def);
             }
         };
-        add_col(0, "k", "INT", true, false);
-        add_col(1, "v", "INT", false, true, std::to_string(0));
-        add_col(2, DELETE_SIGN, "TINYINT", false, false, std::to_string(0));
-        add_col(3, SKIP_BITMAP_COL, "BITMAP", false, false);
+        int next = 0;
+        add_col(next, "k", "INT", true, false);
+        ++next;
+        add_col(next, "v", "INT", false, true, std::to_string(0));
+        ++next;
+        if (has_seq) {
+            add_col(next, SEQUENCE_COL, "INT", false, false, std::to_string(0));
+            pb.set_sequence_col_idx(next);
+            ++next;
+        }
+        add_col(next, DELETE_SIGN, "TINYINT", false, false, std::to_string(0));
         // init_from_pb reads these hidden-column indices straight from the PB
         // fields (it does not scan by name), so they must be set explicitly.
-        pb.set_delete_sign_idx(2);
-        pb.set_skip_bitmap_col_idx(3);
+        pb.set_delete_sign_idx(next);
+        ++next;
+        add_col(next, SKIP_BITMAP_COL, "BITMAP", false, false);
+        pb.set_skip_bitmap_col_idx(next);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -469,6 +486,27 @@ protected:
         for (size_t cid = (has_seq ? 4 : 3); cid < mcols.size(); ++cid) {
             mcols[cid]->insert_many_defaults(rows.size());
         }
+        EXPECT_TRUE(writer->add_block(&block).ok());
+        EXPECT_TRUE(writer->flush().ok());
+        RowsetSharedPtr rowset;
+        EXPECT_TRUE(writer->build(rowset).ok());
+        EXPECT_TRUE(rowset != nullptr);
+        return rowset;
+    }
+
+    // Like write_rowset, but the caller fills the block itself: for schemas whose
+    // column layout MowRow cannot express.
+    RowsetSharedPtr write_rowset_block(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id,
+                                       int64_t version, const std::function<void(Block&)>& fill,
+                                       TabletSharedPtr* out_tablet) {
+        RowsetWriterContext ctx;
+        make_rowset_ctx(schema, rowset_numeric_id, version, &ctx, out_tablet);
+        auto rw = RowsetFactory::create_rowset_writer(*_engine, ctx, false);
+        EXPECT_TRUE(rw.has_value()) << rw.error();
+        auto writer = std::move(rw).value();
+
+        Block block = schema->create_block();
+        fill(block);
         EXPECT_TRUE(writer->add_block(&block).ok());
         EXPECT_TRUE(writer->flush().ok());
         RowsetSharedPtr rowset;

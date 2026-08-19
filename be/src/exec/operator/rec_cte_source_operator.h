@@ -324,4 +324,7 @@ private:
     bool _is_used_by_other_rec_cte = false;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXLocalState<RecCTESharedState>;
+
 } // namespace doris

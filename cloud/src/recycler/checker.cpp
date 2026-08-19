@@ -772,10 +772,13 @@ int InstanceChecker::do_check() {
         }
         if (!index_ids.empty()) {
             const auto& index_map = rs_meta.packed_slice_locations();
+            const auto index_format =
+                    rs_meta.has_inverted_index_storage_format()
+                            ? rs_meta.inverted_index_storage_format()
+                            : rs_meta.tablet_schema().inverted_index_storage_format();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
                 std::vector<std::string> index_path_v;
-                if (rs_meta.tablet_schema().inverted_index_storage_format() ==
-                    InvertedIndexStorageFormatPB::V1) {
+                if (index_format == InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index_id : index_ids) {
                         LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
                                   << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
@@ -852,7 +855,7 @@ int InstanceChecker::do_check() {
 int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
     // If there are multiple buckets, return the minimum lifecycle.
     int64_t min_lifecycle_days = INT64_MAX;
-    int64_t tmp_liefcycle_days = 0;
+    int64_t tmp_lifecycle_days = 0;
     for (const auto& [id, accessor] : accessor_map_) {
         if (accessor->type() != AccessorType::S3) {
             continue;
@@ -864,12 +867,12 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
             return -1;
         }
 
-        if (s3_accessor->get_life_cycle(&tmp_liefcycle_days) != 0) {
+        if (s3_accessor->get_lifecycle(&tmp_lifecycle_days) != 0) {
             return -1;
         }
 
-        if (tmp_liefcycle_days < min_lifecycle_days) {
-            min_lifecycle_days = tmp_liefcycle_days;
+        if (tmp_lifecycle_days < min_lifecycle_days) {
+            min_lifecycle_days = tmp_lifecycle_days;
         }
     }
     *lifecycle_days = min_lifecycle_days;

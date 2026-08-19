@@ -718,6 +718,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
                        << "but HDFS storage vaults were detected";
 #endif
         } else if (vault.has_obj_info()) {
+            // TODO: Propagate object storage session tokens to Recycler in a follow-up PR.
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
@@ -3470,8 +3471,9 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
 
     // Process inverted indexes
     std::vector<std::pair<int64_t, std::string>> index_ids;
-    // default format as v1.
-    InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
+    InvertedIndexStorageFormatPB index_format = rs_meta_pb.has_inverted_index_storage_format()
+                                                        ? rs_meta_pb.inverted_index_storage_format()
+                                                        : InvertedIndexStorageFormatPB::V1;
     bool delete_rowset_data_by_prefix = false;
     if (rs_meta_pb.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
@@ -3483,7 +3485,8 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
                 index_ids.emplace_back(index.index_id(), index.index_suffix_name());
             }
         }
-        if (rs_meta_pb.tablet_schema().has_inverted_index_storage_format()) {
+        if (!rs_meta_pb.has_inverted_index_storage_format() &&
+            rs_meta_pb.tablet_schema().has_inverted_index_storage_format()) {
             index_format = rs_meta_pb.tablet_schema().inverted_index_storage_format();
         }
     } else if (!rs_meta_pb.has_index_id() || !rs_meta_pb.has_schema_version()) {
@@ -3497,7 +3500,9 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
                                  &inverted_index_get_ret);
         if (inverted_index_get_ret == 0) {
-            index_format = index_info.first;
+            if (!rs_meta_pb.has_inverted_index_storage_format()) {
+                index_format = index_info.first;
+            }
             index_ids = index_info.second;
         } else if (inverted_index_get_ret == 1) {
             // 1. Schema kv not found means tablet has been recycled
@@ -3833,8 +3838,8 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
         return -1;
     }
 
-    std::string dbm_val;
-    err = txn->get(dbm_key, &dbm_val);
+    ValueBuf dbm_val;
+    err = cloud::blob_get(txn.get(), dbm_key, &dbm_val);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // No delete bitmap for this rowset, nothing to do
         LOG_INFO("delete bitmap not found, skip packed file ref count decrement")
@@ -3853,7 +3858,7 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
     }
 
     DeleteBitmapStoragePB storage;
-    if (!storage.ParseFromString(dbm_val)) {
+    if (!dbm_val.to_pb(&storage)) {
         LOG_WARNING("failed to parse delete bitmap storage")
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id)
@@ -4235,7 +4240,9 @@ int InstanceRecycler::delete_rowset_data(
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
         // default format as v1.
-        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
+        InvertedIndexStorageFormatPB index_format = rs.has_inverted_index_storage_format()
+                                                            ? rs.inverted_index_storage_format()
+                                                            : InvertedIndexStorageFormatPB::V1;
         int inverted_index_get_ret = 0;
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {
@@ -4243,7 +4250,8 @@ int InstanceRecycler::delete_rowset_data(
                     index_ids.emplace_back(index.index_id(), index.index_suffix_name());
                 }
             }
-            if (rs.tablet_schema().has_inverted_index_storage_format()) {
+            if (!rs.has_inverted_index_storage_format() &&
+                rs.tablet_schema().has_inverted_index_storage_format()) {
                 index_format = rs.tablet_schema().inverted_index_storage_format();
             }
         } else {
@@ -4261,7 +4269,9 @@ int InstanceRecycler::delete_rowset_data(
             TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
                                      &inverted_index_get_ret);
             if (inverted_index_get_ret == 0) {
-                index_format = index_info.first;
+                if (!rs.has_inverted_index_storage_format()) {
+                    index_format = index_info.first;
+                }
                 index_ids = index_info.second;
             } else if (inverted_index_get_ret == 1) {
                 // 1. Schema kv not found means tablet has been recycled
