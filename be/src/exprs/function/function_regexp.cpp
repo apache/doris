@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "util/simd/vstring_function.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -140,8 +141,12 @@ struct RegexpExtractEngine {
     // index 0 means the whole match, 1 means the first capturing group (the default), and so on.
     // Groups that did not participate in a match (or matched an empty string) contribute an
     // empty string to the result, consistent with Spark.
+    // emit_empty_matches selects Spark semantics (explicit group index): successful
+    // zero-width matches are emitted and one terminal-position search is allowed,
+    // with UTF-8-safe advancement. The legacy two-argument form keeps skipping
+    // zero-width matches and never searches the terminal position.
     void match_all_and_extract(const char* data, size_t size, int index,
-                               std::vector<std::string>& results) const {
+                               std::vector<std::string>& results, bool emit_empty_matches) const {
         if (index < 0) {
             return;
         }
@@ -152,7 +157,7 @@ struct RegexpExtractEngine {
             }
 
             size_t pos = 0;
-            while (pos < size) {
+            while (pos <= size) {
                 std::vector<re2::StringPiece> matches(max_matches);
                 // Search within the original subject starting from pos, so `^` stays
                 // anchored to the beginning of the original string.
@@ -161,7 +166,11 @@ struct RegexpExtractEngine {
                 if (!success) {
                     break;
                 }
-                if (matches[0].empty()) {
+                const re2::StringPiece& whole = matches[0];
+                if (whole.empty() && !emit_empty_matches) {
+                    if (pos >= size) {
+                        break;
+                    }
                     pos += 1;
                     continue;
                 }
@@ -174,8 +183,16 @@ struct RegexpExtractEngine {
                         results.emplace_back();
                     }
                 }
-                // Advance past the match via its pointer into the original subject.
-                pos = (matches[0].data() - data) + matches[0].size();
+                if (whole.empty()) {
+                    if (pos >= size) {
+                        break;
+                    }
+                    // Advance one full UTF-8 character, never into a continuation byte.
+                    pos += get_utf8_byte_length(static_cast<uint8_t>(data[pos]));
+                } else {
+                    // Advance past the match via its pointer into the original subject.
+                    pos = (whole.data() - data) + whole.size();
+                }
             }
         } else if (is_boost()) {
             const char* search_start = data;
@@ -187,20 +204,26 @@ struct RegexpExtractEngine {
             // match_not_bob keeps `\A` anchored to the start of the original
             // buffer (Boost's documented repeated-regex_search idiom; with
             // match_prev_avail set, `^` is decided by the preceding character).
-            while (boost::regex_search(search_start, search_end, matches, *boost_regex,
+            while (search_start <= search_end &&
+                   boost::regex_search(search_start, search_end, matches, *boost_regex,
                                        search_start == data
                                                ? boost::match_default
                                                : boost::match_prev_avail | boost::match_not_bob)) {
-                if (static_cast<size_t>(index) < matches.size()) {
-                    results.emplace_back(matches[index].str());
+                const bool empty_match = matches[0].length() == 0;
+                if (!empty_match || emit_empty_matches) {
+                    if (static_cast<size_t>(index) < matches.size()) {
+                        results.emplace_back(matches[index].str());
+                    }
                 }
-                if (matches[0].length() == 0) {
-                    // Advance past the zero-width match itself, not from the old origin,
-                    // otherwise a match found after the origin would be emitted twice.
+                if (empty_match) {
+                    // Advance past the zero-width match itself (one full UTF-8
+                    // character), otherwise a match found after the origin would be
+                    // emitted twice or the next search could split a multibyte char.
                     if (matches[0].first == search_end) {
                         break;
                     }
-                    search_start = matches[0].first + 1;
+                    search_start =
+                            matches[0].first + get_utf8_byte_length(static_cast<uint8_t>(*matches[0].first));
                 } else {
                     search_start = matches[0].second;
                 }
@@ -789,6 +812,27 @@ struct RegexpExtractAllImpl {
         auto outer_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = outer_null_map->get_data();
 
+        // Merge input null maps so rows with a null string/pattern/index skip the
+        // explicit index validation below (a null index row must yield NULL, not
+        // abort the whole query). The framework's default null handling restores
+        // these rows in the result afterwards.
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            const auto& col = block.get_by_position(arguments[i]).column;
+            const ColumnNullable* nullable = check_and_get_column<ColumnNullable>(col.get());
+            if (nullable == nullptr) {
+                if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
+                    nullable = check_and_get_column<ColumnNullable>(const_col->get_data_column().get());
+                }
+            }
+            if (nullable == nullptr) {
+                continue;
+            }
+            const auto& input_null_map = nullable->get_null_map_data();
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                null_map_data[row] = null_map_data[row] || input_null_map[index_check_const(row, col_const[i])];
+            }
+        }
+
         typename Handler::State state(input_rows_count);
         auto handler = state.create_handler();
 
@@ -865,7 +909,7 @@ private:
         const auto& str = str_col->get_data_at(index_now);
         std::vector<std::string> res_matches;
         engine->match_all_and_extract(str.data, str.size, static_cast<int>(index_data),
-                                      res_matches);
+                                      res_matches, has_index);
 
         if (res_matches.empty()) {
             handler.push_empty(index_now);
