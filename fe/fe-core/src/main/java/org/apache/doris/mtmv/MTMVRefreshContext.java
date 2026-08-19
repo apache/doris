@@ -55,9 +55,14 @@ public class MTMVRefreshContext {
     }
 
     public static MTMVRefreshContext buildContext(MTMV mtmv) throws AnalysisException {
+        return buildContext(mtmv, null);
+    }
+
+    public static MTMVRefreshContext buildContext(MTMV mtmv, Set<String> queryUsedPartitions)
+            throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv);
-        context.partitionMappings = mtmv.calculatePartitionMappings();
-        context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv);
+        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions);
+        context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, context.partitionMappings);
         return context;
     }
 

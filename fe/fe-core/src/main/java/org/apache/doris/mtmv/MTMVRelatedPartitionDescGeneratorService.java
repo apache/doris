@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.AnalysisException;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Interface for a series of processes to generate PartitionDesc
@@ -34,5 +35,5 @@ public interface MTMVRelatedPartitionDescGeneratorService {
      * @throws AnalysisException
      */
     void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException;
+            RelatedPartitionDescResult lastResult, Set<String> queryUsedPartitions) throws AnalysisException;
 }

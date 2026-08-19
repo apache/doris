@@ -166,10 +166,15 @@ public class MTMVPartitionUtil {
 
     public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
             Map<String, String> mvProperties) throws AnalysisException {
+        return generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, null);
+    }
+
+    public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties, Set<String> queryUsedPartitions) throws AnalysisException {
         long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult();
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
-            service.apply(mvPartitionInfo, mvProperties, result);
+            service.apply(mvPartitionInfo, mvProperties, result, queryUsedPartitions);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
@@ -581,11 +586,13 @@ public class MTMVPartitionUtil {
         throw new AnalysisException("can not getPartitionColumnType by:" + col);
     }
 
-    public static MTMVBaseVersions getBaseVersions(MTMV mtmv) throws AnalysisException {
-        return new MTMVBaseVersions(getTableVersions(mtmv), getPartitionVersions(mtmv));
+    public static MTMVBaseVersions getBaseVersions(MTMV mtmv, Map<String, Set<String>> partitionMappings)
+            throws AnalysisException {
+        return new MTMVBaseVersions(getTableVersions(mtmv), getPartitionVersions(mtmv, partitionMappings));
     }
 
-    private static Map<String, Long> getPartitionVersions(MTMV mtmv) throws AnalysisException {
+    private static Map<String, Long> getPartitionVersions(MTMV mtmv, Map<String, Set<String>> partitionMappings)
+            throws AnalysisException {
         Map<String, Long> res = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
             return res;
@@ -594,7 +601,14 @@ public class MTMVPartitionUtil {
         if (!(relatedTable instanceof OlapTable)) {
             return res;
         }
-        List<Partition> partitions = Lists.newArrayList(((OlapTable) relatedTable).getPartitions());
+        Set<String> mappedPartitionNames = Sets.newHashSet();
+        for (Set<String> partitionNames : partitionMappings.values()) {
+            mappedPartitionNames.addAll(partitionNames);
+        }
+        List<Partition> partitions = Lists.newArrayList();
+        for (String partitionName : mappedPartitionNames) {
+            partitions.add(((OlapTable) relatedTable).getPartitionOrAnalysisException(partitionName));
+        }
         List<Long> versions = null;
         try {
             versions = Partition.getVisibleVersions(partitions);
