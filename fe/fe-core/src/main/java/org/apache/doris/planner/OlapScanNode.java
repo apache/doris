@@ -656,9 +656,9 @@ public class OlapScanNode extends ScanNode {
                     }
                     Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
-                    if (backend == null || !backend.isAlive()) {
+                    if (backend == null || !backend.isQueryAvailable()) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not alive for replica {}", beId,
+                            LOG.debug("backend {} not exists or is not query available for replica {}", beId,
                                     replica.getId());
                         }
                         Collections.shuffle(replicas);
@@ -687,7 +687,7 @@ public class OlapScanNode extends ScanNode {
                     if (replicaOptional.isPresent()) {
                         Replica replica = replicaOptional.get();
                         Backend backend = allBackends.get(replica.getBackendIdWithoutException());
-                        if (backend != null && backend.isAlive()) {
+                        if (backend != null && backend.isQueryAvailable()) {
                             replicas.clear();
                             replicas.add(replica);
                         }
@@ -722,14 +722,14 @@ public class OlapScanNode extends ScanNode {
                     clusterException = true;
                     continue;
                 }
-                if (backend == null || !backend.isAlive()) {
+                if (backend == null || !backend.isQueryAvailable()) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} not exists or is not alive for replica {}", backendId,
+                        LOG.debug("backend {} not exists or is not query available for replica {}", backendId,
                                 replica.getId());
                     }
                     String err = "replica " + replica.getId() + "'s backend " + backendId
                             + (backend != null ? " with tag " + backend.getLocationTag() : "")
-                            + " does not exist or not alive";
+                            + " does not exist or is not query available";
                     errs.add(err);
                     continue;
                 }
