@@ -20,10 +20,15 @@ package org.apache.doris.paimon;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class PaimonJniWriterTest {
 
@@ -45,8 +50,7 @@ public class PaimonJniWriterTest {
         try {
             Assertions.assertThrows(Exception.class, () -> writer.open(
                     "not-a-serialized-table", Collections.emptyMap(), new String[0],
-                    1L, "test-user", false, false, "UTC", System.getProperty("java.io.tmpdir"),
-                    64L * 1024 * 1024, 1L));
+                    1L, "test-user", false, false, "UTC", 64L * 1024 * 1024, 1L, 1L));
             Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
         } finally {
             try {
@@ -96,6 +100,37 @@ public class PaimonJniWriterTest {
         } finally {
             thread.setContextClassLoader(originalClassLoader);
             testClassLoader.close();
+        }
+    }
+
+    @Test
+    public void testCloseWaitsForCompactionExecutor() throws Exception {
+        PaimonJniWriter writer = new PaimonJniWriter();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch stopped = new CountDownLatch(1);
+        try {
+            executor.execute(() -> {
+                started.countDown();
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    stopped.countDown();
+                }
+            });
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+
+            Field executorField = PaimonJniWriter.class.getDeclaredField("compactionExecutor");
+            executorField.setAccessible(true);
+            executorField.set(writer, executor);
+
+            writer.close();
+            Assertions.assertTrue(stopped.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(executor.isTerminated());
+        } finally {
+            executor.shutdownNow();
         }
     }
 }
