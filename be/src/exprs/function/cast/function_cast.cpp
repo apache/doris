@@ -247,6 +247,13 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_identity_wrapper(from_type);
     }
 
+    if (is_raw_byte_agg_state(origin_to_type) &&
+        check_and_get_data_type<DataTypeAggState>(origin_from_type.get()) == nullptr &&
+        (is_string_type(origin_from_type->get_primitive_type()) ||
+         origin_from_type->get_primitive_type() == TYPE_VARBINARY)) {
+        return cast_from_binary_to_agg_state;
+    }
+
     const auto* from_variant_v1 =
             dynamic_cast<const DataTypeVariant*>(remove_nullable(from_type).get());
     const auto* to_variant_v1 =

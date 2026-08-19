@@ -51,6 +51,11 @@ namespace doris {
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone) {
+    if (is_raw_byte_agg_state(origin_type)) {
+        *result = arrow::binary();
+        return Status::OK();
+    }
+
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:

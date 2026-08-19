@@ -19,6 +19,7 @@
 
 #include <cstdint>
 
+#include "core/column/column_fixed_length_object.h"
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
 
@@ -125,6 +126,40 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                 "Illegal column {} of first argument of conversion function from string",
                 col_from.get_name());
     }
+    return Status::OK();
+}
+
+Status cast_from_binary_to_agg_state(FunctionContext* context, Block& block,
+                                     const ColumnNumbers& arguments, uint32_t result,
+                                     size_t input_rows_count, const NullMap::value_type* null_map) {
+    const auto& source = *block.get_by_position(arguments[0]).column;
+    auto& result_column_with_type = block.get_by_position(result);
+    auto result_column = result_column_with_type.type->create_column();
+    result_column->reserve(input_rows_count);
+
+    const IColumn* nested_result = result_column.get();
+    if (const auto* nullable_result = check_and_get_column<ColumnNullable>(nested_result);
+        nullable_result != nullptr) {
+        nested_result = &nullable_result->get_nested_column();
+    }
+    const auto* fixed_result = check_and_get_column<ColumnFixedLengthObject>(nested_result);
+    for (size_t row = 0; row < input_rows_count; ++row) {
+        if (null_map != nullptr && null_map[row]) {
+            result_column->insert_default();
+            continue;
+        }
+
+        const auto value = source.get_data_at(row);
+        if (fixed_result != nullptr && value.size != fixed_result->item_size()) {
+            return Status::InvalidArgument(
+                    "Cannot cast {} bytes to {} at row {}: aggregate state requires {} bytes",
+                    value.size, result_column_with_type.type->get_name(), row,
+                    fixed_result->item_size());
+        }
+        result_column->insert_data(value.data, value.size);
+    }
+
+    result_column_with_type.column = std::move(result_column);
     return Status::OK();
 }
 
