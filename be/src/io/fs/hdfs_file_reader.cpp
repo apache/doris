@@ -168,8 +168,8 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
         tSize loop_read;
         {
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_read_latency);
-            loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
-                                  to + has_read, to_read);
+            loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read, to + has_read,
+                                  to_read);
         }
         {
             [[maybe_unused]] Status error_ret;
