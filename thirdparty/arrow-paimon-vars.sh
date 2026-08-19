@@ -106,11 +106,16 @@ prepare_arrow_paimon_download_packages() {
 arrow_paimon_fingerprint_files() {
     local file
     local blob
-    while IFS= read -r file; do
-        blob="$(git hash-object "${file}")" || return 1
+
+    # Feed the sorted list through a pipe rather than a process substitution:
+    # build.sh is documented as "sh build.sh", and bash 3.2 invoked as sh
+    # (macOS /bin/sh) rejects "< <(...)" at parse time, which would abort
+    # every build before any component is compiled.
+    printf '%s\n' "$@" | LC_ALL=C sort | while IFS= read -r file; do
+        blob="$(git hash-object "${file}")" || exit 1
         printf 'file=%s\n' "${file}"
         printf 'blob=%s\n' "${blob}"
-    done < <(printf '%s\n' "$@" | LC_ALL=C sort)
+    done
 }
 
 # Identify only the source, patch, and explicit build-schema inputs selected for
