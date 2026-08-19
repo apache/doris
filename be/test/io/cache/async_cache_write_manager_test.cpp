@@ -240,13 +240,13 @@ TEST_F(AsyncCacheWriteManagerTest, WriteEpochRegistryUnwindsPublicationFailures)
     }};
     const auto expect_capture_failure = [&](const std::string& point) {
         SyncPoint::CallbackGuard guard;
-        sync_point->set_call_back(point, [](auto&&) { throw std::bad_alloc(); }, &guard);
+        sync_point->set_call_back(
+                point, [](auto&&) { throw std::bad_alloc(); }, &guard);
         EXPECT_THROW(static_cast<void>(manager->current_write_epoch(hash)), std::bad_alloc);
         EXPECT_EQ(manager->active_write_epoch_key_count(), 0);
     };
 
-    expect_capture_failure(
-            "AsyncCacheWriteEpochRegistry::capture:after_candidate_object_created");
+    expect_capture_failure("AsyncCacheWriteEpochRegistry::capture:after_candidate_object_created");
     expect_capture_failure("AsyncCacheWriteEpochRegistry::capture:before_candidate_publish");
 
     {

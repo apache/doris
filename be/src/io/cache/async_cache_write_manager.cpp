@@ -169,8 +169,7 @@ public:
                 return token;
             }
             TEST_SYNC_POINT("AsyncCacheWriteEpochRegistry::capture:before_candidate_publish");
-            shard.tokens.emplace(cache_hash,
-                                 Entry {.generation = generation, .token = candidate});
+            shard.tokens.emplace(cache_hash, Entry {.generation = generation, .token = candidate});
             _active_key_count.fetch_add(1, std::memory_order_relaxed);
         }
         return candidate;
@@ -590,9 +589,9 @@ Status AsyncCacheWriteManager::_persist_task(const AsyncCacheWriteTask& task) {
                 block_range.left >= task.file_offset && block_range.right < task_end;
         // A short task is the physical EOF block. Its EMPTY cell may have been preallocated with
         // full cache-block capacity, so write only the valid prefix and let finalize() shrink it.
-        const bool is_preallocated_eof_container =
-                task.write_size < task.buffer_size() && block_range.left == task.file_offset &&
-                block_range.right >= task_end;
+        const bool is_preallocated_eof_container = task.write_size < task.buffer_size() &&
+                                                   block_range.left == task.file_offset &&
+                                                   block_range.right >= task_end;
         if (!contained_in_task && !is_preallocated_eof_container) {
             _metrics->record_skipped_block(Metrics::SkippedBlockReason::PARTIAL_OVERLAP);
             continue;

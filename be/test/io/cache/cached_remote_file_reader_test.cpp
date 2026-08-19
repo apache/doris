@@ -224,10 +224,8 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     IOContext cached_context;
     cached_context.file_cache_stats = &cached_stats;
     bytes_read = 0;
-    ASSERT_TRUE(reader
-                        ->read_at(file_tail_offset,
-                                  Slice(cached_result.data(), cached_result.size()), &bytes_read,
-                                  &cached_context)
+    ASSERT_TRUE(reader->read_at(file_tail_offset, Slice(cached_result.data(), cached_result.size()),
+                                &bytes_read, &cached_context)
                         .ok());
     EXPECT_EQ(bytes_read, cached_result.size());
     EXPECT_EQ(cached_result, "0");
