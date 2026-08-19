@@ -43,99 +43,82 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-ExternalSpillDirectory::ExternalSpillDirectory(SpillFileManager* manager,
-                                               QueryContext* query_context,
-                                               std::string relative_path)
+ExternalSpillSession::ExternalSpillSession(SpillFileManager* manager, QueryContext* query_context,
+                                           std::string relative_path)
         : _manager(manager),
-          _query_context(query_context),
+          _query_context(query_context->weak_from_this()),
           _resource_context(query_context->resource_ctx()),
           _query_id(print_id(query_context->query_id())),
           _relative_path(std::move(relative_path)) {
     DCHECK(_manager != nullptr);
-    DCHECK(_query_context != nullptr);
+    DCHECK(!_query_context.expired());
     DCHECK(_resource_context != nullptr);
 }
 
-ExternalSpillDirectory::~ExternalSpillDirectory() {
+ExternalSpillSession::~ExternalSpillSession() {
     {
         std::lock_guard lock(_mutex);
-        if (_managed_path.has_value() && _managed_path->accounted_bytes > 0) {
-            _managed_path->data_dir->update_spill_data_usage(-_managed_path->accounted_bytes);
-            _managed_path->accounted_bytes = 0;
+        if (_accounted_bytes > 0) {
+            _data_dir->update_spill_data_usage(-_accounted_bytes);
+            _accounted_bytes = 0;
         }
     }
-    _manager->_release_external_spill_directory(this);
+    _manager->_release_external_spill_session(this);
 }
 
-Status ExternalSpillDirectory::get_paths(std::vector<std::string>* paths) {
-    if (paths == nullptr) {
-        return Status::InvalidArgument("External spill paths output must not be null");
+Status ExternalSpillSession::get_path(std::string* path) {
+    if (path == nullptr) {
+        return Status::InvalidArgument("External spill path output must not be null");
     }
     std::lock_guard lock(_mutex);
-    if (!_managed_path.has_value()) {
-        RETURN_IF_ERROR(_manager->_initialize_external_spill_directory(this));
+    if (_data_dir == nullptr) {
+        RETURN_IF_ERROR(_manager->_initialize_external_spill_session(this));
     }
-    paths->clear();
-    paths->emplace_back(_managed_path->path);
+    *path = _path;
     return Status::OK();
 }
 
-ExternalSpillDirectory::ManagedPath* ExternalSpillDirectory::_find_managed_path(
-        const std::string& path) {
-    if (_managed_path.has_value() &&
-        (path == _managed_path->path ||
-         (path.size() > _managed_path->path.size() && path.starts_with(_managed_path->path) &&
-          path[_managed_path->path.size()] == '/'))) {
-        return &*_managed_path;
-    }
-    return nullptr;
-}
-
-Status ExternalSpillDirectory::reserve(const std::string& path, int64_t bytes) {
+Status ExternalSpillSession::reserve(int64_t bytes) {
     if (bytes <= 0) {
         return Status::InvalidArgument("External spill reservation must be positive: {}", bytes);
     }
 
     std::lock_guard lock(_mutex);
-    auto* managed_path = _find_managed_path(path);
-    if (managed_path == nullptr) {
-        return Status::InvalidArgument("External spill path is not managed by Doris: {}", path);
+    if (_data_dir == nullptr) {
+        return Status::InvalidArgument("External spill path has not been initialized");
     }
-    if (bytes > std::numeric_limits<int64_t>::max() - managed_path->accounted_bytes) {
+    if (bytes > std::numeric_limits<int64_t>::max() - _accounted_bytes) {
         return Status::InvalidArgument("External spill reservation overflows: bytes={}", bytes);
     }
-    if (!managed_path->data_dir->try_reserve_spill_data(bytes)) {
+    if (!_data_dir->try_reserve_spill_data(bytes)) {
         return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                 "External spill write exceeds the Doris spill storage limit: path={}, bytes={}",
-                path, bytes);
+                _path, bytes);
     }
-    managed_path->accounted_bytes += bytes;
+    _accounted_bytes += bytes;
     return Status::OK();
 }
 
-void ExternalSpillDirectory::update_accounting(const std::string& path, int64_t current_bytes_delta,
-                                               int64_t write_bytes, int64_t read_bytes) {
+void ExternalSpillSession::update_accounting(int64_t current_bytes_delta, int64_t write_bytes,
+                                             int64_t read_bytes) {
     int64_t released_bytes = 0;
-    SpillDataDir* data_dir = nullptr;
     {
         std::lock_guard lock(_mutex);
-        auto* managed_path = _find_managed_path(path);
-        if (managed_path == nullptr) {
-            LOG(WARNING) << "Ignoring accounting for unmanaged external spill path: " << path;
+        if (_data_dir == nullptr) {
+            LOG(WARNING) << "Ignoring accounting for an uninitialized external spill session";
             return;
         }
-        data_dir = managed_path->data_dir;
         if (current_bytes_delta < 0) {
             const int64_t requested_release =
                     current_bytes_delta == std::numeric_limits<int64_t>::min()
                             ? std::numeric_limits<int64_t>::max()
                             : -current_bytes_delta;
-            released_bytes = std::min(requested_release, managed_path->accounted_bytes);
-            managed_path->accounted_bytes -= released_bytes;
+            released_bytes = std::min(requested_release, _accounted_bytes);
+            _accounted_bytes -= released_bytes;
         }
     }
     if (released_bytes > 0) {
-        data_dir->update_spill_data_usage(-released_bytes);
+        _data_dir->update_spill_data_usage(-released_bytes);
     }
     if (write_bytes > 0) {
         _resource_context->io_context()->update_spill_write_bytes_to_local_storage(write_bytes);
@@ -275,52 +258,51 @@ Status SpillFileManager::create_spill_file(const std::string& relative_path,
     return Status::OK();
 }
 
-Status SpillFileManager::create_external_spill_directory(
+Status SpillFileManager::create_external_spill_session(
         const std::string& relative_path, QueryContext* query_context,
-        std::unique_ptr<ExternalSpillDirectory>* spill_directory) {
-    if (query_context == nullptr || spill_directory == nullptr) {
+        std::unique_ptr<ExternalSpillSession>* spill_session) {
+    if (query_context == nullptr || spill_session == nullptr) {
         return Status::InvalidArgument(
-                "External spill directory requires QueryContext and output session");
+                "External spill session requires QueryContext and output session");
     }
 
-    spill_directory->reset(new ExternalSpillDirectory(this, query_context, relative_path));
+    spill_session->reset(new ExternalSpillSession(this, query_context, relative_path));
     return Status::OK();
 }
 
-Status SpillFileManager::_initialize_external_spill_directory(
-        ExternalSpillDirectory* spill_directory) {
+Status SpillFileManager::_initialize_external_spill_session(ExternalSpillSession* spill_session) {
+    auto query_context = spill_session->_query_context.lock();
+    if (query_context == nullptr) {
+        return Status::Cancelled("Query ended before the external spill session was initialized");
+    }
     auto* data_dir = _get_store_for_spill();
     if (data_dir == nullptr) {
         return Status::Error<ErrorCode::NO_AVAILABLE_ROOT_PATH>(
                 "no available disk can be used for spill.");
     }
 
-    std::string path = data_dir->get_spill_data_path(spill_directory->_query_id) + "/" +
-                       spill_directory->_relative_path;
+    std::string path = data_dir->get_spill_data_path(spill_session->_query_id) + "/" +
+                       spill_session->_relative_path;
     {
         // Once the lease is visible, query teardown queues the query directory for the existing GC
         // retry path instead of deleting it under an external writer. Paimon's IOManager creates
         // its own nested channel directory lazily below this managed path.
         std::lock_guard lock(_external_spill_leases_mutex);
-        ++_external_spill_leases[data_dir->get_spill_data_path(spill_directory->_query_id)];
+        ++_external_spill_leases[data_dir->get_spill_data_path(spill_session->_query_id)];
     }
-    spill_directory->_query_context->record_spill_data_dir(data_dir);
-    spill_directory->_managed_path.emplace(ExternalSpillDirectory::ManagedPath {
-            .data_dir = data_dir,
-            .path = std::move(path),
-    });
+    query_context->record_spill_data_dir(data_dir);
+    spill_session->_data_dir = data_dir;
+    spill_session->_path = std::move(path);
     return Status::OK();
 }
 
-void SpillFileManager::_release_external_spill_directory(
-        const ExternalSpillDirectory* spill_directory) {
-    if (!spill_directory->_managed_path.has_value()) {
+void SpillFileManager::_release_external_spill_session(const ExternalSpillSession* spill_session) {
+    if (spill_session->_data_dir == nullptr) {
         return;
     }
     {
         std::lock_guard lock(_external_spill_leases_mutex);
-        auto query_dir = spill_directory->_managed_path->data_dir->get_spill_data_path(
-                spill_directory->_query_id);
+        auto query_dir = spill_session->_data_dir->get_spill_data_path(spill_session->_query_id);
         auto it = _external_spill_leases.find(query_dir);
         if (it != _external_spill_leases.end() && --it->second == 0) {
             _external_spill_leases.erase(it);

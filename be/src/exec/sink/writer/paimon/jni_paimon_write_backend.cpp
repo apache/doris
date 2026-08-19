@@ -54,85 +54,54 @@ void throw_java_io_exception(JNIEnv* env, const std::string& message) {
     env->DeleteLocalRef(exception_class);
 }
 
-std::string java_string_to_string(JNIEnv* env, jstring value) {
-    if (value == nullptr) {
-        return {};
-    }
-    const char* chars = env->GetStringUTFChars(value, nullptr);
-    if (chars == nullptr) {
-        return {};
-    }
-    std::string result(chars);
-    env->ReleaseStringUTFChars(value, chars);
-    return result;
-}
-
-jobjectArray create_paimon_spill_directories(JNIEnv* env, jclass, jlong spill_directory_handle) {
-    auto* spill_directory = reinterpret_cast<ExternalSpillDirectory*>(spill_directory_handle);
-    if (spill_directory == nullptr) {
-        throw_java_io_exception(env, "Paimon external spill directory is null");
+jstring get_paimon_spill_directory(JNIEnv* env, jclass, jlong spill_session_handle) {
+    auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
+    if (spill_session == nullptr) {
+        throw_java_io_exception(env, "Paimon external spill session is null");
         return nullptr;
     }
 
-    std::vector<std::string> paths;
-    Status st = spill_directory->get_paths(&paths);
+    std::string path;
+    Status st = spill_session->get_path(&path);
     if (!st.ok()) {
         throw_java_io_exception(env, st.to_string());
         return nullptr;
     }
-    jclass string_class = env->FindClass("java/lang/String");
-    jobjectArray result =
-            env->NewObjectArray(static_cast<jsize>(paths.size()), string_class, nullptr);
-    for (size_t i = 0; i < paths.size(); ++i) {
-        jstring path = env->NewStringUTF(paths[i].c_str());
-        env->SetObjectArrayElement(result, static_cast<jsize>(i), path);
-        env->DeleteLocalRef(path);
-    }
-    env->DeleteLocalRef(string_class);
-    return result;
+    return env->NewStringUTF(path.c_str());
 }
 
-void reserve_paimon_spill(JNIEnv* env, jclass, jlong spill_directory_handle, jstring path,
-                          jlong bytes) {
-    auto* spill_directory = reinterpret_cast<ExternalSpillDirectory*>(spill_directory_handle);
-    if (spill_directory == nullptr) {
-        throw_java_io_exception(env, "Paimon external spill directory is null");
+void reserve_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle, jlong bytes) {
+    auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
+    if (spill_session == nullptr) {
+        throw_java_io_exception(env, "Paimon external spill session is null");
         return;
     }
-    std::string native_path = java_string_to_string(env, path);
-    if (env->ExceptionCheck()) {
-        return;
-    }
-    Status st = spill_directory->reserve(native_path, bytes);
+    Status st = spill_session->reserve(bytes);
     if (!st.ok()) {
         throw_java_io_exception(env, st.to_string());
     }
 }
 
-void update_paimon_spill_accounting(JNIEnv* env, jclass, jlong spill_directory_handle, jstring path,
+void update_paimon_spill_accounting(JNIEnv*, jclass, jlong spill_session_handle,
                                     jlong current_bytes_delta, jlong write_bytes,
                                     jlong read_bytes) {
-    auto* spill_directory = reinterpret_cast<ExternalSpillDirectory*>(spill_directory_handle);
-    if (spill_directory == nullptr) {
+    auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
+    if (spill_session == nullptr) {
         return;
     }
-    std::string native_path = java_string_to_string(env, path);
-    if (env->ExceptionCheck()) {
-        return;
-    }
-    spill_directory->update_accounting(native_path, current_bytes_delta, write_bytes, read_bytes);
+    spill_session->update_accounting(current_bytes_delta, write_bytes, read_bytes);
 }
 
 Status register_paimon_spill_natives(JNIEnv* env, jclass writer_class) {
-    static char create_spill_directories_name[] = "createPaimonSpillDirectories";
-    static char create_spill_directories_signature[] = "(J)[Ljava/lang/String;";
+    static char get_spill_directory_name[] = "getPaimonSpillDirectory";
+    static char get_spill_directory_signature[] = "(J)Ljava/lang/String;";
     static char reserve_spill_name[] = "reservePaimonSpill";
-    static char reserve_spill_signature[] = "(JLjava/lang/String;J)V";
+    static char reserve_spill_signature[] = "(JJ)V";
     static char update_spill_name[] = "updatePaimonSpillAccounting";
-    static char update_spill_signature[] = "(JLjava/lang/String;JJJ)V";
+    static char update_spill_signature[] = "(JJJJ)V";
     static ::JNINativeMethod methods[] = {
-            {create_spill_directories_name, create_spill_directories_signature,
-             reinterpret_cast<void*>(&create_paimon_spill_directories)},
+            {get_spill_directory_name, get_spill_directory_signature,
+             reinterpret_cast<void*>(&get_paimon_spill_directory)},
             {reserve_spill_name, reserve_spill_signature,
              reinterpret_cast<void*>(&reserve_paimon_spill)},
             {update_spill_name, update_spill_signature,
@@ -154,7 +123,7 @@ std::atomic<bool>& paimon_jni_close_failed() {
 
 struct RetainedPaimonResources {
     std::unique_ptr<PaimonJniMemoryManager> memory_manager;
-    std::unique_ptr<ExternalSpillDirectory> spill_directory;
+    std::unique_ptr<ExternalSpillSession> spill_session;
 };
 
 std::mutex& retained_resources_mutex() {
@@ -168,18 +137,18 @@ std::vector<RetainedPaimonResources>& retained_resources() {
 }
 
 void retain_resources_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> memory_manager,
-                                         std::unique_ptr<ExternalSpillDirectory> spill_directory) {
+                                         std::unique_ptr<ExternalSpillSession> spill_session) {
     // An unconfirmed Java close means a background Paimon task may still reference this manager's
     // native pages or spill callbacks. Quarantine both resources and stop admitting new writers so
     // repeated failures cannot accumulate process-lifetime resources without a bound.
     paimon_jni_close_failed().store(true, std::memory_order_release);
-    if (memory_manager == nullptr && spill_directory == nullptr) {
+    if (memory_manager == nullptr && spill_session == nullptr) {
         return;
     }
     std::lock_guard<std::mutex> lock(retained_resources_mutex());
     retained_resources().emplace_back(RetainedPaimonResources {
             .memory_manager = std::move(memory_manager),
-            .spill_directory = std::move(spill_directory),
+            .spill_session = std::move(spill_session),
     });
 }
 
@@ -213,7 +182,7 @@ Status JniPaimonWriteBackend::close() {
     if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
         _memory_manager.reset();
         _arrow_schema.reset();
-        _spill_directory.reset();
+        _spill_session.reset();
         _opened = false;
         return Status::OK();
     }
@@ -228,10 +197,10 @@ Status JniPaimonWriteBackend::close() {
         _jni_writer_cls = nullptr;
         if (java_users_may_exist) {
             retain_resources_after_failed_close(std::move(_memory_manager),
-                                                std::move(_spill_directory));
+                                                std::move(_spill_session));
         } else {
             _memory_manager.reset();
-            _spill_directory.reset();
+            _spill_session.reset();
         }
         _arrow_schema.reset();
         _opened = false;
@@ -257,7 +226,7 @@ Status JniPaimonWriteBackend::close() {
 
     if (close_status.ok()) {
         _memory_manager.reset();
-        _spill_directory.reset();
+        _spill_session.reset();
     } else {
         if (_memory_manager != nullptr) {
             LOG(WARNING)
@@ -267,8 +236,7 @@ Status JniPaimonWriteBackend::close() {
         }
         // Paimon may still have asynchronous tasks using Doris-backed pages or spill callbacks.
         // Retain ownership until process exit and fence subsequent writer admission.
-        retain_resources_after_failed_close(std::move(_memory_manager),
-                                            std::move(_spill_directory));
+        retain_resources_after_failed_close(std::move(_memory_manager), std::move(_spill_session));
     }
     _arrow_schema.reset();
     _opened = false;
@@ -380,14 +348,14 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
         return Status::JniError("Failed to create global PaimonJniWriter object reference");
     }
 
-    // Step 4: Create a lazy query-scoped spill session. Java requests paths only when the table has
-    // write-buffer spill enabled, so memory-only writers do not depend on spill storage.
+    // Step 4: Create a lazy query-scoped spill session. Java requests its path only when Paimon
+    // first uses the IOManager, so a memory-only writer does not depend on spill storage.
     auto* spill_file_manager = state->exec_env()->spill_file_mgr();
     if (spill_file_manager != nullptr) {
         auto spill_relative_path =
                 fmt::format("{}-{}", PAIMON_JNI_WRITER_IO_TMP_DIR, spill_file_manager->next_id());
-        RETURN_IF_ERROR(spill_file_manager->create_external_spill_directory(
-                spill_relative_path, state->get_query_ctx(), &_spill_directory));
+        RETURN_IF_ERROR(spill_file_manager->create_external_spill_session(
+                spill_relative_path, state->get_query_ctx(), &_spill_session));
     }
 
     // Step 5: Build Java arguments and call PaimonJniWriter.open().
@@ -415,7 +383,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
             static_cast<jlong>(sink.transaction_id), j_commit_user, open_mode.overwrite,
             open_mode.changelog, j_time_zone, static_cast<jlong>(_memory_manager->memory_limit()),
             reinterpret_cast<jlong>(_memory_manager.get()),
-            _spill_directory == nullptr ? 0 : reinterpret_cast<jlong>(_spill_directory.get()));
+            _spill_session == nullptr ? 0 : reinterpret_cast<jlong>(_spill_session.get()));
     Status st = _check_jni_exception(env, "open PaimonJniWriter");
 
     if (st.ok()) {

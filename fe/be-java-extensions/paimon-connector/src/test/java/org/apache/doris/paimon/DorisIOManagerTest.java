@@ -37,13 +37,17 @@ public class DorisIOManagerTest {
     private Path tempDir;
 
     @Test
-    public void testSpillWriteReadAndDeleteAccounting() throws Exception {
-        RecordingSpillAccountant accountant = new RecordingSpillAccountant();
+    public void testSpillDirectoryIsLazyAndVisibleIoIsAccounted() throws Exception {
         Path managedSpillPath = tempDir.resolve("query/paimon");
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(managedSpillPath);
         Assertions.assertFalse(Files.exists(managedSpillPath));
-        try (DorisIOManager manager = new DorisIOManager(
-                IOManager.create(managedSpillPath.toString()), accountant)) {
+
+        try (DorisIOManager manager = new DorisIOManager(accountant)) {
+            Assertions.assertEquals(0, accountant.directoryRequests);
+            Assertions.assertFalse(Files.exists(managedSpillPath));
+
             FileIOChannel.ID channel = manager.createChannel();
+            Assertions.assertEquals(1, accountant.directoryRequests);
             Assertions.assertTrue(Files.isDirectory(managedSpillPath));
             Buffer buffer = Buffer.create(MemorySegment.wrap(new byte[16]), 16);
 
@@ -66,23 +70,66 @@ public class DorisIOManagerTest {
     }
 
     @Test
-    public void testManagerCloseReleasesUndeletedChannels() throws Exception {
-        RecordingSpillAccountant accountant = new RecordingSpillAccountant();
-        DorisIOManager manager = new DorisIOManager(IOManager.create(tempDir.toString()), accountant);
-        FileIOChannel.ID channel = manager.createChannel();
-        BufferFileWriter writer = manager.createBufferFileWriter(channel);
-        writer.writeBlock(Buffer.create(MemorySegment.wrap(new byte[8]), 8));
-        writer.close();
+    public void testCloseBeforeUseDoesNotRequestSpillDirectory() throws Exception {
+        Path managedSpillPath = tempDir.resolve("query/paimon");
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(managedSpillPath);
 
-        manager.close();
+        new DorisIOManager(accountant).close();
 
-        Assertions.assertEquals(0, accountant.currentBytes);
-        Assertions.assertEquals(12, accountant.releasedBytes);
+        Assertions.assertEquals(0, accountant.directoryRequests);
+        Assertions.assertFalse(Files.exists(managedSpillPath));
+    }
+
+    @Test
+    public void testDirectDeletionIsConservativelyAccountedUntilSessionEnds() throws Exception {
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(tempDir);
+        try (DorisIOManager manager = new DorisIOManager(accountant)) {
+            FileIOChannel.ID deletedChannel = manager.createChannel();
+            BufferFileWriter firstWriter = manager.createBufferFileWriter(deletedChannel);
+            firstWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[8]), 8));
+            firstWriter.close();
+            Assertions.assertTrue(deletedChannel.getPathFile().delete());
+
+            FileIOChannel.ID nextChannel = manager.createChannel();
+            BufferFileWriter nextWriter = manager.createBufferFileWriter(nextChannel);
+            nextWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[4]), 4));
+            nextWriter.close();
+
+            Assertions.assertEquals(20, accountant.reservedBytes);
+            Assertions.assertEquals(20, accountant.currentBytes);
+            Assertions.assertEquals(0, accountant.releasedBytes);
+        }
+    }
+
+    @Test
+    public void testWriteFailureRollsBackWhenChannelIsDeleted() throws Exception {
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(tempDir);
+        IOManager delegate = IOManager.create(tempDir.toString());
+        FileIOChannel.ID channel = delegate.createChannel();
+        BufferFileWriter closedWriter = delegate.createBufferFileWriter(channel);
+        closedWriter.close();
+        IOManager failingWriteManager = new IOManagerImpl(tempDir.toString()) {
+            @Override
+            public BufferFileWriter createBufferFileWriter(FileIOChannel.ID ignored) {
+                return closedWriter;
+            }
+        };
+
+        try (DorisIOManager manager = new DorisIOManager(failingWriteManager, accountant)) {
+            BufferFileWriter writer = manager.createBufferFileWriter(channel);
+            Assertions.assertThrows(IOException.class,
+                    () -> writer.writeBlock(Buffer.create(MemorySegment.wrap(new byte[8]), 8)));
+            Assertions.assertFalse(channel.getPathFile().exists());
+            Assertions.assertEquals(12, accountant.reservedBytes);
+            Assertions.assertEquals(0, accountant.currentBytes);
+        } finally {
+            delegate.close();
+        }
     }
 
     @Test
     public void testManagerCloseFailureKeepsExistingChannelAccounted() throws Exception {
-        RecordingSpillAccountant accountant = new RecordingSpillAccountant();
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(tempDir);
         IOManager failingCloseManager = new IOManagerImpl(tempDir.toString()) {
             @Override
             public void close() throws Exception {
@@ -98,103 +145,54 @@ public class DorisIOManagerTest {
         Assertions.assertThrows(IOException.class, manager::close);
         Assertions.assertTrue(channel.getPathFile().exists());
         Assertions.assertEquals(12, accountant.currentBytes);
-        Assertions.assertEquals(0, accountant.releasedBytes);
 
         writer.deleteChannel();
         Assertions.assertEquals(0, accountant.currentBytes);
         Assertions.assertEquals(12, accountant.releasedBytes);
     }
 
-    @Test
-    public void testNextReservationReleasesDirectlyDeletedChannel() throws Exception {
-        RecordingSpillAccountant accountant = new RecordingSpillAccountant();
-        try (DorisIOManager manager = new DorisIOManager(
-                IOManager.create(tempDir.toString()), accountant)) {
-            FileIOChannel.ID deletedChannel = manager.createChannel();
-            BufferFileWriter firstWriter = manager.createBufferFileWriter(deletedChannel);
-            firstWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[8]), 8));
-            firstWriter.close();
-            Assertions.assertTrue(deletedChannel.getPathFile().delete());
-
-            FileIOChannel.ID nextChannel = manager.createChannel();
-            BufferFileWriter nextWriter = manager.createBufferFileWriter(nextChannel);
-            nextWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[4]), 4));
-            nextWriter.close();
-
-            Assertions.assertEquals(20, accountant.reservedBytes);
-            Assertions.assertEquals(8, accountant.currentBytes);
-            Assertions.assertEquals(12, accountant.releasedBytes);
-        }
-    }
-
-    @Test
-    public void testFailedReservationReconcilesDirectDeletionAndRetries() throws Exception {
-        RecordingSpillAccountant accountant = new RecordingSpillAccountant(16);
-        try (DorisIOManager manager = new DorisIOManager(
-                IOManager.create(tempDir.toString()), accountant)) {
-            FileIOChannel.ID oldChannel = manager.createChannel();
-            BufferFileWriter oldWriter = manager.createBufferFileWriter(oldChannel);
-            oldWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[8]), 8));
-            oldWriter.close();
-
-            FileIOChannel.ID nextChannel = manager.createChannel();
-            BufferFileWriter nextWriter = manager.createBufferFileWriter(nextChannel);
-            Assertions.assertTrue(oldChannel.getPathFile().delete());
-
-            nextWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[4]), 4));
-            nextWriter.close();
-
-            Assertions.assertEquals(3, accountant.reserveAttempts);
-            Assertions.assertEquals(20, accountant.reservedBytes);
-            Assertions.assertEquals(8, accountant.currentBytes);
-            Assertions.assertEquals(12, accountant.releasedBytes);
-        }
-    }
-
     private static final class RecordingSpillAccountant implements DorisIOManager.SpillAccountant {
-        private final long limitBytes;
-        private long reserveAttempts;
+        private final Path spillDirectory;
+        private long directoryRequests;
         private long reservedBytes;
         private long currentBytes;
         private long writtenBytes;
         private long readBytes;
         private long releasedBytes;
 
-        private RecordingSpillAccountant() {
-            this(Long.MAX_VALUE);
-        }
-
-        private RecordingSpillAccountant(long limitBytes) {
-            this.limitBytes = limitBytes;
+        private RecordingSpillAccountant(Path spillDirectory) {
+            this.spillDirectory = spillDirectory;
         }
 
         @Override
-        public void reserve(String path, long bytes) throws IOException {
-            reserveAttempts++;
-            if (currentBytes + bytes > limitBytes) {
-                throw new IOException("spill capacity exceeded");
-            }
+        public String getSpillDirectory() {
+            directoryRequests++;
+            return spillDirectory.toString();
+        }
+
+        @Override
+        public void reserve(long bytes) {
             reservedBytes += bytes;
             currentBytes += bytes;
         }
 
         @Override
-        public void rollback(String path, long bytes) {
+        public void rollback(long bytes) {
             currentBytes -= bytes;
         }
 
         @Override
-        public void commitWrite(String path, long bytes) {
+        public void commitWrite(long bytes) {
             writtenBytes += bytes;
         }
 
         @Override
-        public void recordRead(String path, long bytes) {
+        public void recordRead(long bytes) {
             readBytes += bytes;
         }
 
         @Override
-        public void release(String path, long bytes) {
+        public void release(long bytes) {
             releasedBytes += bytes;
             currentBytes -= bytes;
         }

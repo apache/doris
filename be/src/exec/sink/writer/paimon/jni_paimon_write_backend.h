@@ -35,7 +35,7 @@ class Schema;
 
 namespace doris {
 
-class ExternalSpillDirectory;
+class ExternalSpillSession;
 class RuntimeState;
 
 extern const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE;
@@ -83,7 +83,7 @@ private:
 
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    std::unique_ptr<ExternalSpillDirectory> _spill_directory;
+    std::unique_ptr<ExternalSpillSession> _spill_session;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
     bool _opened = false;
