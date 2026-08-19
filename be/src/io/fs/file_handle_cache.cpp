@@ -49,6 +49,7 @@ Status HdfsFileHandle::init(int64_t file_size) {
     _file_size = file_size;
     if (_file_size <= 0) {
         // file_size unknown, fetch via hdfsGetPathInfo (no need to hdfsOpenFile)
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
         hdfsFileInfo* file_info = hdfsGetPathInfo(_fs, _fname.c_str());
         if (file_info == nullptr) {
             return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());

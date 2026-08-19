@@ -185,6 +185,7 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
+    SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
     hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
     if (file_info == nullptr) {
         return Status::IOError("failed to get file size of {}: {}", path.native(), hdfs_error());
