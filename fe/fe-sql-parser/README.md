@@ -372,8 +372,8 @@ import org.antlr.v4.runtime.tree.ParseTreeWalker;
 
 public class DropGuardListener extends DorisParserBaseListener {
     @Override
-    public void enterSupportedDropStatement(DorisParser.SupportedDropStatementContext ctx) {
-        throw new SecurityException("DROP statements are not allowed: " + ctx.getText());
+    public void enterDropTable(DorisParser.DropTableContext ctx) {
+        throw new SecurityException("DROP TABLE statements are not allowed: " + ctx.getText());
     }
 }
 
@@ -398,8 +398,8 @@ public class AuditListener extends DorisParserBaseListener {
     @Override public void enterDelete(DorisParser.DeleteContext ctx) {
         writes.add("DELETE " + ctx.tableName.getText());
     }
-    @Override public void enterSupportedDropStatement(DorisParser.SupportedDropStatementContext ctx) {
-        writes.add("DROP " + ctx.getText());
+    @Override public void enterDropTable(DorisParser.DropTableContext ctx) {
+        writes.add("DROP TABLE " + ctx.name.getText());
     }
 }
 ```

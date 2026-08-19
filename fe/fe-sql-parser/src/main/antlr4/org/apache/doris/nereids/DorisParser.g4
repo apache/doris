@@ -47,61 +47,61 @@ statement
 
 statementBase
     : queryOrDmlStatement
-    | createStatement
-    | alterStatement
-    | dropStatement
-    | showStatement
+    | createStatementDispatch
+    | alterStatementDispatch
+    | dropStatementDispatch
+    | showStatementDispatch
     | pauseStatement
     | resumeStatement
-    | cancelStatement
-    | refreshStatement
-    | killStatement
-    | supportedBuildStatement
+    | cancelStatementDispatch
+    | refreshStatementDispatch
+    | killStatementDispatch
+    | buildStatement
     | syncLoadStatement
     | stopLoadStatement
-    | supportedCleanStatement
-    | supportedSetStatement
-    | supportedUnsetStatement
-    | supportedRecoverStatement
-    | supportedAdminStatement
-    | supportedUseStatement
+    | cleanStatement
+    | setStatement
+    | unsetStatement
+    | recoverStatement
+    | adminStatement
+    | useStatement
     | analyzeStatsStatement
-    | supportedTransactionStatement
-    | supportedGrantRevokeStatement
+    | transactionStatement
+    | grantRevokeStatement
     ;
 
 queryOrDmlStatement
     : explain? query outFileClause?     #statementDefault
-    | supportedDmlStatement             #supportedDmlStatementAlias
-    | supportedDescribeStatement        #supportedDescribeStatementAlias
-    | supportedOtherStatement           #supportedOtherStatementAlias
-    | loadDmlStatement                  #supportedLoadStatementAlias
+    | dmlStatement                      #dmlStatementAlias
+    | describeStatement                 #describeStatementAlias
+    | otherStatement                    #otherStatementAlias
+    | loadDmlStatement                  #loadStatementAlias
     ;
 
-createStatement
-    : supportedCreateStatement
+createStatementDispatch
+    : createStatement
     | createMaterializedViewStatement
     | createJobStatement
     | createLoadStatement
     ;
 
-alterStatement
-    : supportedAlterStatement
+alterStatementDispatch
+    : alterStatement
     | alterMaterializedViewStatement
     | alterJobStatement
     | alterConstraintStatement
     | alterStatsStatement
     ;
 
-dropStatement
-    : supportedDropStatement
+dropStatementDispatch
+    : dropStatement
     | dropMaterializedViewStatement
     | dropJobStatement
     | dropStatsStatement
     ;
 
-showStatement
-    : supportedShowStatement
+showStatementDispatch
+    : showStatement
     | showMaterializedViewStatement
     | showConstraintStatement
     | showLoadStatement
@@ -120,19 +120,19 @@ resumeStatement
     | resumeLoadStatement
     ;
 
-cancelStatement
+cancelStatementDispatch
     : cancelMaterializedViewStatement
     | cancelJobStatement
-    | supportedCancelStatement
+    | cancelStatement
     ;
 
-refreshStatement
+refreshStatementDispatch
     : refreshMaterializedViewStatement
-    | supportedRefreshStatement
+    | refreshStatement
     ;
 
-killStatement
-    : supportedKillStatement
+killStatementDispatch
+    : killStatement
     | killStatsStatement
     ;
 
@@ -197,7 +197,7 @@ createJobStatement
             )
          )
       commentSpec?
-       (jobFromToClause | DO supportedDmlStatement )                                                                                         #createScheduledJob
+       (jobFromToClause | DO dmlStatement )                                                                                                  #createScheduledJob
    ;
 
 pauseJobStatement
@@ -206,7 +206,7 @@ pauseJobStatement
 
 alterJobStatement
     : ALTER JOB (jobName=multipartIdentifier)
-               (propertyClause | supportedDmlStatement | propertyClause  supportedDmlStatement
+               (propertyClause | dmlStatement | propertyClause dmlStatement
                | jobFromToClause | propertyClause jobFromToClause)                                                                           #alterJob
     ;
 
@@ -239,7 +239,7 @@ optSpecBranch
     : ATSIGN BRANCH LEFT_PAREN name=identifier RIGHT_PAREN
     ;
 
-supportedDmlStatement
+dmlStatement
     : explain? cte? INSERT INTO tvfName=identifier
         LEFT_PAREN tvfProperties=propertyItemList RIGHT_PAREN
         (WITH LABEL labelName=identifier)?
@@ -293,7 +293,7 @@ mergeNotMatchedClause
         INSERT cols=identifierList? VALUES rowConstructor
     ;
 
-supportedCreateStatement
+createStatement
     : CREATE (EXTERNAL | TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? COMMA? RIGHT_PAREN))
         (ENGINE EQ engine=identifier)?
@@ -387,7 +387,7 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                                  #createIndexNormalizer
     ;
 
-supportedBuildStatement
+buildStatement
     : BUILD INDEX (name=identifier)? ON tableName=multipartIdentifier
         partitionSpec?                                                          #buildIndex
     ;
@@ -398,7 +398,7 @@ dictionaryColumnDefs:
 dictionaryColumnDef:
 	colName = identifier columnType = (KEY | VALUE) ;
 
-supportedAlterStatement
+alterStatement
     : ALTER SYSTEM alterSystemClause                                                        #alterSystem
     | ALTER VIEW name=multipartIdentifier
       (MODIFY commentSpec |
@@ -453,7 +453,7 @@ supportedAlterStatement
         passwordOption requireClause? commentSpec?                                          #alterUser
     ;
 
-supportedDropStatement
+dropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
     | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
     | DROP ROLE (IF EXISTS)? name=identifierOrText                              #dropRole
@@ -489,7 +489,7 @@ supportedDropStatement
     | DROP STREAM (IF EXISTS)? name=multipartIdentifier FORCE?                  #dropStream
     ;
 
-supportedShowStatement
+showStatement
     : SHOW statementScope? VARIABLES wildWhere?                                     #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
@@ -653,12 +653,12 @@ showLoadStatement
     | SHOW INVERTED INDEX NORMALIZER                                                #showIndexNormalizer
     ;
 
-supportedKillStatement
+killStatement
     : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
     ;
 
-supportedOtherStatement
+otherStatement
     : HELP mark=identifierOrText                                                    #help
     | UNLOCK TABLES                                                                 #unlockTables
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
@@ -744,7 +744,7 @@ importColumnDesc
     | LEFT_PAREN name=identifier (EQ booleanExpression)? RIGHT_PAREN
     ;
 
-supportedRefreshStatement
+refreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
     | REFRESH TABLE name=multipartIdentifier                                        #refreshTable
@@ -752,7 +752,7 @@ supportedRefreshStatement
     | REFRESH LDAP (ALL | (FOR user=identifierOrText))?                             #refreshLdap
     ;
 
-supportedCleanStatement
+cleanStatement
     : CLEAN ALL PROFILE                                                             #cleanAllProfile
     | CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
     | CLEAN QUERY STATS ((FOR database=identifier)
@@ -760,7 +760,7 @@ supportedCleanStatement
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
 
-supportedCancelStatement
+cancelStatement
     : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
     | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
@@ -776,7 +776,7 @@ supportedCancelStatement
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
     ;
 
-supportedAdminStatement
+adminStatement
     : ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
     | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
         (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminRebalanceDisk
@@ -815,7 +815,7 @@ roleMappingRuleClause
       RIGHT_PAREN
     ;
 
-supportedRecoverStatement
+recoverStatement
     : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
     | RECOVER TABLE name=multipartIdentifier
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
@@ -833,13 +833,13 @@ wildWhere
     | WHERE expression
     ;
 
-supportedTransactionStatement
+transactionStatement
     : BEGIN (WITH LABEL identifier?)?                                               #transactionBegin
     | COMMIT WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                  #transcationCommit
     | ROLLBACK WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                #transactionRollback
     ;
 
-supportedGrantRevokeStatement
+grantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
         TO (userIdentify | ROLE identifierOrText)                                           #grantTablePrivilege
     | GRANT privilegeList ON
@@ -1117,7 +1117,7 @@ dataTypeList
     : dataType (COMMA dataType)*
     ;
 
-supportedSetStatement
+setStatement
     : SET (optionWithType | optionWithoutType)
         (COMMA (optionWithType | optionWithoutType))*                   #setOptions
     | SET identifier AS DEFAULT STORAGE VAULT                           #setDefaultStorageVault
@@ -1159,12 +1159,12 @@ isolationLevel
     : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
     ;
 
-supportedUnsetStatement
+unsetStatement
     : UNSET statementScope? VARIABLE (ALL | identifier)
     | UNSET DEFAULT STORAGE VAULT
     ;
 
-supportedUseStatement
+useStatement
      : SWITCH catalog=identifier                                                        #switchCatalog
      | USE (catalog=identifier DOT)? database=identifier                                #useDatabase
      | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier   #useCloudCluster
@@ -1175,7 +1175,7 @@ stageAndPattern
         (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
     ;
 
-supportedDescribeStatement
+describeStatement
     : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
