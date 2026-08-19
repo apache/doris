@@ -591,6 +591,8 @@ typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(s
     }
 }
 
+// A new instantiation here needs the matching 'extern template' declaration
+// in column_decimal.h (enforced by check-extern-template-pairing.py).
 template class ColumnDecimal<TYPE_DECIMAL32>;
 template class ColumnDecimal<TYPE_DECIMAL64>;
 template class ColumnDecimal<TYPE_DECIMALV2>;
