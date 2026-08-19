@@ -71,10 +71,21 @@ ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
                                              s3_error_message(err, msg));
 }
 
+ObjStorageResponse S3ObjStorageClient::_gcp_token_unavailable() {
+    return {
+            .status = {ObjStorageStatus::NETWORK_ERROR,
+                       "GCP workload identity token is unavailable"},
+            .http_code = 0,
+    };
+}
+
 ObjStorageUploadResult S3ObjStorageClient::create_multipart_upload(const ObjStoragePath& opts) {
     CreateMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
+    if (!_set_gcp_authorization_header(request)) {
+        return {.resp = _gcp_token_unavailable()};
+    }
 
     const auto start = std::chrono::steady_clock::now();
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -120,6 +131,9 @@ ObjStorageResponse S3ObjStorageClient::put_object(const ObjStoragePath& opts,
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     const auto start = std::chrono::steady_clock::now();
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -167,6 +181,9 @@ ObjStorageUploadResult S3ObjStorageClient::upload_part(const ObjStoragePath& opt
 
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
+    if (!_set_gcp_authorization_header(request)) {
+        return {.resp = _gcp_token_unavailable()};
+    }
 
     const auto start = std::chrono::steady_clock::now();
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -220,6 +237,9 @@ ObjStorageResponse S3ObjStorageClient::complete_multipart_upload(
                            });
     completed_upload.SetParts(std::move(complete_parts));
     request.WithMultipartUpload(completed_upload);
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3FileWriter::_complete:3", ObjStorageResponse(), this);
 
@@ -257,6 +277,9 @@ ObjStorageResponse S3ObjStorageClient::complete_multipart_upload(
 ObjStorageHeadResult S3ObjStorageClient::head_object(const ObjStoragePath& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
+    if (!_set_gcp_authorization_header(request)) {
+        return {.resp = _gcp_token_unavailable()};
+    }
 
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
             [&]() {
@@ -292,6 +315,9 @@ ObjStorageResponse S3ObjStorageClient::get_object(const ObjStoragePath& opts, vo
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetRange(fmt::format("bytes={}-{}", offset, offset + bytes_read - 1));
     request.SetResponseStreamFactory(AwsWriteableStreamFactory(buffer, bytes_read));
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     auto outcome = [&]() {
         client_bvar::ScopedLatency scoped_latency(client_bvar::s3_get_latency);
@@ -329,6 +355,9 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
             .WithMaxKeys(static_cast<int>(capabilities().max_list_page));
     if (!continuation_token.empty()) {
         request.SetContinuationToken(std::string(continuation_token));
+    }
+    if (!_set_gcp_authorization_header(request)) {
+        return {.resp = _gcp_token_unavailable()};
     }
     TEST_SYNC_POINT_CALLBACK("S3ObjStorageClient::list_objects", &request);
 
@@ -418,6 +447,9 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
         }
         del.WithObjects(std::move(objects)).SetQuiet(true);
         delete_request.SetDelete(std::move(del));
+        if (!_set_gcp_authorization_header(delete_request)) {
+            return _gcp_token_unavailable();
+        }
 
         auto delete_outcome = [&]() {
             client_bvar::ScopedLatency scoped_latency(client_bvar::s3_delete_objects_latency);
@@ -462,6 +494,9 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
 ObjStorageResponse S3ObjStorageClient::delete_object(const ObjStoragePath& opts) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     auto outcome = [&]() {
         client_bvar::ScopedLatency scoped_latency(client_bvar::s3_delete_object_latency);
@@ -493,6 +528,9 @@ ObjStorageResponse S3ObjStorageClient::delete_object(const ObjStoragePath& opts)
 
 std::string S3ObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
                                                        int64_t expiration_secs) {
+    if (_token_provider != nullptr) {
+        return {};
+    }
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }
@@ -500,6 +538,9 @@ std::string S3ObjStorageClient::generate_presigned_url(const ObjStoragePath& opt
 ObjStorageResponse S3ObjStorageClient::check_versioning(const std::string& bucket) {
     Aws::S3::Model::GetBucketVersioningRequest request;
     request.SetBucket(bucket);
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     auto outcome = _client->GetBucketVersioning(request);
 
@@ -532,6 +573,9 @@ ObjStorageResponse S3ObjStorageClient::abort_multipart_upload(const ObjStoragePa
                                                               const std::string& upload_id) {
     Aws::S3::Model::AbortMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(upload_id);
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     auto outcome = _client->AbortMultipartUpload(request);
     if (!outcome.IsSuccess()) {
@@ -561,6 +605,9 @@ ObjStorageResponse S3ObjStorageClient::get_lifecycle(const std::string& bucket,
                                                      int64_t* expiration_days) {
     Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
     request.SetBucket(bucket);
+    if (!_set_gcp_authorization_header(request)) {
+        return _gcp_token_unavailable();
+    }
 
     auto outcome = _client->GetBucketLifecycleConfiguration(request);
     bool has_lifecycle = false;

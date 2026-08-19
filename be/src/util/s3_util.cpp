@@ -45,6 +45,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/gcp_workload_identity_token_provider.h"
 #ifdef USE_AZURE
 #include "cpp/obj-client/auth/azure_auth_factory.h"
 #include "cpp/obj-client/azure_obj_storage_client.h"
@@ -70,6 +71,23 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     }
     if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+    if (conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+        if (!conf.is_internal_bucket) {
+            return Status::InvalidArgument<false>(
+                    "GCP workload identity is only supported for storage vaults");
+        }
+        if (conf.provider != io::ObjStorageProvider::GCP) {
+            return Status::InvalidArgument<false>("GCP workload identity requires provider GCP");
+        }
+        if (!is_gcs_xml_endpoint(conf.endpoint)) {
+            return Status::InvalidArgument<false>("GCP workload identity requires endpoint {}",
+                                                  GCS_XML_ENDPOINT);
+        }
+        if (!conf.ak.empty() || !conf.sk.empty() || !conf.role_arn.empty()) {
+            return Status::InvalidArgument<false>(
+                    "GCP workload identity cannot be combined with other credentials");
+        }
     }
 
     if (conf.role_arn.empty()) {
@@ -380,6 +398,9 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
     }
 
     set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
+    if (s3_conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+        aws_config.scheme = Aws::Http::Scheme::HTTPS;
+    }
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
@@ -394,12 +415,18 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             s3_conf.use_virtual_addressing);
 
+    std::shared_ptr<GcpWorkloadIdentityTokenProvider> token_provider;
+    if (s3_conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+        token_provider = global_gcp_workload_identity_token_provider();
+    }
     auto provider_client = std::make_shared<io::S3ObjStorageClient>(
-            std::move(new_client), ObjStorageEndpointInfo {
-                                           .endpoint = s3_conf.endpoint,
-                                           .ak = s3_conf.ak,
-                                           .sk = s3_conf.sk,
-                                   });
+            std::move(new_client),
+            ObjStorageEndpointInfo {
+                    .endpoint = s3_conf.endpoint,
+                    .ak = s3_conf.ak,
+                    .sk = s3_conf.sk,
+            },
+            std::move(token_provider));
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return provider_client;
 }
@@ -537,6 +564,10 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     if (info.has_cred_provider_type()) {
         ret.client_conf.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
     }
+    ret.client_conf.cred_provider_type =
+            resolve_cred_provider_type(ret.client_conf.cred_provider_type,
+                                       !ret.client_conf.ak.empty() && !ret.client_conf.sk.empty(),
+                                       !ret.client_conf.role_arn.empty());
 
     io::ObjStorageProvider type = io::ObjStorageProvider::AWS;
     switch (info.provider()) {

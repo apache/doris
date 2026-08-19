@@ -20,6 +20,9 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace Aws::Client {
 struct ClientConfiguration;
@@ -35,12 +38,21 @@ enum class CredProviderType {
     SystemProperties = 4,
     WebIdentity = 5,
     Container = 6,
-    Anonymous = 7
+    Anonymous = 7,
+    // GKE Workload Identity; only valid with provider GCP.
+    GcpWorkloadIdentity = 8
 };
+
+inline constexpr std::string_view GCS_XML_ENDPOINT = "https://storage.googleapis.com";
+
+bool is_gcs_xml_endpoint(std::string_view endpoint);
 
 CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
 
 CredProviderType cred_provider_type_from_string(const std::string& type);
+
+CredProviderType resolve_cred_provider_type(CredProviderType configured_type,
+                                            bool has_static_credentials, bool has_role_arn);
 
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
 

@@ -44,6 +44,7 @@ std::shared_ptr<Provider> create_v2_base_provider(CredProviderType type) {
         return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
                 Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
     case CredProviderType::Anonymous:
+    case CredProviderType::GcpWorkloadIdentity:
         return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
     case CredProviderType::Default:
     case CredProviderType::Simple:
@@ -79,6 +80,12 @@ AwsCredentialResult AwsCredentialFactory::create(const AwsCredentialOptions& opt
         return {
                 .provider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
                         std::move(credentials)),
+        };
+    }
+
+    if (options.provider_type == CredProviderType::GcpWorkloadIdentity) {
+        return {
+                .provider = std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(),
         };
     }
 
