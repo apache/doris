@@ -18,7 +18,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <ostream>
@@ -38,6 +37,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -49,6 +49,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
+#include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/array/function_array_index.h"
 #include "exprs/function/function.h"
@@ -60,6 +61,234 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
+
+static ColumnPtr ensure_nullable_column(ColumnPtr column) {
+    if (!column->is_nullable()) {
+        const size_t column_size = column->size();
+        column = ColumnNullable::create(std::move(column), ColumnUInt8::create(column_size, 0));
+    }
+    return column;
+}
+
+template <bool keys_are_unique>
+class FunctionMapFromArrays : public IFunction {
+public:
+    static constexpr auto name = keys_are_unique ? "%map_from_arrays_unique%" : "map_from_arrays";
+    static FunctionPtr create() { return std::make_shared<FunctionMapFromArrays>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        const auto& key_array_type =
+                assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0]));
+        const auto& value_array_type =
+                assert_cast<const DataTypeArray&>(*remove_nullable(arguments[1]));
+        auto map_type =
+                std::make_shared<DataTypeMap>(make_nullable(key_array_type.get_nested_type()),
+                                              make_nullable(value_array_type.get_nested_type()));
+        return have_nullable(arguments) ? make_nullable(std::move(map_type)) : map_type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& [unpacked_key_column, key_is_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [unpacked_value_column, value_is_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        ColumnPtr key_column = unpacked_key_column;
+        ColumnPtr value_column = unpacked_value_column;
+
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& result_null_map_data = result_null_map->get_data();
+        bool has_null = false;
+        auto merge_null_map = [&](ColumnPtr& column, bool is_const) {
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+                VectorizedUtils::update_null_map(result_null_map_data,
+                                                 nullable->get_null_map_data(), is_const);
+                has_null = has_null || nullable->has_null();
+                column = nullable->get_nested_column_ptr();
+            }
+        };
+        merge_null_map(key_column, key_is_const);
+        merge_null_map(value_column, value_is_const);
+
+        const auto& keys = assert_cast<const ColumnArray&>(*key_column);
+        const auto& values = assert_cast<const ColumnArray&>(*value_column);
+        if ((!key_is_const && keys.size() != input_rows_count) ||
+            (!value_is_const && values.size() != input_rows_count)) {
+            return Status::InvalidArgument(
+                    "The key and value array offsets of function {} must be identical", name);
+        }
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (!result_null_map_data[row] &&
+                keys.size_at(index_check_const(row, key_is_const)) !=
+                        values.size_at(index_check_const(row, value_is_const))) {
+                return Status::InvalidArgument(
+                        "The key and value array offsets of function {} must be identical", name);
+            }
+        }
+
+        ColumnPtr result_keys = keys.get_data_ptr();
+        ColumnPtr result_values = values.get_data_ptr();
+        ColumnPtr result_offsets = keys.get_offsets_ptr();
+        if (has_null || key_is_const || value_is_const) {
+            auto filtered_keys = keys.get_data().clone_empty();
+            auto filtered_values = values.get_data().clone_empty();
+            auto filtered_offsets = ColumnArray::ColumnOffsets::create();
+            filtered_offsets->reserve(input_rows_count);
+
+            size_t output_offset = 0;
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                if (!result_null_map_data[row]) {
+                    const size_t key_row = index_check_const(row, key_is_const);
+                    const size_t value_row = index_check_const(row, value_is_const);
+                    const size_t key_begin = key_row == 0 ? 0 : keys.get_offsets()[key_row - 1];
+                    const size_t value_begin =
+                            value_row == 0 ? 0 : values.get_offsets()[value_row - 1];
+                    const size_t entry_count = keys.size_at(key_row);
+                    filtered_keys->insert_range_from(keys.get_data(), key_begin, entry_count);
+                    filtered_values->insert_range_from(values.get_data(), value_begin, entry_count);
+                    output_offset += entry_count;
+                }
+                filtered_offsets->insert_value(output_offset);
+            }
+            result_keys = std::move(filtered_keys);
+            result_values = std::move(filtered_values);
+            result_offsets = std::move(filtered_offsets);
+        }
+
+        // Doris Map key/value subcolumns are always Nullable. Array item columns normally
+        // already have that shape; ensure_nullable_column is a no-op in that common path.
+        auto result_map = ColumnMap::create(ensure_nullable_column(std::move(result_keys)),
+                                            ensure_nullable_column(std::move(result_values)),
+                                            std::move(result_offsets));
+
+        if constexpr (!keys_are_unique) {
+            RETURN_IF_ERROR(result_map->deduplicate_keys());
+        }
+        if (block.get_by_position(result).type->is_nullable()) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(result_map),
+                                                                     std::move(result_null_map)));
+        } else {
+            block.replace_by_position(result, std::move(result_map));
+        }
+        return Status::OK();
+    }
+};
+
+// (MAP, ARRAY<BOOL>) -> MAP
+class FunctionMapFilter : public IFunction {
+public:
+    static constexpr auto name = "map_filter";
+    static FunctionPtr create() { return std::make_shared<FunctionMapFilter>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto map_type = remove_nullable(arguments[0]);
+        return have_nullable(arguments) ? make_nullable(std::move(map_type)) : map_type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& [unpacked_map_column, map_is_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [unpacked_predicate_column, predicate_is_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        ColumnPtr map_column = unpacked_map_column;
+        ColumnPtr predicate_column = unpacked_predicate_column;
+
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& result_null_map_data = result_null_map->get_data();
+        auto merge_null_map = [&](ColumnPtr& column, bool is_const) {
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+                VectorizedUtils::update_null_map(result_null_map_data,
+                                                 nullable->get_null_map_data(), is_const);
+                column = nullable->get_nested_column_ptr();
+            }
+        };
+        merge_null_map(map_column, map_is_const);
+        merge_null_map(predicate_column, predicate_is_const);
+
+        const auto& map = assert_cast<const ColumnMap&>(*map_column);
+        const auto& predicate = assert_cast<const ColumnArray&>(*predicate_column);
+        if ((!map_is_const && map.size() != input_rows_count) ||
+            (!predicate_is_const && predicate.size() != input_rows_count)) {
+            return Status::InvalidArgument(
+                    "The map and lambda result offsets of function {} must be identical", name);
+        }
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (!result_null_map_data[row] &&
+                map.size_at(index_check_const(row, map_is_const)) !=
+                        predicate.size_at(index_check_const(row, predicate_is_const))) {
+                return Status::InvalidArgument(
+                        "The map and lambda result offsets of function {} must be identical", name);
+            }
+        }
+
+        const IColumn* predicate_data = &predicate.get_data();
+        const UInt8* predicate_null_map = nullptr;
+        if (const auto* nullable_predicate = check_and_get_column<ColumnNullable>(predicate_data)) {
+            predicate_null_map = nullable_predicate->get_null_map_data().data();
+            predicate_data = &nullable_predicate->get_nested_column();
+        }
+        const auto& predicate_values = assert_cast<const ColumnUInt8&>(*predicate_data).get_data();
+
+        IColumn::Selector selector;
+        if (!map_is_const) {
+            selector.reserve(map.get_keys().size());
+        }
+        auto result_keys = map.get_keys().clone_empty();
+        auto result_values = map.get_values().clone_empty();
+        auto result_offsets = ColumnArray::ColumnOffsets::create();
+        result_offsets->reserve(input_rows_count);
+
+        size_t output_offset = 0;
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (!result_null_map_data[row]) {
+                const size_t map_row = index_check_const(row, map_is_const);
+                const size_t map_begin = map.get_offsets()[map_row - 1];
+                const size_t predicate_begin =
+                        predicate.get_offsets()[index_check_const(row, predicate_is_const) - 1];
+                const size_t entry_count = map.size_at(map_row);
+                for (size_t entry = 0; entry < entry_count; ++entry) {
+                    const size_t predicate_entry = predicate_begin + entry;
+                    const bool selected = (predicate_null_map == nullptr ||
+                                           predicate_null_map[predicate_entry] == 0) &&
+                                          predicate_values[predicate_entry] != 0;
+                    if (selected) {
+                        const size_t map_entry = map_begin + entry;
+                        selector.push_back(map_entry);
+                        ++output_offset;
+                    }
+                }
+            }
+            result_offsets->insert_value(output_offset);
+        }
+        if (map_is_const && !selector.empty()) {
+            result_keys->insert_indices_from(map.get_keys(), selector.data(),
+                                             selector.data() + selector.size());
+            result_values->insert_indices_from(map.get_values(), selector.data(),
+                                               selector.data() + selector.size());
+        } else if (!map_is_const) {
+            map.get_keys().append_data_by_selector(result_keys, selector);
+            map.get_values().append_data_by_selector(result_values, selector);
+        }
+        auto result_map = ColumnMap::create(std::move(result_keys), std::move(result_values),
+                                            std::move(result_offsets));
+        if (block.get_by_position(result).type->is_nullable()) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(result_map),
+                                                                     std::move(result_null_map)));
+        } else {
+            block.replace_by_position(result, std::move(result_map));
+        }
+        return Status::OK();
+    }
+};
 
 // construct a map
 // map(key1, value2, key2, value2) -> {key1: value2, key2: value2}
@@ -333,6 +562,77 @@ public:
 
         block.replace_by_position(result, std::move(result_array_column));
 
+        return Status::OK();
+    }
+};
+
+class FunctionMapFromEntries : public IFunction {
+public:
+    static constexpr auto name = "map_from_entries";
+    static FunctionPtr create() { return std::make_shared<FunctionMapFromEntries>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments[0]->is_null_literal()) {
+            return make_nullable(std::make_shared<DataTypeMap>(arguments[0], arguments[0]));
+        }
+        const auto& array_type = assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0]));
+        const auto& struct_type =
+                assert_cast<const DataTypeStruct&>(*remove_nullable(array_type.get_nested_type()));
+        DCHECK_EQ(struct_type.get_elements().size(), 2);
+        auto map_type = std::make_shared<DataTypeMap>(make_nullable(struct_type.get_element(0)),
+                                                      make_nullable(struct_type.get_element(1)));
+        return arguments[0]->is_nullable() ? make_nullable(std::move(map_type)) : map_type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& argument = block.get_by_position(arguments[0]);
+        if (argument.type->is_null_literal()) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
+        ColumnPtr entries_column = argument.column;
+        const auto* nullable_array = check_and_get_column<ColumnNullable>(entries_column.get());
+        if (nullable_array != nullptr) {
+            entries_column = nullable_array->get_nested_column_ptr();
+        }
+
+        const auto& entries = assert_cast<const ColumnArray&>(*entries_column);
+        const auto& nullable_entries = assert_cast<const ColumnNullable&>(entries.get_data());
+        if (nullable_entries.has_null()) {
+            for (size_t row = 0; row < entries.size(); ++row) {
+                if (nullable_array != nullptr && nullable_array->is_null_at(row)) {
+                    continue;
+                }
+                const size_t begin = row == 0 ? 0 : entries.get_offsets()[row - 1];
+                const size_t end = entries.get_offsets()[row];
+                if (nullable_entries.has_null(begin, end)) {
+                    return Status::InvalidArgument("Map entry of function {} cannot be null", name);
+                }
+            }
+        }
+
+        const auto& entry_struct =
+                assert_cast<const ColumnStruct&>(nullable_entries.get_nested_column());
+        DCHECK_EQ(entry_struct.get_columns().size(), 2);
+        auto result_map = ColumnMap::create(ensure_nullable_column(entry_struct.get_column_ptr(0)),
+                                            ensure_nullable_column(entry_struct.get_column_ptr(1)),
+                                            entries.get_offsets_ptr());
+        RETURN_IF_ERROR(result_map->deduplicate_keys());
+        if (nullable_array != nullptr) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(result_map),
+                                                   nullable_array->get_null_map_column_ptr()));
+        } else {
+            block.replace_by_position(result, std::move(result_map));
+        }
         return Status::OK();
     }
 };
@@ -790,12 +1090,16 @@ private:
 };
 
 void register_function_map(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionMapFromArrays<false>>();
+    factory.register_function<FunctionMapFromArrays<true>>();
+    factory.register_function<FunctionMapFilter>();
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
     factory.register_function<FunctionMapContains<false>>();
     factory.register_function<FunctionMapKeysOrValues<true>>();
     factory.register_function<FunctionMapKeysOrValues<false>>();
     factory.register_function<FunctionMapEntries>();
+    factory.register_function<FunctionMapFromEntries>();
     factory.register_function<FunctionStrToMap>();
     factory.register_function<FunctionMapContainsEntry>();
     factory.register_function<FunctionDeduplicateMap>();
