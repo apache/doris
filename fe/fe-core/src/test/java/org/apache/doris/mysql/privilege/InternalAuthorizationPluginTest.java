@@ -26,7 +26,6 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -145,11 +144,12 @@ public class InternalAuthorizationPluginTest {
      * A refused column check answers with the column that failed, so the wording the privilege model produced
      * has to survive the trip out - restating it in terms of the whole column set would lose which one it was.
      *
-     * <p>What the second assertion holds still is the message the user actually reads. The refusal leaves the
-     * privilege model as an {@link AuthorizationException} and reaches the caller as one again, and that class
-     * renders itself with its error code in front. Carrying the rendered form across the middle instead of the
-     * bare wording puts that prefix in twice - which does not fail anywhere, it just changes what every denied
-     * column query prints.
+     * <p>The bare wording is the claim, and {@code assertEquals} on it is the whole of the gate. The refusal
+     * leaves the privilege model as an {@link AuthorizationException} and reaches the caller as one again,
+     * and that class renders itself with its error code in front; carrying the rendered form across the
+     * middle instead would put the prefix in twice on the way out. Counting the prefixes in the rendered
+     * result cannot see that - {@code UserException.deleteUselessMsg} strips exactly one repetition, so both
+     * worlds render identically - which is why what is pinned here is what crosses the boundary.
      */
     @Test
     public void testColumnDenialKeepsTheMessageNamingTheColumn() throws Exception {
@@ -163,14 +163,9 @@ public class InternalAuthorizationPluginTest {
                         AuthorizedResource.columns("ctl", "db", "tbl", ImmutableSet.of("col1")),
                         SELECT, AccessContext.NONE));
 
-        Assert.assertEquals("denied on col1", denied.getMessage());
-        // Carried as the bare wording, not as rendered: the engine wraps this in an AuthorizationException
-        // again on the way out, and that class puts its own error code in front of whatever it is given. The
-        // count is the claim - carrying the rendered form renders the code twice and the user reads both.
-        Assert.assertEquals("the error code is rendered more than once in what the user reads: "
-                        + new AuthorizationException(denied.getMessage()).getMessage(),
-                1, StringUtils.countMatches(
-                        new AuthorizationException(denied.getMessage()).getMessage(), "detailMessage"));
+        Assert.assertEquals("the wording naming the column was restated on the way out, so what the user"
+                        + " reads no longer says which column was refused",
+                "denied on col1", denied.getMessage());
     }
 
     /**

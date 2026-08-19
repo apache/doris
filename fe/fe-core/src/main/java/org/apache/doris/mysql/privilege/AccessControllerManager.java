@@ -381,9 +381,13 @@ public class AccessControllerManager {
                 descriptor = providers.next();
             } catch (ServiceConfigurationError e) {
                 // A service declaration naming a class this FE cannot load - the same stale jar as above,
-                // one release further out of date. Only that entry is lost: ServiceLoader clears the pending
-                // error as it throws it (LazyClassPathLookupIterator.nextService), so the next hasNext()
-                // resumes at the following declaration rather than repeating this one.
+                // one release further out of date. The sweep carries on rather than stopping at the first
+                // one: ServiceLoader clears the pending error as it throws it
+                // (LazyClassPathLookupIterator.nextService), so the next hasNext() resumes at the following
+                // declaration rather than repeating this one. What is lost is not always a single entry -
+                // a services file this parser cannot read at all loses every declaration left in that file,
+                // since ServiceLoader.parse abandons the file - but the other jars' declarations are still
+                // reached, which is the property this loop is for.
                 LOG.warn("Skip an authorization plugin factory from class path: a service declaration there"
                         + " cannot be read", e);
                 pluginLoadRejections.add("class path (service declaration): " + e.getMessage());
@@ -415,10 +419,40 @@ public class AccessControllerManager {
                 continue;
             }
             LOG.info("Found authorization plugin factory: {} from class path.", name);
+            // Settled before any table is keyed by it. A name the registry cannot use - null, blank,
+            // over-long, illegally spelt - would otherwise reach the factory table, which is a
+            // ConcurrentHashMap: a null there takes the FE down at startup out of this constructor, rather
+            // than skipping the one entry this sweep is written to skip. And a reserved name is checked here
+            // rather than left to registerPluginFactory below, so that the registry is not left holding an
+            // inventory row for a source no catalog can select.
+            String unusableName = PluginRegistry.rejectionReasonFor(name);
+            if (unusableName != null) {
+                LOG.warn("Skip authorization plugin factory {} from class path: {}",
+                        factoryClass.getName(), unusableName);
+                pluginLoadRejections.add(factoryClass.getName() + " (name): " + unusableName);
+                continue;
+            }
+            if (isReservedSourceName(name)) {
+                LOG.warn("Skip authorization plugin factory {} from class path: '{}' is the name the built-in"
+                        + " privilege model is selected by and cannot be published by a plugin.",
+                        factoryClass.getName(), name);
+                pluginLoadRejections.add(factoryClass.getName() + " (name): '" + name + "' is reserved");
+                continue;
+            }
             try {
                 // Snapshot the metadata it reports before admitting it, so one throwing implementation is
-                // rejected cleanly instead of ending up selectable with no inventory row.
-                PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                // rejected cleanly instead of ending up selectable with no inventory row. Registered under
+                // the name this channel already asked it for, rather than by asking again as registerBuiltin
+                // would - the factory table, the registry and this loop all have to be keyed the same, and
+                // re-entering plugin code for a name it has already reported is both a second answer and a
+                // second chance to throw.
+                //
+                // A false here means the row was already there, which is not a reason to refuse the source:
+                // this registry is process-wide while an AccessControllerManager is per Env, and a checkpoint
+                // Env sweeps the same class path a second time. The names it would refuse were settled above.
+                PluginRegistry.getInstance().register(PLUGIN_FAMILY, name,
+                        PluginRegistry.implementationVersionOf(factory.getClass()),
+                        factory.description(), PluginRegistry.PluginSource.BUILTIN);
             } catch (RuntimeException | LinkageError e) {
                 LOG.warn("Skip authorization plugin factory {} from class path: self-reported metadata failed",
                         factoryClass.getName(), e);
@@ -603,6 +637,14 @@ public class AccessControllerManager {
      *         information_schema.extensions describing a source that no longer answers anything.
      */
     private void registerLegacyFactory(String name, AccessControllerFactory factory, boolean fromDirectory) {
+        String unusableName = PluginRegistry.rejectionReasonFor(name);
+        if (unusableName != null) {
+            // Before any table is keyed by it: a null name reaches a ConcurrentHashMap two lines down and
+            // takes the FE down at startup, which is the one outcome this whole sweep is written to avoid.
+            LOG.warn("Skip access controller factory {}: {}", factory.getClass().getName(), unusableName);
+            pluginLoadRejections.add(factory.getClass().getName() + " (name): " + unusableName);
+            return;
+        }
         if (isReservedSourceName(name)) {
             LOG.warn("Skip access controller factory {}: '{}' is the name the built-in privilege model is"
                     + " selected by and cannot be published by a plugin.", factory.getClass().getName(), name);
@@ -747,7 +789,10 @@ public class AccessControllerManager {
             // CREATE CATALOG validates its authorization properties by building the source and letting it go
             // again, which is the only way to find out whether they are usable at all - the properties are the
             // source's to interpret. It is not free: a Ranger source builds a real plugin, policy refresher and
-            // download timer included, and then stops it unless another binding is already holding it.
+            // download timer included. Letting it go does not necessarily stop it on the spot - a Ranger
+            // source shares one plugin per service and keeps an unread one for a grace period, so that the
+            // CREATE this validated for does not immediately rebuild what it just tore down - but a
+            // validation nothing follows does stop polling once that period is up.
             closeAccessController(catalog.getName(), accessController);
             return;
         }
@@ -1276,8 +1321,9 @@ public class AccessControllerManager {
         AccessContext context = ConnectionAccessContext.current();
         AccessContext outer = enterCheck(context);
         try {
-            return inClassLoaderOf(controller, () -> controller.getDataMasks(
-                    AccessTranslation.subjectOf(currentUser), table, columns, context));
+            return answered(controller, "the data masks of " + table,
+                    inClassLoaderOf(controller, () -> controller.getDataMasks(
+                            AccessTranslation.subjectOf(currentUser), table, columns, context)));
         } finally {
             leaveCheck(outer);
         }
@@ -1294,10 +1340,32 @@ public class AccessControllerManager {
         AccessContext context = ConnectionAccessContext.current();
         AccessContext outer = enterCheck(context);
         try {
-            return inClassLoaderOf(controller, () -> controller.getRowFilters(
-                    AccessTranslation.subjectOf(currentUser), table, context));
+            return answered(controller, "the row filters of " + table,
+                    inClassLoaderOf(controller, () -> controller.getRowFilters(
+                            AccessTranslation.subjectOf(currentUser), table, context)));
         } finally {
             leaveCheck(outer);
         }
+    }
+
+    /**
+     * What a source handed back, or a refusal when it handed back nothing at all.
+     *
+     * <p>The contract for both data policy questions is that "nothing to impose" is the empty answer, and
+     * null is a source that did not answer. Read as the empty answer it is a table planned with no row filter
+     * and no column mask, which for a row filter is the one mistake it must not make: the query returns rows
+     * the policy exists to withhold and nothing anywhere says so. Refused here rather than in either
+     * consumer, because both answers cross this boundary and only one of the two consumers would notice -
+     * the mask path dereferences the map and the row filter path reads null as an empty list.
+     *
+     * <p>Returning null where a collection is required is an ordinary Java slip, which is why the adapter for
+     * the deprecated interface hardens the same edge; no source in this repository does it.
+     */
+    private static <T> T answered(AuthorizationPlugin controller, String question, T answer) {
+        if (answer == null) {
+            throw new IllegalStateException("authorization source " + controller.name() + " answered null for "
+                    + question + "; the contract requires an empty answer for \"nothing to impose\"");
+        }
+        return answer;
     }
 }

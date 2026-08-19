@@ -54,12 +54,14 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
      * that asking about instance scope would be asking this very source.
      *
      * <p>Once started it runs until the process ends, and the last binding letting go does not stop it. It is
-     * keyed on a hard-coded service name and holds no per-binding state, so what an idle one costs is one
-     * policy download timer against one Ranger service - bounded, not a leak that grows. Stopping it would
-     * cost far more than that: a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access
-     * controller, and a plugin torn down and rebuilt between those two has no policies until its next download
-     * completes, so every check against that catalog is refused and both data policy paths throw for the whole
-     * of that window.
+     * keyed on a hard-coded service name and holds no per-binding state, so there is at most one of them for
+     * the life of the process - an idle one costs one policy refresher and one policy download timer against
+     * one Ranger service, which is bounded and not a leak that grows. Stopping it would cost more than that:
+     * a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access controller, and a plugin
+     * torn down and rebuilt between those two pays {@code cleanup()} on the DDL thread - it interrupts the
+     * policy refresher and joins it without a timeout - and then two synchronous admin REST calls on the way
+     * back up, since {@code RangerBasePlugin.init()} loads the service's roles and policies before it
+     * returns.
      */
     private static RangerBasePlugin sharedPlugin;
     private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
@@ -92,26 +94,57 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
 
     private static RangerDorisAccessController acquire(Map<String, String> properties,
             AuthorizationContext context) {
-        synchronized (LOCK) {
-            Map<String, String> configuration = normalize(properties);
-            Held held = byConfiguration.get(configuration);
-            if (held != null) {
-                held.holders++;
-                return held.controller;
+        // Settled before anything is started. The controller's constructor is what parses these properties,
+        // and it refuses a value that is neither true nor false - so building the plugin first would leave a
+        // rejected binding behind a policy refresher that no controller, and therefore no release(), can
+        // ever reach.
+        RangerAccessController.validateProperties(properties);
+        Map<String, String> configuration = normalize(properties);
+
+        RangerBasePlugin built = null;
+        RangerBasePlugin toStop = null;
+        try {
+            while (true) {
+                synchronized (LOCK) {
+                    Held held = byConfiguration.get(configuration);
+                    if (held != null) {
+                        held.holders++;
+                        toStop = built;
+                        built = null;
+                        return held.controller;
+                    }
+                    if (sharedPlugin == null && built != null) {
+                        sharedPlugin = built;
+                        built = null;
+                    } else {
+                        // Either the plugin already exists - so the one built here lost the race and has to
+                        // be stopped - or nothing has been built yet and the loop goes round.
+                        toStop = built;
+                        built = null;
+                    }
+                    if (sharedPlugin != null) {
+                        held = new Held(new RangerDorisAccessController(sharedPlugin, properties, context));
+                        byConfiguration.put(configuration, held);
+                        LOG.info("Built a Ranger controller for {} with {}; {} configuration(s) of this"
+                                        + " source in use.", RangerDorisAccessController.NAME,
+                                describe(configuration), byConfiguration.size());
+                        return held.controller;
+                    }
+                }
+                // Built with no lock held: RangerBasePlugin.init() loads the service's roles and its policies
+                // over REST before it returns, so against a slow or unreachable Ranger admin doing it under
+                // the lock queues every other binding's create - and close - behind the whole REST timeout.
+                // Losing the race that opens costs one plugin, stopped in the finally below.
+                built = new RangerDorisPlugin(SERVICE_NAME);
             }
-            // Settle what this binding configured before anything is started. The controller's constructor is
-            // what parses these properties, and it refuses a value that is neither true nor false - so
-            // building the plugin first would leave a rejected binding behind a policy refresher that no
-            // controller, and therefore no release(), can ever reach.
-            RangerAccessController.validateProperties(properties);
-            if (sharedPlugin == null) {
-                sharedPlugin = new RangerDorisPlugin(SERVICE_NAME);
+        } finally {
+            // With no lock held: cleanup() interrupts the policy refresher and joins it without a timeout.
+            if (toStop != null) {
+                toStop.cleanup();
             }
-            held = new Held(new RangerDorisAccessController(sharedPlugin, properties, context));
-            byConfiguration.put(configuration, held);
-            LOG.info("Built a Ranger controller for {} with {}; {} configuration(s) of this source in use.",
-                    RangerDorisAccessController.NAME, describe(configuration), byConfiguration.size());
-            return held.controller;
+            if (built != null) {
+                built.cleanup();
+            }
         }
     }
 

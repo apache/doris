@@ -231,10 +231,12 @@ public class NereidsSqlCacheDataPolicyTest {
      *
      * <p>Every other case here starts from a policy and changes it. This one starts from none, which is the
      * only direction where a stale hit hands back <em>more</em> than the current policy allows - unmasked
-     * values, unfiltered rows - and it is also the one that depends on the planner having recorded the
-     * negative answer at all. Nothing else pins that: drop the unconditional record of "no mask on this
-     * column" and every case above still passes, while a query cached before the mask was written keeps
-     * serving the raw column until something else evicts it.
+     * values, unfiltered rows.
+     *
+     * <p>It takes the negative record as given, because every context in this class is built by hand. That
+     * the planner actually writes one for a column nothing masks is the other half, and it is pinned by
+     * {@link NereidsSqlCachePolicyRecordTest} - without it this case would still pass while a query cached
+     * before the mask was written kept serving the raw column.
      */
     @Test
     public void testAMaskWrittenAfterTheEntryWasCachedInvalidatesIt() {

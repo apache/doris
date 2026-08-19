@@ -110,15 +110,20 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     /**
-     * Lets go of this controller, stopping the shared Ranger plugin once nothing holds it any more.
+     * Lets go of this controller, stopping the Ranger plugin when this controller is the one that owns it.
      *
      * <p>The factory hands one controller to every binding configured alike, and one Ranger plugin to all of
-     * them, so a binding going away is on its own no reason to stop polling: the factory counts the holders and
-     * stops the plugin when the last one lets go. Without this nothing could stop it at all - its policy
-     * refresher and its policy download timer would keep polling the Ranger service for as long as the FE runs.
+     * them, so a binding going away is on its own no reason to stop polling: the factory counts the holders,
+     * fences the controller when the last one lets go, and leaves the shared plugin running - there is at
+     * most one of it, and stopping it would make an ordinary {@code ALTER CATALOG} tear down and rebuild the
+     * thing it just detached. See the shared plugin
+     * {@link RangerDorisAccessControllerFactory} keeps.
      *
      * <p>What this does do immediately is fence this controller off, before the factory decides anything: from
      * here on it refuses every check instead of answering out of a plugin that may be on its way down.
+     *
+     * <p>A controller built directly - a test, or an embedding handing in a plugin of its own - is the owner
+     * of what it was handed, and that one is stopped here.
      */
     @Override
     public void close() {
@@ -155,32 +160,32 @@ public class RangerDorisAccessController extends RangerAccessController {
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
         switch (resource.getKind()) {
             case GLOBAL:
-                refuseUnless(checkGlobal(subject, requirement), subject, resource, requirement);
+                refuseUnless(checkGlobal(subject, requirement, context), subject, resource, requirement);
                 return;
             case CATALOG:
                 refuseUnless(checkCatalog(subject, ((AuthorizedResource.Catalog) resource).getCatalog(),
-                        requirement), subject, resource, requirement);
+                        requirement, context), subject, resource, requirement);
                 return;
             case DATABASE: {
                 AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
-                refuseUnless(checkDatabase(subject, database.getCatalog(), database.getDatabase(), requirement),
-                        subject, resource, requirement);
+                refuseUnless(checkDatabase(subject, database.getCatalog(), database.getDatabase(), requirement,
+                        context), subject, resource, requirement);
                 return;
             }
             case TABLE: {
                 AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
                 refuseUnless(checkTable(subject, table.getCatalog(), table.getDatabase(), table.getTable(),
-                        requirement), subject, resource, requirement);
+                        requirement, context), subject, resource, requirement);
                 return;
             }
             case COLUMNS:
-                checkColumns(subject, (AuthorizedResource.Columns) resource, requirement);
+                checkColumns(subject, (AuthorizedResource.Columns) resource, requirement, context);
                 return;
             case RESOURCE: {
                 EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                refuseUnless(checkGlobalInternal(subject, requirement, granted, context)
                                 || ask(subject, requirement, granted, new RangerDorisResource(
-                                        DorisObjectType.RESOURCE, named(resource))),
+                                        DorisObjectType.RESOURCE, named(resource)), context),
                         subject, resource, requirement);
                 return;
             }
@@ -191,25 +196,25 @@ public class RangerDorisAccessController extends RangerAccessController {
                     return;
                 }
                 EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                refuseUnless(checkGlobalInternal(subject, requirement, granted, context)
                                 || ask(subject, requirement, granted, new RangerDorisResource(
-                                        DorisObjectType.WORKLOAD_GROUP, named(resource))),
+                                        DorisObjectType.WORKLOAD_GROUP, named(resource)), context),
                         subject, resource, requirement);
                 return;
             }
             case STORAGE_VAULT: {
                 EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                refuseUnless(checkGlobalInternal(subject, requirement, granted, context)
                                 || ask(subject, requirement, granted, new RangerDorisResource(
-                                        DorisObjectType.STORAGE_VAULT, named(resource))),
+                                        DorisObjectType.STORAGE_VAULT, named(resource)), context),
                         subject, resource, requirement);
                 return;
             }
             case CLOUD_COMPUTE_GROUP: {
                 EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                refuseUnless(checkGlobalInternal(subject, requirement, granted, context)
                                 || ask(subject, requirement, granted, new RangerDorisResource(
-                                        DorisObjectType.COMPUTE_GROUP, named(resource))),
+                                        DorisObjectType.COMPUTE_GROUP, named(resource)), context),
                         subject, resource, requirement);
                 return;
             }
@@ -236,8 +241,9 @@ public class RangerDorisAccessController extends RangerAccessController {
         }
     }
 
-    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, DorisAccessType accessType) {
-        RangerAccessRequestImpl request = createRequest(subject);
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, DorisAccessType accessType,
+            AccessContext context) {
+        RangerAccessRequestImpl request = createRequest(subject, context);
         request.setAction(accessType.name());
         request.setAccessType(accessType.name());
         return request;
@@ -249,10 +255,15 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject) {
+    protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject, AccessContext context) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(subject.getUser());
-        request.setClientIPAddress(subject.getHost());
+        // No user roles, unlike ranger-hive, which does send them. Not an oversight and not free to change:
+        // a request carrying roles matches policy items written against a role, so sending them would start
+        // granting - and denying - on policies this source has never matched, in every deployment that has
+        // any. That is a change to what an existing Ranger service decides and belongs with a release note
+        // of its own, not here.
+        request.setClientIPAddress(clientAddressOf(subject, context));
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
         request.setAccessTime(new Date());
@@ -265,9 +276,9 @@ public class RangerDorisAccessController extends RangerAccessController {
     // global-then-catalog-then-database-then-table cascade, and each step of that cascade arrives here.
 
     private boolean checkPrivilegeByPlugin(AuthorizedSubject subject, DorisAccessType accessType,
-            RangerDorisResource resource) {
+            RangerDorisResource resource, AccessContext context) {
         return decideWhileOpen(() -> {
-            RangerAccessRequestImpl request = createRequest(subject, accessType);
+            RangerAccessRequestImpl request = createRequest(subject, accessType, context);
             request.setResource(resource);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("ranger request: {}", request);
@@ -277,9 +288,10 @@ public class RangerDorisAccessController extends RangerAccessController {
         });
     }
 
-    private boolean checkShowPrivilegeByPlugin(AuthorizedSubject subject, RangerDorisResource resource) {
+    private boolean checkShowPrivilegeByPlugin(AuthorizedSubject subject, RangerDorisResource resource,
+            AccessContext context) {
         return decideWhileOpen(() -> {
-            RangerAccessRequestImpl request = createRequest(subject);
+            RangerAccessRequestImpl request = createRequest(subject, context);
             request.setResource(resource);
             request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
             if (LOG.isDebugEnabled()) {
@@ -298,11 +310,11 @@ public class RangerDorisAccessController extends RangerAccessController {
      * three-level path costs one evaluation per action, not three.
      */
     private boolean ask(AuthorizedSubject subject, AccessRequirement requirement,
-            EnumSet<AccessAction> granted, RangerDorisResource resource) {
+            EnumSet<AccessAction> granted, RangerDorisResource resource, AccessContext context) {
         EnumSet<AccessAction> outstanding = EnumSet.copyOf(requirement.getActions());
         outstanding.removeAll(granted);
         for (AccessAction action : outstanding) {
-            if (checkPrivilegeByPlugin(subject, DorisAccessType.of(action), resource)) {
+            if (checkPrivilegeByPlugin(subject, DorisAccessType.of(action), resource, context)) {
                 granted.add(action);
             }
             if (requirement.isSatisfiedBy(granted)) {
@@ -312,74 +324,79 @@ public class RangerDorisAccessController extends RangerAccessController {
         return false;
     }
 
-    private boolean checkGlobal(AuthorizedSubject subject, AccessRequirement requirement) {
-        return checkGlobalInternal(subject, requirement, EnumSet.noneOf(AccessAction.class));
+    private boolean checkGlobal(AuthorizedSubject subject, AccessRequirement requirement,
+            AccessContext context) {
+        return checkGlobalInternal(subject, requirement, EnumSet.noneOf(AccessAction.class), context);
     }
 
     private boolean checkGlobalInternal(AuthorizedSubject subject, AccessRequirement requirement,
-            EnumSet<AccessAction> granted) {
+            EnumSet<AccessAction> granted, AccessContext context) {
         return ask(subject, requirement, granted,
-                new RangerDorisResource(DorisObjectType.GLOBAL, GLOBAL_PRIV_FIXED_NAME));
+                new RangerDorisResource(DorisObjectType.GLOBAL, GLOBAL_PRIV_FIXED_NAME), context);
     }
 
-    private boolean checkCatalog(AuthorizedSubject subject, String ctl, AccessRequirement requirement) {
+    private boolean checkCatalog(AuthorizedSubject subject, String ctl, AccessRequirement requirement,
+            AccessContext context) {
         EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-        if (checkGlobalInternal(subject, requirement, granted)
-                || checkCatalogInternal(subject, ctl, requirement, granted)) {
+        if (checkGlobalInternal(subject, requirement, granted, context)
+                || checkCatalogInternal(subject, ctl, requirement, granted, context)) {
             return true;
         }
         return isVisibility(requirement) && anyPrivilegeWithin(subject,
-                new RangerDorisResource(DorisObjectType.CATALOG, ctl));
+                new RangerDorisResource(DorisObjectType.CATALOG, ctl), context);
     }
 
     private boolean checkCatalogInternal(AuthorizedSubject subject, String ctl, AccessRequirement requirement,
-            EnumSet<AccessAction> granted) {
-        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.CATALOG, ctl));
+            EnumSet<AccessAction> granted, AccessContext context) {
+        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.CATALOG, ctl),
+                context);
     }
 
     private boolean checkDatabase(AuthorizedSubject subject, String ctl, String db,
-            AccessRequirement requirement) {
+            AccessRequirement requirement, AccessContext context) {
         if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return true;
         }
         EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-        if (checkGlobalInternal(subject, requirement, granted)
-                || checkCatalogInternal(subject, ctl, requirement, granted)
-                || checkDatabaseInternal(subject, ctl, db, requirement, granted)) {
+        if (checkGlobalInternal(subject, requirement, granted, context)
+                || checkCatalogInternal(subject, ctl, requirement, granted, context)
+                || checkDatabaseInternal(subject, ctl, db, requirement, granted, context)) {
             return true;
         }
         return isVisibility(requirement) && anyPrivilegeWithin(subject,
-                new RangerDorisResource(DorisObjectType.DATABASE, ctl, db));
+                new RangerDorisResource(DorisObjectType.DATABASE, ctl, db), context);
     }
 
     private boolean checkDatabaseInternal(AuthorizedSubject subject, String ctl, String db,
-            AccessRequirement requirement, EnumSet<AccessAction> granted) {
-        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.DATABASE, ctl, db));
+            AccessRequirement requirement, EnumSet<AccessAction> granted, AccessContext context) {
+        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.DATABASE, ctl, db),
+                context);
     }
 
     private boolean checkTable(AuthorizedSubject subject, String ctl, String db, String tbl,
-            AccessRequirement requirement) {
+            AccessRequirement requirement, AccessContext context) {
         if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return true;
         }
         EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-        if (checkGlobalInternal(subject, requirement, granted)
-                || checkCatalogInternal(subject, ctl, requirement, granted)
-                || checkDatabaseInternal(subject, ctl, db, requirement, granted)
-                || checkTableInternal(subject, ctl, db, tbl, requirement, granted)) {
+        if (checkGlobalInternal(subject, requirement, granted, context)
+                || checkCatalogInternal(subject, ctl, requirement, granted, context)
+                || checkDatabaseInternal(subject, ctl, db, requirement, granted, context)
+                || checkTableInternal(subject, ctl, db, tbl, requirement, granted, context)) {
             return true;
         }
         return isVisibility(requirement) && anyPrivilegeWithin(subject,
-                new RangerDorisResource(DorisObjectType.TABLE, ctl, db, tbl));
+                new RangerDorisResource(DorisObjectType.TABLE, ctl, db, tbl), context);
     }
 
     private boolean checkTableInternal(AuthorizedSubject subject, String ctl, String db, String tbl,
-            AccessRequirement requirement, EnumSet<AccessAction> granted) {
-        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.TABLE, ctl, db, tbl));
+            AccessRequirement requirement, EnumSet<AccessAction> granted, AccessContext context) {
+        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.TABLE, ctl, db, tbl),
+                context);
     }
 
     private void checkColumns(AuthorizedSubject subject, AuthorizedResource.Columns columns,
-            AccessRequirement requirement) throws AccessDeniedException {
+            AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
         if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return;
         }
@@ -387,10 +404,10 @@ public class RangerDorisAccessController extends RangerAccessController {
         String db = columns.getDatabase();
         String tbl = columns.getTable();
         EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
-        boolean hasTablePriv = checkGlobalInternal(subject, requirement, granted)
-                || checkCatalogInternal(subject, ctl, requirement, granted)
-                || checkDatabaseInternal(subject, ctl, db, requirement, granted)
-                || checkTableInternal(subject, ctl, db, tbl, requirement, granted);
+        boolean hasTablePriv = checkGlobalInternal(subject, requirement, granted, context)
+                || checkCatalogInternal(subject, ctl, requirement, granted, context)
+                || checkDatabaseInternal(subject, ctl, db, requirement, granted, context)
+                || checkTableInternal(subject, ctl, db, tbl, requirement, granted, context);
         if (hasTablePriv) {
             return;
         }
@@ -399,7 +416,7 @@ public class RangerDorisAccessController extends RangerAccessController {
             // Each column starts from what the levels above granted, and none of them may add to it: a
             // privilege held on one column says nothing about the next one.
             if (!ask(subject, requirement, EnumSet.copyOf(granted),
-                    new RangerDorisResource(DorisObjectType.COLUMN, ctl, db, tbl, col))) {
+                    new RangerDorisResource(DorisObjectType.COLUMN, ctl, db, tbl, col), context)) {
                 throw AccessDeniedException.withMessage(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s].[%s]",
                         subject, requirement, ctl, db, tbl, col), columns, NAME);
@@ -415,8 +432,9 @@ public class RangerDorisAccessController extends RangerAccessController {
         return AccessRequirements.VISIBILITY.equals(requirement);
     }
 
-    private boolean anyPrivilegeWithin(AuthorizedSubject subject, RangerDorisResource resource) {
-        return checkShowPrivilegeByPlugin(subject, resource);
+    private boolean anyPrivilegeWithin(AuthorizedSubject subject, RangerDorisResource resource,
+            AccessContext context) {
+        return checkShowPrivilegeByPlugin(subject, resource, context);
     }
 
     @Override

@@ -28,8 +28,6 @@ import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
@@ -63,7 +61,6 @@ import java.util.concurrent.ScheduledFuture;
  * release note, because the alternative to saying it is a filter that silently admits rows it was not meant to.
  */
 public class RangerHiveAccessController extends RangerAccessController {
-    private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
 
     /** The name this source is selected by in catalog properties. */
     public static final String NAME = "ranger-hive";
@@ -83,12 +80,21 @@ public class RangerHiveAccessController extends RangerAccessController {
      *
      * <p>The expressions are the ones {@code ranger-servicedef-doris.json} declares for the same mask types,
      * deliberately: a "Partial mask: show last 4" written in the Ranger UI has to mean the same thing whether
-     * the catalog it governs is bound to this source or to {@code ranger-doris}. Keep the two in step.
+     * the catalog it governs is bound to this source or to {@code ranger-doris}.
      *
-     * <p>{@code MASK_NULL}, {@code MASK_NONE} and {@code CUSTOM} are absent because Doris writes their
-     * payloads itself, before a transformer is ever consulted. Those three plus these five are every mask
-     * type the stock Hive definition declares, so anything reaching the miss branch of
-     * {@link #dataMaskExpressionOf} is a definition Doris has never seen.
+     * <p><b>Nothing in this repository keeps the two in step.</b> That definition is not a file here: it is
+     * downloaded by {@code run-thirdparties-docker.sh} into a gitignored cache, and it is the one artifact
+     * that changes in place - a corrected transformer arrives under a name that never changes. So a
+     * correction would reach {@code ranger-doris}, which reads the transformer the admin serves it, and
+     * never reach this map. What can notice is {@code RangerHiveDataMaskTest}, and only on a machine where
+     * the docker environment has been run; elsewhere it has nothing to compare against and skips.
+     *
+     * <p>{@code MASK_NULL} and {@code MASK_NONE} are absent because Doris writes their payloads itself,
+     * before a transformer is ever consulted, and {@code CUSTOM} because its payload is the free text an
+     * administrator typed into the Ranger policy - passed through as written, with the same dialect risk a
+     * row filter on a Hive service carries. Those three plus these five are every mask type the stock Hive
+     * definition declares, so anything reaching the miss branch of {@link #dataMaskExpressionOf} is a
+     * definition Doris has never seen.
      */
     private static final Map<String, String> DORIS_MASK_EXPRESSIONS = ImmutableMap.of(
             "MASK", "regexp_replace(regexp_replace(regexp_replace({col},'([A-Z])', 'x'),'([a-z])','x'),"
@@ -103,6 +109,9 @@ public class RangerHiveAccessController extends RangerAccessController {
     // reaching a cleaned plugin.
     private final RangerHivePlugin hivePlugin;
     private final RangerHiveAuditHandler auditHandler;
+    // The stack this controller is the owner of, or null when the factory owns it and shares it with every
+    // other binding reading the same Ranger service. Only an owner stops one.
+    private RangerHiveAuditStack ownedStack;
     // Package-private so the case about this binding's audit lifecycle can see whether a task was scheduled
     // and whether closing cancelled it; nothing else here says so.
     @VisibleForTesting
@@ -124,6 +133,7 @@ public class RangerHiveAccessController extends RangerAccessController {
                 properties.get(SERVICE_NAME_PROPERTY), rangerAuthContextListener);
         hivePlugin = stack.getPlugin();
         auditHandler = stack.getAuditHandler();
+        ownedStack = stack;
         logFlushFuture = stack.getFlushFuture();
     }
 
@@ -137,8 +147,10 @@ public class RangerHiveAccessController extends RangerAccessController {
         super(properties, context);
         hivePlugin = stack.getPlugin();
         auditHandler = stack.getAuditHandler();
-        // No flush task of its own: the timer draining this stack belongs to whoever owns the stack, and
-        // cancelling it here would stop auditing for every other binding reading the same service.
+        // Not the owner: the stack, and the timer draining it, belong to the factory and are shared with
+        // every other binding reading the same Ranger service. Stopping either here would stop auditing -
+        // and answering - for all of them.
+        ownedStack = null;
         logFlushFuture = null;
     }
 
@@ -148,12 +160,12 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     /**
-     * Lets go of this controller, stopping the audit stack once nothing holds it any more.
+     * Lets go of this controller, stopping the audit stack when this controller is the one that owns it.
      *
      * <p>The factory hands one controller to every binding configured alike, and one audit stack to every
      * binding reading the same Ranger service, so a binding going away is on its own no reason to stop
-     * polling: the factory counts the holders and fences the controller when the last one lets go. What it
-     * deliberately does not do is stop the stack - see
+     * polling: the factory counts the holders, fences the controller when the last one lets go, and
+     * schedules the stack's stop for later if nothing reads that service any more - see
      * the audit stacks {@link RangerHiveAccessControllerFactory} shares.
      */
     @Override
@@ -166,25 +178,15 @@ public class RangerHiveAccessController extends RangerAccessController {
         if (!markClosed()) {
             return;
         }
-        // Everything below runs with no lock held. cleanup() stops the policy refresher by interrupting it
-        // and joining without a timeout, so against an unreachable Ranger admin it takes the whole REST
-        // timeout; holding the fence across it would queue every check on this source behind it instead of
-        // refusing them, which is what the fence is for.
-        if (logFlushFuture != null) {
-            logFlushFuture.cancel(false);
-            logFlushFuture = null;
-        }
-        // flushAudit atomically drains the handler. This preserves events produced before close without
-        // racing the periodic flusher or re-emitting events it has already sent.
-        try {
-            auditHandler.flushAudit();
-        } catch (Throwable e) {
-            LOG.warn("Failed to flush Ranger Hive audit events while closing the access controller", e);
-        }
-        try {
-            hivePlugin.cleanup();
-        } catch (Throwable e) {
-            LOG.warn("Failed to clean up Ranger Hive plugin", e);
+        // With no lock held. cleanup() stops the policy refresher by interrupting it and joining without a
+        // timeout, so against an unreachable Ranger admin it takes the whole REST timeout; holding the fence
+        // across it would queue every check on this source behind it instead of refusing them, which is what
+        // the fence is for.
+        RangerHiveAuditStack stack = ownedStack;
+        ownedStack = null;
+        logFlushFuture = null;
+        if (stack != null) {
+            stack.stop();
         }
     }
 
@@ -213,19 +215,19 @@ public class RangerHiveAccessController extends RangerAccessController {
             case DATABASE: {
                 AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
                 refuseUnless(checkResource(subject, requirement,
-                        new RangerHiveResource(HiveObjectType.DATABASE, database.getDatabase())),
+                        new RangerHiveResource(HiveObjectType.DATABASE, database.getDatabase()), context),
                         subject, resource, requirement);
                 return;
             }
             case TABLE: {
                 AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
                 refuseUnless(checkResource(subject, requirement,
-                        new RangerHiveResource(HiveObjectType.TABLE, table.getDatabase(), table.getTable())),
-                        subject, resource, requirement);
+                        new RangerHiveResource(HiveObjectType.TABLE, table.getDatabase(), table.getTable()),
+                        context), subject, resource, requirement);
                 return;
             }
             case COLUMNS:
-                checkColumns(subject, (AuthorizedResource.Columns) resource, requirement);
+                checkColumns(subject, (AuthorizedResource.Columns) resource, requirement, context);
                 return;
             case WORKLOAD_GROUP:
                 // Not support workload group privilege in ranger hive plugin.
@@ -252,15 +254,15 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     private boolean checkResource(AuthorizedSubject subject, AccessRequirement requirement,
-            RangerHiveResource resource) {
+            RangerHiveResource resource, AccessContext context) {
         if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return true;
         }
-        return checkPrivilege(subject, accessTypeOf(requirement), resource);
+        return checkPrivilege(subject, accessTypeOf(requirement), resource, context);
     }
 
     private void checkColumns(AuthorizedSubject subject, AuthorizedResource.Columns columns,
-            AccessRequirement requirement) throws AccessDeniedException {
+            AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
         if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return;
         }
@@ -271,16 +273,17 @@ public class RangerHiveAccessController extends RangerAccessController {
             resources.add(resource);
         }
 
-        checkPrivileges(subject, accessTypeOf(requirement), resources, columns);
-    }
-
-    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, HiveAccessType accessType) {
-        return createRequest(subject, accessType, getContext().rolesOf(subject));
+        checkPrivileges(subject, accessTypeOf(requirement), resources, columns, context);
     }
 
     private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, HiveAccessType accessType,
-            Set<String> roles) {
-        RangerAccessRequestImpl request = createRequest(subject, roles);
+            AccessContext context) {
+        return createRequest(subject, accessType, getContext().rolesOf(subject), context);
+    }
+
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, HiveAccessType accessType,
+            Set<String> roles, AccessContext context) {
+        RangerAccessRequestImpl request = createRequest(subject, roles, context);
         if (accessType == HiveAccessType.USE) {
             request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
         } else {
@@ -326,17 +329,18 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject) {
+    protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject, AccessContext context) {
         // Policies in Ranger may be written against a role rather than a user, and the roles a Doris account
         // holds are the engine's to know, not this service's.
-        return createRequest(subject, getContext().rolesOf(subject));
+        return createRequest(subject, getContext().rolesOf(subject), context);
     }
 
-    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, Set<String> roles) {
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, Set<String> roles,
+            AccessContext context) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(subject.getUser());
         request.setUserRoles(roles);
-        request.setClientIPAddress(subject.getHost());
+        request.setClientIPAddress(clientAddressOf(subject, context));
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
         request.setAccessTime(new Date());
@@ -345,7 +349,8 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     private void checkPrivileges(AuthorizedSubject subject, HiveAccessType accessType,
-            List<RangerHiveResource> hiveResources, AuthorizedResource asked) throws AccessDeniedException {
+            List<RangerHiveResource> hiveResources, AuthorizedResource asked, AccessContext context)
+            throws AccessDeniedException {
         checkWhileOpen(asked, () -> {
             // Asked once for the whole batch. Every request in it is about the same subject, and reading the
             // roles takes a read lock on the engine's privilege tables - a 200 column table would take 200 of
@@ -353,7 +358,7 @@ public class RangerHiveAccessController extends RangerAccessController {
             Set<String> roles = getContext().rolesOf(subject);
             List<RangerAccessRequest> requests = new ArrayList<>();
             for (RangerHiveResource resource : hiveResources) {
-                RangerAccessRequestImpl request = createRequest(subject, accessType, roles);
+                RangerAccessRequestImpl request = createRequest(subject, accessType, roles, context);
                 request.setResource(resource);
                 requests.add(request);
             }
@@ -364,9 +369,9 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     private boolean checkPrivilege(AuthorizedSubject subject, HiveAccessType accessType,
-            RangerHiveResource resource) {
+            RangerHiveResource resource, AccessContext context) {
         return decideWhileOpen(() -> {
-            RangerAccessRequestImpl request = createRequest(subject, accessType);
+            RangerAccessRequestImpl request = createRequest(subject, accessType, context);
             request.setResource(resource);
 
             RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);

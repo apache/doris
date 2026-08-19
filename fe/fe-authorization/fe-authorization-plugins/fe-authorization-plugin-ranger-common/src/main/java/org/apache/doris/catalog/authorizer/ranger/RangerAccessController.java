@@ -221,6 +221,23 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         deferenceFrom(properties);
     }
 
+    /**
+     * The address to give Ranger as the client's, which is the connection's and not the account's.
+     *
+     * <p>{@link AuthorizedSubject#getHost()} is the host pattern of the account - the {@code '%'} of
+     * {@code CREATE USER foo}, a pattern and not an address - so a Ranger policy conditioned on the client's
+     * IP was being matched against something that is not one. The address the client actually connected from
+     * is what {@link AccessContext} carries, and it is absent for the checks that do not come from a client
+     * statement at all: a background job, a replay. The pattern is the fallback there rather than nothing,
+     * because that is what this source sent before and a policy written against it keeps working.
+     */
+    protected static String clientAddressOf(AuthorizedSubject subject, AccessContext context) {
+        if (context == null) {
+            return subject.getHost();
+        }
+        return context.getClientIp().filter(StringUtils::isNotBlank).orElseGet(subject::getHost);
+    }
+
     private static boolean deferenceFrom(Map<String, String> properties) {
         String configured = properties == null ? null : properties.get(DEFER_TO_GLOBAL_SCOPE_AUTHORITY);
         if (configured == null) {
@@ -308,14 +325,14 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
-        return whileOpen(() -> evalRowFilterPolicies(subject, table));
+        return whileOpen(() -> evalRowFilterPolicies(subject, table, context));
     }
 
     private List<RowFilterSpec> evalRowFilterPolicies(AuthorizedSubject subject,
-            AuthorizedResource.Table table) {
+            AuthorizedResource.Table table, AccessContext context) {
         RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
                 table.getTable());
-        RangerAccessRequestImpl request = createRequest(subject);
+        RangerAccessRequestImpl request = createRequest(subject, context);
         request.setAccessType(readAccessTypeName());
         request.setResource(resource);
 
@@ -331,11 +348,26 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
             throw noAnswerFrom(request);
         }
         String filterExpr = policy.getFilterExpr();
-        if (StringUtils.isEmpty(filterExpr)) {
+        // Blank and not merely empty: whitespace is what a Ranger row filter policy holds when an
+        // administrator typed a space into it, and a space is not a restriction anybody wrote. Carried
+        // further it reaches RowFilterSpec, which refuses it saying "filterSql must not be blank" and
+        // naming neither this source, nor the policy, nor the table.
+        if (StringUtils.isBlank(filterExpr)) {
             return res;
         }
-        // Ranger row filters are always restrictive: it returns at most one expression and the row must match it.
-        res.add(RowFilterSpec.restrictive(policyIdent(policy), filterExpr));
+        try {
+            // Ranger row filters are always restrictive: it returns at most one expression and the row must
+            // match it.
+            res.add(RowFilterSpec.restrictive(policyIdent(policy), filterExpr));
+        } catch (RuntimeException e) {
+            // Reported from this frame for the reason evalDataMaskPolicy gives: it is the one that knows
+            // which policy on which table was asked about, and every refusal below is an administrator's
+            // mistake. The mask half of this class already says so; a row filter refused without any of it
+            // is the harder of the two to trace back.
+            throw new IllegalStateException("authorization source " + name() + " cannot apply the row filter"
+                    + " of ranger policy " + policyIdent(policy) + " to " + table.getCatalog() + "."
+                    + table.getDatabase() + "." + table.getTable() + ": " + e.getMessage(), e);
+        }
         return res;
     }
 
@@ -347,7 +379,8 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
             for (String column : columns) {
                 // One request per column: a masking policy in Ranger is written against a column, and the
                 // plugin evaluates them one resource at a time.
-                evalDataMaskPolicy(subject, table, column).ifPresent(mask -> masks.put(column, mask));
+                evalDataMaskPolicy(subject, table, column, context).ifPresent(
+                        mask -> masks.put(column, mask));
             }
             return masks;
         });
@@ -368,10 +401,10 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     }
 
     private Optional<DataMaskSpec> evalDataMaskPolicy(AuthorizedSubject subject, AuthorizedResource.Table table,
-            String col) {
+            String col, AccessContext context) {
         RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
                 table.getTable(), col);
-        RangerAccessRequestImpl request = createRequest(subject);
+        RangerAccessRequestImpl request = createRequest(subject, context);
         request.setAccessType(readAccessTypeName());
         request.setResource(resource);
 
@@ -465,7 +498,14 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
      */
     protected abstract String readAccessTypeName();
 
-    protected abstract RangerAccessRequestImpl createRequest(AuthorizedSubject subject);
+    /**
+     * A Ranger request about {@code subject}, under the circumstances {@code context} describes.
+     *
+     * <p>The context is carried this far because Ranger conditions a policy on it: the client's address is
+     * part of what a policy may be written against, and it belongs to the connection rather than to the
+     * account. See {@link #clientAddressOf}.
+     */
+    protected abstract RangerAccessRequestImpl createRequest(AuthorizedSubject subject, AccessContext context);
 
     protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl);
 

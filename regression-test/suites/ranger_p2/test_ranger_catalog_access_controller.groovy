@@ -372,11 +372,22 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 		String tail = value.length() <= 4 ? value : value.substring(value.length() - 4)
 		return 'X' * (value.length() - tail.length()) + tail
 	}
+	// Read through the catalog with no source of its own, so the condition below compares against what this
+	// mask type actually renders rather than against a literal. MASK_SHOW_LAST_4 is the identity on a value
+	// of four characters or fewer, so a fixture edit that shortened this one would make the wait pass before
+	// the policy had reached the catalog at all - pinned here rather than left to be noticed as a timing
+	// story that is not the real one.
+	def unmaskedFirstRow = sql("""SELECT username FROM ${plainCatalog}.${dbName}.${tblName} WHERE id = 1""")
+	def firstUsername = unmaskedFirstRow[0][0].toString()
+	assertTrue(firstUsername.length() > 4,
+			"the fixture's first username is not longer than four characters, so MASK_SHOW_LAST_4 leaves it"
+					+ " unchanged and this case can no longer tell a masked read from an unmasked one:"
+					+ " ${firstUsername}")
 	awaitPolicyEffect("the partial column mask to reach the bound catalog", {
 		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
 			try {
-				return sql("""SELECT username FROM ${boundCatalog}.${dbName}.${tblName} WHERE id = 1""")[0][0] !=
-						'alice'
+				def read = sql("""SELECT username FROM ${boundCatalog}.${dbName}.${tblName} WHERE id = 1""")
+				return read[0][0].toString() == showLast4Of(firstUsername)
 			} catch (Exception e) {
 				// A mask Doris cannot bind fails the statement, which is the very failure this case exists to
 				// catch - reported by the assertion below rather than waited out into a timeout here.

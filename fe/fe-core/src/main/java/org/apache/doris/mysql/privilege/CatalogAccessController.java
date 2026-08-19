@@ -39,6 +39,14 @@ import java.util.Set;
  * global scope ({@code org.apache.doris.catalog.authorizer.ranger.RangerAccessController}, in the ranger
  * plugin and so not on this module's class path).
  *
+ * <p>The four {@code hasGlobal} overloads themselves are gone - {@code checkCtlPriv}, {@code checkDbPriv},
+ * {@code checkTblPriv} and {@code checkColsPriv} each had one, and each was a default method delegating to
+ * its scoped sibling. Nothing calls them now. A controller that merely inherited them is unaffected; one
+ * that <em>overrode</em> one is not, because the override compiles, loads and is never reached: the
+ * exemption it encoded is now the one {@link LegacyAccessControllerPlugin} applies, and any other behaviour
+ * it put there is silently gone. There is no {@code @Override} for the compiler to fail on, so this is the
+ * only notice.
+ *
  * <p>This is the older shape of that contract, kept because a catalog's {@code access_controller.class}
  * names an implementation of it and such implementations exist outside this repository. The engine reaches
  * one through {@link LegacyAccessControllerPlugin}; a source written today implements

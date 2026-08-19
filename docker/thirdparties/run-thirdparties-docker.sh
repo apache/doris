@@ -1770,9 +1770,21 @@ download_ranger_artifacts() {
             continue
         fi
         echo "downloading ${url_prefix}/${name}"
-        curl -fsSL --retry 10 "${retry_all_errors[@]}" --retry-delay 5 \
+        if ! curl -fsSL --retry 10 "${retry_all_errors[@]}" --retry-delay 5 \
             --connect-timeout 30 --speed-limit 1024 --speed-time 120 \
-            -o "${dest}/${name}.part" "${url_prefix}/${name}"
+            -o "${dest}/${name}.part" "${url_prefix}/${name}"; then
+            rm -f "${dest}/${name}.part"
+            # A refresh that fails is not a reason to refuse to start on a machine that already has the
+            # artifact: making the definition unconditional turned every `-c ranger` into one that needs the
+            # network, including on a laptop that has run this a hundred times. Warn loudly, because the copy
+            # being used may be older than the bucket's.
+            if [[ -s "${dest}/${name}" ]]; then
+                echo "WARNING: could not refresh ${name}; using the cached copy, which may be out of date" >&2
+                continue
+            fi
+            echo "failed to download ${url_prefix}/${name} and there is no cached copy" >&2
+            return 1
+        fi
         mv "${dest}/${name}.part" "${dest}/${name}"
     done
 }
