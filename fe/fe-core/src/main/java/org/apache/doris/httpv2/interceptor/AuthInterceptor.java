@@ -117,7 +117,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
         try {
             if (request.getHeader("Authorization") != null) {
                 ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-                UserIdentity user = checkPassword(authInfo);
+                UserIdentity user = checkPassword(authInfo, request);
                 if (Config.isCloudMode()) {
                     checkInstanceOverdue(user);
                 }

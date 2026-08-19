@@ -70,7 +70,7 @@ class WebSqlAuthInterceptorTest {
             }
 
             @Override
-            protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo) {
+            protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo, HttpServletRequest request) {
                 return admin;
             }
 
