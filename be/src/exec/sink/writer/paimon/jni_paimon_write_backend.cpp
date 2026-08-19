@@ -33,10 +33,10 @@
 
 #include "common/check.h"
 #include "common/logging.h"
-#include "exec/sink/writer/paimon/paimon_arrow_write_converter.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "exec/spill/spill_file_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/table/paimon/paimon_arrow_write_converter.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -471,7 +471,7 @@ Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
     std::shared_ptr<arrow::RecordBatch> record_batch;
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, &_arrow_pool, &record_batch,
                                            state->timezone_obj(), 0, block.rows(),
-                                           paimon_arrow_write_converter()));
+                                           paimon::paimon_arrow_write_converter()));
 
     ArrowArray c_array {};
     ArrowSchema c_schema {};
