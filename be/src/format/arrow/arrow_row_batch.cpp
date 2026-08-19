@@ -49,8 +49,8 @@
 namespace doris {
 
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
-                             std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone) {
+                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
+                             bool use_timezone_for_datetime) {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -97,17 +97,27 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
-    // TODO: maybe need to distinguish TYPE_DATETIME and TYPE_TIMESTAMPTZ
     case TYPE_TIMESTAMPTZ:
-    case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2: {
+        arrow::TimeUnit::type time_unit;
         if (type->get_scale() > 3) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+            time_unit = arrow::TimeUnit::MICRO;
         } else if (type->get_scale() > 0) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
+            time_unit = arrow::TimeUnit::MILLI;
         } else {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
+            time_unit = arrow::TimeUnit::SECOND;
+        }
+        // Doris DATETIMEV2 is a wall-clock value without a timezone. The override is enabled only
+        // for legacy Parquet INT96 output, which needs the writer session timezone because INT96
+        // has no timezone annotation. TIMESTAMPTZ always represents an instant with timezone
+        // semantics.
+        if (type->get_primitive_type() == TYPE_DATETIMEV2 && !use_timezone_for_datetime) {
+            *result = std::make_shared<arrow::TimestampType>(time_unit);
+        } else {
+            *result = std::make_shared<arrow::TimestampType>(time_unit, timezone);
         }
         break;
+    }
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
@@ -123,7 +133,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_ARRAY: {
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
+                                              use_timezone_for_datetime));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -131,8 +142,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
+                                              use_timezone_for_datetime));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
+                                              use_timezone_for_datetime));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -141,8 +154,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(
-                    convert_to_arrow_type(type_struct->get_element(i), &field_type, timezone));
+            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
+                                                  timezone, use_timezone_for_datetime));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
                                                    type_struct->get_element(i)->is_nullable()));

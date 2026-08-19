@@ -43,8 +43,10 @@ constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
 
 class RowDescriptor;
 
+// The timezone override is only for legacy Parquet INT96 output. Arrow Flight, Python UDF, and
+// default INT64 Parquet output must keep DATETIME as a timezone-naive timestamp.
 Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone);
+                             const std::string& timezone, bool use_timezone_for_datetime = false);
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
