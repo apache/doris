@@ -75,10 +75,13 @@ suite("test_row_policy_sql_mode") {
     assertTrue(rendersOr && predicate.contains("region = 'cn'") && predicate.contains("region = 'us'"),
             "SHOW ROW POLICY renders a predicate the query is not filtered by: ${predicate}")
 
+    // The rows, not how many of them: a filter admitting the wrong two rows is the failure this case is
+    // about, and a count is green for it. The table holds cn/us/de and the policy admits the first two.
     def filtered = connect(user, '123abc!@#', url) {
         sql "SELECT * FROM row_policy_sql_mode_tbl ORDER BY region"
     }
-    assertEquals(2, filtered.size())
+    assertEquals([['cn', 'a'], ['us', 'b']], filtered.collect { row -> [row[0].toString(), row[1].toString()] },
+            "the restricted user did not read exactly the rows the OR admits")
 
     dropPolicy "p_pipes"
 

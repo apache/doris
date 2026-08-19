@@ -3606,8 +3606,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     /**
      * Which name a {@code checkAuth} request left out, or null when it named everything its hierarchy needs.
      *
-     * <p>{@code ctl} is deliberately not among them: it has always defaulted to the internal catalog on this
-     * path, and the columns branch below does not even read the one the request carries.
+     * <p>The {@code COLUMNS} branch is the one exception: it hard-codes the internal catalog, so a request
+     * leaving {@code ctl} out is answered there rather than refused. Every other branch passes the name the
+     * request carries straight through to a constructor that requires it.
      */
     private static String missingPrivilegeName(TPrivilegeHier privHier, TPrivilegeCtrl privCtrl) {
         if (privHier == null) {
@@ -3617,9 +3618,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             case CATALOG:
                 return privCtrl.getCtl() == null ? "catalog" : null;
             case DATABASE:
-                return privCtrl.getDb() == null ? "database" : null;
+                return privCtrl.getCtl() == null ? "catalog" : privCtrl.getDb() == null ? "database" : null;
             case TABLE:
-                return privCtrl.getDb() == null ? "database" : privCtrl.getTbl() == null ? "table" : null;
+                return privCtrl.getCtl() == null ? "catalog"
+                        : privCtrl.getDb() == null ? "database" : privCtrl.getTbl() == null ? "table" : null;
             case COLUMNS:
                 if (privCtrl.getDb() == null) {
                     return "database";

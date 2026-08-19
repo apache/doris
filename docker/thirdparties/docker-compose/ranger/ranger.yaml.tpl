@@ -34,15 +34,21 @@ services:
       ranger-solr:
         condition: service_started
     healthcheck:
-      # The marker, not the admin port. `compose up --wait` returns as soon as this
-      # passes, and what a caller needs is a Ranger that knows about Doris - probing
-      # 6080 is probing the very URL install_doris_service_def.sh waits for, so it
-      # could hand back a "healthy" stack with neither the Doris service definition
-      # nor its service instance registered, and a suite starting then fails in a way
-      # that looks like a policy bug. install_doris_service_def.sh writes the marker
-      # once both are in place; ranger-entrypoint.sh removes it at boot so a
-      # restarted container is not healthy on the previous run's marker.
-      test: ["CMD-SHELL", "test -f /tmp/doris-ranger-ready"]
+      # The marker first, then the admin port. `compose up --wait` returns as soon as
+      # this passes, and what a caller needs is a Ranger that knows about Doris -
+      # probing 6080 alone is probing the very URL install_doris_service_def.sh waits
+      # for, so it could hand back a "healthy" stack with neither the Doris service
+      # definition nor its service instance registered, and a suite starting then
+      # fails in a way that looks like a policy bug. install_doris_service_def.sh
+      # writes the marker once both are in place; ranger-entrypoint.sh removes it at
+      # boot so a restarted container is not healthy on the previous run's marker.
+      #
+      # The marker alone would answer readiness and nothing else: nothing removes it
+      # while the container runs, and ranger-admin runs in the background behind
+      # `tail -f /dev/null`, so an admin that has died since would go on reporting
+      # healthy for as long as the container lives. The second half is the liveness
+      # the marker cannot give.
+      test: ["CMD-SHELL", "test -f /tmp/doris-ranger-ready && curl -sf -o /dev/null http://localhost:6080/"]
       interval: 10s
       timeout: 10s
       retries: 30

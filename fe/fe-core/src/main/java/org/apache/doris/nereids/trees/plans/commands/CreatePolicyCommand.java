@@ -35,7 +35,9 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -190,6 +192,16 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("wherePredicate can not be null");
                 }
                 policyPredicate = Optional.of(predicateUnderPolicyMode());
+                // The same question the planner asks of a row filter before it is applied, asked here so
+                // that it is answered while somebody can act on it. Stored unchecked, a payload that is not
+                // a predicate - USING (1), say - fails every query the policy governs from then on, for
+                // every account it applies to, and the statement that put it there succeeded.
+                DataType notAPredicate = LogicalCheckPolicy.nonPredicateTypeOf(policyPredicate.get());
+                if (notAPredicate != null) {
+                    throw new AnalysisException("the predicate of a row policy has to be a boolean expression"
+                            + " over the table's columns, but [" + policyPredicate.get().toSql() + "] is of"
+                            + " type " + notAPredicate);
+                }
                 TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                         .getDbOrAnalysisException(tableNameInfo.getDb())

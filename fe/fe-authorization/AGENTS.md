@@ -77,14 +77,17 @@ And three about the modules themselves:
    member, the modifiers a plugin's compiled code depends on — `default` vs
    `abstract` above all, since every "silence means refusal" default in this
    contract is one, and a `default` turned `abstract` is an `AbstractMethodError`
-   in every plugin nobody rebuilt.
+   in every plugin nobody rebuilt — plus the checked exceptions it declares,
+   which are source-incompatible in both directions: one added breaks every
+   plugin overriding the method, one removed breaks every plugin catching it.
    One exception to the bump: making the *renderer* record more, as the modifiers
    were added, rewrites every line without any API having changed. Refresh the
    baseline and do not bump — but prove it is only the rendering by checking that
    stripping the new part off every new line reproduces the old file exactly. If
    anything else moved, that part is a real change and does need the bump.
    The other four families render less than this one does: their baselines carry
-   erased types, no declaration kind, no constructors and no modifiers. So a
+   erased types, no declaration kind, no constructors, no modifiers and no
+   thrown types. So a
    change to `fe-extension-spi` turns all five red only when it changes a method
    signature — a `final` removed from `PluginContext`, a constructor added to it
    or a type parameter changed shows up in this baseline alone. Until those
