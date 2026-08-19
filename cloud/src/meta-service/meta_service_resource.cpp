@@ -64,24 +64,6 @@ static CredProviderTypePB get_cred_provider_type(const ObjectStoreInfoPB& obj) {
                                         : CredProviderTypePB::INSTANCE_PROFILE;
 }
 
-static bool validate_s3_express_config(const ObjectStoreInfoPB& obj, MetaServiceCode& code,
-                                       std::string& msg) {
-    if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3EXPRESS) {
-        return true;
-    }
-    if (obj.use_path_style()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 express requires use_path_style to be false";
-        return false;
-    }
-    if (obj.has_cred_provider_type() && obj.cred_provider_type() == CredProviderTypePB::ANONYMOUS) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 express does not support anonymous access";
-        return false;
-    }
-    return true;
-}
-
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
@@ -399,7 +381,8 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
                 return -1;
             }
 
-            if (it.provider() != ObjectStoreInfoPB::S3) {
+            if (it.provider() != ObjectStoreInfoPB::S3 &&
+                it.provider() != ObjectStoreInfoPB::S3EXPRESS) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "role_arn is only supported for s3 provider";
                 LOG(INFO) << msg << " provider=" << it.provider();
@@ -799,10 +782,6 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
 
-    if (!validate_s3_express_config(*obj, code, msg)) {
-        return;
-    }
-
     if (obj->has_role_arn()) {
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
             (obj->provider() != ObjectStoreInfoPB::S3 &&
@@ -1126,20 +1105,6 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         std::stringstream ss;
         ss << name << " is not s3 storage vault";
         msg = ss.str();
-        return -1;
-    }
-
-    if (new_vault.obj_info().provider() == ObjectStoreInfoPB::S3EXPRESS &&
-        obj_info.has_use_path_style() && obj_info.use_path_style()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 express requires use_path_style to be false";
-        return -1;
-    }
-    if (new_vault.obj_info().provider() == ObjectStoreInfoPB::S3EXPRESS &&
-        obj_info.has_cred_provider_type() &&
-        obj_info.cred_provider_type() == CredProviderTypePB::ANONYMOUS) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 express does not support anonymous access";
         return -1;
     }
 
@@ -1517,9 +1482,6 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         if (!obj.has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf lease provider info";
-            return;
-        }
-        if (!validate_s3_express_config(obj, code, msg)) {
             return;
         }
         if (instance.obj_info().size() >= 10) {
