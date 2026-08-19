@@ -26,6 +26,7 @@
 #include <tuple>
 
 #include "common/cast_set.h"
+#include "common/metrics/doris_metrics.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
 #include "util/bvar_helper.h"
@@ -38,6 +39,7 @@ HdfsFileHandle::~HdfsFileHandle() {
         VLOG_FILE << "hdfsCloseFile() fid=" << _hdfs_file;
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_fs, _hdfs_file); // TODO: check return code
+        DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
     }
     _fs = nullptr;
     _hdfs_file = nullptr;
@@ -62,6 +64,10 @@ Status HdfsFileHandle::ensure_open() {
         VLOG_DEBUG << "lazy open hdfs file: " << _fname;
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
         _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
+        if (_hdfs_file != nullptr) {
+            DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
+            DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
+        }
     });
     if (_hdfs_file == nullptr) {
         std::string _err_msg = hdfs_error();

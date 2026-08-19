@@ -25,7 +25,6 @@
 #include "bvar/latency_recorder.h"
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
@@ -75,9 +74,6 @@ HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::
           _accessor(std::move(accessor)),
           _mtime(mtime) {
     _handle = _accessor.get();
-
-    DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
-    DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
 }
 
 HdfsFileReader::~HdfsFileReader() {
@@ -85,10 +81,7 @@ HdfsFileReader::~HdfsFileReader() {
 }
 
 Status HdfsFileReader::close() {
-    bool expected = false;
-    if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
-    }
+    _closed = true;
     return Status::OK();
 }
 
