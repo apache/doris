@@ -2553,6 +2553,9 @@ std::vector<std::vector<std::string>> get_config_info() {
         if (it.first == "sys_log_dir" && config_val == "") {
             config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
         }
+        if (it.first == "tls_private_key_password") {
+            config_val = "******";
+        }
 
         _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {

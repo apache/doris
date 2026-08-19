@@ -17,18 +17,24 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -88,5 +94,49 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
             Assertions.assertEquals("name", name.child(0).getExpressionName());
             return true;
         }));
+    }
+
+    @Test
+    void testJoinOnEmptyWithAssertNumRowsNotEliminated() {
+        // CrossJoin(LogicalAssertNumRows(oneRow), EmptyRelation). The empty side means the join result is empty,
+        // but the left subtree contains a scalar cardinality check that must still run, so the join must not be
+        // replaced with an empty relation.
+        Plan oneRowRelation = new LogicalPlanBuilder(scan1).limit(1).build();
+        AssertNumRowsElement assertElement = new AssertNumRowsElement(1, "", Assertion.EQ);
+        LogicalAssertNumRows<Plan> assertNumRows = new LogicalAssertNumRows<>(assertElement, oneRowRelation);
+
+        List<SlotReference> emptyOutput = new ArrayList<>();
+        emptyOutput.add(new SlotReference("k2", IntegerType.INSTANCE));
+        LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(new RelationId(1000), emptyOutput);
+
+        LogicalPlan join = new LogicalPlanBuilder(assertNumRows)
+                .joinEmptyOn(emptyRelation, JoinType.CROSS_JOIN)
+                .build();
+
+        Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new EliminateEmptyRelation())
+                .getPlan();
+        System.out.println(plan.treeString());
+        Assertions.assertTrue(plan instanceof LogicalJoin,
+                () -> "join with LogicalAssertNumRows subtree should not be eliminated, but got: " + plan.treeString());
+    }
+
+    @Test
+    void testJoinOnEmptyWithoutSideEffectEliminated() {
+        // CrossJoin(scan, EmptyRelation) with no side-effecting check in the subtree: safe to replace with empty.
+        List<SlotReference> emptyOutput = new ArrayList<>();
+        emptyOutput.add(new SlotReference("k2", IntegerType.INSTANCE));
+        LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(new RelationId(1000), emptyOutput);
+
+        LogicalPlan join = new LogicalPlanBuilder(scan1)
+                .joinEmptyOn(emptyRelation, JoinType.CROSS_JOIN)
+                .build();
+
+        Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new EliminateEmptyRelation())
+                .getPlan();
+        System.out.println(plan.treeString());
+        Assertions.assertTrue(plan instanceof LogicalEmptyRelation,
+                () -> "join without side effect should be eliminated, but got: " + plan.treeString());
     }
 }
