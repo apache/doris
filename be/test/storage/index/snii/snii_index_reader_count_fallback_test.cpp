@@ -48,6 +48,7 @@
 #include "runtime/thread_context.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h" // for IndexIterator
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
@@ -1827,6 +1828,56 @@ TEST_F(SniiIndexReaderCountFallback, MultiTermPhraseUsesNormalPositionalQuery) {
     std::vector<uint32_t> phrase_docids;
     assert_ok(doris::snii::query::phrase_query(*logical_reader.value(), terms, &phrase_docids));
     EXPECT_EQ(phrase_docids, (std::vector<uint32_t> {0, 3, 5}));
+}
+
+TEST_F(SniiIndexReaderCountFallback, KeywordLaneWarmQueryCacheHitSkipsSegmentOpen) {
+    // A physical keyword-lane index carries no analyzer contract for the segment open to
+    // validate: SniiIndexColumnWriter::init() rejects a CommonGrams metadata seed whenever
+    // should_analyzer() is false, the same split that picks STRING_TYPE over FULLTEXT in
+    // ColumnReader. Its warm raw-query cache entry must therefore still be served before the
+    // logical reader is opened, including when the independent searcher cache is disabled.
+    TabletIndex keyword_meta;
+    {
+        TabletIndexPB pb;
+        pb.set_index_type(IndexType::INVERTED);
+        pb.set_index_id(kIndexId);
+        pb.set_index_name("keyword_idx");
+        pb.add_col_unique_id(0);
+        keyword_meta.init_from_pb(pb);
+    }
+    ASSERT_FALSE(inverted_index::InvertedIndexAnalyzer::should_analyzer(keyword_meta.properties()));
+
+    OpenedSniiIndex opened;
+    opened.file_reader = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), kIndexPathPrefix, InvertedIndexStorageFormatPB::SNII);
+    assert_ok(opened.file_reader->init());
+    opened.index_reader = SniiIndexReader::create_shared(&keyword_meta, opened.file_reader,
+                                                         InvertedIndexReaderType::STRING_TYPE);
+
+    std::atomic<uint32_t> searcher_opens {0};
+    opened.index_reader->set_searcher_open_observer_for_test(record_searcher_open, &searcher_opens);
+
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("failed"));
+
+    QueryExecutionContext cold(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> cold_bitmap;
+    assert_ok(opened.index_reader->query(cold.context, "keyword_content", query_value,
+                                         InvertedIndexQueryType::EQUAL_QUERY, cold_bitmap));
+    ASSERT_NE(cold_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*cold_bitmap), (std::vector<uint32_t> {0, 1, 2, 3, 4, 5}));
+    EXPECT_EQ(cold.stats.inverted_index_query_cache_miss, 1);
+    EXPECT_EQ(cold.stats.inverted_index_query_cache_insert, 1);
+    EXPECT_EQ(searcher_opens.load(std::memory_order_relaxed), 1U);
+
+    QueryExecutionContext warm(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> warm_bitmap;
+    assert_ok(opened.index_reader->query(warm.context, "keyword_content", query_value,
+                                         InvertedIndexQueryType::EQUAL_QUERY, warm_bitmap));
+    ASSERT_NE(warm_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*warm_bitmap), bitmap_docids(*cold_bitmap));
+    EXPECT_EQ(warm.stats.inverted_index_query_cache_hit, 1);
+    EXPECT_EQ(searcher_opens.load(std::memory_order_relaxed), 1U)
+            << "warm keyword-lane query re-opened the segment before the query-cache hit";
 }
 
 } // namespace
