@@ -45,6 +45,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -275,7 +276,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setTableVersion(version)
                 .setPriority(priority)
-                .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
+                // Must not alias TableStatsMeta.partitionUpdateRows: cleared at the job terminal state.
+                .setPartitionUpdateRows(tableStatsStatus == null ? null
+                        : new ConcurrentHashMap<>(tableStatsStatus.partitionUpdateRows))
                 .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
                 .build();
     }
