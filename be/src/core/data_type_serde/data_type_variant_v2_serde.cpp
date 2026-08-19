@@ -569,13 +569,14 @@ Status write_paimon_variant(const IColumn& column, const NullMap* null_map,
                                        array_builder->type()->ToString());
     }
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
-    const auto& type = assert_cast<const arrow::StructType&>(*builder.type());
-    if (type.num_fields() != 2 || type.field(0)->name() != "value" ||
-        type.field(1)->name() != "metadata" || type.field(0)->type()->id() != arrow::Type::BINARY ||
-        type.field(1)->type()->id() != arrow::Type::BINARY) {
+    const auto type = std::static_pointer_cast<arrow::StructType>(builder.type());
+    if (type->num_fields() != 2 || type->field(0)->name() != "value" ||
+        type->field(1)->name() != "metadata" ||
+        type->field(0)->type()->id() != arrow::Type::BINARY ||
+        type->field(1)->type()->id() != arrow::Type::BINARY) {
         return Status::InvalidArgument(
                 "Paimon Variant writer requires struct<value: binary, metadata: binary>, got {}",
-                type.ToString());
+                type->ToString());
     }
     auto& value_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(0));
     auto& metadata_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(1));
@@ -634,13 +635,13 @@ Status write_iceberg_variant(const IColumn& column, const NullMap* null_map,
                                        array_builder->type()->ToString());
     }
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
-    const auto& type = assert_cast<const arrow::StructType&>(*builder.type());
-    if (type.num_fields() != 2 || type.field(0)->name() != "metadata" ||
-        type.field(1)->name() != "value" || type.field(0)->type()->id() != arrow::Type::BINARY ||
-        type.field(1)->type()->id() != arrow::Type::BINARY) {
+    const auto type = std::static_pointer_cast<arrow::StructType>(builder.type());
+    if (type->num_fields() != 2 || type->field(0)->name() != "metadata" ||
+        type->field(1)->name() != "value" || type->field(0)->type()->id() != arrow::Type::BINARY ||
+        type->field(1)->type()->id() != arrow::Type::BINARY) {
         return Status::InvalidArgument(
                 "Iceberg Variant writer requires struct<metadata: binary, value: binary>, got {}",
-                type.ToString());
+                type->ToString());
     }
     auto& metadata_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(0));
     auto& value_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(1));

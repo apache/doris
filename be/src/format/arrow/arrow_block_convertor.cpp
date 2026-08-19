@@ -48,6 +48,7 @@
 #include "core/value/vdatetime_value.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
+#include "util/timezone_utils.h"
 
 namespace arrow {
 class Array;
@@ -107,6 +108,17 @@ bool is_declared_plain_arrow_binding(const DataTypePtr& type,
                                      const std::shared_ptr<arrow::DataType>& target_type) {
     if (plain_arrow_type->Equals(target_type)) {
         return true;
+    }
+    if (plain_arrow_type->id() == arrow::Type::TIMESTAMP &&
+        target_type->id() == arrow::Type::TIMESTAMP) {
+        const auto& plain_timestamp = assert_cast<const arrow::TimestampType&>(*plain_arrow_type);
+        const auto& target_timestamp = assert_cast<const arrow::TimestampType&>(*target_type);
+        if (plain_timestamp.unit() != target_timestamp.unit()) {
+            return false;
+        }
+        cctz::time_zone target_timezone;
+        return TimezoneUtils::find_cctz_time_zone(target_timestamp.timezone(), target_timezone) &&
+               target_timezone.name() == plain_timestamp.timezone();
     }
     const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
     if (is_string_type(primitive)) {
