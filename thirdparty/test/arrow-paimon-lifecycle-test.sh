@@ -28,6 +28,101 @@ fail() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
+create_fingerprint_fixture() {
+    local destination="$1"
+
+    mkdir -p "${destination}/patches"
+    cp "${ROOT}/arrow-paimon-vars.sh" "${destination}/arrow-paimon-vars.sh"
+    cp "${ROOT}/paimon-cpp-cache.cmake" "${destination}/paimon-cpp-cache.cmake"
+    cp "${ROOT}"/patches/apache-arrow-24.0.0-*.patch "${destination}/patches/"
+    cp "${ROOT}"/patches/paimon-cpp-*.patch "${destination}/patches/"
+}
+
+fingerprint_from_fixture() {
+    local fixture="$1"
+    local component="$2"
+    local result_variable="$3"
+    local fingerprint
+
+    fingerprint="$(
+        set -e
+        # shellcheck source=/dev/null
+        . "${fixture}/arrow-paimon-vars.sh"
+        "${component}_build_fingerprint"
+    )"
+    printf -v "${result_variable}" '%s' "${fingerprint}"
+}
+
+exercise_semantic_fingerprints() {
+    local first_fixture="${tmpdir}/fingerprint-first"
+    local second_fixture="${tmpdir}/fingerprint-second"
+    local first_arrow
+    local first_paimon
+    local second_arrow
+    local second_paimon
+    local changed_arrow
+    local changed_paimon
+
+    create_fingerprint_fixture "${first_fixture}"
+    create_fingerprint_fixture "${second_fixture}"
+
+    printf '%s\n' first-env >"${first_fixture}/env.sh"
+    printf '%s\n' second-env >"${second_fixture}/env.sh"
+    printf '%s\n' first-vars >"${first_fixture}/vars.sh"
+    printf '%s\n' second-vars >"${second_fixture}/vars.sh"
+    printf '%s\n' first-download >"${first_fixture}/download-thirdparty.sh"
+    printf '%s\n' second-download >"${second_fixture}/download-thirdparty.sh"
+    printf '%s\n' first-build >"${first_fixture}/build-thirdparty.sh"
+    printf '%s\n' second-build >"${second_fixture}/build-thirdparty.sh"
+    printf '%s\n' '# release-branch-only comment' >>"${second_fixture}/arrow-paimon-vars.sh"
+
+    fingerprint_from_fixture "${first_fixture}" arrow first_arrow
+    fingerprint_from_fixture "${first_fixture}" paimon first_paimon
+    [[ "${first_arrow}" == "${ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
+        fail "the Arrow legacy marker migration target is stale"
+    [[ "${first_paimon}" == "${PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
+        fail "the Paimon legacy marker migration target is stale"
+    fingerprint_from_fixture "${second_fixture}" arrow second_arrow
+    fingerprint_from_fixture "${second_fixture}" paimon second_paimon
+    [[ "${first_arrow}" == "${second_arrow}" ]] ||
+        fail "unrelated branch scripts changed the Arrow fingerprint"
+    [[ "${first_paimon}" == "${second_paimon}" ]] ||
+        fail "unrelated branch scripts changed the Paimon fingerprint"
+
+    printf '%s\n' semantic-change \
+        >>"${second_fixture}/patches/apache-arrow-24.0.0-lzo.patch"
+    fingerprint_from_fixture "${second_fixture}" arrow changed_arrow
+    fingerprint_from_fixture "${second_fixture}" paimon changed_paimon
+    [[ "${changed_arrow}" != "${first_arrow}" ]] ||
+        fail "an Arrow patch change did not change the Arrow fingerprint"
+    [[ "${changed_paimon}" != "${first_paimon}" ]] ||
+        fail "an Arrow patch change did not change the Paimon fingerprint"
+
+    cp "${first_fixture}/patches/apache-arrow-24.0.0-lzo.patch" \
+        "${second_fixture}/patches/apache-arrow-24.0.0-lzo.patch"
+    printf '%s\n' semantic-change >>"${second_fixture}/paimon-cpp-cache.cmake"
+    fingerprint_from_fixture "${second_fixture}" arrow second_arrow
+    fingerprint_from_fixture "${second_fixture}" paimon changed_paimon
+    [[ "${second_arrow}" == "${first_arrow}" ]] ||
+        fail "a Paimon-only cache change changed the Arrow fingerprint"
+    [[ "${changed_paimon}" != "${first_paimon}" ]] ||
+        fail "a Paimon cache change did not change the Paimon fingerprint"
+
+    changed_arrow="$(
+        set -e
+        # shellcheck source=/dev/null
+        . "${first_fixture}/arrow-paimon-vars.sh"
+        ARROW_BUILD_SCHEMA_VERSION="${ARROW_BUILD_SCHEMA_VERSION}-changed"
+        arrow_build_fingerprint
+    )"
+    [[ "${changed_arrow}" != "${first_arrow}" ]] ||
+        fail "an Arrow build-schema change did not change its fingerprint"
+}
+
+# shellcheck source=../arrow-paimon-vars.sh
+. "${ROOT}/arrow-paimon-vars.sh"
+exercise_semantic_fingerprints
+
 harness="${tmpdir}/harness"
 mkdir -p "${harness}/src" "${harness}/patches" "${harness}/installed"
 cp "${ROOT}/download-thirdparty.sh" "${harness}/download-thirdparty.sh"
@@ -282,7 +377,6 @@ exercise_generic_recovery_dispatch
 
 # A Paimon-only build may publish only its own fingerprint. It must not make a
 # stale Arrow installation pass the shared prebuilt validation.
-. "${ROOT}/arrow-paimon-vars.sh"
 prebuilt="${tmpdir}/prebuilt"
 mkdir -p "${prebuilt}/include/arrow/util" "${prebuilt}/lib64"
 printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_VERSION}" \
@@ -302,6 +396,25 @@ prepare_arrow_paimon_download_packages "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 arrow_paimon_build_fingerprint >"${prebuilt}/arrow-paimon-build-fingerprint.txt"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "legacy combined marker certified an unversioned component closure"
+fi
+
+printf '%s\n' "${ARROW_LEGACY_BUILD_FINGERPRINTS[0]}" \
+    >"${prebuilt}/arrow-build-fingerprint.txt"
+printf '%s\n' "${PAIMON_LEGACY_BUILD_FINGERPRINTS[0]}" \
+    >"${prebuilt}/paimon-build-fingerprint.txt"
+arrow_paimon_prebuilt_valid "${prebuilt}" ||
+    fail "the complete shared prebuilt was rejected during fingerprint migration"
+if (
+    ARROW_BUILD_SCHEMA_VERSION="${ARROW_BUILD_SCHEMA_VERSION}-changed"
+    arrow_prebuilt_valid "${prebuilt}"
+) >/dev/null 2>&1; then
+    fail "the legacy Arrow marker survived a semantic fingerprint change"
+fi
+if (
+    PAIMON_BUILD_SCHEMA_VERSION="${PAIMON_BUILD_SCHEMA_VERSION}-changed"
+    paimon_prebuilt_valid "${prebuilt}"
+) >/dev/null 2>&1; then
+    fail "the legacy Paimon marker survived a semantic fingerprint change"
 fi
 
 publish_arrow_prebuilt_marker "${prebuilt}"
