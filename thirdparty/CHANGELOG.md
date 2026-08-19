@@ -2,6 +2,15 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260819
+
+- Added: `installed/include/hadoop_hdfs` and `installed/lib/hadoop_hdfs` are symlinks to
+  their `hadoop_hdfs_3_4` counterparts, so a tree that still includes
+  `<hadoop_hdfs/hdfs.h>` or links `lib/hadoop_hdfs/native/libhdfs.a` - branch-3.0,
+  branch-3.1, the cloud module, anything outside this repository - builds against
+  3.4.2.4 rather than failing to find the prefix. This is a compatibility shim over a
+  single build, not a second one; drop it once nothing reads the old prefix.
+
 ## 20260817
 
 - Removed: hadoop-libs 3.3.6.6, along with the `installed/{include,lib}/hadoop_hdfs/`
