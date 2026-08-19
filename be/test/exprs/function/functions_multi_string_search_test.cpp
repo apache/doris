@@ -43,12 +43,10 @@ TEST(FunctionsMultiStringSearchTest, KeepRegexpsAliveAfterCacheEviction) {
     std::vector<StringRef> collision_refs = {
             {collision_patterns[0].data(), collision_patterns[0].size()}};
 
-    multiregexps::DeferredConstructedRegexpsPtr target_owner;
-    multiregexps::Regexps* target_regexps = nullptr;
+    multiregexps::RegexpsPtr target_regexps;
     multiregexps::ScratchPtr target_scratch;
-    ASSERT_TRUE(Impl::prepare_regexps_and_scratch(target_refs, target_owner, target_regexps,
-                                                  target_scratch)
-                        .ok());
+    ASSERT_TRUE(
+            Impl::prepare_regexps_and_scratch(target_refs, target_regexps, target_scratch).ok());
 
     auto collision_owner = multiregexps::getOrSet<false, false>(collision_refs, std::nullopt);
     ASSERT_NE(nullptr, collision_owner->get());
