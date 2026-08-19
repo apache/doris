@@ -52,15 +52,26 @@ PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 ARROW_BUILD_SCHEMA_VERSION="1"
 PAIMON_BUILD_SCHEMA_VERSION="1"
 
-# The current shared automation prebuilt was published from master with the former
-# whole-script fingerprint. Keep these exact markers during the schema transition;
-# version and complete artifact validation are still mandatory before reuse.
+# The shared automation prebuilt is still published from master, which computes the
+# former whole-script fingerprint over env.sh, vars.sh, download-thirdparty.sh and
+# build-thirdparty.sh. Every republication triggered by an unrelated thirdparty edit
+# therefore stamps a different marker, so list each one still in circulation, newest
+# first. These markers are only consulted while the selected inputs still hash to the
+# pinned semantic fingerprint, and version plus complete artifact validation stay
+# mandatory before reuse. Delete the lists once master has published a prebuilt that
+# carries the semantic marker itself.
 ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="ab79ab0bbfbf93f9860050fb751b20fee9e40d96"
 PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="cb82e41ba46f534e611cdd52e66b53c227d49bf8"
 ARROW_LEGACY_BUILD_FINGERPRINTS=(
+    # published 2026-08-19, master after apache/doris#66842
+    8356a3a464b93f3a59a6bdae6a51258947ab35d2
+    # published 2026-08-05, master after apache/doris#66221
     9d03645dd1cded5184a8126f5c7f4a6eb9b92b53
 )
 PAIMON_LEGACY_BUILD_FINGERPRINTS=(
+    # published 2026-08-19, master after apache/doris#66842
+    2bbf52e719bdbc8aaa428caab200ac13848f92e5
+    # published 2026-08-05, master after apache/doris#66221
     dbb6ca6e243cb3aa783b7a8011f97afda9e7ea28
 )
 
