@@ -50,11 +50,20 @@ public final class PluginRegistry {
      */
     private static final String HADOOP_CONF_DIR_PROPERTY = "doris.jni.hadoop.conf.dir";
 
-    // Keep in sync with the BE configs jni_plugin_dir and jni_plugin_hadoop_conf_dir. These are the
-    // values a BE started without the properties above gets, and PluginRegistryDefaultDirTest is
-    // what keeps them from drifting.
+    /**
+     * Set the same way, from the {@code jni_plugin_fs_dir} BE config. Third-party hadoop
+     * {@code FileSystem} implementations - JindoFS for {@code oss://} and {@code oss-hdfs://},
+     * JuiceFS for {@code jfs://} - shared by every plugin; see
+     * {@link PluginRuntime#sharedFilesystemJars()} for why they are shared rather than bundled.
+     */
+    private static final String FS_DIR_PROPERTY = "doris.jni.fs.dir";
+
+    // Keep in sync with the BE configs jni_plugin_dir, jni_plugin_hadoop_conf_dir and
+    // jni_plugin_fs_dir. These are the values a BE started without the properties above gets, and
+    // PluginRegistryDefaultDirTest is what keeps them from drifting.
     private static final String DEFAULT_PLUGIN_SUBDIR = "plugins/jni";
     private static final String DEFAULT_HADOOP_CONF_SUBDIR = "plugins/hadoop_conf";
+    private static final String DEFAULT_FS_SUBDIR = "plugins/jni_fs";
 
     private static volatile PluginRuntime runtime;
 
@@ -115,7 +124,7 @@ public final class PluginRegistry {
             if (runtime == null) {
                 JniLogging.configure();
                 runtime = new PluginRuntime(pluginDir(), PluginRegistry.class.getClassLoader(),
-                        hadoopConfDir());
+                        hadoopConfDir(), fsDir());
             }
             return runtime;
         }
@@ -124,6 +133,19 @@ public final class PluginRegistry {
     // Package-private rather than private so PluginRegistryDefaultDirTest can pin the default.
     static Path pluginDir() {
         return directory(PLUGIN_DIR_PROPERTY, DEFAULT_PLUGIN_SUBDIR);
+    }
+
+    /**
+     * Where the third-party filesystem jars every plugin may need live.
+     *
+     * <p>No fallback and no existence test, unlike {@link #hadoopConfDir()}: an absent or empty
+     * directory simply means this deployment packaged no third-party filesystem, which is the
+     * default (both are opt-in build flags). {@link PluginRuntime} treats it as a jar source and
+     * an empty one contributes nothing.
+     */
+    // Package-private for PluginRegistryDefaultDirTest, same as pluginDir().
+    static Path fsDir() {
+        return directory(FS_DIR_PROPERTY, DEFAULT_FS_SUBDIR);
     }
 
     /**
@@ -148,6 +170,20 @@ public final class PluginRegistry {
 
     /** The environment is a parameter so the fallback is testable; nothing else may pass it. */
     static Path hadoopConfDir(String hadoopConfDirEnv) {
+        return hadoopConfDir(hadoopConfDirEnv, defaultHadoopConfDir());
+    }
+
+    /** The path this resolves to when nothing is configured: {@code $DORIS_HOME/plugins/hadoop_conf}. */
+    static Path defaultHadoopConfDir() {
+        return defaultDirectory(DEFAULT_HADOOP_CONF_SUBDIR);
+    }
+
+    /**
+     * Package-private seam taking the resolved default, because {@code namedExplicitly} compares
+     * against it and it is derived from {@code $DORIS_HOME} - which a unit test cannot set. The
+     * public path passes the real one.
+     */
+    static Path hadoopConfDir(String hadoopConfDirEnv, Path defaultDir) {
         Path configured = directory(HADOOP_CONF_DIR_PROPERTY, DEFAULT_HADOOP_CONF_SUBDIR);
         // Only when nothing was configured and the default holds nothing. A directory an operator
         // named explicitly is the answer whether or not it exists yet - silently reading somewhere
@@ -162,7 +198,7 @@ public final class PluginRegistry {
         // upgrade on a cluster that resolves its HDFS HA nameservice through $HADOOP_CONF_DIR into
         // "unknown host: <nameservice>" on every Java scanner, while the native reader keeps
         // working.
-        if (namedExplicitly() || holdsFiles(configured)) {
+        if (namedExplicitly(defaultDir) || holdsFiles(configured)) {
             return configured;
         }
         if (hadoopConfDirEnv != null && !hadoopConfDirEnv.trim().isEmpty()) {
@@ -176,16 +212,26 @@ public final class PluginRegistry {
     }
 
     /**
-     * Whether the hadoop conf directory was named by somebody rather than defaulted into. The
-     * property carrying the BE config's own default is indistinguishable from an operator setting
-     * that same path by hand, and treating both as "defaulted" is the safe way round: the two name
-     * the same directory, so the only thing at stake is whether an empty one suppresses the
-     * environment fallback.
+     * Whether the hadoop conf directory was named by somebody rather than defaulted into.
+     *
+     * <p>The property is always set on a real BE - {@code JvmLauncher::_build_options()} pushes it
+     * unconditionally - so "was a property set" cannot answer this. What it is compared against is
+     * the RESOLVED default, {@code $DORIS_HOME/plugins/hadoop_conf}, not the
+     * {@code plugins/hadoop_conf} suffix: an operator who points this at
+     * {@code /mnt/shared/plugins/hadoop_conf} has named a directory of their own that happens to
+     * end the same way, and treating it as defaulted would let an empty one silently fall through
+     * to {@code $HADOOP_CONF_DIR} instead of being the answer they asked for.
+     *
+     * <p>The one case left indistinguishable is an operator setting the default path by hand,
+     * which is the safe way round: the two name the same directory, so all that is at stake is
+     * whether an empty one suppresses the environment fallback.
      */
-    private static boolean namedExplicitly() {
+    private static boolean namedExplicitly(Path defaultDir) {
         String property = System.getProperty(HADOOP_CONF_DIR_PROPERTY);
-        return property != null && !property.trim().isEmpty()
-                && !Paths.get(property.trim()).endsWith(DEFAULT_HADOOP_CONF_SUBDIR);
+        if (property == null || property.trim().isEmpty()) {
+            return false;
+        }
+        return !Paths.get(property.trim()).equals(defaultDir);
     }
 
     /** Whether the directory holds anything at all; an empty drop point is not an answer. */
@@ -207,6 +253,11 @@ public final class PluginRegistry {
         if (configured != null && !configured.trim().isEmpty()) {
             return Paths.get(configured.trim());
         }
+        return defaultDirectory(defaultSubdir);
+    }
+
+    /** The path {@link #directory} produces when nothing is configured. */
+    private static Path defaultDirectory(String defaultSubdir) {
         String dorisHome = System.getenv("DORIS_HOME");
         if (dorisHome != null && !dorisHome.trim().isEmpty()) {
             return Paths.get(dorisHome.trim(), defaultSubdir);

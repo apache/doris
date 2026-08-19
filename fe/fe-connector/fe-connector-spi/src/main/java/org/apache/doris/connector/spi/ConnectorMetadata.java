@@ -114,6 +114,22 @@ public interface ConnectorMetadata extends
      * model then pins the real partition set and both pruning and {@code partition=N/M} become
      * truthful. The default is false: a connector whose listing is snapshot-blind keeps the empty pin,
      * which is correct, just coarse.</p>
+     *
+     * <p><b>A SECOND PROMISE COMES WITH IT, and it is easy to miss:</b> the AT-SNAPSHOT schema this
+     * connector returns from {@link #getTableSchema(ConnectorSession, ConnectorTableHandle,
+     * ConnectorMvccSnapshot)} must declare, through {@code ConnectorTableSchema.PARTITION_COLUMNS_KEY},
+     * partition columns that MATCH the values that pinned listing produces - same count, in the same
+     * order, each parseable into the column's type. That schema is what types the pinned partition
+     * items, because it is the schema this snapshot publishes; the latest schema may partition the
+     * table differently.</p>
+     *
+     * <p>Breaking that promise degrades quietly rather than failing: each mismatched partition is
+     * skipped inside a per-partition catch, the pinned item map ends up shorter than the listed name
+     * set, and the table is reported UNPARTITIONED. Rows are still correct - pruning and
+     * {@code partition=N/M} are what is lost, and the only signal is one WARN per partition. Note
+     * that a connector whose at-snapshot schema resolution can degrade to an empty column list on
+     * error - hudi's {@code getSchemaFromMetaClient} swallows a failed metadata read into one -
+     * produces exactly this shape from a transient fault.</p>
      */
     default boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
         return false;

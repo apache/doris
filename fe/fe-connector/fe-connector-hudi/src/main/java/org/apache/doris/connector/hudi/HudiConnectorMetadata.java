@@ -762,8 +762,17 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 // HMS and cannot be listed, so restricting to what HMS holds now could only ever be a
                 // SUBSET of the pinned set. Reporting a superset (everything HMS knows) and letting the
                 // scan filter is the direction that cannot lose rows.
-                return buildPartitionInfos(hmsNames, partKeyNames,
-                        queryInstant == null ? latestInstantMillis(handle) : pinMillis(handle, queryInstant));
+                //
+                // Unconditionally the latest instant, with no branch on queryInstant, because this
+                // listing is snapshot-blind BY CONSTRUCTION and there is nowhere for a pin to arrive
+                // from. The one caller that passes a snapshot-applied handle gates on
+                // listsPartitionsAtSnapshot(), which for a hive-sync table is !useHiveSyncPartition()
+                // = false; every other caller passes the base handle, which carries no query instant.
+                // The pinned branch that used to be here was therefore dead, and it cost a whole
+                // HoodieTableMetaClient built just to read a timeline zone - plus a fallback that
+                // would have published epoch 0 as a partition's last-modified time for any
+                // non-numeric pin, the day it became reachable.
+                return buildPartitionInfos(hmsNames, partKeyNames, latestInstantMillis(handle));
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
@@ -855,21 +864,6 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * The pin expressed in epoch millis, for a listing that is reported AT a pin: the partitions of a past
-     * snapshot are frozen, and reporting "now" as their last-modified would tell the engine that a past
-     * snapshot keeps changing. Unlike {@link #latestInstantMillis} the instant is given rather than read;
-     * only the timeline zone needs a metaClient.
-     */
-    private long pinMillis(HudiTableHandle handle, String queryInstant) {
-        return metaClientExecutor.execute(() -> {
-            HoodieTableMetaClient metaClient =
-                    HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
-            return HudiScanPlanProvider.instantToEpochMillis(
-                    parseInstantOrZero(queryInstant), HudiScanPlanProvider.timelineZone(metaClient));
-        });
-    }
-
-    /**
      * Keeps only the partitions that held data at the pin, by VALUE rather than by re-listing.
      *
      * <p>Restricting rather than re-listing is deliberate, and both sides of the comparison come from the
@@ -881,7 +875,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * listing therefore never reaches here at all; see {@link #collectPartitions} and
      * {@link #listsPartitionsAtSnapshot}, which agree that a hive-sync listing knows nothing about pins.
      *
-     * <p>The freshness marker becomes the pin itself, for the reason on {@link #pinMillis}.
+     * <p>The freshness marker becomes the pin itself: the partitions of a past snapshot are frozen, and
+     * reporting "now" as their last-modified would tell the engine that a past snapshot keeps changing.
+     * {@link #pinnedListing} computes it, on the metaClient the caller already built.
      */
     private List<ConnectorPartitionInfo> restrictToPin(HudiTableHandle handle, List<String> partKeyNames,
             List<ConnectorPartitionInfo> partitions, PinnedListing pinned, String queryInstant) {

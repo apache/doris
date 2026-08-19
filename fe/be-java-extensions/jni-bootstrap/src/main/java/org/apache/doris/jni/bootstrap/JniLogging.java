@@ -42,15 +42,22 @@ import java.util.logging.Logger;
  * {@code slf4j-jdk14} gets its output into this file with no shared jar anywhere. Trino funnels
  * plugin logging the same way, for the same reason.
  *
- * <p>Rotation is size based, matching what the log4j2 configuration it replaces did: 10 MB, five
- * files. One visible difference: JUL numbers its files, so the live file is {@code jni.log.0} and
- * older ones are {@code jni.log.1}..{@code jni.log.4}. During the migration window that keeps the
- * new runtime's output from interleaving with the old loader's {@code jni.log}.
+ * <p>Rotation is size based. One visible difference from the log4j2 configuration this replaces:
+ * JUL numbers its files, so the live file is {@code jni.log.0} and older ones are
+ * {@code jni.log.1}..{@code jni.log.9}. During the migration window that also keeps the new
+ * runtime's output from interleaving with the old loader's {@code jni.log}.
+ *
+ * <p>The quota is 100 MB x 10 rather than the 10 MB x 5 the replaced configuration gave each
+ * plugin, because this file now holds what several of them used to hold separately. Trino in
+ * particular had {@code log/trinoconnector%g.log} to itself at 500 MB x 10, and it is chatty at
+ * INFO; sharing a 10 MB x 5 budget with it would let it roll away the plugin load diagnostics
+ * this file exists for - which are a handful of lines written once, at the moment nobody is
+ * watching, and needed hours later when a plugin turns out not to have loaded.
  */
 final class JniLogging {
 
-    private static final int ROTATION_BYTES = 10 * 1024 * 1024;
-    private static final int ROTATION_FILES = 5;
+    private static final int ROTATION_BYTES = 100 * 1024 * 1024;
+    private static final int ROTATION_FILES = 10;
 
     private static boolean configured;
 

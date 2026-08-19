@@ -737,6 +737,13 @@ TEST_F(JniUtilHeapSizeTest, MalformedXmxIsIgnored) {
     EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmxbig"));
     EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx12big"));
     EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999999999999g"));
+    // Twenty digits do not reach the range check above: std::stoll throws first and the catch
+    // takes it. Eleven digits parse fine and only overflow on the multiply by the unit, which is
+    // the case that check exists for - and the only input that exercises it.
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999g"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999999m"));
+    // One below the boundary still parses: the check must reject overflow, not large values.
+    EXPECT_EQ(8L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx8g"));
     // A good one next to a bad one still counts.
     EXPECT_EQ(1024L * 1024 * 1024, Jni::Util::_parse_xmx("-Xmxbig -Xmx1g"));
 }
