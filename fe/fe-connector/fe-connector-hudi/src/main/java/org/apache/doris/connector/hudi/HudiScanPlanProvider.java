@@ -294,30 +294,33 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
         HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
                 engineCtx, metaClient, metadataConfig);
+        try {
+            // Resolve partitions
+            List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
 
-        // Resolve partitions
-        List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+            List<ConnectorScanRange> ranges = new ArrayList<>();
+            for (String partitionPath : partitionPaths) {
+                Map<String, String> partValues = parsePartitionValues(
+                        partitionPath, hudiHandle.getPartitionKeyNames());
 
-        List<ConnectorScanRange> ranges = new ArrayList<>();
-        for (String partitionPath : partitionPaths) {
-            Map<String, String> partValues = parsePartitionValues(
-                    partitionPath, hudiHandle.getPartitionKeyNames());
-
-            if (useNativeCowPath) {
-                collectCowSplits(fsView, partitionPath, queryInstant,
-                        basePath, partValues, ranges, schemaIdResolver);
-            } else {
-                collectMorSplits(fsView, partitionPath, queryInstant,
-                        basePath, inputFormat, serdeLib,
-                        columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                if (useNativeCowPath) {
+                    collectCowSplits(fsView, partitionPath, queryInstant,
+                            basePath, partValues, ranges, schemaIdResolver);
+                } else {
+                    collectMorSplits(fsView, partitionPath, queryInstant,
+                            basePath, inputFormat, serdeLib,
+                            columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                }
             }
+
+            LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
+                    hudiHandle.getDbName(), hudiHandle.getTableName(),
+                    hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
+
+            return ranges;
+        } finally {
+            fsView.close();
         }
-
-        LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
-                hudiHandle.getDbName(), hudiHandle.getTableName(),
-                hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
-
-        return ranges;
     }
 
     @Override
