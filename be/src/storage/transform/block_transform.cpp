@@ -29,6 +29,7 @@
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/transform/partial_update_fill.h"
 #include "util/jsonb/serialize.h"
 
 namespace doris::segment_v2 {
@@ -53,8 +54,9 @@ public:
 };
 
 // Checks schema rules and block width for every block entering a seam. The
-// writers keep transitional duplicates of these checks until later changes
-// remove them: non-seam callers (compaction, index change) still rely on them.
+// horizontal writer keeps a transitional duplicate of the width check until a
+// later change removes it: non-seam callers (compaction, index change) still
+// rely on it.
 class ValidateStage : public BlockTransform {
 public:
     Status apply(TransformExecContext& ctx, Block* block) const override {
@@ -195,14 +197,26 @@ BlockTransformChain build_transform_chain(const RowsetWriterContext& context) {
                                         context.partial_update_info->is_partial_update() &&
                                         context.write_type == DataWriteType::TYPE_DIRECT &&
                                         !context.is_transient_rowset_writer;
-    if (is_partial_update_load) {
-        // Partial update loads only get validated here for now: the segment
-        // writers still do their own fill, parse and row-store work until the
-        // fill stages move into the chain.
-        return BlockTransformChain {std::move(stages)};
-    }
     const bool rebuild_row_store = context.write_type == DataWriteType::TYPE_DIRECT ||
                                    context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE;
+    if (is_partial_update_load) {
+        // A partial update load is always TYPE_DIRECT, so the row store is
+        // always rebuilt.
+        if (context.partial_update_info->is_fixed_partial_update()) {
+            stages.push_back(std::make_shared<FixedPartialUpdateFillStage>());
+            // The legacy fixed path parsed both provided and missing Variant
+            // columns before rebuilding RowStore.
+            stages.push_back(std::make_shared<VariantParseStage>());
+            stages.push_back(std::make_shared<RowStoreFillStage>());
+        } else {
+            stages.push_back(std::make_shared<FlexiblePartialUpdateFillStage>());
+            // The legacy flexible path rebuilt RowStore before parsing the
+            // filled Variant columns.
+            stages.push_back(std::make_shared<RowStoreFillStage>());
+            stages.push_back(std::make_shared<VariantParseStage>());
+        }
+        return BlockTransformChain {std::move(stages)};
+    }
     // Direct and schema-change writers rebuilt RowStore from the raw Variant
     // representation, then parsed Variant for its column writer.
     if (rebuild_row_store) {

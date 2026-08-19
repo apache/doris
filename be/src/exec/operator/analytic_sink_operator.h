@@ -267,4 +267,8 @@ private:
     std::vector<bool> _change_to_nullable_flags;
 };
 
+/// Instantiated once in analytic_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class DataSinkOperatorX<AnalyticSinkLocalState>;
+
 } // namespace doris

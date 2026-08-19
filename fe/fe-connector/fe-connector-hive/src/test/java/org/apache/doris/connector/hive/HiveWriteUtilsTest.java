@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -98,6 +99,20 @@ public class HiveWriteUtilsTest {
                 update("p=1", 2L, 2L, "b")));
         Assertions.assertEquals(1, merged.size());
         Assertions.assertEquals(3L, merged.get(0).getFileSize());
+    }
+
+    @Test
+    public void mergePartitionsPreservesNewPendingUploadAfterLegacyUpdate() {
+        THivePartitionUpdate legacy = update("p=1", 1L, 1L, "legacy-file");
+        THivePartitionUpdate current = update("p=1", 2L, 2L, "current-file");
+        current.setS3MpuPendingUploads(new ArrayList<>(Collections.singletonList(
+                new TS3MPUPendingUpload().setUploadId("upload-1"))));
+
+        THivePartitionUpdate merged = HiveWriteUtils.mergePartitions(Arrays.asList(legacy, current)).get(0);
+
+        Assertions.assertNotNull(merged.getS3MpuPendingUploads());
+        Assertions.assertEquals(1, merged.getS3MpuPendingUploads().size(),
+                "a legacy first update must not erase a later completion token");
     }
 
     @Test

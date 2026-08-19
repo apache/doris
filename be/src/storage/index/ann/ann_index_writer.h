@@ -88,6 +88,6 @@ private:
     int64_t _total_rows = 0;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
-    std::shared_ptr<DorisFSDirectory> _dir;
+    std::shared_ptr<lucene::store::Directory> _dir;
 };
 } // namespace doris::segment_v2

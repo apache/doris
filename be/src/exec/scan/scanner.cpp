@@ -88,6 +88,15 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        if (!_can_merge_padding_blocks(_padding_block, _origin_block)) {
+            DORIS_CHECK(_padding_block.empty())
+                    << "padding policy must remain stable for one scanner";
+            // Some physical columns carry file-local state that an upper projection must consume
+            // before the next split is read. Padding those blocks first would make correctness
+            // depend on whether two file tails happen to share one output batch.
+            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+            return _do_projections(&_origin_block, block);
+        }
         const auto min_batch_size = std::max(state->batch_size() / 2, 1);
         const auto block_max_bytes = state->preferred_block_size_bytes();
         while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&

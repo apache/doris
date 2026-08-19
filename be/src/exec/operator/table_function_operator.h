@@ -182,4 +182,7 @@ private:
     std::vector<int> _child_slot_sizes;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<TableFunctionLocalState>;
+
 } // namespace doris

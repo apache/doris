@@ -267,6 +267,10 @@ public:
         return empty;
     }
 
+    [[nodiscard]] virtual const InvertedIndexAnalyzerCtx* query_analyzer_ctx() const {
+        return nullptr;
+    }
+
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
 

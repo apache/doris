@@ -38,7 +38,6 @@ class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
 namespace doris::io {
-class ObjStorageClient;
 // In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
 // The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
 // access S3 data with latest AK SK.

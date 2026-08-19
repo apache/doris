@@ -35,6 +35,7 @@
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
+#include "storage/field_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 

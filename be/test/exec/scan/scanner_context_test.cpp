@@ -39,6 +39,10 @@
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
+#include "storage/options.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -183,6 +187,165 @@ TEST_F(ScannerContextTest, test_init) {
 
     st = scanner_context->init();
     ASSERT_TRUE(st.ok());
+}
+
+TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_idempotent) {
+    auto engine = std::make_unique<StorageEngine>(EngineOptions {});
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema {}, 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    auto tablet = std::make_shared<Tablet>(*engine, std::move(tablet_meta), nullptr);
+    const int parallel_tasks = 1;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    const std::vector<TScanRangeParams> scan_ranges;
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    LocalStateInfo local_state_info {profile.get(), scan_ranges, nullptr, shared_state_map, 0};
+    const Status init_status = local_state->init(state.get(), local_state_info);
+    ASSERT_TRUE(init_status.ok()) << init_status.to_string();
+
+    auto make_scanner = [&]() {
+        OlapScanner::Params params;
+        params.state = state.get();
+        params.profile = profile.get();
+        params.version = 0;
+        params.limit = -1;
+        params.aggregation = false;
+        return OlapScanner::create_shared(local_state.get(), std::move(params));
+    };
+    auto scanner1 = make_scanner();
+    auto scanner2 = make_scanner();
+    scanner1->_tablet_reader_params.tablet = tablet;
+    scanner2->_tablet_reader_params.tablet = tablet;
+    scanner1->_tablet_reader = std::make_unique<TabletReader>();
+    scanner2->_tablet_reader = std::make_unique<TabletReader>();
+    auto* stats1 = scanner1->_tablet_reader->mutable_stats();
+    stats1->snii_stats.prx_raw_frames = 1;
+    stats1->snii_stats.prx_plaintext_bytes = 10;
+    stats1->snii_stats.prx_decode_ns = 100;
+    stats1->snii_stats.phrase_candidate_docs = 3;
+    stats1->snii_stats.common_grams_gram_plans = 1;
+    stats1->snii_stats.common_grams_fallback_kill_switch = 5;
+    stats1->snii_stats.common_grams_plain_posting_bytes = 10;
+    stats1->snii_stats.common_grams_gram_posting_bytes = 20;
+    stats1->snii_stats.common_grams_plain_estimated_candidate_df = 30;
+    stats1->snii_stats.common_grams_gram_estimated_candidate_df = 40;
+    stats1->snii_stats.common_grams_plain_estimated_cost = 50;
+    stats1->snii_stats.common_grams_gram_estimated_cost = 60;
+    stats1->snii_stats.common_grams_fallback_base_analyzer_mismatch = 61;
+    stats1->snii_stats.common_grams_fallback_prefix_tail_empty = 62;
+    stats1->snii_stats.common_grams_planning_ns = 65;
+    auto* stats2 = scanner2->_tablet_reader->mutable_stats();
+    stats2->snii_stats.prx_raw_frames = 2;
+    stats2->snii_stats.prx_plaintext_bytes = 20;
+    stats2->snii_stats.prx_decode_ns = 200;
+    stats2->snii_stats.phrase_candidate_docs = 4;
+    stats2->snii_stats.common_grams_gram_plans = 2;
+    stats2->snii_stats.common_grams_fallback_kill_switch = 6;
+    stats2->snii_stats.common_grams_plain_posting_bytes = 1;
+    stats2->snii_stats.common_grams_gram_posting_bytes = 2;
+    stats2->snii_stats.common_grams_plain_estimated_candidate_df = 3;
+    stats2->snii_stats.common_grams_gram_estimated_candidate_df = 4;
+    stats2->snii_stats.common_grams_plain_estimated_cost = 5;
+    stats2->snii_stats.common_grams_gram_estimated_cost = 6;
+    stats2->snii_stats.common_grams_fallback_base_analyzer_mismatch = 7;
+    stats2->snii_stats.common_grams_fallback_prefix_tail_empty = 8;
+    stats2->snii_stats.common_grams_planning_ns = 11;
+
+    RuntimeProfile* index_filter = local_state->_index_filter_profile.get();
+    ASSERT_NE(index_filter, nullptr);
+    auto* raw_frames = index_filter->get_counter("SniiPrxRawFrames");
+    auto* plaintext_bytes = index_filter->get_counter("SniiPrxPlaintextBytes");
+    auto* decode_time = index_filter->get_counter("SniiPrxInclusiveDecodeTime");
+    auto* phrase_candidate_docs = index_filter->get_counter("SniiPhraseCandidateDocs");
+    auto* common_grams_gram_plans = index_filter->get_counter("SniiCommonGramsGramPlans");
+    auto* common_grams_fallback_kill_switch =
+            index_filter->get_counter("SniiCommonGramsFallbackKillSwitch");
+    struct ExpectedSniiCounter {
+        const char* name;
+        RuntimeProfile::Counter* counter;
+        int64_t scanner1_value;
+        int64_t combined_value;
+    };
+    const ExpectedSniiCounter snii_counters[] = {
+            {"SniiCommonGramsPlainPostingBytes",
+             index_filter->get_counter("SniiCommonGramsPlainPostingBytes"), 10, 11},
+            {"SniiCommonGramsGramPostingBytes",
+             index_filter->get_counter("SniiCommonGramsGramPostingBytes"), 20, 22},
+            {"SniiCommonGramsPlainEstimatedCandidateDf",
+             index_filter->get_counter("SniiCommonGramsPlainEstimatedCandidateDf"), 30, 33},
+            {"SniiCommonGramsGramEstimatedCandidateDf",
+             index_filter->get_counter("SniiCommonGramsGramEstimatedCandidateDf"), 40, 44},
+            {"SniiCommonGramsPlainEstimatedCost",
+             index_filter->get_counter("SniiCommonGramsPlainEstimatedCost"), 50, 55},
+            {"SniiCommonGramsGramEstimatedCost",
+             index_filter->get_counter("SniiCommonGramsGramEstimatedCost"), 60, 66},
+            {"SniiCommonGramsFallbackBaseAnalyzerMismatch",
+             index_filter->get_counter("SniiCommonGramsFallbackBaseAnalyzerMismatch"), 61, 68},
+            {"SniiCommonGramsFallbackPrefixTailEmpty",
+             index_filter->get_counter("SniiCommonGramsFallbackPrefixTailEmpty"), 62, 70},
+            {"SniiCommonGramsPlanningTime",
+             index_filter->get_counter("SniiCommonGramsPlanningTime"), 65, 76},
+    };
+
+    std::vector<TRuntimeProfileNode> zero_nodes;
+    index_filter->to_thrift(&zero_nodes);
+    ASSERT_EQ(zero_nodes.size(), 1U);
+    for (const auto& expected : snii_counters) {
+        bool serialized = false;
+        for (const auto& thrift_counter : zero_nodes.front().counters) {
+            serialized |= thrift_counter.name == expected.name;
+        }
+        EXPECT_FALSE(serialized) << expected.name;
+    }
+    ASSERT_NE(raw_frames, nullptr);
+    ASSERT_NE(plaintext_bytes, nullptr);
+    ASSERT_NE(decode_time, nullptr);
+    ASSERT_NE(phrase_candidate_docs, nullptr);
+    ASSERT_NE(common_grams_gram_plans, nullptr);
+    ASSERT_NE(common_grams_fallback_kill_switch, nullptr);
+    for (const auto& expected : snii_counters) {
+        ASSERT_NE(expected.counter, nullptr) << expected.name;
+        EXPECT_NE(dynamic_cast<RuntimeProfile::NonZeroCounter*>(expected.counter), nullptr)
+                << expected.name;
+    }
+
+    scanner1->_collect_profile_before_close();
+    EXPECT_EQ(raw_frames->value(), 1);
+    EXPECT_EQ(plaintext_bytes->value(), 10);
+    EXPECT_EQ(decode_time->value(), 100);
+    EXPECT_EQ(phrase_candidate_docs->value(), 3);
+    EXPECT_EQ(common_grams_gram_plans->value(), 1);
+    EXPECT_EQ(common_grams_fallback_kill_switch->value(), 5);
+    for (const auto& expected : snii_counters) {
+        EXPECT_EQ(expected.counter->value(), expected.scanner1_value) << expected.name;
+    }
+
+    scanner1->_collect_profile_before_close();
+    EXPECT_EQ(raw_frames->value(), 1);
+    EXPECT_EQ(plaintext_bytes->value(), 10);
+    EXPECT_EQ(decode_time->value(), 100);
+    EXPECT_EQ(phrase_candidate_docs->value(), 3);
+    EXPECT_EQ(common_grams_gram_plans->value(), 1);
+    EXPECT_EQ(common_grams_fallback_kill_switch->value(), 5);
+    for (const auto& expected : snii_counters) {
+        EXPECT_EQ(expected.counter->value(), expected.scanner1_value) << expected.name;
+    }
+
+    scanner2->_collect_profile_before_close();
+    EXPECT_EQ(raw_frames->value(), 3);
+    EXPECT_EQ(plaintext_bytes->value(), 30);
+    EXPECT_EQ(decode_time->value(), 300);
+    EXPECT_EQ(phrase_candidate_docs->value(), 7);
+    EXPECT_EQ(common_grams_gram_plans->value(), 3);
+    EXPECT_EQ(common_grams_fallback_kill_switch->value(), 11);
+    for (const auto& expected : snii_counters) {
+        EXPECT_EQ(expected.counter->value(), expected.combined_value) << expected.name;
+    }
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {

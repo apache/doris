@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
@@ -51,6 +52,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
@@ -66,6 +68,7 @@
 #include "exprs/function/parse/variant_string_parse.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/json/path_in_data.h"
 #include "util/jsonb_writer.h"
 #include "util/variant/variant_test_utils.h"
 
@@ -232,6 +235,56 @@ OwnedEncodedData late_invalid_encoded_rows() {
     ++invalid.value_offsets.back();
     return invalid;
 }
+
+class CountingShreddedState final : public VariantShreddedState {
+public:
+    CountingShreddedState(size_t rows, std::shared_ptr<size_t> size_calls)
+            : _rows(rows),
+              _size_calls(std::move(size_calls)),
+              _serialized(ColumnVariantV2::create()) {
+        _serialized->insert_many_defaults(rows);
+    }
+
+    size_t size() const override {
+        ++*_size_calls;
+        return _rows;
+    }
+    size_t byte_size() const override { return 0; }
+    size_t allocated_bytes() const override { return 0; }
+    void sanity_check() const override {}
+    void for_each_subcolumn(IColumn::ColumnCallback) const override {}
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t) const override {
+        return std::make_shared<CountingShreddedState>(
+                std::count(filter.begin(), filter.end(), UInt8 {1}), _size_calls);
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t, size_t length) const override {
+        return std::make_shared<CountingShreddedState>(length, _size_calls);
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        return std::make_shared<CountingShreddedState>(indices_end - indices_begin, _size_calls);
+    }
+    bool can_materialize() const override { return false; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "counting shredded state cannot materialize");
+    }
+    const ColumnVariantV2& serialized_column() const override { return *_serialized; }
+
+private:
+    size_t _rows;
+    std::shared_ptr<size_t> _size_calls;
+    ColumnVariantV2::MutablePtr _serialized;
+};
 
 template <typename Function>
 void expect_not_implemented(Function&& function, std::string_view marker) {
@@ -1335,6 +1388,17 @@ TEST(ColumnVariantV2Test, DefaultRowsUseCanonicalEmptyObjectAndReuseMetadata) {
     EXPECT_EQ(metadata_count(*column), 1);
 }
 
+TEST(ColumnVariantV2Test, ProjectedShreddedDefaultsUseSerializedProjection) {
+    auto size_calls = std::make_shared<size_t>(0);
+    auto column = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(1, size_calls));
+
+    ASSERT_NO_THROW(column->insert_many_defaults(1));
+    ASSERT_EQ(column->size(), 2);
+    EXPECT_EQ(json_at(*column, 0), "{}");
+    EXPECT_EQ(json_at(*column, 1), "{}");
+}
+
 TEST(ColumnVariantV2Test, ConstFiltersMatchColumnStringAndKeepMetadataReadOnly) {
     auto source = ColumnVariantV2::create();
     auto reference = ColumnString::create();
@@ -1441,6 +1505,23 @@ TEST(ColumnVariantV2Test, PermuteMatchesColumnStringAndRejectsInvalidInputs) {
     IColumn::Permutation out_of_range {0, 1, 2, 3, 5};
     EXPECT_THROW(source->permute(out_of_range, 0), Exception);
     expect_values_match(*source, *reference);
+}
+
+TEST(ColumnVariantV2Test, CompositeShreddedSizeDoesNotRecountSegments) {
+    auto size_calls = std::make_shared<size_t>(0);
+    auto first = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(2, size_calls));
+    auto second = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(3, size_calls));
+    auto composite = ColumnVariantV2::create();
+    composite->insert_range_from(*first, 0, first->size());
+    composite->insert_range_from(*second, 0, second->size());
+
+    *size_calls = 0;
+    for (size_t iteration = 0; iteration < 32; ++iteration) {
+        EXPECT_EQ(composite->size(), 5);
+    }
+    EXPECT_EQ(*size_calls, 0);
 }
 
 TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {
@@ -1981,6 +2062,31 @@ TEST(ColumnVariantV2Test, CowDetachAndClear) {
     ASSERT_TRUE(assert_cast<const ColumnVariantV2&>(*original).get_value_ref(0).object_find(
             StringRef("a"), &a));
     EXPECT_EQ(a.num_elements(), 2);
+}
+
+TEST(ColumnVariantV2Test, BlockClearDetachesSharedEncodedSubcolumns) {
+    for (bool clear_selected_only : {false, true}) {
+        SCOPED_TRACE(clear_selected_only);
+        auto column = ColumnVariantV2::create();
+        insert_encoded_field(*column, encode_json(R"({"a":[1,2]})"));
+        const std::vector<ColumnPtr> shared_subcolumns = subcolumns(*column);
+
+        Block block;
+        block.insert({std::move(column), std::make_shared<DataTypeVariantV2>(), "v"});
+        ASSERT_TRUE(block.get_by_position(0).column->is_exclusive());
+
+        if (clear_selected_only) {
+            block.clear_column_data(std::vector<uint32_t> {0});
+        } else {
+            block.clear_column_data();
+        }
+
+        EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+        ASSERT_EQ(shared_subcolumns.size(), 3);
+        EXPECT_EQ(shared_subcolumns[0]->size(), 1);
+        EXPECT_EQ(shared_subcolumns[1]->size(), 1);
+        EXPECT_EQ(shared_subcolumns[2]->size(), 1);
+    }
 }
 
 TEST(ColumnVariantV2Test, EncodedRowCountInvariant) {

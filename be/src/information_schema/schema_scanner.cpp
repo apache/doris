@@ -64,6 +64,7 @@
 #include "information_schema/schema_file_cache_info_scanner.h"
 #include "information_schema/schema_file_cache_statistics.h"
 #include "information_schema/schema_files_scanner.h"
+#include "information_schema/schema_key_column_usage_scanner.h"
 #include "information_schema/schema_load_job_scanner.h"
 #include "information_schema/schema_metadata_name_ids_scanner.h"
 #include "information_schema/schema_partitions_scanner.h"
@@ -76,6 +77,8 @@
 #include "information_schema/schema_schema_privileges_scanner.h"
 #include "information_schema/schema_schemata_scanner.h"
 #include "information_schema/schema_sql_block_rule_status_scanner.h"
+#include "information_schema/schema_statistics_scanner.h"
+#include "information_schema/schema_table_constraints_scanner.h"
 #include "information_schema/schema_table_options_scanner.h"
 #include "information_schema/schema_table_privileges_scanner.h"
 #include "information_schema/schema_table_properties_scanner.h"
@@ -305,6 +308,12 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendMsRpcTableThrottlersScanner::create_unique();
     case TSchemaTableType::SCH_TSO_STATUS:
         return SchemaTsoStatusScanner::create_unique();
+    case TSchemaTableType::SCH_STATISTICS:
+        return SchemaStatisticsScanner::create_unique();
+    case TSchemaTableType::SCH_KEY_COLUMN_USAGE:
+        return SchemaKeyColumnUsageScanner::create_unique();
+    case TSchemaTableType::SCH_TABLE_CONSTRAINTS:
+        return SchemaTableConstraintsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -485,6 +494,15 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
     mutable_col_ptr = IColumn::mutate(std::move(block->get_by_position(col_index).column));
     auto* nullable_column = assert_cast<ColumnNullable*>(mutable_col_ptr.get());
     IColumn* col_ptr = &nullable_column->get_nested_column();
+
+    // A column of a schema table may legitimately have no value, e.g. the sub part of an
+    // index that indexes whole columns. Let the FE say so instead of forcing it to pick a
+    // stand-in value that a client would read as real data.
+    if (cell.__isset.isNull && cell.isNull) {
+        nullable_column->insert_default();
+        block->replace_by_position(col_index, std::move(mutable_col_ptr));
+        return Status::OK();
+    }
 
     switch (type) {
     case TYPE_BIGINT: {

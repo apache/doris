@@ -264,6 +264,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_query_cache_lookup_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheLookup", TUnit::UNIT, 1);
+    _inverted_index_query_cache_insert_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheInsert", TUnit::UNIT, 1);
     _inverted_index_query_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryTime", 1);
     _inverted_index_query_null_bitmap_timer =
@@ -348,6 +352,8 @@ Status OlapScanLocalState::_init_profile() {
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+    _snii_prx_profile_counters.initialize(_index_filter_profile.get());
+    _snii_phrase_profile_counters.initialize(_index_filter_profile.get());
     /*
     SegmentIterator:
         - AnnIndexLoadCosts: 102.262us
