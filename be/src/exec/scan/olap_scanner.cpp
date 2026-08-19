@@ -58,6 +58,7 @@
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
+#include "storage/iterator/binlog_block_reader_utils.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
@@ -466,11 +467,16 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
 
+    std::vector<bool> selected_return_columns(tablet_schema->num_columns(), false);
+    for (uint32_t cid : _tablet_reader_params.return_columns) {
+        DCHECK_LT(cid, selected_return_columns.size());
+        selected_return_columns[cid] = true;
+    }
     auto add_return_column_if_absent = [&](uint32_t cid) {
-        if (std::find(_tablet_reader_params.return_columns.begin(),
-                      _tablet_reader_params.return_columns.end(),
-                      cid) == _tablet_reader_params.return_columns.end()) {
+        DCHECK_LT(cid, selected_return_columns.size());
+        if (!selected_return_columns[cid]) {
             _tablet_reader_params.return_columns.push_back(cid);
+            selected_return_columns[cid] = true;
         }
     };
 
@@ -483,6 +489,16 @@ Status OlapScanner::_init_tablet_reader_params(
     const bool is_binlog_merge_scan =
             is_min_delta_scan || _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
     if (is_binlog_merge_scan) {
+        std::vector<binlog::RowBinlogValueColumnPair> value_column_pairs;
+        const bool has_value_column_pairs =
+                binlog::get_row_binlog_value_column_pairs(*tablet_schema, &value_column_pairs);
+        std::vector<int32_t> before_cid_by_after(tablet_schema->num_columns(), -1);
+        if (has_value_column_pairs) {
+            for (const auto& [after_cid, before_cid] : value_column_pairs) {
+                before_cid_by_after[after_cid] = static_cast<int32_t>(before_cid);
+            }
+        }
+
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
             add_return_column_if_absent(static_cast<uint32_t>(i));
         }
@@ -497,26 +513,24 @@ Status OlapScanner::_init_tablet_reader_params(
             add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
 
-        if (is_min_delta_scan) {
+        if (is_min_delta_scan && has_value_column_pairs &&
+            binlog::supports_complete_min_delta_value_comparison(*tablet_schema,
+                                                                 value_column_pairs)) {
             // No-op UPDATE detection compares the complete row state at the two ends of the
             // window. Read every AFTER/BEFORE value column even when SQL projects only a subset;
             // BlockReader's return-column mapping keeps these comparison-only columns hidden.
-            for (uint32_t cid = tablet_schema->num_key_columns();
-                 cid < tablet_schema->num_columns(); ++cid) {
-                add_return_column_if_absent(cid);
+            for (const auto& [after_cid, before_cid] : value_column_pairs) {
+                add_return_column_if_absent(after_cid);
+                add_return_column_if_absent(before_cid);
             }
         } else {
+            // DETAIL always needs the requested BEFORE images. MIN_DELTA also needs them for
+            // output when a schema contains a value type that cannot be compared exactly. Avoid
+            // widening such MIN_DELTA scans with every value column because suppression is
+            // disabled and those extra columns would only add I/O and decoding work.
             for (auto cid : _return_columns) {
-                if (cid >= tablet_schema->num_key_columns()) {
-                    const auto& col_name = tablet_schema->column(cid).name();
-                    std::string before_col_name;
-                    before_col_name.append("__BEFORE__");
-                    before_col_name.append(col_name);
-                    before_col_name.append("__");
-                    if (int32_t before_idx = tablet_schema->field_index(before_col_name);
-                        before_idx >= 0) {
-                        add_return_column_if_absent(static_cast<uint32_t>(before_idx));
-                    }
+                if (cid < before_cid_by_after.size() && before_cid_by_after[cid] >= 0) {
+                    add_return_column_if_absent(static_cast<uint32_t>(before_cid_by_after[cid]));
                 }
             }
         }

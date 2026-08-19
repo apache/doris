@@ -34,16 +34,21 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/binlog.h"
 #include "storage/iterator/binlog_block_reader_utils.h"
@@ -66,9 +71,6 @@ namespace {
 //   5: __DORIS_BINLOG_OP__  (Int64, one of ROW_BINLOG_APPEND/UPDATE/DELETE)
 constexpr int KEY_IDX = 0;
 constexpr int VAL_IDX = 1;
-constexpr int BEFORE_VAL_IDX = 2;
-constexpr int TSO_IDX = 3;
-constexpr int LSN_IDX = 4;
 constexpr int OP_IDX = 5;
 
 struct Row {
@@ -80,16 +82,36 @@ struct Row {
     int64_t op;
 };
 
-TabletSchemaSPtr make_test_tablet_schema() {
+TabletColumn make_test_column(std::string name, FieldType type, bool is_key, bool is_nullable,
+                              int32_t unique_id) {
+    TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type, is_nullable,
+                        unique_id, sizeof(int64_t));
+    column.set_name(std::move(name));
+    column.set_is_key(is_key);
+    column.set_index_length(sizeof(int64_t));
+    return column;
+}
+
+TabletSchemaSPtr make_test_tablet_schema(
+        const std::vector<std::pair<std::string, FieldType>>& value_columns = {
+                {"val", FieldType::OLAP_FIELD_TYPE_BIGINT}}) {
     auto schema = std::make_shared<TabletSchema>();
-    TabletColumn key_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
-                            FieldType::OLAP_FIELD_TYPE_BIGINT, false);
-    key_column.set_unique_id(0);
-    key_column.set_name("key");
-    key_column.set_is_key(true);
-    key_column.set_length(sizeof(int64_t));
-    key_column.set_index_length(sizeof(int64_t));
-    schema->append_column(std::move(key_column));
+    int32_t unique_id = 0;
+    schema->append_column(
+            make_test_column("key", FieldType::OLAP_FIELD_TYPE_BIGINT, true, false, unique_id++));
+    for (const auto& [name, type] : value_columns) {
+        schema->append_column(make_test_column(name, type, false, true, unique_id++));
+    }
+    for (const auto& [name, type] : value_columns) {
+        schema->append_column(make_test_column(binlog::build_before_column_name(name), type, false,
+                                               true, unique_id++));
+    }
+    schema->append_column(make_test_column(BINLOG_TSO_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false,
+                                           true, unique_id++));
+    schema->append_column(make_test_column(BINLOG_LSN_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false,
+                                           false, unique_id++));
+    schema->append_column(make_test_column(BINLOG_OP_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false,
+                                           false, unique_id));
     return schema;
 }
 
@@ -117,6 +139,87 @@ std::shared_ptr<Block> make_source_block(const std::vector<Row>& rows) {
     block->insert({std::move(tso_col), type, BINLOG_TSO_COL});
     block->insert({std::move(lsn_col), type, BINLOG_LSN_COL});
     block->insert({std::move(op_col), type, BINLOG_OP_COL});
+    return block;
+}
+
+std::shared_ptr<Block> make_all_null_source_block() {
+    auto block = std::make_shared<Block>();
+    auto int_type = std::make_shared<DataTypeInt64>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto key_col = ColumnInt64::create();
+    auto val_col = nullable_int_type->create_column();
+    auto before_col = nullable_int_type->create_column();
+    auto tso_col = ColumnInt64::create();
+    auto lsn_col = ColumnInt64::create();
+    auto op_col = ColumnInt64::create();
+
+    key_col->insert_many_vals(1, 2);
+    val_col->insert_many_defaults(2);
+    before_col->insert_many_defaults(2);
+    tso_col->insert_value(1);
+    tso_col->insert_value(2);
+    lsn_col->insert_value(1);
+    lsn_col->insert_value(2);
+    op_col->insert_value(ROW_BINLOG_DELETE);
+    op_col->insert_value(ROW_BINLOG_APPEND);
+
+    block->insert({std::move(key_col), int_type, "key"});
+    block->insert({std::move(val_col), nullable_int_type, "val"});
+    block->insert(
+            {std::move(before_col), nullable_int_type, binlog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
+    block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
+    block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
+    return block;
+}
+
+std::shared_ptr<Block> make_colliding_name_source_block(int64_t after_v, int64_t after_collision,
+                                                        int64_t before_v,
+                                                        int64_t before_collision) {
+    auto block = std::make_shared<Block>();
+    auto type = std::make_shared<DataTypeInt64>();
+    const std::vector<std::pair<std::string, int64_t>> values = {
+            {"key", 1},
+            {"v", after_v},
+            {"__BEFORE__v__", after_collision},
+            {binlog::build_before_column_name("v"), before_v},
+            {binlog::build_before_column_name("__BEFORE__v__"), before_collision},
+            {BINLOG_TSO_COL, 1},
+            {BINLOG_LSN_COL, 1},
+            {BINLOG_OP_COL, ROW_BINLOG_UPDATE},
+    };
+    for (const auto& [name, value] : values) {
+        auto column = ColumnInt64::create();
+        column->insert_value(value);
+        block->insert({std::move(column), type, name});
+    }
+    return block;
+}
+
+std::shared_ptr<Block> make_signed_zero_source_block() {
+    auto block = std::make_shared<Block>();
+    auto int_type = std::make_shared<DataTypeInt64>();
+    auto float_type = std::make_shared<DataTypeFloat32>();
+    auto key_col = ColumnInt64::create();
+    auto val_col = ColumnFloat32::create();
+    auto before_col = ColumnFloat32::create();
+    auto tso_col = ColumnInt64::create();
+    auto lsn_col = ColumnInt64::create();
+    auto op_col = ColumnInt64::create();
+
+    key_col->insert_value(1);
+    val_col->insert_value(-0.0F);
+    before_col->insert_value(+0.0F);
+    tso_col->insert_value(1);
+    lsn_col->insert_value(1);
+    op_col->insert_value(ROW_BINLOG_UPDATE);
+
+    block->insert({std::move(key_col), int_type, "key"});
+    block->insert({std::move(val_col), float_type, "val"});
+    block->insert({std::move(before_col), float_type, binlog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
+    block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
+    block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
     return block;
 }
 
@@ -171,16 +274,22 @@ private:
 
 // Wire a BlockReader as if init() had already completed for a row-binlog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator.
-void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size) {
+void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size,
+                      TabletSchemaSPtr schema = make_test_tablet_schema()) {
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The fake LevelIterator and MIN_DELTA value-pair discovery both need the key count.
-    reader._tablet_schema = make_test_tablet_schema();
+    // The fake LevelIterator and MIN_DELTA value-pair discovery both need the physical schema.
+    reader._tablet_schema = std::move(schema);
+    reader._return_columns.resize(source->columns());
+    std::iota(reader._return_columns.begin(), reader._return_columns.end(), 0);
 
-    // All 6 columns are "normal" columns and are returned in-place.
-    reader._normal_columns_idx = {KEY_IDX, VAL_IDX, BEFORE_VAL_IDX, TSO_IDX, LSN_IDX, OP_IDX};
-    reader._return_columns_loc = {0, 1, 2, 3, 4, 5};
+    // By default every physical column is returned in-place. Tests with comparison-only columns
+    // override this mapping below.
+    reader._normal_columns_idx.resize(source->columns());
+    reader._return_columns_loc.resize(source->columns());
+    std::iota(reader._normal_columns_idx.begin(), reader._normal_columns_idx.end(), 0);
+    std::iota(reader._return_columns_loc.begin(), reader._return_columns_loc.end(), 0);
 
     reader._next_row.block = source;
     reader._next_row.row_pos = 0;
@@ -332,6 +441,63 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateIsSkipped) {
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     EXPECT_TRUE(out.empty());
+}
+
+// An unavailable historical row is encoded as an all-NULL BEFORE image. It must not cancel an
+// all-NULL row inserted later, because the net state changes from absent to present.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
+    auto source = make_all_null_source_block();
+    BlockReader reader;
+    configure_reader(reader, source, 16);
+
+    bool eof = false;
+    Block output = source->clone_empty();
+    ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(out_i64(output, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    const auto& value_column =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(VAL_IDX).column);
+    EXPECT_TRUE(value_column.is_null_at(0));
+    EXPECT_TRUE(value_column.is_null_at(1));
+    EXPECT_TRUE(eof);
+}
+
+// A user column may have the same name as another column's generated BEFORE mirror. Pairing by
+// schema ordinals must still recognize an unchanged complete row and suppress the UPDATE.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpWithCollidingBeforeNameIsSkipped) {
+    auto source = make_colliding_name_source_block(/*after_v=*/10, /*after_collision=*/20,
+                                                   /*before_v=*/10, /*before_collision=*/20);
+    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    BlockReader reader;
+    configure_reader(reader, source, 16, std::move(schema));
+
+    bool eof = false;
+    Block output = source->clone_empty();
+    ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
+    EXPECT_EQ(output.rows(), 0);
+    EXPECT_TRUE(eof);
+}
+
+// compare_at considers +0 and -0 equal. MIN_DELTA therefore retains floating-point UPDATEs until
+// an exact state comparison is available, preserving the changed sign bit.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSignedZeroUpdateIsRetained) {
+    auto source = make_signed_zero_source_block();
+    BlockReader reader;
+    configure_reader(reader, source, 16,
+                     make_test_tablet_schema({{"val", FieldType::OLAP_FIELD_TYPE_FLOAT}}));
+
+    bool eof = false;
+    Block output = source->clone_empty();
+    ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
+    ASSERT_EQ(output.rows(), 2);
+    const auto& values = assert_cast<const ColumnFloat32&>(*output.get_by_position(VAL_IDX).column);
+    EXPECT_FALSE(std::signbit(values.get_element(0)));
+    EXPECT_TRUE(std::signbit(values.get_element(1)));
+    EXPECT_EQ(out_i64(output, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_TRUE(eof);
 }
 
 // The comparison is between the first BEFORE and last AFTER values, so A -> B -> A also has no
@@ -498,7 +664,9 @@ std::shared_ptr<Block> make_two_value_source_block(const std::vector<TwoValueRow
 
 void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> source,
                                 size_t batch_size = 16) {
-    configure_reader(reader, source, batch_size);
+    configure_reader(reader, source, batch_size,
+                     make_test_tablet_schema({{"val", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                              {"val2", FieldType::OLAP_FIELD_TYPE_BIGINT}}));
     // Return key/val1/before-val1/meta only. val2 and before-val2 remain available internally
     // at physical positions 2 and 4, with no target output position.
     reader._normal_columns_idx = {0, 1, 3, 5, 6, 7};
@@ -660,6 +828,25 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePair) {
     EXPECT_EQ(out[0].val, 10); // before
     EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[1].val, 20); // after
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesCollide) {
+    auto source = make_colliding_name_source_block(/*after_v=*/11, /*after_collision=*/20,
+                                                   /*before_v=*/10, /*before_collision=*/20);
+    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    BlockReader reader;
+    configure_reader(reader, source, 16, std::move(schema));
+
+    bool eof = false;
+    Block output = source->clone_empty();
+    ASSERT_TRUE(reader._detail_change_next_block(&output, &eof).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(out_i64(output, /*v=*/1, 0), 10);
+    EXPECT_EQ(out_i64(output, /*v=*/1, 1), 11);
+    EXPECT_EQ(out_i64(output, /*op=*/7, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, /*op=*/7, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_TRUE(eof);
 }
 
 // Mixed ops emitted verbatim in order.

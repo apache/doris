@@ -27,6 +27,8 @@
 #include <numeric>
 #include <ostream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
@@ -38,7 +40,6 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type/primitive_type.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/function_filter.h"
 #include "runtime/runtime_state.h"
@@ -62,18 +63,6 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
-namespace {
-
-// IColumn::compare_at is not implemented in production for these internal/opaque column
-// families. Row binlog currently rejects VARIANT, while the remaining types are kept here as a
-// conservative guard so an old or malformed schema cannot turn a MIN_DELTA query into an error.
-bool supports_min_delta_value_comparison(PrimitiveType type) {
-    return !is_var_len_object(type) && type != TYPE_VARIANT && type != TYPE_FIXED_LENGTH_OBJECT &&
-           type != TYPE_BINARY && type != INVALID_TYPE;
-}
-
-} // namespace
-
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         _agg_functions[i]->destroy(_agg_places[i]);
@@ -91,14 +80,13 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-// Lazily resolves the positions of the binlog meta columns (tso / lsn / op) inside the
-// merged source block, builds _before_column_idx mapping each non-meta column to its
-// __BEFORE__ mirror, and records the complete set of AFTER/BEFORE value pairs used by
-// MIN_DELTA equality checks. The resolved positions are reused across blocks; if the column
-// layout changes (detected via _binlog_op_pos sanity check), they are re-resolved.
+// Lazily resolves the positions of the binlog meta columns (tso / lsn / op) inside the merged
+// source block, builds _before_column_idx mapping each AFTER column to its physical BEFORE
+// companion, and records the complete value-pair set used by MIN_DELTA equality checks.
 Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     if (_binlog_column_pos_inited) {
-        if (_binlog_op_pos >= 0 && _binlog_op_pos < src_block.columns() &&
+        if (_before_column_idx.size() == src_block.columns() && _binlog_op_pos >= 0 &&
+            _binlog_op_pos < src_block.columns() &&
             src_block.get_by_position(_binlog_op_pos).name == BINLOG_OP_COL) {
             return Status::OK();
         }
@@ -109,46 +97,83 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     }
 
     const uint32_t col_num = src_block.columns();
-    _before_column_idx.resize(col_num);
-    std::iota(_before_column_idx.begin(), _before_column_idx.end(), 0);
-    std::vector<bool> is_before_value_column(col_num, false);
-    _min_delta_value_column_pairs.clear();
-    _min_delta_value_comparison_complete = true;
-    for (uint32_t i = 0; i < col_num; ++i) {
-        const auto& name = src_block.get_by_position(i).name;
-        if (name == BINLOG_TSO_COL) {
-            _binlog_tso_pos = static_cast<int>(i);
-        } else if (name == BINLOG_LSN_COL) {
-            _binlog_lsn_pos = static_cast<int>(i);
-        } else if (name == BINLOG_OP_COL) {
-            _binlog_op_pos = static_cast<int>(i);
-        } else {
-            std::string before_name = binlog::build_before_column_name(name);
-            int tmp_idx = src_block.get_position_by_name(before_name);
-            if (tmp_idx >= 0) {
-                _before_column_idx[i] = tmp_idx;
-                is_before_value_column[tmp_idx] = true;
-                if (i >= _tablet_schema->num_key_columns()) {
-                    _min_delta_value_column_pairs.emplace_back(i, tmp_idx);
-                }
-            }
-        }
+    if (_return_columns.size() != col_num) {
+        return Status::InternalError(
+                "row binlog source block column count {} does not match return column count {}",
+                col_num, _return_columns.size());
     }
 
-    // OlapScanner places the full key prefix first for MIN_DELTA/DETAIL scans. Everything after
-    // that prefix which is neither metadata nor a BEFORE mirror is an AFTER value and must have
-    // a type-compatible mirror before a no-op UPDATE can be suppressed.
-    for (uint32_t i = static_cast<uint32_t>(_tablet_schema->num_key_columns()); i < col_num; ++i) {
-        if (_is_binlog_meta_column(i) || is_before_value_column[i]) {
-            continue;
+    std::vector<int> source_pos_by_cid(_tablet_schema->num_columns(), -1);
+    for (uint32_t pos = 0; pos < col_num; ++pos) {
+        const uint32_t cid = _return_columns[pos];
+        if (cid >= source_pos_by_cid.size()) {
+            return Status::InternalError("invalid row binlog column id {}", cid);
         }
-        int before_idx = _before_column_idx[i];
-        const auto& after = src_block.get_by_position(i);
-        if (before_idx == static_cast<int>(i) ||
-            !after.type->equals(*src_block.get_by_position(before_idx).type) ||
-            !supports_min_delta_value_comparison(after.type->get_primitive_type())) {
-            _min_delta_value_comparison_complete = false;
-            break;
+        source_pos_by_cid[cid] = static_cast<int>(pos);
+    }
+    auto source_pos = [&](int32_t cid) {
+        return cid < 0 || static_cast<size_t>(cid) >= source_pos_by_cid.size()
+                       ? -1
+                       : source_pos_by_cid[static_cast<uint32_t>(cid)];
+    };
+    _binlog_tso_pos = source_pos(_tablet_schema->binlog_tso_col_idx());
+    _binlog_lsn_pos = source_pos(_tablet_schema->binlog_lsn_col_idx());
+    _binlog_op_pos = source_pos(_tablet_schema->binlog_op_col_idx());
+    if (_binlog_op_pos < 0) {
+        return Status::InternalError("row binlog source block is missing {}", BINLOG_OP_COL);
+    }
+
+    _before_column_idx.resize(col_num);
+    // resize() initializes integers to zero. Set an explicit identity mapping so key, metadata,
+    // and unpaired compatibility columns continue reading from their own source positions.
+    std::iota(_before_column_idx.begin(), _before_column_idx.end(), 0);
+    _min_delta_value_column_pairs.clear();
+    std::vector<binlog::RowBinlogValueColumnPair> value_column_pairs;
+    const bool has_value_column_pairs =
+            binlog::get_row_binlog_value_column_pairs(*_tablet_schema, &value_column_pairs);
+    _min_delta_value_comparison_complete =
+            has_value_column_pairs && binlog::supports_complete_min_delta_value_comparison(
+                                              *_tablet_schema, value_column_pairs);
+    if (has_value_column_pairs) {
+        for (const auto& [after_cid, before_cid] : value_column_pairs) {
+            const int after_pos = source_pos_by_cid[after_cid];
+            const int before_pos = source_pos_by_cid[before_cid];
+            if (after_pos >= 0 && before_pos >= 0) {
+                _before_column_idx[after_pos] = before_pos;
+            }
+            if (!_min_delta_value_comparison_complete) {
+                continue;
+            }
+            if (after_pos < 0 || before_pos < 0 ||
+                !src_block.get_by_position(after_pos).type->equals(
+                        *src_block.get_by_position(before_pos).type)) {
+                _min_delta_value_comparison_complete = false;
+                continue;
+            }
+            _min_delta_value_column_pairs.emplace_back(after_pos, before_pos);
+        }
+    } else {
+        // Old schemas without the ordinal AFTER/BEFORE layout can still serve DETAIL scans. Build
+        // a single O(C) name index for that compatibility path, but never enable MIN_DELTA no-op
+        // suppression because the complete row image cannot be proven.
+        std::unordered_map<std::string, int> unique_name_to_pos;
+        std::unordered_set<std::string> duplicate_names;
+        for (uint32_t pos = 0; pos < col_num; ++pos) {
+            const auto& name = src_block.get_by_position(pos).name;
+            if (!unique_name_to_pos.emplace(name, static_cast<int>(pos)).second) {
+                duplicate_names.insert(name);
+            }
+        }
+        for (uint32_t pos = 0; pos < col_num; ++pos) {
+            if (_is_binlog_meta_column(static_cast<int>(pos))) {
+                continue;
+            }
+            const std::string before_name =
+                    binlog::build_before_column_name(src_block.get_by_position(pos).name);
+            auto before = unique_name_to_pos.find(before_name);
+            if (before != unique_name_to_pos.end() && !duplicate_names.contains(before_name)) {
+                _before_column_idx[pos] = before->second;
+            }
         }
     }
     _binlog_column_pos_inited = true;
@@ -208,16 +233,26 @@ int BlockReader::_resolve_source_column_index(int idx, bool use_before) const {
 }
 
 bool BlockReader::_min_delta_values_equal(size_t last_row) const {
-    if (!_min_delta_value_comparison_complete) {
+    if (!_min_delta_value_comparison_complete || _min_delta_value_column_pairs.empty()) {
         return false;
     }
+    bool before_image_available = false;
     for (const auto& [after_idx, before_idx] : _min_delta_value_column_pairs) {
+        const auto* before_column = _stored_data_columns[before_idx].get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*before_column)) {
+            before_image_available |= !nullable->is_null_at(0);
+        } else {
+            before_image_available = true;
+        }
         if (_stored_data_columns[before_idx]->compare_at(
                     0, last_row, *_stored_data_columns[after_idx], -1) != 0) {
             return false;
         }
     }
-    return true;
+    // Historical lookup and the compatibility writer both represent an unavailable BEFORE image
+    // as an all-NULL row. Without a persisted validity bit, retaining the UPDATE is the only safe
+    // choice; otherwise a missing-key DELETE followed by an all-NULL INSERT would disappear.
+    return before_image_available;
 }
 
 void BlockReader::_init_pending_row_columns(const Block& block) {
@@ -310,11 +345,6 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
         auto first_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], 0);
         auto last_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], group_size - 1);
         auto result = binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
-        if (result == binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER &&
-            binlog::is_valid_row_binlog_op(first_op) && binlog::is_valid_row_binlog_op(last_op) &&
-            _min_delta_values_equal(group_size - 1)) {
-            result = binlog::AggregateFunctionMinDelta::ResultType::SKIP;
-        }
         switch (result) {
         case binlog::AggregateFunctionMinDelta::ResultType::SKIP:
             break;
@@ -351,6 +381,11 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             output_row_count++;
             break;
         case binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
+            if (binlog::is_valid_row_binlog_op(first_op) &&
+                binlog::is_valid_row_binlog_op(last_op) &&
+                _min_delta_values_equal(group_size - 1)) {
+                break;
+            }
             for (auto idx : _normal_columns_idx) {
                 int target_col_idx = _return_columns_loc[idx];
                 if (idx == _binlog_op_pos) {

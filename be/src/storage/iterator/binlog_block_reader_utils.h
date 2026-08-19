@@ -22,9 +22,11 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
-#include "core/block/block.h"
 #include "storage/binlog.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris::binlog {
 
@@ -43,16 +45,108 @@ inline std::string build_before_column_name(std::string_view name) {
     return before_name;
 }
 
-// Resolve __BEFORE__ column index for a base column when present.
-inline int resolve_before_column_index(const doris::Block& block, int idx, int binlog_op_pos) {
-    if (idx == binlog_op_pos) {
-        return idx;
+using RowBinlogValueColumnPair = std::pair<uint32_t, uint32_t>;
+
+inline bool row_binlog_value_columns_have_same_type(const TabletColumn& lhs,
+                                                    const TabletColumn& rhs) {
+    if (lhs.type() != rhs.type() || lhs.is_nullable() != rhs.is_nullable() ||
+        lhs.length() != rhs.length() || lhs.precision() != rhs.precision() ||
+        lhs.frac() != rhs.frac() || lhs.get_subtype_count() != rhs.get_subtype_count()) {
+        return false;
+    }
+    for (uint32_t i = 0; i < lhs.get_subtype_count(); ++i) {
+        if (!row_binlog_value_columns_have_same_type(lhs.get_sub_column(i),
+                                                     rhs.get_sub_column(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// IColumn::compare_at is unavailable for opaque aggregate-state families. FLOAT/DOUBLE are
+// excluded as well because their ordering comparison treats +0 and -0 as equal even though their
+// stored row states differ. Complex columns inherit the capability of all nested children.
+inline bool supports_min_delta_value_comparison(const TabletColumn& column) {
+    switch (column.type()) {
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+    case FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
+    case FieldType::OLAP_FIELD_TYPE_HLL:
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
+    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
+    case FieldType::OLAP_FIELD_TYPE_VARIANT:
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
+    case FieldType::OLAP_FIELD_TYPE_UNKNOWN:
+    case FieldType::OLAP_FIELD_TYPE_NONE:
+        return false;
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+    case FieldType::OLAP_FIELD_TYPE_STRUCT:
+        if (column.get_subtype_count() == 0) {
+            return false;
+        }
+        for (const auto& child : column.get_sub_columns()) {
+            if (!supports_min_delta_value_comparison(*child)) {
+                return false;
+            }
+        }
+        return true;
+    default:
+        return true;
+    }
+}
+
+// Row-binlog schemas place all AFTER values before all BEFORE values. Metadata can be either a
+// prefix (legacy layout) or a suffix, so remove it by its schema ids, then split the remaining
+// non-key columns in half. Resolving pairs by physical ordinal avoids ambiguity when a user column
+// name itself looks like a generated __BEFORE__ name.
+inline bool get_row_binlog_value_column_pairs(const TabletSchema& schema,
+                                              std::vector<RowBinlogValueColumnPair>* pairs) {
+    pairs->clear();
+    std::vector<uint32_t> value_column_ids;
+    value_column_ids.reserve(schema.num_columns() - schema.num_key_columns());
+    for (uint32_t cid = 0; cid < schema.num_columns(); ++cid) {
+        if (static_cast<int32_t>(cid) == schema.binlog_tso_col_idx() ||
+            static_cast<int32_t>(cid) == schema.binlog_lsn_col_idx() ||
+            static_cast<int32_t>(cid) == schema.binlog_op_col_idx() ||
+            schema.column(cid).is_key()) {
+            continue;
+        }
+        value_column_ids.push_back(cid);
     }
 
-    const auto& col_with_name = block.get_by_position(idx);
-    std::string before_name = build_before_column_name(col_with_name.name);
-    int tmp_idx = block.get_position_by_name(before_name);
-    return tmp_idx < 0 ? idx : tmp_idx;
+    if (value_column_ids.empty() || value_column_ids.size() % 2 != 0) {
+        return false;
+    }
+    const size_t value_column_count = value_column_ids.size() / 2;
+    pairs->reserve(value_column_count);
+    for (size_t i = 0; i < value_column_count; ++i) {
+        const uint32_t after_cid = value_column_ids[i];
+        const uint32_t before_cid = value_column_ids[i + value_column_count];
+        const auto& after = schema.column(after_cid);
+        const auto& before = schema.column(before_cid);
+        if (before.name() != build_before_column_name(after.name()) ||
+            !row_binlog_value_columns_have_same_type(after, before)) {
+            pairs->clear();
+            return false;
+        }
+        pairs->emplace_back(after_cid, before_cid);
+    }
+    return true;
+}
+
+inline bool supports_complete_min_delta_value_comparison(
+        const TabletSchema& schema, const std::vector<RowBinlogValueColumnPair>& pairs) {
+    if (pairs.empty()) {
+        return false;
+    }
+    for (const auto& [after_cid, before_cid] : pairs) {
+        if (!supports_min_delta_value_comparison(schema.column(after_cid)) ||
+            !supports_min_delta_value_comparison(schema.column(before_cid))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };

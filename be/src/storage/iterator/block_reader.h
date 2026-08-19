@@ -177,9 +177,9 @@ private:
     // seq in return_columns, val pos in _normal_columns_idx
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_in_origin_block;
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_not_in_origin_block;
-    // For each src column index in the binlog block, the index of its companion __BEFORE__
-    // column (or itself if no BEFORE mirror exists). Built lazily by _ensure_binlog_column_pos
-    // and consulted via _resolve_source_column_index when emitting BEFORE rows.
+    // For each source-block position, the position of its physical BEFORE companion (or itself
+    // when no companion exists). Built lazily from row-binlog schema ordinals and consulted via
+    // _resolve_source_column_index when emitting BEFORE rows.
     std::vector<int> _before_column_idx;
     // Physical AFTER/BEFORE column pairs used to compare the complete row image for MIN_DELTA.
     // These include columns widened into the storage projection solely for comparison and are
