@@ -209,7 +209,7 @@ public abstract class JoinOrder {
             if (join.getJoinType().isCrossJoin()) {
                 // punish cross join
                 cost = cost > (MAXIMUM_COST / CROSS_JOIN_PENALTY) ? MAXIMUM_COST : cost * CROSS_JOIN_PENALTY;
-            } else if (!join.getHashJoinConjuncts().isEmpty()) {
+            } else if (join.getHashJoinConjuncts().isEmpty()) {
                 // punish nestloop join
                 cost = cost > (MAXIMUM_COST / EXECUTE_COST_PENALTY) ? MAXIMUM_COST : cost * EXECUTE_COST_PENALTY;
             }
