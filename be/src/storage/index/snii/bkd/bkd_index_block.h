@@ -46,7 +46,7 @@
 //   --- present only when leaf_count > 0 ---
 //   min_value        bytes[bytes_per_dim]
 //   max_value        bytes[bytes_per_dim]
-//   split_values     bytes[(leaf_count - 1) * bytes_per_dim]   ascending, fixed width
+//   split_values     bytes[(leaf_count - 1) * bytes_per_dim]   ascending inside min/max
 //   leaf_offsets     delta-varint64[leaf_count]                strictly increasing
 //   leaf_counts      varint32[leaf_count]
 //
@@ -71,7 +71,8 @@ namespace doris::snii::bkd {
 // through BkdIndexBlockReader::open.
 //
 //   min_value / max_value : exactly bytes_per_dim bytes, empty iff leaf_count == 0
-//   split_values          : (leaf_count - 1) * bytes_per_dim bytes, non-decreasing
+//   split_values          : (leaf_count - 1) * bytes_per_dim bytes, with
+//                           min_value <= splits... <= max_value
 //   leaves                : leaf_count entries, offsets strictly increasing,
 //                           counts summing to header.point_count
 void encode_bkd_index_block(const BkdIndexHeader& header, Slice min_value, Slice max_value,
@@ -100,9 +101,10 @@ public:
     // capability boundary, so the caller reports "index unavailable" instead of a
     // damaged segment. Every other rejection (bad magic, unknown field_type,
     // bytes_per_dim disagreeing with field_type, array lengths disagreeing with
-    // leaf_count, unordered split values, non-increasing or out-of-range leaf
-    // offsets, leaf counts not summing to point_count, trailing bytes, crc
-    // mismatch, truncation) -> INVERTED_INDEX_FILE_CORRUPTED.
+    // leaf_count, min_value above max_value, split values outside the global
+    // bounds or unordered, non-increasing or out-of-range leaf offsets, leaf
+    // counts not summing to point_count, trailing bytes, crc mismatch,
+    // truncation) -> INVERTED_INDEX_FILE_CORRUPTED.
     static Status open(Slice framed, uint64_t data_length, BkdIndexBlockReader* out);
 
     const BkdIndexHeader& header() const { return header_; }
@@ -152,7 +154,8 @@ private:
     BkdIndexHeader header_;
     // min_value followed by max_value, one allocation. Empty for an empty index.
     std::vector<uint8_t> bounds_;
-    // (leaf_count - 1) * bytes_per_dim bytes, non-decreasing, fixed width.
+    // (leaf_count - 1) * bytes_per_dim bytes, non-decreasing inside the inclusive
+    // global bounds, fixed width.
     std::vector<uint8_t> split_values_;
     std::vector<LeafRef> leaves_;
 };
