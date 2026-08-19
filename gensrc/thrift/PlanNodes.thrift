@@ -531,6 +531,9 @@ struct TLanceFileDesc {
     // most this many rows; the upper LIMIT operator still enforces the global bound.
     // Only set for ordinary scans whose predicates are fully pushed into Lance.
     4: optional i64 limit
+    // Physical vector-index segments assigned to this distributed search split. Each value is one
+    // UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and unindexed-fragment scans.
+    5: optional list<binary> index_segment_uuids
 }
 
 struct TTableFormatFileDesc {

@@ -248,6 +248,33 @@ TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadin
     EXPECT_NE(status.to_string().find("query vector byte size"), std::string::npos);
 }
 
+TEST(LanceTableReaderVectorSearchTest, RejectsMalformedIndexSegmentUuid) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_distance", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_vector_search_invalid_index_segment_uuid");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    auto range = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids);
+    range.table_format_params.lance_params.__set_index_segment_uuids({"too-short"});
+
+    const auto status = prepare_range(&reader, std::move(range));
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("must contain 16 bytes"), std::string::npos);
+    EXPECT_TRUE(reader.close().ok());
+}
+
 std::vector<std::pair<int64_t, float>> read_vector_search_rows(LanceTableReader* reader,
                                                                Block* block) {
     std::vector<std::pair<int64_t, float>> rows;

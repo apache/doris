@@ -60,6 +60,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -90,6 +91,7 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
     private final TableName sourceTableName;
     private final LanceExternalTable sourceTable;
     private final LanceTableMetadata metadata;
+    private final int vectorFieldId;
     private final List<Column> columns;
     private final TExternalSearchRequest searchRequest;
 
@@ -98,8 +100,11 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         Map<String, String> params = normalizeProperties(properties);
         sourceTableName = parseTableName(required(params, TABLE));
         sourceTable = findLanceExternalTable(sourceTableName);
+        boolean useIndex = !params.containsKey(USE_INDEX)
+                || parseBoolean(params.get(USE_INDEX), USE_INDEX);
         try {
-            metadata = sourceTable.loadMetadata();
+            metadata = useIndex
+                    ? sourceTable.loadMetadataForVectorSearch() : sourceTable.loadMetadata();
         } catch (RuntimeException e) {
             throw new AnalysisException("Failed to load Lance metadata for vector search on "
                     + sourceTableName + ": " + e.getMessage(), e);
@@ -110,6 +115,7 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
 
         Field vectorField = LanceVectorQuery.findVectorColumnField(
                 metadata.getSchema(), required(params, COLUMN));
+        vectorFieldId = useIndex ? requireLanceFieldId(metadata, vectorField) : -1;
         TSearchVector queryVector = LanceVectorQuery.parseAndEncodeQueryVector(
                 vectorField, required(params, QUERY_VECTOR));
         long topK = parseLong(params.getOrDefault(TOP_K, "10"), TOP_K, 1, Long.MAX_VALUE);
@@ -152,7 +158,7 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
             hasVectorSearchOptions = true;
         }
         if (params.containsKey(USE_INDEX)) {
-            vectorSearchOptions.setUseIndex(parseBoolean(params.get(USE_INDEX), USE_INDEX));
+            vectorSearchOptions.setUseIndex(useIndex);
             hasVectorSearchOptions = true;
         }
         if (hasVectorSearchOptions) {
@@ -193,8 +199,8 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new LanceScanNode(id, desc, sourceTable, metadata,
-                searchRequest, sv);
+        return LanceScanNode.forVectorSearch(id, desc, sourceTable, metadata,
+                vectorFieldId, searchRequest, sv);
     }
 
     private static Map<String, String> normalizeProperties(Map<String, String> properties)
@@ -297,6 +303,17 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         result.add(new Column(DISTANCE_COLUMN, Type.FLOAT, false, null,
                 true, null, true, position));
         return result;
+    }
+
+    @VisibleForTesting
+    static int requireLanceFieldId(LanceTableMetadata metadata, Field field)
+            throws AnalysisException {
+        OptionalInt fieldId = metadata.getLanceFieldId(field.getName());
+        if (!fieldId.isPresent()) {
+            throw new AnalysisException("Lance vector column '" + field.getName()
+                    + "' has no field ID in the Lance schema");
+        }
+        return fieldId.getAsInt();
     }
 
     @VisibleForTesting

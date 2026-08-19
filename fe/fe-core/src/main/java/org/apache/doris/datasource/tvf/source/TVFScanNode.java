@@ -202,7 +202,7 @@ public class TVFScanNode extends FileQueryScanNode {
         }
         List<Split> splits = new ArrayList<>(fragments.size());
         for (LanceFragmentInfo fragment : fragments) {
-            LanceSplit split = new LanceSplit(tableValuedFunction.getFilePath(), version,
+            LanceSplit split = LanceSplit.forFragment(tableValuedFunction.getFilePath(), version,
                     fragment.getId(), fragment.getPhysicalRows());
             split.setTargetSplitSize(targetRows);
             splits.add(split);

@@ -73,7 +73,7 @@ public class VectorSearchTableValuedFunctionTest {
         Schema schema = new Schema(Arrays.asList(
                 Field.nullable("Category", ArrowType.Utf8.INSTANCE),
                 Field.nullable("category", ArrowType.Utf8.INSTANCE)));
-        LanceTableMetadata metadata = new LanceTableMetadata(
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
                 "s3://bucket/table.lance", 42, schema,
                 Collections.emptyList(), Collections.emptyMap());
 
@@ -87,7 +87,7 @@ public class VectorSearchTableValuedFunctionTest {
     public void testRejectReservedGlobalRowIdPrefixInFrontend() {
         Schema schema = new Schema(Collections.singletonList(
                 Field.nullable(Column.GLOBAL_ROWID_COL + "payload", ArrowType.Utf8.INSTANCE)));
-        LanceTableMetadata metadata = new LanceTableMetadata(
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
                 "s3://bucket/table.lance", 42, schema,
                 Collections.emptyList(), Collections.emptyMap());
 
@@ -95,5 +95,26 @@ public class VectorSearchTableValuedFunctionTest {
                 () -> VectorSearchTableValuedFunction.buildOutputColumns(metadata));
 
         Assert.assertTrue(reserved.getMessage().contains(Column.GLOBAL_ROWID_COL));
+    }
+
+    @Test
+    public void testRequireLanceFieldIdAfterResolvingVectorColumn() throws Exception {
+        Field vector = Field.nullable("vector", ArrowType.Utf8.INSTANCE);
+        Schema schema = new Schema(Collections.singletonList(vector));
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance", 42, schema, Collections.emptyList(),
+                Collections.singletonMap("vector", 9), Collections.emptyList(),
+                Collections.emptyMap());
+
+        Assert.assertEquals(9,
+                VectorSearchTableValuedFunction.requireLanceFieldId(metadata, vector));
+
+        LanceTableMetadata missingFieldId = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance", 42, schema,
+                Collections.emptyList(), Collections.emptyMap());
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> VectorSearchTableValuedFunction.requireLanceFieldId(
+                        missingFieldId, vector));
+        Assert.assertTrue(exception.getMessage().contains("has no field ID"));
     }
 }

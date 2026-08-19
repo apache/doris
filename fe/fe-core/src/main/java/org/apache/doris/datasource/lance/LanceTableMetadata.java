@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /** Immutable metadata resolved from one already-fixed Lance dataset version. */
 public class LanceTableMetadata {
@@ -31,14 +32,34 @@ public class LanceTableMetadata {
     private final long version;
     private final Schema schema;
     private final List<LanceFragmentInfo> fragments;
+    private final Map<String, Integer> lanceFieldIds;
+    private final List<LanceIndexSegmentInfo> indexSegments;
     private final Map<String, String> backendStorageOptions;
 
-    public LanceTableMetadata(String datasetUri, long version, Schema schema,
-            List<LanceFragmentInfo> fragments, Map<String, String> backendStorageOptions) {
+    public static LanceTableMetadata withoutIndexSegments(String datasetUri, long version,
+            Schema schema, List<LanceFragmentInfo> fragments,
+            Map<String, String> backendStorageOptions) {
+        return new LanceTableMetadata(datasetUri, version, schema, fragments,
+                Collections.emptyMap(), Collections.emptyList(), backendStorageOptions);
+    }
+
+    public static LanceTableMetadata withIndexSegments(String datasetUri, long version,
+            Schema schema, List<LanceFragmentInfo> fragments,
+            Map<String, Integer> lanceFieldIds, List<LanceIndexSegmentInfo> indexSegments,
+            Map<String, String> backendStorageOptions) {
+        return new LanceTableMetadata(datasetUri, version, schema, fragments,
+                lanceFieldIds, indexSegments, backendStorageOptions);
+    }
+
+    private LanceTableMetadata(String datasetUri, long version, Schema schema,
+            List<LanceFragmentInfo> fragments, Map<String, Integer> lanceFieldIds,
+            List<LanceIndexSegmentInfo> indexSegments, Map<String, String> backendStorageOptions) {
         this.datasetUri = datasetUri;
         this.version = version;
         this.schema = schema;
         this.fragments = Collections.unmodifiableList(new ArrayList<>(fragments));
+        this.lanceFieldIds = Collections.unmodifiableMap(new HashMap<>(lanceFieldIds));
+        this.indexSegments = Collections.unmodifiableList(new ArrayList<>(indexSegments));
         this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
     }
 
@@ -56,6 +77,15 @@ public class LanceTableMetadata {
 
     public List<LanceFragmentInfo> getFragments() {
         return fragments;
+    }
+
+    public List<LanceIndexSegmentInfo> getIndexSegments() {
+        return indexSegments;
+    }
+
+    public OptionalInt getLanceFieldId(String fieldName) {
+        Integer fieldId = lanceFieldIds.get(fieldName);
+        return fieldId == null ? OptionalInt.empty() : OptionalInt.of(fieldId);
     }
 
     public Map<String, String> getBackendStorageOptions() {

@@ -721,6 +721,30 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
             return _lance_error("set Lance scanner fragment ids");
         }
     }
+    if (lance_params.__isset.index_segment_uuids && !lance_params.index_segment_uuids.empty()) {
+        if (!_vector_search) {
+            return Status::InvalidArgument(
+                    "Lance index segments are only supported for vector search splits");
+        }
+        constexpr size_t UUID_SIZE = 16;
+        if (lance_params.index_segment_uuids.size() >
+            std::numeric_limits<size_t>::max() / UUID_SIZE) {
+            return Status::InvalidArgument("too many Lance index segment UUIDs");
+        }
+        std::vector<uint8_t> segment_uuids;
+        segment_uuids.reserve(lance_params.index_segment_uuids.size() * UUID_SIZE);
+        for (const auto& uuid : lance_params.index_segment_uuids) {
+            if (uuid.size() != UUID_SIZE) {
+                return Status::InvalidArgument(
+                        "Lance index segment UUID must contain 16 bytes, got {}", uuid.size());
+            }
+            segment_uuids.insert(segment_uuids.end(), uuid.begin(), uuid.end());
+        }
+        if (lance_scanner_set_index_segments(scanner, segment_uuids.data(),
+                                             lance_params.index_segment_uuids.size()) != 0) {
+            return _lance_error("set Lance scanner index segments");
+        }
+    }
     // Ordinary scans may carry a pushed-down LIMIT. The FE only sets it when all predicates are
     // pushed into Lance, so the scanner can safely stop after `limit` rows. Vector search manages
     // its own top_k limit in _configure_vector_search, so skip it here.
