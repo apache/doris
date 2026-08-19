@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
@@ -59,7 +60,7 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
             while (child instanceof Alias) {
                 child = ((Alias) child).child();
             }
-            if (child instanceof StateCombinator) {
+            if (child instanceof StateCombinator || child instanceof CombineCombinator) {
                 AggStateType target = (AggStateType) targetType;
                 ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(child.arity());
                 for (int i = 0; i < child.arity(); i++) {

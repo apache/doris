@@ -38,6 +38,34 @@ suite("test_agg_state_avg") {
              """
     qt_select """ select avg_merge(tmp) from (select k1,avg_union(k2) tmp from a_table group by k1)t;
              """
+    qt_avg_combine """
+            select avg_merge(tmp) from (
+                select e1 / 1000 k1, avg_combine(e1) tmp
+                from (select 1 k1) t lateral view explode_numbers(8000) tmp1 as e1
+                group by e1 / 1000
+            ) t;
+            """
+    qt_avg_combine_nullable """
+            select avg_merge(tmp) from (
+                select e1 / 1000 k1, avg_combine(if(e1 % 2 = 0, e1, null)) tmp
+                from (select 1 k1) t lateral view explode_numbers(8000) tmp1 as e1
+                group by e1 / 1000
+            ) t;
+            """
+    qt_avg_combine_all_null """
+            select avg_merge(tmp) from (
+                select avg_combine(cast(null as int)) tmp
+            ) t;
+            """
+    qt_avg_combine_state_compatibility """
+            select avg_merge(tmp) from (
+                select avg_combine(e1) tmp
+                from (select 1 k1) t lateral view explode_numbers(4000) tmp1 as e1
+                union all
+                select avg_union(avg_state(non_nullable(cast(e1 + 4000 as int)))) tmp
+                from (select 1 k1) t lateral view explode_numbers(4000) tmp1 as e1
+            ) t;
+            """
     test {
         sql "select * from a_table;"
     }
