@@ -185,9 +185,9 @@ private:
     // These include columns widened into the storage projection solely for comparison and are
     // therefore independent of the SQL output projection.
     std::vector<std::pair<int, int>> _min_delta_value_column_pairs;
-    // False when the source block does not carry a comparable BEFORE image for every value
-    // column. In that case MIN_DELTA retains UPDATE output conservatively.
-    bool _min_delta_value_comparison_complete = false;
+    // False when the source block does not carry an AFTER/BEFORE pair for every value column. In
+    // that case MIN_DELTA retains UPDATE output conservatively.
+    bool _min_delta_value_pairs_complete = false;
     Arena _arena;
 };
 

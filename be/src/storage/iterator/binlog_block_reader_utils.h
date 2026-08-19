@@ -63,36 +63,6 @@ inline bool row_binlog_value_columns_have_same_type(const TabletColumn& lhs,
     return true;
 }
 
-// IColumn::compare_at is unavailable for opaque aggregate-state families. Floating-point values
-// use compare_at semantics, including treating +0 and -0 as equal. Complex columns inherit the
-// capability of all nested children.
-inline bool supports_min_delta_value_comparison(const TabletColumn& column) {
-    switch (column.type()) {
-    case FieldType::OLAP_FIELD_TYPE_HLL:
-    case FieldType::OLAP_FIELD_TYPE_BITMAP:
-    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
-    case FieldType::OLAP_FIELD_TYPE_VARIANT:
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
-    case FieldType::OLAP_FIELD_TYPE_UNKNOWN:
-    case FieldType::OLAP_FIELD_TYPE_NONE:
-        return false;
-    case FieldType::OLAP_FIELD_TYPE_ARRAY:
-    case FieldType::OLAP_FIELD_TYPE_MAP:
-    case FieldType::OLAP_FIELD_TYPE_STRUCT:
-        if (column.get_subtype_count() == 0) {
-            return false;
-        }
-        for (const auto& child : column.get_sub_columns()) {
-            if (!supports_min_delta_value_comparison(*child)) {
-                return false;
-            }
-        }
-        return true;
-    default:
-        return true;
-    }
-}
-
 // Row-binlog schemas place all AFTER values before all BEFORE values. Metadata can be either a
 // prefix (legacy layout) or a suffix, so remove it by its schema ids, then split the remaining
 // non-key columns in half. Resolving pairs by physical ordinal avoids ambiguity when a user column
@@ -128,20 +98,6 @@ inline bool get_row_binlog_value_column_pairs(const TabletSchema& schema,
             return false;
         }
         pairs->emplace_back(after_cid, before_cid);
-    }
-    return true;
-}
-
-inline bool supports_complete_min_delta_value_comparison(
-        const TabletSchema& schema, const std::vector<RowBinlogValueColumnPair>& pairs) {
-    if (pairs.empty()) {
-        return false;
-    }
-    for (const auto& [after_cid, before_cid] : pairs) {
-        if (!supports_min_delta_value_comparison(schema.column(after_cid)) ||
-            !supports_min_delta_value_comparison(schema.column(before_cid))) {
-            return false;
-        }
     }
     return true;
 }

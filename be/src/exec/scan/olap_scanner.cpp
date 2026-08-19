@@ -513,9 +513,7 @@ Status OlapScanner::_init_tablet_reader_params(
             add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
 
-        if (is_min_delta_scan && has_value_column_pairs &&
-            binlog::supports_complete_min_delta_value_comparison(*tablet_schema,
-                                                                 value_column_pairs)) {
+        if (is_min_delta_scan && has_value_column_pairs) {
             // No-op UPDATE detection compares the complete row state at the two ends of the
             // window. Read every AFTER/BEFORE value column even when SQL projects only a subset;
             // BlockReader's return-column mapping keeps these comparison-only columns hidden.
@@ -524,10 +522,8 @@ Status OlapScanner::_init_tablet_reader_params(
                 add_return_column_if_absent(before_cid);
             }
         } else {
-            // DETAIL always needs the requested BEFORE images. MIN_DELTA also needs them for
-            // output when a schema contains a value type that cannot be compared exactly. Avoid
-            // widening such MIN_DELTA scans with every value column because suppression is
-            // disabled and those extra columns would only add I/O and decoding work.
+            // DETAIL always needs the requested BEFORE images. A malformed MIN_DELTA schema also
+            // stays on this narrow path because its complete row image cannot be proven.
             for (auto cid : _return_columns) {
                 if (cid < before_cid_by_after.size() && before_cid_by_after[cid] >= 0) {
                     add_return_column_if_absent(static_cast<uint32_t>(before_cid_by_after[cid]));

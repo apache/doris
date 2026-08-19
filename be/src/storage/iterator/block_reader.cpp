@@ -131,9 +131,7 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     std::vector<binlog::RowBinlogValueColumnPair> value_column_pairs;
     const bool has_value_column_pairs =
             binlog::get_row_binlog_value_column_pairs(*_tablet_schema, &value_column_pairs);
-    _min_delta_value_comparison_complete =
-            has_value_column_pairs && binlog::supports_complete_min_delta_value_comparison(
-                                              *_tablet_schema, value_column_pairs);
+    _min_delta_value_pairs_complete = has_value_column_pairs;
     if (has_value_column_pairs) {
         for (const auto& [after_cid, before_cid] : value_column_pairs) {
             const int after_pos = source_pos_by_cid[after_cid];
@@ -141,13 +139,13 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
             if (after_pos >= 0 && before_pos >= 0) {
                 _before_column_idx[after_pos] = before_pos;
             }
-            if (!_min_delta_value_comparison_complete) {
+            if (!_min_delta_value_pairs_complete) {
                 continue;
             }
             if (after_pos < 0 || before_pos < 0 ||
                 !src_block.get_by_position(after_pos).type->equals(
                         *src_block.get_by_position(before_pos).type)) {
-                _min_delta_value_comparison_complete = false;
+                _min_delta_value_pairs_complete = false;
                 continue;
             }
             _min_delta_value_column_pairs.emplace_back(after_pos, before_pos);
@@ -233,7 +231,7 @@ int BlockReader::_resolve_source_column_index(int idx, bool use_before) const {
 }
 
 bool BlockReader::_min_delta_values_equal(size_t last_row) const {
-    if (!_min_delta_value_comparison_complete || _min_delta_value_column_pairs.empty()) {
+    if (!_min_delta_value_pairs_complete || _min_delta_value_column_pairs.empty()) {
         return false;
     }
     bool before_image_available = false;
