@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -721,10 +722,12 @@ public class Alter {
                         new BaseTableInfo(origTable), "Base table replace changed IVM baseline");
                 Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuild(
                         new BaseTableInfo(olapNewTbl), "Base table replace changed IVM baseline");
+                BinlogConfig origTblBinlogConfig = new BinlogConfig(origTable.getBinlogConfig());
                 replaceTableInternal(db, origTable, olapNewTbl, swapTable, false, isForce);
                 // write edit log
                 ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
-                        origTable.getId(), oldTblName, olapNewTbl.getId(), newTblName, swapTable, isForce);
+                        origTable.getId(), oldTblName, olapNewTbl.getId(), newTblName, swapTable, isForce,
+                        origTblBinlogConfig);
                 Env.getCurrentEnv().getEditLog().logReplaceTable(log);
                 LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
             } finally {

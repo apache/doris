@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -42,10 +43,18 @@ public class ReplaceTableOperationLog implements Writable {
     private boolean swapTable;
     @SerializedName(value = "isForce")
     private boolean isForce = true; // older version it was force. so keep same.
+    @SerializedName(value = "origTblBinlogConfig")
+    private BinlogConfig origTblBinlogConfig;
 
     public ReplaceTableOperationLog(long dbId, long origTblId,
             String origTblName, long newTblId, String newTblName,
             boolean swapTable, boolean isForce) {
+        this(dbId, origTblId, origTblName, newTblId, newTblName, swapTable, isForce, null);
+    }
+
+    public ReplaceTableOperationLog(long dbId, long origTblId,
+            String origTblName, long newTblId, String newTblName,
+            boolean swapTable, boolean isForce, BinlogConfig origTblBinlogConfig) {
         this.dbId = dbId;
         this.origTblId = origTblId;
         this.origTblName = origTblName;
@@ -53,6 +62,7 @@ public class ReplaceTableOperationLog implements Writable {
         this.newTblName = newTblName;
         this.swapTable = swapTable;
         this.isForce = isForce;
+        this.origTblBinlogConfig = origTblBinlogConfig == null ? null : new BinlogConfig(origTblBinlogConfig);
     }
 
     public long getDbId() {
@@ -81,6 +91,10 @@ public class ReplaceTableOperationLog implements Writable {
 
     public boolean isForce() {
         return isForce;
+    }
+
+    public BinlogConfig getOrigTblBinlogConfig() {
+        return origTblBinlogConfig;
     }
 
     public String toJson() {
