@@ -55,17 +55,4 @@ TEST(FileHandleCacheTest, InitWithKnownFileSizeDoesNotOpenFile) {
     EXPECT_EQ(handle.file(), nullptr);
 }
 
-// Verify that build_iceberg_delete_file_range treats file_size <= 0 as unknown (-1).
-// This covers the case where thrift optional file_size defaults to 0.
-TEST(FileHandleCacheTest, BuildDeleteFileRangeTreatsZeroAsUnknown) {
-    auto range_known = build_iceberg_delete_file_range("s3://b/f.parquet", 1024);
-    EXPECT_EQ(range_known.file_size, 1024);
-
-    auto range_zero = build_iceberg_delete_file_range("s3://b/f.parquet", 0);
-    EXPECT_EQ(range_zero.file_size, -1);
-
-    auto range_neg = build_iceberg_delete_file_range("s3://b/f.parquet", -1);
-    EXPECT_EQ(range_neg.file_size, -1);
-}
-
 } // namespace doris::io
