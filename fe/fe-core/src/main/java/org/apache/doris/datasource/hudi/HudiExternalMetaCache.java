@@ -29,6 +29,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
@@ -79,7 +80,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ENTRY_SCHEMA = "schema";
 
     private final EntryHandle<HudiPartitionCacheKey, TablePartitionValues> partitionEntry;
-    private final EntryHandle<HudiFsViewCacheKey, HoodieTableFileSystemView> fsViewEntry;
+    private final EntryHandle<HudiFsViewCacheKey, HudiFsViewCacheValue> fsViewEntry;
     private final EntryHandle<HudiMetaClientCacheKey, HoodieTableMetaClient> metaClientEntry;
     private final EntryHandle<HudiSchemaCacheKey, SchemaCacheValue> schemaEntry;
 
@@ -93,8 +94,9 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 TablePartitionValues.class, this::loadPartitionValuesCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiPartitionCacheKey::getNameMapping)));
         fsViewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_FS_VIEW, HudiFsViewCacheKey.class,
-                HoodieTableFileSystemView.class, this::createFsView, defaultEntryCacheSpec(),
-                MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping)));
+                HudiFsViewCacheValue.class, this::createFsView, defaultEntryCacheSpec(),
+                MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping),
+                this::evictFsView));
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiMetaClientCacheKey::getNameMapping)));
@@ -110,7 +112,18 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     public HoodieTableFileSystemView getFsView(NameMapping nameMapping) {
-        return fsViewEntry.get(nameMapping.getCtlId()).get(HudiFsViewCacheKey.of(nameMapping));
+        return fsViewEntry.get(nameMapping.getCtlId()).get(HudiFsViewCacheKey.of(nameMapping)).acquire();
+    }
+
+    public void releaseFsView(NameMapping nameMapping) {
+        MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry =
+                fsViewEntry.getIfInitialized(nameMapping.getCtlId());
+        if (entry != null) {
+            HudiFsViewCacheValue value = entry.getIfPresent(HudiFsViewCacheKey.of(nameMapping));
+            if (value != null) {
+                value.release();
+            }
+        }
     }
 
     public HudiSchemaCacheValue getHudiSchemaCacheValue(NameMapping nameMapping, long timestamp) {
@@ -144,12 +157,20 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 HudiPartitionCacheKey.of(table.getOrBuildNameMapping(), lastTimestamp, useHiveSyncPartition));
     }
 
-    private HoodieTableFileSystemView createFsView(HudiFsViewCacheKey key) {
+    private HudiFsViewCacheValue createFsView(HudiFsViewCacheKey key) {
         HoodieTableMetaClient tableMetaClient = metaClientEntry.get(key.getNameMapping().getCtlId())
                 .get(HudiMetaClientCacheKey.of(key.getNameMapping()));
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().build();
         HoodieLocalEngineContext ctx = new HoodieLocalEngineContext(tableMetaClient.getStorageConf());
-        return FileSystemViewManager.createInMemoryFileSystemView(ctx, tableMetaClient, metadataConfig);
+        return new HudiFsViewCacheValue(
+                FileSystemViewManager.createInMemoryFileSystemView(ctx, tableMetaClient, metadataConfig));
+    }
+
+    private void evictFsView(HudiFsViewCacheKey key, HudiFsViewCacheValue value,
+            com.github.benmanes.caffeine.cache.RemovalCause cause) {
+        if (value != null) {
+            value.evict();
+        }
     }
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiMetaClientCacheKey key) {

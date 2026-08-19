@@ -92,6 +92,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -127,6 +128,7 @@ public class HudiScanNode extends HiveScanNode {
     private TableScanParams scanParams;
     private IncrementalRelation incrementalRelation;
     private HoodieTableFileSystemView fsView;
+    private final AtomicBoolean fsViewReleased = new AtomicBoolean(false);
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -357,6 +359,14 @@ public class HudiScanNode extends HiveScanNode {
         return !sessionVariable.isForceJniScanner() && isCowTable;
     }
 
+    private void releaseFsViewOnce() {
+        if (fsViewReleased.compareAndSet(false, true) && fsView != null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hudi(hmsTable.getCatalog().getId())
+                    .releaseFsView(hmsTable.getOrBuildNameMapping());
+        }
+    }
+
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
         NameMapping nameMapping = hmsTable.getOrBuildNameMapping();
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(getRelationSnapshot());
@@ -522,7 +532,11 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
-            return getIncrementalSplits();
+            try {
+                return getIncrementalSplits();
+            } finally {
+                releaseFsViewOnce();
+            }
         }
         initPrunedPartitions();
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
@@ -533,6 +547,8 @@ public class HudiScanNode extends HiveScanNode {
             });
         } catch (Exception e) {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
+        } finally {
+            releaseFsViewOnce();
         }
         return splits;
     }
@@ -558,6 +574,7 @@ public class HudiScanNode extends HiveScanNode {
     public void startSplit(int numBackends) {
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
+            releaseFsViewOnce();
             return;
         }
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
@@ -597,6 +614,7 @@ public class HudiScanNode extends HiveScanNode {
                                         System.currentTimeMillis() - startTime);
                             }
                             splitAssignment.finishSchedule();
+                            releaseFsViewOnce();
                         }
                     }
                 }, scheduleExecutor);
