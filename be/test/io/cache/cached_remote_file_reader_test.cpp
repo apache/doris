@@ -215,6 +215,27 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     EXPECT_EQ(cache()->async_write_manager()->_metrics->snapshot().submitted_bytes -
                       baseline_submitted_payload_bytes,
               2_mb);
+    EXPECT_EQ(preallocated_tail->state(), FileBlock::State::DOWNLOADED);
+    EXPECT_EQ(preallocated_tail->range().left, file_tail_offset);
+    EXPECT_EQ(preallocated_tail->range().right, file_tail_offset);
+
+    std::string cached_result(1, '\0');
+    FileCacheStatistics cached_stats;
+    IOContext cached_context;
+    cached_context.file_cache_stats = &cached_stats;
+    bytes_read = 0;
+    ASSERT_TRUE(reader
+                        ->read_at(file_tail_offset,
+                                  Slice(cached_result.data(), cached_result.size()), &bytes_read,
+                                  &cached_context)
+                        .ok());
+    EXPECT_EQ(bytes_read, cached_result.size());
+    EXPECT_EQ(cached_result, "0");
+    EXPECT_EQ(counting_reader->read_count(), 1);
+    EXPECT_EQ(cached_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(cached_stats.probe_downloaded_hit, 2);
+    EXPECT_EQ(cached_stats.probe_miss, 0);
+    EXPECT_EQ(cached_stats.async_cache_write_submitted, 0);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,

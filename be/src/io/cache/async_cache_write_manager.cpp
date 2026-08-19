@@ -585,7 +585,15 @@ Status AsyncCacheWriteManager::_persist_task(const AsyncCacheWriteTask& task) {
 
     const size_t task_end = task.file_offset + task.write_size;
     for (const auto& block : holder.file_blocks) {
-        if (block->range().left < task.file_offset || block->range().right >= task_end) {
+        const auto block_range = block->range();
+        const bool contained_in_task =
+                block_range.left >= task.file_offset && block_range.right < task_end;
+        // A short task is the physical EOF block. Its EMPTY cell may have been preallocated with
+        // full cache-block capacity, so write only the valid prefix and let finalize() shrink it.
+        const bool is_preallocated_eof_container =
+                task.write_size < task.buffer_size() && block_range.left == task.file_offset &&
+                block_range.right >= task_end;
+        if (!contained_in_task && !is_preallocated_eof_container) {
             _metrics->record_skipped_block(Metrics::SkippedBlockReason::PARTIAL_OVERLAP);
             continue;
         }
@@ -614,16 +622,17 @@ Status AsyncCacheWriteManager::_persist_task(const AsyncCacheWriteTask& task) {
             _metrics->record_skipped_block(Metrics::SkippedBlockReason::DOWNLOADING);
             continue;
         }
-        const size_t buffer_offset = block->range().left - task.file_offset;
+        const size_t buffer_offset = block_range.left - task.file_offset;
+        const size_t append_size =
+                is_preallocated_eof_container ? task.write_size : block_range.size();
         DORIS_CHECK(buffer_offset <= task.write_size);
-        DORIS_CHECK(block->range().size() <= task.write_size - buffer_offset);
+        DORIS_CHECK(append_size <= task.write_size - buffer_offset);
         Status status;
         {
             ScopedActiveCounter active_append(_active_append_count);
             TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::_persist_task:before_append", &task);
             const int64_t start_us = MonotonicMicros();
-            status = block->append(
-                    Slice(task.buffer->data() + buffer_offset, block->range().size()));
+            status = block->append(Slice(task.buffer->data() + buffer_offset, append_size));
             _metrics->record_block_operation_latency(Metrics::BlockOperation::APPEND,
                                                      MonotonicMicros() - start_us);
         }
