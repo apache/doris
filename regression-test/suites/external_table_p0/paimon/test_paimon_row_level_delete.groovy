@@ -276,6 +276,30 @@ suite("test_paimon_row_level_delete",
             exception "Only DELETE is supported"
         }
         order_qt_plain_append_still_untouched """select id, note from plain_append"""
+
+        // ==================== INSERT OVERWRITE: full-table and static-partition ====================
+        // The static PARTITION(dt=...) form must materialize the clause literal into the partition
+        // column (BindSink routes a materializing connector through the full-schema projection), so
+        // the write lands in — and replaces — exactly the named partition. Without the materialize
+        // step the row would carry a NULL partition value and Paimon's overwrite commit would reject
+        // it as __DEFAULT_PARTITION__. Full-table OVERWRITE keeps its documented static semantics:
+        // it replaces EVERY partition.
+
+        sql """create table ow_part (id int, v string, dt date) engine=paimon partition by list (dt) ()"""
+        sql """insert into ow_part values (1, 'd1-a', date '2026-01-01'), (2, 'd1-b', date '2026-01-01'), (3, 'd2-a', date '2026-01-02')"""
+        order_qt_ow_seed """select id, v, cast(dt as string) from ow_part"""
+
+        // Static-partition overwrite: replaces ONLY dt=2026-01-01; dt=2026-01-02 must survive.
+        sql """insert overwrite table ow_part partition(dt='2026-01-01') select 10, 'd1-new'"""
+        order_qt_ow_static """select id, v, cast(dt as string) from ow_part"""
+
+        // Repeating the same static overwrite is idempotent — the rerun replaces its own output.
+        sql """insert overwrite table ow_part partition(dt='2026-01-01') select 11, 'd1-rerun'"""
+        order_qt_ow_static_rerun """select id, v, cast(dt as string) from ow_part"""
+
+        // Full-table overwrite wipes ALL partitions and leaves only the fresh rows.
+        sql """insert overwrite table ow_part select 20, 'full', date '2026-01-03'"""
+        order_qt_ow_full """select id, v, cast(dt as string) from ow_part"""
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

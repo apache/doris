@@ -878,7 +878,17 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
-        if (table.requiresFullSchemaWriteOrder()) {
+        // A static-partition write on a materializing connector must also take the full-schema
+        // projection, even when the connector is otherwise name-mapped: the PARTITION-clause literal
+        // lives in no query column, so only the materialize block below can put it into the row. A
+        // connector that consumes the partition value FROM THE ROW (e.g. Paimon, whose SDK derives the
+        // target partition from the complete row) would otherwise NULL-fill the partition column and
+        // commit into __DEFAULT_PARTITION__ — failing the static-overwrite partition check. Scoped to
+        // statements that actually carry a static spec, so a plain INSERT keeps the connector's
+        // name-mapped semantics (and its partial-column validation) byte-unchanged.
+        boolean materializeStaticSpec = table.materializeStaticPartitionValues()
+                && !staticPartitionColNames.isEmpty();
+        if (table.requiresFullSchemaWriteOrder() || materializeStaticSpec) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any
             // unmentioned / static-partition columns filled in (NULL literals), exactly like legacy
@@ -890,7 +900,7 @@ public class BindSink implements AnalysisRuleFactory {
             // partition columns by their full-schema position, so the child must be in full-schema order.
             Map<String, NamedExpression> columnToOutput = getColumnToOutput(
                     ctx, table, false, false, boundSink, child, targetWriteSchema);
-            if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
+            if (materializeStaticSpec) {
                 // Connectors that consume the partition value FROM THE ROW must write the static partition value
                 // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
                 // so re-project the PARTITION-clause literal here (mirrors the retired legacy iceberg bind).
