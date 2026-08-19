@@ -59,7 +59,6 @@ struct PaimonJniWriterOpenMode {
 /// common backend contract.
 class JniPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
-    explicit JniPaimonWriteBackend(std::unique_ptr<PaimonWriterMemoryLease> memory_lease);
     ~JniPaimonWriteBackend() override;
 
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
@@ -84,7 +83,6 @@ private:
     jmethodID _close_id = nullptr;
 
     TPaimonTableSink _sink;
-    std::unique_ptr<PaimonWriterMemoryLease> _memory_lease;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     int64_t _arrow_memory_limit_bytes = 0;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
@@ -101,7 +99,7 @@ class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
                     jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    TPaimonTableSink sink, size_t arrow_batch_size_bytes);
+                    TPaimonTableSink sink, int64_t arrow_memory_limit_bytes);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
@@ -123,6 +121,7 @@ private:
     // Arrow resources owned by this writer adapter.
     std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
     TPaimonTableSink _sink;
+    int64_t _arrow_memory_limit_bytes;
     size_t _arrow_batch_size_bytes;
 };
 

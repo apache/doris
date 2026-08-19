@@ -1692,6 +1692,8 @@ DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 // Hard upper bound for Java Arrow direct memory per JNI writer. Row-range sizing uses half of this
 // limit as its IPC batch target so Java decoding has headroom.
 DECLARE_mInt64(paimon_jni_writer_arrow_memory_limit_bytes);
+// Process-wide admission limit for Java Arrow direct memory used by Paimon JNI writes.
+DECLARE_mInt64(paimon_jni_total_arrow_memory_limit_bytes);
 
 /** Paimon file system configurations **/
 DECLARE_Strings(paimon_file_system_scheme_mappings);

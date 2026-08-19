@@ -21,21 +21,15 @@
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/materialize_block.h"
-#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 
-PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                                     std::unique_ptr<PaimonWriterMemoryLease> memory_lease)
-        : _t_sink(std::move(t_sink)),
-          _output_expr_ctxs(output_exprs),
-          _memory_lease(std::move(memory_lease)) {
+PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs)
+        : _t_sink(std::move(t_sink)), _output_expr_ctxs(output_exprs) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
-
-PaimonTableWriter::~PaimonTableWriter() = default;
 
 Status PaimonTableWriter::_projection_block(Block& input_block, Block* output_block) {
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_expr_ctxs,
@@ -62,8 +56,7 @@ Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     SCOPED_TIMER(_open_timer);
 
     // Step 1: Create the backend (JNI or FFI) based on the sink configuration.
-    RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink,
-                                                      std::move(_memory_lease), &_backend));
+    RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
     DCHECK(_backend);
     // Step 2: Open the backend — for JNI this loads the Java class and calls PaimonJniWriter.open().
     RETURN_IF_ERROR(_backend->open(_t_sink.paimon_table_sink, state, profile));

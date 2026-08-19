@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <string_view>
@@ -38,12 +39,12 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
-#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/block_budget.h"
+#include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
 #include "util/string_util.h"
@@ -52,6 +53,53 @@ namespace doris {
 
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
+
+class PaimonArrowMemoryLimiter {
+public:
+    Status acquire(int64_t bytes, RuntimeState* state) {
+        DORIS_CHECK(state != nullptr);
+        DORIS_CHECK(bytes > 0);
+
+        const int64_t total_limit = config::paimon_jni_total_arrow_memory_limit_bytes;
+        if (bytes > total_limit) {
+            return Status::InvalidArgument(
+                    "Paimon JNI writer Arrow memory limit {} exceeds the process-wide limit {}",
+                    PrettyPrinter::print_bytes(bytes), PrettyPrinter::print_bytes(total_limit));
+        }
+
+        std::unique_lock<std::mutex> lock(_mutex);
+        _condition.wait(lock, [&] {
+            return state->is_cancelled() ||
+                   (_used_bytes <= total_limit && bytes <= total_limit - _used_bytes);
+        });
+        if (state->is_cancelled()) {
+            return Status::Cancelled(
+                    "Paimon JNI write stopped while waiting for Java Arrow memory");
+        }
+        _used_bytes += bytes;
+        return Status::OK();
+    }
+
+    void release(int64_t bytes) {
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            DORIS_CHECK(bytes > 0);
+            DORIS_CHECK_GE(_used_bytes, bytes);
+            _used_bytes -= bytes;
+        }
+        _condition.notify_all();
+    }
+
+private:
+    std::mutex _mutex;
+    std::condition_variable _condition;
+    int64_t _used_bytes = 0;
+};
+
+PaimonArrowMemoryLimiter& paimon_arrow_memory_limiter() {
+    static auto* limiter = new PaimonArrowMemoryLimiter();
+    return *limiter;
+}
 
 std::atomic<bool>& paimon_jni_close_failed() {
     static auto* failed = new std::atomic<bool>(false);
@@ -159,9 +207,6 @@ PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
             static_cast<jboolean>(write_mode == TPaimonWriteMode::CHANGELOG)};
 }
 
-JniPaimonWriteBackend::JniPaimonWriteBackend(std::unique_ptr<PaimonWriterMemoryLease> memory_lease)
-        : _memory_lease(std::move(memory_lease)) {}
-
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
     Status st = close();
     if (!st.ok()) {
@@ -172,7 +217,6 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
 Status JniPaimonWriteBackend::close() {
     if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
         _memory_manager.reset();
-        _memory_lease.reset();
         _opened = false;
         return Status::OK();
     }
@@ -186,7 +230,6 @@ Status JniPaimonWriteBackend::close() {
         _jni_writer_obj = nullptr;
         _jni_writer_cls = nullptr;
         if (java_users_may_exist) {
-            _memory_manager->poison(env_status);
             retain_memory_after_failed_close(std::move(_memory_manager));
         } else {
             _memory_manager.reset();
@@ -216,7 +259,6 @@ Status JniPaimonWriteBackend::close() {
         _memory_manager.reset();
     } else {
         if (_memory_manager != nullptr) {
-            _memory_manager->poison(close_status);
             LOG(WARNING)
                     << "Retaining Paimon JNI native memory after an unconfirmed Java close: limit="
                     << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
@@ -301,9 +343,13 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     DORIS_CHECK(profile != nullptr);
 
     _arrow_memory_limit_bytes = config::paimon_jni_writer_arrow_memory_limit_bytes;
-    DORIS_CHECK(_memory_lease != nullptr);
-    RETURN_IF_ERROR(
-            PaimonJniMemoryManager::create(state, std::move(_memory_lease), &_memory_manager));
+    if (_arrow_memory_limit_bytes > config::paimon_jni_total_arrow_memory_limit_bytes) {
+        return Status::InvalidArgument(
+                "Paimon JNI writer Arrow memory limit {} exceeds the process-wide limit {}",
+                PrettyPrinter::print_bytes(_arrow_memory_limit_bytes),
+                PrettyPrinter::print_bytes(config::paimon_jni_total_arrow_memory_limit_bytes));
+    }
+    RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, &_memory_manager));
     RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
     _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
     _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);
@@ -392,26 +438,24 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-function-const)
         std::unique_ptr<IPaimonWriter>* writer) {
     DORIS_CHECK(_opened);
-    // Target half of the Java allocator for one encoded batch so Arrow decoding and metadata have
-    // headroom. The value is captured at backend open and remains stable for this writer.
-    const size_t arrow_batch_size_bytes = static_cast<size_t>(_arrow_memory_limit_bytes / 2);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
                                                 _abort_id, std::make_unique<ArrowMemoryPool<>>(),
-                                                _sink, arrow_batch_size_bytes);
+                                                _sink, _arrow_memory_limit_bytes);
     return Status::OK();
 }
 
 JniPaimonWriter::JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id,
                                  jmethodID prepare_commit_id, jmethodID abort_id,
                                  std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                                 TPaimonTableSink sink, size_t arrow_batch_size_bytes)
+                                 TPaimonTableSink sink, int64_t arrow_memory_limit_bytes)
         : _jni_writer_obj(jni_writer_obj),
           _write_id(write_id),
           _prepare_commit_id(prepare_commit_id),
           _abort_id(abort_id),
           _arrow_pool(std::move(arrow_pool)),
           _sink(std::move(sink)),
-          _arrow_batch_size_bytes(arrow_batch_size_bytes) {}
+          _arrow_memory_limit_bytes(arrow_memory_limit_bytes),
+          _arrow_batch_size_bytes(static_cast<size_t>(arrow_memory_limit_bytes / 2)) {}
 
 Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
@@ -530,7 +574,16 @@ Status JniPaimonWriter::_write_row_range(RuntimeState* state, const Block& block
                                 estimate_range_bytes(end_row - middle_row));
     }
 
-    // Wrap the IPC buffer in a JNI direct ByteBuffer (zero-copy). Java consumes it synchronously.
+    // Reserve the complete Java Arrow allocator quota atomically. This call runs on the blocking
+    // scheduler, so waiting here parks only this worker thread and never turns the sink back into
+    // an asynchronous pipeline dependency. Holding a whole quota avoids partial-allocation
+    // deadlocks between concurrent writers.
+    RETURN_IF_ERROR(paimon_arrow_memory_limiter().acquire(_arrow_memory_limit_bytes, state));
+    Defer release_arrow_memory {
+            [&] { paimon_arrow_memory_limiter().release(_arrow_memory_limit_bytes); }};
+
+    // Wrap the IPC buffer in a JNI direct ByteBuffer (zero-copy). Java consumes it synchronously;
+    // the quota is released only after the JNI call returns.
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
 

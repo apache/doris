@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/operator.h"
-#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "exec/sink/writer/paimon/paimon_table_writer.h"
 #include "runtime/runtime_state.h"
 
@@ -43,7 +42,6 @@ namespace doris {
 /// selector to establish unique writer ownership. The writer still passes
 /// complete Blocks to the SDK, which independently computes partition and
 /// bucket values for file writing; no routing column is appended to the row.
-///
 class PaimonTableSinkOperatorX;
 
 class PaimonTableSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
@@ -84,14 +82,13 @@ public:
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
         RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-        RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
-        return PaimonSinkMemoryAllocator::create(state, &_memory_allocator);
+        return VExpr::open(_output_vexpr_ctxs, state);
     }
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
-    // Paimon reserves memory at the actual JNI page-allocation boundary.
-    // Generic sink reservation would reserve the same allocation twice.
+    // Java Arrow admission is performed synchronously at the JNI write boundary. C++ allocations
+    // remain covered by Doris' normal MemTracker and do not need an additional sink reservation.
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState*, bool) override { return 0; }
 
 private:
@@ -100,7 +97,6 @@ private:
     const RowDescriptor& _row_desc;
     VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
-    std::shared_ptr<PaimonSinkMemoryAllocator> _memory_allocator;
 };
 
 } // namespace doris

@@ -23,12 +23,7 @@ namespace doris {
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    auto& parent = _parent->cast<Parent>();
-    DCHECK(parent._memory_allocator != nullptr);
-    std::unique_ptr<PaimonWriterMemoryLease> memory_lease;
-    RETURN_IF_ERROR(parent._memory_allocator->create_lease(&memory_lease));
-    _writer = std::make_unique<PaimonTableWriter>(info.tsink, _output_vexpr_ctxs,
-                                                  std::move(memory_lease));
+    _writer = std::make_unique<PaimonTableWriter>(info.tsink, _output_vexpr_ctxs);
     return Status::OK();
 }
 

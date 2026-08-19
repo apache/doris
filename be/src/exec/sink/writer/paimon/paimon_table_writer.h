@@ -30,7 +30,6 @@
 namespace doris {
 
 class RuntimeState;
-class PaimonWriterMemoryLease;
 
 /// Each PaimonTableSinkLocalState owns one PaimonTableWriter, which in turn
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
@@ -65,10 +64,9 @@ class PaimonWriterMemoryLease;
 ///          → RPC to FE Coordinator → PaimonTransaction
 class PaimonTableWriter final {
 public:
-    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                      std::unique_ptr<PaimonWriterMemoryLease> memory_lease);
+    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs);
 
-    ~PaimonTableWriter();
+    ~PaimonTableWriter() = default;
 
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
@@ -82,7 +80,6 @@ private:
     TDataSink _t_sink;
     const VExprContextSPtrs& _output_expr_ctxs;
     RuntimeState* _state = nullptr;
-    std::unique_ptr<PaimonWriterMemoryLease> _memory_lease;
     int64_t _written_rows = 0;
 
     // Backend owns the JNI/FFI connection and creates the writer adapter.
