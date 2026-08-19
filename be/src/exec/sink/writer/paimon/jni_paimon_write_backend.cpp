@@ -54,6 +54,11 @@ namespace doris {
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
 
+// Java Arrow's decoded working set includes vectors, validity/offset buffers, metadata, and
+// allocator overhead, so neither Doris Block bytes nor serialized IPC bytes are a safe reservation
+// size. The Java RootAllocator provides a stable per-writer hard upper bound; use that same value as
+// the weight of every JNI write against this BE-wide logical quota. This quota deliberately does
+// not reserve MemTracker bytes: C++ IPC and Paimon native pages are tracked separately by Doris.
 class PaimonArrowMemoryLimiter {
 public:
     Status acquire(int64_t bytes, RuntimeState* state) {
@@ -68,6 +73,9 @@ public:
         }
 
         std::unique_lock<std::mutex> lock(_mutex);
+        // Acquire the whole weight atomically; a waiter owns no partial quota. This rules out the
+        // deadlock where writers each retain part of their allowance while waiting for the rest.
+        // For equal weights, the byte limit also implies floor(total / bytes) concurrent JNI calls.
         _condition.wait(lock, [&] {
             return state->is_cancelled() ||
                    (_used_bytes <= total_limit && bytes <= total_limit - _used_bytes);
@@ -455,6 +463,9 @@ JniPaimonWriter::JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id,
           _arrow_pool(std::move(arrow_pool)),
           _sink(std::move(sink)),
           _arrow_memory_limit_bytes(arrow_memory_limit_bytes),
+          // This is a batching target, not the admission amount. Keeping IPC near half of the Java
+          // hard limit leaves room for decoded vectors and Arrow metadata; admission still uses the
+          // complete hard limit because the exact Java expansion is not predictable from IPC size.
           _arrow_batch_size_bytes(static_cast<size_t>(arrow_memory_limit_bytes / 2)) {}
 
 Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block) {
@@ -485,9 +496,10 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
                                 std::max<size_t>(1, block_bytes));
     }
 
-    // Use Doris bytes only to choose an inexpensive initial range size. The encoded IPC size is
-    // checked by _write_row_range(), which adaptively splits an oversized range. This keeps a
-    // single unusually large row from being grouped with otherwise small rows based on an average.
+    // Use Doris bytes only to choose an inexpensive initial range size, never as a memory
+    // reservation. Column encodings and nested values can make Arrow IPC larger or smaller than
+    // the Block. _write_row_range() therefore checks the real IPC size and adaptively splits an
+    // oversized range. This keeps the common whole-Block path while bounding wide-table batches.
     const size_t average_row_bytes =
             std::max<size_t>(1, block_bytes / block_rows + (block_bytes % block_rows != 0));
     const size_t rows_per_batch = BlockBudget(state->batch_size(), _arrow_batch_size_bytes)
@@ -574,10 +586,13 @@ Status JniPaimonWriter::_write_row_range(RuntimeState* state, const Block& block
                                 estimate_range_bytes(end_row - middle_row));
     }
 
-    // Reserve the complete Java Arrow allocator quota atomically. This call runs on the blocking
-    // scheduler, so waiting here parks only this worker thread and never turns the sink back into
-    // an asynchronous pipeline dependency. Holding a whole quota avoids partial-allocation
-    // deadlocks between concurrent writers.
+    // Serialize first, then reserve the complete Java Arrow allocator quota immediately before
+    // JNI. Reserving earlier would occupy scarce Java capacity while doing C++ work that is already
+    // protected by MemTracker. Reserving only serialized_bytes would be unsafe because Java decode
+    // can expand beyond the IPC representation. This call runs on the blocking scheduler, so the
+    // condition-variable wait is synchronous and does not reintroduce a pipeline dependency.
+    // A split Block reaches here once per row range; ranges are sequential and release their quota
+    // after each JNI call, so one sink invocation never holds multiple Arrow quotas concurrently.
     RETURN_IF_ERROR(paimon_arrow_memory_limiter().acquire(_arrow_memory_limit_bytes, state));
     Defer release_arrow_memory {
             [&] { paimon_arrow_memory_limiter().release(_arrow_memory_limit_bytes); }};

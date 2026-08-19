@@ -167,6 +167,9 @@ public class PaimonJniWriter {
             this.arrowConverter = new PaimonArrowConverter(ZoneId.of(timeZone));
             preExecutionAuthenticator.execute(() -> {
                 try {
+                    // C++ uses this same hard limit as the fixed admission weight of every JNI
+                    // write. The actual decoded size is not derivable from IPC bytes, while this
+                    // allocator guarantees that one writer cannot exceed the admitted amount.
                     this.allocator = new RootAllocator(arrowMemoryLimitBytes);
                     FileStoreTable table = PaimonUtils.deserialize(serializedTable);
                     LOG.info("PaimonJniWriter opening: table={}, columns={}",

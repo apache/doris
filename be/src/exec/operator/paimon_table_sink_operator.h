@@ -87,8 +87,11 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
-    // Java Arrow admission is performed synchronously at the JNI write boundary. C++ allocations
-    // remain covered by Doris' normal MemTracker and do not need an additional sink reservation.
+    // There is no sound whole-sink estimate: Block/IPC bytes do not predict Java Arrow decoding,
+    // while Paimon pages are allocated lazily and can outlive this call. C++ allocations and native
+    // pages remain covered by Doris' MemTracker; Java Arrow uses its own fixed synchronous
+    // admission at the JNI boundary. A generic sink reservation would only double-account C++
+    // memory without reserving the untracked Java memory that this sink actually needs to bound.
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState*, bool) override { return 0; }
 
 private:

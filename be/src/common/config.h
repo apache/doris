@@ -1689,10 +1689,12 @@ DECLARE_mInt64(iceberg_sink_max_file_size);
 /** Paimon sink configurations **/
 // Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
 DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
-// Hard upper bound for Java Arrow direct memory per JNI writer. Row-range sizing uses half of this
-// limit as its IPC batch target so Java decoding has headroom.
+// Hard upper bound for Java Arrow direct memory per JNI writer. C++ cannot derive the Java decode
+// working set from Block or IPC bytes, so every JNI write uses this fixed upper bound as its
+// admission weight. Row-range sizing uses half of it as the IPC target to leave decode headroom.
 DECLARE_mInt64(paimon_jni_writer_arrow_memory_limit_bytes);
-// Process-wide admission limit for Java Arrow direct memory used by Paimon JNI writes.
+// Process-wide admission limit for Java Arrow direct memory used by Paimon JNI writes. With equal
+// per-writer limits, floor(total / per_writer) is the maximum concurrent JNI write count.
 DECLARE_mInt64(paimon_jni_total_arrow_memory_limit_bytes);
 
 /** Paimon file system configurations **/

@@ -257,9 +257,11 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
     const int64_t writer_count = std::max<int64_t>(1, state->num_local_sink());
     const int64_t query_limit = state->query_mem_tracker()->limit();
     const int64_t query_share = query_limit > 0 ? query_limit / writer_count : query_limit;
-    // Native pages can remain live until the Java writer closes. Leave one Java Arrow allocator's
-    // fixed hard limit outside the long-lived page budget so a writer that filled its page pool can
-    // still enter a write call. C++ IPC allocations remain governed by the query MemTracker.
+    // Paimon requests pages lazily, can flush/preempt owners inside its MemoryPoolFactory, and may
+    // retain allocated pages until writer close. Their per-call peak therefore cannot be reserved
+    // accurately before sink(). Bound and account actual page allocations instead. Leave one Java
+    // Arrow allocator's fixed hard limit outside this long-lived page budget so a writer that fills
+    // its page pool still has headroom for its next decode. C++ IPC remains under query MemTracker.
     const int64_t arrow_memory_limit = config::paimon_jni_writer_arrow_memory_limit_bytes;
     if (query_limit > 0 && (query_share <= 0 || arrow_memory_limit >= query_share)) {
         return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
