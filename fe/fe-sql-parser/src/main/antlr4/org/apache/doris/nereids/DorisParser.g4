@@ -46,33 +46,97 @@ statement
     ;
 
 statementBase
-    : explain? query outFileClause?     #statementDefault
-    | supportedDmlStatement             #supportedDmlStatementAlias
-    | supportedCreateStatement          #supportedCreateStatementAlias
-    | supportedAlterStatement           #supportedAlterStatementAlias
-    | materializedViewStatement         #materializedViewStatementAlias
-    | supportedJobStatement             #supportedJobStatementAlias
-    | constraintStatement               #constraintStatementAlias
-    | supportedCleanStatement           #supportedCleanStatementAlias
-    | supportedDescribeStatement        #supportedDescribeStatementAlias
-    | supportedDropStatement            #supportedDropStatementAlias
-    | supportedSetStatement             #supportedSetStatementAlias
-    | supportedUnsetStatement           #supportedUnsetStatementAlias
-    | supportedRefreshStatement         #supportedRefreshStatementAlias
-    | supportedShowStatement            #supportedShowStatementAlias
-    | supportedLoadStatement            #supportedLoadStatementAlias
-    | supportedCancelStatement          #supportedCancelStatementAlias
-    | supportedRecoverStatement         #supportedRecoverStatementAlias
-    | supportedAdminStatement           #supportedAdminStatementAlias
-    | supportedUseStatement             #supportedUseStatementAlias
-    | supportedOtherStatement           #supportedOtherStatementAlias
-    | supportedKillStatement            #supportedKillStatementAlias
-    | supportedStatsStatement           #supportedStatsStatementAlias
-    | supportedTransactionStatement     #supportedTransactionStatementAlias
-    | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
+    : queryOrDmlStatement
+    | createStatement
+    | alterStatement
+    | dropStatement
+    | showStatement
+    | pauseStatement
+    | resumeStatement
+    | cancelStatement
+    | refreshStatement
+    | killStatement
+    | supportedBuildStatement
+    | syncLoadStatement
+    | stopLoadStatement
+    | supportedCleanStatement
+    | supportedSetStatement
+    | supportedUnsetStatement
+    | supportedRecoverStatement
+    | supportedAdminStatement
+    | supportedUseStatement
+    | analyzeStatsStatement
+    | supportedTransactionStatement
+    | supportedGrantRevokeStatement
     ;
 
-materializedViewStatement
+queryOrDmlStatement
+    : explain? query outFileClause?     #statementDefault
+    | supportedDmlStatement             #supportedDmlStatementAlias
+    | supportedDescribeStatement        #supportedDescribeStatementAlias
+    | supportedOtherStatement           #supportedOtherStatementAlias
+    | loadDmlStatement                  #supportedLoadStatementAlias
+    ;
+
+createStatement
+    : supportedCreateStatement
+    | createMaterializedViewStatement
+    | createJobStatement
+    | createLoadStatement
+    ;
+
+alterStatement
+    : supportedAlterStatement
+    | alterMaterializedViewStatement
+    | alterJobStatement
+    | alterConstraintStatement
+    | alterStatsStatement
+    ;
+
+dropStatement
+    : supportedDropStatement
+    | dropMaterializedViewStatement
+    | dropJobStatement
+    | dropStatsStatement
+    ;
+
+showStatement
+    : supportedShowStatement
+    | showMaterializedViewStatement
+    | showConstraintStatement
+    | showLoadStatement
+    | showStatsStatement
+    ;
+
+pauseStatement
+    : pauseMaterializedViewStatement
+    | pauseJobStatement
+    | pauseLoadStatement
+    ;
+
+resumeStatement
+    : resumeMaterializedViewStatement
+    | resumeJobStatement
+    | resumeLoadStatement
+    ;
+
+cancelStatement
+    : cancelMaterializedViewStatement
+    | cancelJobStatement
+    | supportedCancelStatement
+    ;
+
+refreshStatement
+    : refreshMaterializedViewStatement
+    | supportedRefreshStatement
+    ;
+
+killStatement
+    : supportedKillStatement
+    | killStatsStatement
+    ;
+
+createMaterializedViewStatement
     : CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
         (REFRESH refreshMethod? refreshTrigger?)?
@@ -83,17 +147,38 @@ materializedViewStatement
         (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS? query                                                                               #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
-    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
+    ;
+
+refreshMaterializedViewStatement
+    : REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
+    ;
+
+alterMaterializedViewStatement
+    : ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
-    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
+    ;
+
+dropMaterializedViewStatement
+    : DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
         (ON tableName=multipartIdentifier)?                                                     #dropMV
-    | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
-    | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
-    | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
-    | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
+    ;
+
+pauseMaterializedViewStatement
+    : PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
+    ;
+
+resumeMaterializedViewStatement
+    : RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
+    ;
+
+cancelMaterializedViewStatement
+    : CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
+    ;
+
+showMaterializedViewStatement
+    : SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
     ;
 
 jobFromToClause
@@ -101,7 +186,7 @@ jobFromToClause
       TO DATABASE targetDb=identifier (LEFT_PAREN targetProperties=propertyItemList RIGHT_PAREN)?
     ;
 
-supportedJobStatement
+createJobStatement
     : CREATE JOB label=multipartIdentifier jobProperties=propertyClause?
       ON (STREAMING | SCHEDULE(
             (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
@@ -113,21 +198,41 @@ supportedJobStatement
          )
       commentSpec?
        (jobFromToClause | DO supportedDmlStatement )                                                                                         #createScheduledJob
-   | PAUSE JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                                #pauseJob
-   | ALTER JOB (jobName=multipartIdentifier)
+   ;
+
+pauseJobStatement
+    : PAUSE JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                               #pauseJob
+    ;
+
+alterJobStatement
+    : ALTER JOB (jobName=multipartIdentifier)
                (propertyClause | supportedDmlStatement | propertyClause  supportedDmlStatement
                | jobFromToClause | propertyClause jobFromToClause)                                                                           #alterJob
-   | DROP JOB (IF EXISTS)? WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                    #dropJob
-   | RESUME JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                               #resumeJob
-   | CANCEL TASK WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL) AND (taskIdKey=identifier) EQ (taskIdValue=INTEGER_VALUE)    #cancelJobTask
-   ;
-constraintStatement
+    ;
+
+dropJobStatement
+    : DROP JOB (IF EXISTS)? WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                    #dropJob
+    ;
+
+resumeJobStatement
+    : RESUME JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                              #resumeJob
+    ;
+
+cancelJobStatement
+    : CANCEL TASK WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)
+        AND (taskIdKey=identifier) EQ (taskIdValue=INTEGER_VALUE)                                                                             #cancelJobTask
+    ;
+
+alterConstraintStatement
     : ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
-    | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
+    ;
+
+showConstraintStatement
+    : SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
     ;
 
 optSpecBranch
@@ -233,8 +338,6 @@ supportedCreateStatement
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
     | CREATE STORAGE POLICY (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createStoragePolicy
-    | BUILD INDEX (name=identifier)? ON tableName=multipartIdentifier
-        partitionSpec?                                                          #buildIndex
     | CREATE INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList
         (USING (NGRAM_BF | INVERTED | ANN))?
@@ -282,6 +385,11 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                                  #createIndexCharFilter
     | CREATE INVERTED INDEX NORMALIZER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                                  #createIndexNormalizer
+    ;
+
+supportedBuildStatement
+    : BUILD INDEX (name=identifier)? ON tableName=multipartIdentifier
+        partitionSpec?                                                          #buildIndex
     ;
 
 dictionaryColumnDefs:
@@ -504,19 +612,37 @@ supportedShowStatement
     | SHOW CREATE STREAM name=multipartIdentifier                                   #showCreateStream
     ;
 
-supportedLoadStatement
+syncLoadStatement
     : SYNC                                                                          #sync
-    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad    
-    | createRoutineLoad                                                             #createRoutineLoadAlias
-    | LOAD mysqlDataDesc
+    ;
+
+createLoadStatement
+    : createRoutineLoad                                                             #createRoutineLoadAlias
+    ;
+
+loadDmlStatement
+    : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                              #mysqlLoad
-    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
-    | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
+    ;
+
+pauseLoadStatement
+    : PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
-    | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
+    ;
+
+resumeLoadStatement
+    : RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
     | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
-    | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
+    ;
+
+stopLoadStatement
+    : STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
+    ;
+
+showLoadStatement
+    : SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
+    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | (LIKE STRING_LITERAL)?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FOR label=multipartIdentifier)
         | (((FROM | IN) database=identifier)? wildWhere?))                           #showRoutineLoadTask
@@ -881,7 +1007,7 @@ fromRollup
     : FROM rollup=identifier
     ;
 
-supportedStatsStatement
+showStatsStatement
     : SHOW AUTO? ANALYZE (jobId=INTEGER_VALUE | tableName=multipartIdentifier)?
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showAnalyze
     | SHOW QUEUED ANALYZE JOBS tableName=multipartIdentifier?
@@ -891,25 +1017,37 @@ supportedStatsStatement
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
-    | ANALYZE DATABASE name=multipartIdentifier
+    | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
+    | SHOW TABLE STATS tableName=multipartIdentifier
+        partitionSpec? columnList=identifierList?                               #showTableStats
+    | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
+    ;
+
+analyzeStatsStatement
+    : ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
-    | ALTER TABLE name=multipartIdentifier SET STATS
+    ;
+
+alterStatsStatement
+    : ALTER TABLE name=multipartIdentifier SET STATS
         LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?                  #alterTableStats
     | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
         MODIFY COLUMN columnName=identifier
         SET STATS LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?        #alterColumnStats
-    | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
-    | DROP STATS tableName=multipartIdentifier
+    ;
+
+dropStatsStatement
+    : DROP STATS tableName=multipartIdentifier
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
-    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
     | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAnalyzeJob
-    | SHOW TABLE STATS tableName=multipartIdentifier
-        partitionSpec? columnList=identifierList?                               #showTableStats
-    | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
+    ;
+
+killStatsStatement
+    : KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
     ;
 
 analyzeProperties
