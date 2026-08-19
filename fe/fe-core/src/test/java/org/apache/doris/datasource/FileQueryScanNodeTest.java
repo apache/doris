@@ -139,14 +139,25 @@ public class FileQueryScanNodeTest {
     }
 
     @Test
-    public void testFileRangeCarriesItsFeTargetSplitSize() {
-        FileSplit split = Mockito.mock(FileSplit.class);
-        split.targetSplitSize = 64 * MB;
+    public void testFileRangeCarriesDedicatedFileScannerV2SplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        sv.setFileScannerV2SplitSize(96 * MB);
 
         TFileRangeDesc range = new TFileRangeDesc();
-        FileQueryScanNode.setTargetSplitSize(range, split);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
         Assert.assertTrue(range.isSetTargetSplitSize());
-        Assert.assertEquals(64 * MB, range.getTargetSplitSize());
+        Assert.assertEquals(96 * MB, range.getTargetSplitSize());
+    }
+
+    @Test
+    public void testFileRangeOmitsNonPositiveFileScannerV2SplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileScannerV2SplitSize(0);
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assert.assertFalse(range.isSetTargetSplitSize());
     }
 
     @Test

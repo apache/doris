@@ -560,7 +560,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // override it with the actual format carried by an individual split.
         rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
-        setTargetSplitSize(rangeDesc, fileSplit);
+        setTargetSplitSize(rangeDesc, sessionVariable);
         rangeDesc.setFileCacheAdmission(admissionResult);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
@@ -572,11 +572,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return curLocations;
     }
 
-    static void setTargetSplitSize(TFileRangeDesc rangeDesc, FileSplit fileSplit) {
-        // BE refinement must use the exact target that produced this FE split; an independent BE
-        // setting could otherwise create inconsistent child granularity for the same scan.
-        if (fileSplit.targetSplitSize != null && fileSplit.targetSplitSize > 0) {
-            rangeDesc.setTargetSplitSize(fileSplit.targetSplitSize);
+    static void setTargetSplitSize(TFileRangeDesc rangeDesc, SessionVariable sessionVariable) {
+        // Keep BE refinement independent from file_split_size, which controls FE coarse splitting.
+        // Reusing it would couple two scheduling levels and prevent tuning them separately.
+        if (sessionVariable.getFileScannerV2SplitSize() > 0) {
+            rangeDesc.setTargetSplitSize(sessionVariable.getFileScannerV2SplitSize());
         }
     }
 
