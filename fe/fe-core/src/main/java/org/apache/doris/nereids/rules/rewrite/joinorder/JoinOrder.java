@@ -224,7 +224,7 @@ public abstract class JoinOrder {
             for (int j = 0; j < atomSize; ++j) {
                 Plan atom = atoms.get(j);
                 Set<Slot> outputSlots = atom.getOutputSet();
-                if (Collections.disjoint(predicateSlots, outputSlots)) {
+                if (!Collections.disjoint(predicateSlots, outputSlots)) {
                     edges.get(i).vertexes.set(j);
                 }
             }
