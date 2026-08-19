@@ -43,7 +43,8 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
           _has_projection(_local_state->_parent->has_projection()),
           _has_prepared(false) {
     if (_has_projection) {
-        _projection_output_row_descriptor.emplace(_local_state->_parent->row_desc());
+        _projection_output_row_descriptor.emplace(
+                _local_state->_parent->operator_row_desc_after_projection());
     }
     _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
@@ -88,7 +89,7 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
-    const auto& row_descriptor = _local_state->_parent->operator_row_desc();
+    const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
     if (_has_projection) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
         if (!_can_merge_padding_blocks(_padding_block, _origin_block)) {
@@ -266,7 +267,7 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     origin_block->clear_column_data(
-            _local_state->_parent->operator_row_desc().num_materialized_slots());
+            _local_state->_parent->operator_row_desc_before_projection().num_materialized_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();

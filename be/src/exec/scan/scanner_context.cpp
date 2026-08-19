@@ -107,7 +107,7 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
           _enable_adaptive_scanners(enable_adaptive_scan) {
     DCHECK(_state != nullptr);
     if (has_projection) {
-        const auto& output_row_desc = local_state->_parent->row_desc();
+        const auto& output_row_desc = local_state->_parent->operator_row_desc_after_projection();
         DCHECK_EQ(output_row_desc.tuple_descriptors().size(), 1);
         _output_tuple_desc = output_row_desc.tuple_descriptors().front();
     }

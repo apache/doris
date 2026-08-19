@@ -1067,7 +1067,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         if (virtual_col_expr) {
             std::shared_ptr<doris::VExprContext> virtual_column_expr_ctx;
             RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_col_expr, virtual_column_expr_ctx));
-            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.operator_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(
+                    state, p.operator_row_desc_before_projection()));
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
@@ -1075,11 +1076,11 @@ Status OlapScanLocalState::open(RuntimeState* state) {
     }
 
     if (_score_runtime) {
-        RETURN_IF_ERROR(_score_runtime->prepare(state, p.operator_row_desc()));
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     if (_ann_topn_runtime) {
-        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.operator_row_desc()));
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

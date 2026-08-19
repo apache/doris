@@ -47,8 +47,9 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
-    auto output_data_types = VectorizedUtils::get_data_types(
-            _parent->cast<SetSourceOperatorX<is_intersect>>().operator_row_desc());
+    auto output_data_types =
+            VectorizedUtils::get_data_types(_parent->cast<SetSourceOperatorX<is_intersect>>()
+                                                    .operator_row_desc_before_projection());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;

@@ -114,7 +114,7 @@ public:
         RETURN_IF_ERROR(Base::set_child(child));
         // Cache source is inserted at runtime and has no FE plan descriptor. Its output schema
         // therefore follows the child that supplies the cache-compatible blocks.
-        _row_descriptor = _child->row_desc();
+        _row_descriptor = _child->operator_row_desc_after_projection();
         return Status::OK();
     }
 

@@ -234,7 +234,7 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, operator_row_desc()));
+        RETURN_IF_ERROR(conjunct->prepare(state, operator_row_desc_before_projection()));
     }
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
@@ -246,14 +246,14 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         auto& projection = *_projection;
         for (int i = 0; i < projection.intermediate_projections.size(); i++) {
             const auto& input_row_desc =
-                    i == 0 ? operator_row_desc()
+                    i == 0 ? operator_row_desc_before_projection()
                            : projection.intermediate_output_row_descriptors[i - 1];
             RETURN_IF_ERROR(
                     VExpr::prepare(projection.intermediate_projections[i], state, input_row_desc));
         }
         const auto& final_projection_input_row_desc =
                 projection.intermediate_output_row_descriptors.empty()
-                        ? operator_row_desc()
+                        ? operator_row_desc_before_projection()
                         : projection.intermediate_output_row_descriptors.back();
         RETURN_IF_ERROR(
                 VExpr::prepare(projection.projections, state, final_projection_input_row_desc));
@@ -305,7 +305,8 @@ Status OperatorXBase::close(RuntimeState* state) {
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
-    _origin_block.clear_column_data(_parent->operator_row_desc().num_materialized_slots());
+    _origin_block.clear_column_data(
+            _parent->operator_row_desc_before_projection().num_materialized_slots());
 }
 
 Status PipelineXLocalStateBase::filter_block(const VExprContextSPtrs& expr_contexts, Block* block) {
@@ -397,7 +398,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     }
 
     origin_block->clear_column_data(
-            local_state->_parent->operator_row_desc().num_materialized_slots());
+            local_state->_parent->operator_row_desc_before_projection().num_materialized_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
@@ -744,7 +745,8 @@ Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Bl
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
-                OperatorX<LocalStateType>::_child->row_desc().num_materialized_slots());
+                OperatorX<LocalStateType>::_child->operator_row_desc_after_projection()
+                        .num_materialized_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;

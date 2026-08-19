@@ -77,7 +77,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     LockGuard lock(_conjuncts_lock);
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
-            state, _parent->operator_row_desc(), arrived_rf_num, _conjuncts));
+            state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
@@ -232,7 +232,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
     size_t conjuncts_before = _conjuncts.size();
-    RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.operator_row_desc()));
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts,
+                                                   p.operator_row_desc_before_projection()));
     if (_conjuncts.size() > conjuncts_before) {
         RETURN_IF_ERROR(_on_runtime_filter_update());
     }
@@ -529,7 +530,8 @@ Status ScanLocalStateBase::_normalize_bloom_filter(
     *pdt = _should_push_down_bloom_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
         pred = create_bloom_filter_predicate(
-                _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bloom_filter_func());
@@ -786,13 +788,15 @@ Status ScanLocalStateBase::_normalize_in_predicate(
         }
     }
     pred = is_in ? create_in_list_predicate<PredicateType::IN_LIST>(
-                           _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                           _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                           slot->col_name(),
                            slot->type()->get_primitive_type() == TYPE_VARIANT
                                    ? root->get_child(0)->data_type()
                                    : slot->type(),
                            hybrid_set, false)
                  : create_in_list_predicate<PredicateType::NOT_IN_LIST>(
-                           _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                           _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                           slot->col_name(),
                            slot->type()->get_primitive_type() == TYPE_VARIANT
                                    ? root->get_child(0)->data_type()
                                    : slot->type(),
@@ -841,7 +845,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
         switch (op) {
         case SQLFilterOp::FILTER_EQ:
             pred = create_comparison_predicate<PredicateType::EQ>(
-                    _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -849,7 +854,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_NE:
             pred = create_comparison_predicate<PredicateType::NE>(
-                    _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -857,7 +863,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LESS:
             pred = create_comparison_predicate<PredicateType::LT>(
-                    _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -865,7 +872,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LARGER:
             pred = create_comparison_predicate<PredicateType::GT>(
-                    _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -873,7 +881,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LESS_OR_EQUAL:
             pred = create_comparison_predicate<PredicateType::LE>(
-                    _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -881,7 +890,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LARGER_OR_EQUAL:
             pred = create_comparison_predicate<PredicateType::GE>(
-                    _parent->operator_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -976,15 +986,17 @@ Status ScanLocalStateBase::_normalize_is_null_predicate(
 
     auto fn_call = assert_cast<VectorizedFnCall*>(root.get());
     if (fn_call->fn().name.function_name == "is_null_pred") {
-        pred = NullPredicate::create_shared(_parent->operator_row_desc().get_column_id(slot->id()),
-                                            slot->col_name(), true, T);
+        pred = NullPredicate::create_shared(
+                _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                slot->col_name(), true, T);
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                 slot->is_nullable(), range.precision(), range.scale());
         temp_range.set_contain_null(true);
         range.intersection(temp_range);
     } else if (fn_call->fn().name.function_name == "is_not_null_pred") {
-        pred = NullPredicate::create_shared(_parent->operator_row_desc().get_column_id(slot->id()),
-                                            slot->col_name(), false, T);
+        pred = NullPredicate::create_shared(
+                _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                slot->col_name(), false, T);
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                 slot->is_nullable(), range.precision(), range.scale());
         temp_range.set_contain_null(false);
@@ -1118,7 +1130,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
-                state, _parent->cast<typename Derived::Parent>().operator_row_desc()));
+                state,
+                _parent->cast<typename Derived::Parent>().operator_row_desc_before_projection()));
         RETURN_IF_ERROR(conjunct->open(state));
         _conjuncts.emplace_back(conjunct);
     }
@@ -1129,7 +1142,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
-                state, _parent->cast<typename Derived::Parent>().operator_row_desc()));
+                state,
+                _parent->cast<typename Derived::Parent>().operator_row_desc_before_projection()));
         RETURN_IF_ERROR(conjunct->open(state));
         _conjuncts.emplace_back(conjunct);
     }

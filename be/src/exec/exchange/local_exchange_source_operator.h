@@ -92,7 +92,7 @@ public:
         if (!_planned_by_fe) {
             // A runtime-created local exchange has no FE plan to initialize its row descriptor,
             // so its original output schema is inherited from the child.
-            _row_descriptor = _child->row_desc();
+            _row_descriptor = _child->operator_row_desc_after_projection();
         }
         return Status::OK();
     }

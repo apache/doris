@@ -117,7 +117,8 @@ Status UnionSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
             return Status::OK();
         }
         block->swap(*queue_block.block);
-        queue_block.block->clear_column_data(operator_row_desc().num_materialized_slots());
+        queue_block.block->clear_column_data(
+                operator_row_desc_before_projection().num_materialized_slots());
         local_state._shared_state->data_queue.push_free_block(std::move(queue_block));
     }
     local_state.reached_limit(block, eos);
@@ -132,8 +133,8 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
-    auto scoped_mutable_block =
-            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, operator_row_desc());
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            block, operator_row_desc_before_projection());
     auto& mblock = scoped_mutable_block.mutable_block();
 
     ColumnsWithTypeAndName tmp_block_columns;

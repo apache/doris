@@ -944,7 +944,9 @@ public:
     // Describes the operator's original output before its optional projection. For most operators
     // this is the block returned by get_block(); Scan uses it to describe Scanner's unprojected
     // block because Scan executes the projection before ScanOperatorX::get_block_impl().
-    [[nodiscard]] const RowDescriptor& operator_row_desc() const { return _row_descriptor; }
+    [[nodiscard]] const RowDescriptor& operator_row_desc_before_projection() const {
+        return _row_descriptor;
+    }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const override { return _node_id; }
@@ -954,8 +956,9 @@ public:
 
     // Describes the final block returned by get_block_after_projects() to downstream operators.
     // Without a projection, the original and final row descriptors are the same.
-    [[nodiscard]] const RowDescriptor& row_desc() const {
-        return has_projection() ? _projection->output_row_descriptor : operator_row_desc();
+    [[nodiscard]] const RowDescriptor& operator_row_desc_after_projection() const {
+        return has_projection() ? _projection->output_row_descriptor
+                                : operator_row_desc_before_projection();
     }
 
     [[nodiscard]] bool has_projection() const { return _projection.has_value(); }
