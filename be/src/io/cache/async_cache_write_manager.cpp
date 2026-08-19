@@ -137,23 +137,43 @@ class AsyncCacheWriteEpochRegistry
 public:
     std::shared_ptr<AsyncCacheWriteEpochToken> capture(const UInt128Wrapper& cache_hash) {
         auto& shard = _shards[_shard_index(cache_hash)];
-        std::lock_guard lock(shard.mutex);
-        auto iterator = shard.tokens.find(cache_hash);
-        if (iterator != shard.tokens.end()) {
+        const auto find_live_token = [&]() -> std::shared_ptr<AsyncCacheWriteEpochToken> {
+            auto iterator = shard.tokens.find(cache_hash);
+            if (iterator == shard.tokens.end()) {
+                return nullptr;
+            }
             auto token = iterator->second.token.lock();
             if (token != nullptr) {
                 return token;
             }
             shard.tokens.erase(iterator);
             _active_key_count.fetch_sub(1, std::memory_order_relaxed);
+            return nullptr;
+        };
+
+        {
+            std::lock_guard lock(shard.mutex);
+            if (auto token = find_live_token(); token != nullptr) {
+                return token;
+            }
         }
 
         const uint64_t generation = _next_generation.fetch_add(1, std::memory_order_relaxed);
-        auto token = std::shared_ptr<AsyncCacheWriteEpochToken>(
+        auto candidate_object = std::unique_ptr<AsyncCacheWriteEpochToken>(
                 new AsyncCacheWriteEpochToken(cache_hash, generation, weak_from_this()));
-        shard.tokens.emplace(cache_hash, Entry {.generation = generation, .token = token});
-        _active_key_count.fetch_add(1, std::memory_order_relaxed);
-        return token;
+        TEST_SYNC_POINT("AsyncCacheWriteEpochRegistry::capture:after_candidate_object_created");
+        auto candidate = std::shared_ptr<AsyncCacheWriteEpochToken>(std::move(candidate_object));
+        {
+            std::lock_guard lock(shard.mutex);
+            if (auto token = find_live_token(); token != nullptr) {
+                return token;
+            }
+            TEST_SYNC_POINT("AsyncCacheWriteEpochRegistry::capture:before_candidate_publish");
+            shard.tokens.emplace(cache_hash,
+                                 Entry {.generation = generation, .token = candidate});
+            _active_key_count.fetch_add(1, std::memory_order_relaxed);
+        }
+        return candidate;
     }
 
     void invalidate(const UInt128Wrapper& cache_hash) {

@@ -28,6 +28,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -223,6 +224,67 @@ TEST_F(AsyncCacheWriteManagerTest, WriteEpochRegistryReusesAndReclaimsLiveKey) {
     EXPECT_EQ(new_epoch.cache_epoch, old_epoch.cache_epoch);
     EXPECT_LT(old_epoch.key_token->generation(), new_epoch.key_token->generation());
     EXPECT_EQ(manager->active_write_epoch_key_count(), 1);
+}
+
+TEST_F(AsyncCacheWriteManagerTest, WriteEpochRegistryUnwindsPublicationFailures) {
+    auto cache = create_cache("async_write_epoch_registry_exception");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+    const auto hash = BlockFileCache::hash("epoch_registry_exception");
+
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+    const auto expect_capture_failure = [&](const std::string& point) {
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(point, [](auto&&) { throw std::bad_alloc(); }, &guard);
+        EXPECT_THROW(static_cast<void>(manager->current_write_epoch(hash)), std::bad_alloc);
+        EXPECT_EQ(manager->active_write_epoch_key_count(), 0);
+    };
+
+    expect_capture_failure(
+            "AsyncCacheWriteEpochRegistry::capture:after_candidate_object_created");
+    expect_capture_failure("AsyncCacheWriteEpochRegistry::capture:before_candidate_publish");
+
+    {
+        const auto epoch = manager->current_write_epoch(hash);
+        EXPECT_TRUE(manager->is_current_write_epoch(epoch));
+        EXPECT_EQ(manager->active_write_epoch_key_count(), 1);
+    }
+    EXPECT_EQ(manager->active_write_epoch_key_count(), 0);
+}
+
+TEST_F(AsyncCacheWriteManagerTest, ConcurrentWriteEpochCapturePublishesSingleToken) {
+    auto cache = create_cache("async_write_epoch_registry_concurrent");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+    const auto hash = BlockFileCache::hash("epoch_registry_concurrent");
+    constexpr size_t thread_count = 16;
+    std::barrier start(static_cast<std::ptrdiff_t>(thread_count));
+    std::vector<AsyncCacheWriteEpoch> epochs(thread_count);
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (size_t index = 0; index < thread_count; ++index) {
+        threads.emplace_back([&, index]() {
+            start.arrive_and_wait();
+            epochs[index] = manager->current_write_epoch(hash);
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_NE(epochs.front().key_token, nullptr);
+    for (const auto& epoch : epochs) {
+        EXPECT_EQ(epoch.key_token, epochs.front().key_token);
+        EXPECT_EQ(epoch.cache_epoch, epochs.front().cache_epoch);
+    }
+    EXPECT_EQ(manager->active_write_epoch_key_count(), 1);
+    epochs.clear();
+    EXPECT_EQ(manager->active_write_epoch_key_count(), 0);
 }
 
 TEST_F(AsyncCacheWriteManagerTest, PerKeyRemoveDoesNotInvalidateUnrelatedWriteEpoch) {
