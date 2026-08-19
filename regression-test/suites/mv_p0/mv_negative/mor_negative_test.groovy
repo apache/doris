@@ -16,6 +16,7 @@
 // under the License.
 
 suite("mor_negative_mv_test", "mv_negative") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "mv_mor_negative"
@@ -157,4 +158,5 @@ suite("mor_negative_mv_test", "mv_negative") {
     }
 
 
+    }
 }

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_join_on", "query_p0") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     sql "DROP TABLE IF EXISTS join_on"
     sql """
@@ -48,5 +49,6 @@ suite("test_join_on", "query_p0") {
     test {
         sql """select * from (select cast('' as variant) as a) t1 join (select cast('' as variant) as a) t2 on t1.a = t2.a"""
         exception "could not used in ComparisonPredicate (a = a)"
+    }
     }
 }

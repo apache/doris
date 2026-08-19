@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_unique_table_quantile_state") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     for (def enable_mow : [true, false]) {
         sql "sync;"
@@ -65,5 +66,6 @@ suite("test_unique_table_quantile_state") {
                     DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1"); """
             exception "Key column can not set complex type:k"
         }
+    }
     }
 }

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("any_value") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
     sql "set enable_decimal256 = true;"
     sql """
         drop table if exists d_table;
@@ -102,4 +103,5 @@ suite("any_value") {
     qt_sql_bitmap """select bitmap_to_string(any_value(col_bitmap)) from d_table;"""
     qt_sql_hll """select hll_cardinality(any_value(col_hll)) from d_table;"""
     qt_sql_quantile_state """select QUANTILE_PERCENT(any_value(col_quantile_state), 0.5) from d_table;"""
+    }
 }
