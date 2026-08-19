@@ -55,6 +55,40 @@ VerticalBlockReader::~VerticalBlockReader() {
     }
 }
 
+void VerticalBlockReader::_append_grouped_iterator_init_flags(
+        const RowsetMeta& rowset_meta, std::pair<int64_t, int64_t> segment_offsets,
+        size_t added_iterators, std::vector<bool>* iterator_init_flag) {
+    auto [segment_start, segment_end] = segment_offsets;
+    if (segment_start == segment_end) {
+        segment_start = 0;
+        segment_end = rowset_meta.num_segments();
+    }
+
+    DORIS_CHECK_GE(segment_start, 0);
+    DORIS_CHECK_LE(segment_start, segment_end);
+    DORIS_CHECK_LE(segment_end, rowset_meta.num_segments());
+    DORIS_CHECK_EQ(added_iterators, static_cast<size_t>(segment_end - segment_start));
+    DORIS_CHECK_GT(rowset_meta.segment_group_sizes().size(), 1);
+
+    const size_t flags_start = iterator_init_flag->size();
+    int64_t group_start = 0;
+    for (const auto group_size : rowset_meta.segment_group_sizes()) {
+        DORIS_CHECK_GT(group_size, 0);
+        const int64_t group_end = group_start + group_size;
+        const int64_t selected_start = std::max(group_start, segment_start);
+        const int64_t selected_end = std::min(group_end, segment_end);
+        if (selected_start < selected_end) {
+            iterator_init_flag->push_back(true);
+            iterator_init_flag->insert(iterator_init_flag->end(),
+                                       static_cast<size_t>(selected_end - selected_start - 1),
+                                       false);
+        }
+        group_start = group_end;
+    }
+    DORIS_CHECK_EQ(group_start, rowset_meta.num_segments());
+    DORIS_CHECK_EQ(iterator_init_flag->size() - flags_start, added_iterators);
+}
+
 Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
     if (!config::is_cloud_mode()) {
@@ -80,22 +114,31 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     }
     for (const auto& rs_split : read_params.rs_splits) {
         RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+        const auto rowset = rs_split.rs_reader->rowset();
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
-        bool use_cache = !rs_split.rs_reader->rowset()->is_local();
+        bool use_cache = !rowset->is_local();
         size_t iterators_start = segment_iters->size();
         RETURN_IF_ERROR(rs_split.rs_reader->get_segment_iterators(&_reader_context, segment_iters,
                                                                   use_cache));
-        // if segments overlapping, all segment iterator should be inited in
-        // heap merge iterator. If segments are none overlapping, only first segment of this
-        // rowset will be inited and push to heap, other segment will be inited later when current
-        // segment reached it's end.
-        // Use this iterator_init_flag so we can load few segments in HeapMergeIterator to save memory
+        // If segments overlap, all segment iterators should be initialized in the heap merge
+        // iterator. For grouped segments, initialize the first iterator of each group because
+        // segments are ordered within a group but groups may overlap. If segments do not overlap,
+        // only the first segment of the rowset is initialized; later segments are initialized when
+        // the current segment reaches its end.
+        // Use this iterator_init_flag so we can load few segments in HeapMergeIterator to save
+        // memory.
         size_t added_iterators = segment_iters->size() - iterators_start;
-        if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
-            for (size_t i = 0; i < added_iterators; ++i) {
-                iterator_init_flag->push_back(true);
+        if (rowset->is_segments_overlapping()) {
+            const auto& rowset_meta = *rowset->rowset_meta();
+            if (rowset_meta.segments_overlap() == NONOVERLAPPING_WITHIN_GROUP) {
+                _append_grouped_iterator_init_flags(rowset_meta, rs_split.segment_offsets,
+                                                    added_iterators, iterator_init_flag);
+            } else {
+                for (size_t i = 0; i < added_iterators; ++i) {
+                    iterator_init_flag->push_back(true);
+                }
             }
         } else {
             for (size_t i = 0; i < added_iterators; ++i) {
@@ -107,7 +150,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
             }
         }
         for (size_t i = 0; i < added_iterators; ++i) {
-            rowset_ids->push_back(rs_split.rs_reader->rowset()->rowset_id());
+            rowset_ids->push_back(rowset->rowset_id());
         }
         rs_split.rs_reader->reset_read_options();
     }

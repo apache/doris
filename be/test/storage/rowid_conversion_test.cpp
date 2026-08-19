@@ -651,7 +651,11 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         ASSERT_TRUE(compaction.do_merge_input_rowsets({}, &merge_result).ok());
         const int64_t segment_group_count =
                 (num_segments + segment_group_size - 1) / segment_group_size;
-        EXPECT_EQ(merge_result.output_segment_group_count, segment_group_count);
+        ASSERT_EQ(merge_result.output_segment_group_sizes.size(),
+                  static_cast<size_t>(segment_group_count));
+        for (const auto output_group_size : merge_result.output_segment_group_sizes) {
+            EXPECT_GT(output_group_size, 0);
+        }
         if (is_vertical) {
             constexpr int32_t default_num_columns_per_group = 5;
             const int32_t num_columns_per_group =
@@ -684,10 +688,23 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         compaction.update_output_rowset_after_build(merge_result);
         EXPECT_EQ(compaction._stats.output_rows, input_rowset->num_rows());
         if (is_vertical) {
-            EXPECT_GT(output_rowset->num_segments(), merge_result.output_segment_group_count);
+            EXPECT_GT(output_rowset->num_segments(),
+                      static_cast<int64_t>(merge_result.output_segment_group_sizes.size()));
         }
         EXPECT_EQ(output_rowset->rowset_meta()->get_num_segment_rows().size(),
                   output_rowset->num_segments());
+
+        EXPECT_EQ(output_rowset->rowset_meta()->segments_overlap(), NONOVERLAPPING_WITHIN_GROUP);
+        const auto output_rowset_pb = output_rowset->rowset_meta()->get_rowset_pb();
+        ASSERT_EQ(output_rowset_pb.segment_group_sizes_size(),
+                  merge_result.output_segment_group_sizes.size());
+        int64_t output_segment_count = 0;
+        for (int i = 0; i < output_rowset_pb.segment_group_sizes_size(); ++i) {
+            EXPECT_EQ(output_rowset_pb.segment_group_sizes(i),
+                      merge_result.output_segment_group_sizes[static_cast<size_t>(i)]);
+            output_segment_count += output_rowset_pb.segment_group_sizes(i);
+        }
+        EXPECT_EQ(output_segment_count, output_rowset->num_segments());
 
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
@@ -727,7 +744,7 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         EXPECT_EQ(rowset_meta->version(), input_rowset->version());
         EXPECT_FALSE(rowset_meta->empty());
         EXPECT_EQ(rowset_meta->num_rows(), input_rowset->num_rows());
-        EXPECT_EQ(rowset_meta->segments_overlap(), OVERLAPPING);
+        EXPECT_EQ(rowset_meta->segments_overlap(), NONOVERLAPPING_WITHIN_GROUP);
         EXPECT_TRUE(rowset_meta->is_segments_overlapping());
 
         ASSERT_TRUE(rowset_meta->tablet_schema() != nullptr);
@@ -829,6 +846,87 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
                 ASSERT_LT(output_row_id, output_data.size());
                 EXPECT_EQ(output_data[output_row_id], input_data[segment_id][row_id]);
             }
+        }
+
+        if (is_vertical) {
+            auto second_writer_context = create_rowset_writer_context(
+                    tablet_schema, NONOVERLAPPING, rows_per_segment, output_rowset->version());
+            second_writer_context.db_id = tablet_schema->db_id();
+            second_writer_context.table_id = local_tablet->table_id();
+            second_writer_context.tablet_id = local_tablet->tablet_id();
+            second_writer_context.index_id = local_tablet->index_id();
+            second_writer_context.partition_id = local_tablet->partition_id();
+            second_writer_context.tablet_schema_hash = local_tablet->schema_hash();
+            second_writer_context.tablet_uid = local_tablet->tablet_uid();
+            second_writer_context.newest_write_timestamp = newest_write_timestamp;
+            second_writer_context.compaction_level = compaction_level;
+            second_writer_context.enable_unique_key_merge_on_write = true;
+            auto second_writer_result =
+                    RowsetFactory::create_rowset_writer(*engine_ref, second_writer_context, true);
+            ASSERT_TRUE(second_writer_result.has_value()) << second_writer_result.error();
+
+            CloudCumulativeCompaction second_compaction(cloud_engine, cloud_tablet);
+            second_compaction._input_rowsets = {output_rowset};
+            second_compaction._cur_tablet_schema = tablet_schema;
+            second_compaction._output_rs_writer = std::move(second_writer_result).value();
+            second_compaction._is_vertical = true;
+            second_compaction._input_row_num = output_rowset->num_rows();
+            second_compaction._input_rowsets_data_size = output_rowset->data_disk_size();
+            second_compaction._stats.rowid_conversion = second_compaction._rowid_conversion.get();
+
+            Compaction::MergeInputRowsetsResult second_merge_result;
+            second_merge_result.is_segment_grouped = true;
+            second_merge_result.segment_group_size = output_rowset->num_segments();
+            ASSERT_TRUE(second_compaction.do_merge_input_rowsets({}, &second_merge_result).ok());
+            ASSERT_EQ(second_merge_result.output_segment_group_sizes.size(), 1);
+
+            RowsetSharedPtr second_output_rowset;
+            ASSERT_EQ(Status::OK(),
+                      second_compaction._output_rs_writer->build(second_output_rowset));
+            ASSERT_TRUE(second_output_rowset != nullptr);
+            second_compaction._output_rowset = second_output_rowset;
+            second_compaction.update_output_rowset_after_build(second_merge_result);
+            EXPECT_EQ(second_output_rowset->rowset_meta()->segments_overlap(), NONOVERLAPPING);
+            EXPECT_TRUE(second_output_rowset->rowset_meta()->segment_group_sizes().empty());
+            EXPECT_EQ(second_output_rowset->num_rows(), output_rowset->num_rows());
+            EXPECT_GT(second_output_rowset->num_segments(), 1);
+
+            auto second_beta_rowset = std::dynamic_pointer_cast<BetaRowset>(second_output_rowset);
+            ASSERT_TRUE(second_beta_rowset != nullptr);
+            std::vector<segment_v2::SegmentSharedPtr> second_output_segments;
+            ASSERT_TRUE(second_beta_rowset->load_segments(&second_output_segments).ok());
+            ASSERT_EQ(second_output_segments.size(), second_output_rowset->num_segments());
+            for (size_t segment_id = 0; segment_id < second_output_segments.size(); ++segment_id) {
+                const auto& segment = second_output_segments[segment_id];
+                EXPECT_LE(segment->min_key(), segment->max_key()) << "segment_id=" << segment_id;
+                if (segment_id > 0) {
+                    EXPECT_LT(second_output_segments[segment_id - 1]->max_key(), segment->min_key())
+                            << "previous_segment_id=" << segment_id - 1
+                            << ", segment_id=" << segment_id;
+                }
+            }
+
+            RowsetReaderContext second_reader_context;
+            second_reader_context.tablet_schema = tablet_schema;
+            second_reader_context.need_ordered_result = false;
+            second_reader_context.return_columns = &return_columns;
+            RowsetReaderSharedPtr second_output_reader;
+            create_and_init_rowset_reader(second_output_rowset.get(), second_reader_context,
+                                          &second_output_reader);
+
+            std::vector<std::tuple<int64_t, int64_t>> second_output_data;
+            Status second_read_status;
+            do {
+                Block output_block = tablet_schema->create_block(return_columns);
+                second_read_status = second_output_reader->next_batch(&output_block);
+                const auto& columns = output_block.get_columns_with_type_and_name();
+                for (size_t row_id = 0; row_id < output_block.rows(); ++row_id) {
+                    second_output_data.emplace_back(columns[0].column->get_int(row_id),
+                                                    columns[1].column->get_int(row_id));
+                }
+            } while (second_read_status.ok());
+            ASSERT_TRUE(second_read_status.is<END_OF_FILE>()) << second_read_status;
+            EXPECT_EQ(second_output_data, output_data);
         }
     }
 }
