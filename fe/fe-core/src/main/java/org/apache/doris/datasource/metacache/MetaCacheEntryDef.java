@@ -19,6 +19,7 @@ package org.apache.doris.datasource.metacache;
 
 import java.util.Objects;
 import java.util.function.Function;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import javax.annotation.Nullable;
 
 /**
@@ -101,10 +102,12 @@ public final class MetaCacheEntryDef<K, V> {
     private final boolean autoRefresh;
     private final boolean contextualOnly;
     private final MetaCacheEntryInvalidation<K> invalidation;
+    @Nullable
+    private final RemovalListener<K, V> removalListener;
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
-            MetaCacheEntryInvalidation<K> invalidation) {
+            MetaCacheEntryInvalidation<K> invalidation, @Nullable RemovalListener<K, V> removalListener) {
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -123,6 +126,7 @@ public final class MetaCacheEntryDef<K, V> {
         this.autoRefresh = autoRefresh;
         this.contextualOnly = contextualOnly;
         this.invalidation = Objects.requireNonNull(invalidation, "entry invalidation is required");
+        this.removalListener = removalListener;
     }
 
     /**
@@ -142,7 +146,25 @@ public final class MetaCacheEntryDef<K, V> {
     public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
             Function<K, V> loader, CacheSpec defaultCacheSpec, MetaCacheEntryInvalidation<K> invalidation) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, true, false,
-                invalidation);
+                invalidation, null);
+    }
+
+    /**
+     * Create an entry definition with a removal listener. The listener is invoked when a cached value is
+     * evicted or invalidated, allowing the cache to release resources owned by the value (e.g. Iceberg FileIO).
+     */
+    public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
+            Function<K, V> loader, CacheSpec defaultCacheSpec, MetaCacheEntryInvalidation<K> invalidation,
+            RemovalListener<K, V> removalListener) {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, true, false,
+                invalidation, removalListener);
+    }
+
+    public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
+            Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh,
+            MetaCacheEntryInvalidation<K> invalidation, RemovalListener<K, V> removalListener) {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, false,
+                invalidation, removalListener);
     }
 
     /**
@@ -164,7 +186,7 @@ public final class MetaCacheEntryDef<K, V> {
             Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh,
             MetaCacheEntryInvalidation<K> invalidation) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, false,
-                invalidation);
+                invalidation, null);
     }
 
     /**
@@ -179,7 +201,7 @@ public final class MetaCacheEntryDef<K, V> {
             String name, Class<K> keyType, Class<V> valueType, CacheSpec defaultCacheSpec,
             MetaCacheEntryInvalidation<K> invalidation) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, null, defaultCacheSpec, false, true,
-                invalidation);
+                invalidation, null);
     }
 
     /**
@@ -231,5 +253,10 @@ public final class MetaCacheEntryDef<K, V> {
 
     public MetaCacheEntryInvalidation<K> getInvalidation() {
         return invalidation;
+    }
+
+    @Nullable
+    public RemovalListener<K, V> getRemovalListener() {
+        return removalListener;
     }
 }

@@ -25,10 +25,21 @@ import java.util.function.Supplier;
 public class IcebergTableCacheValue {
     private final Table icebergTable;
     private final Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue;
+    private final boolean closeFileIO;
 
     public IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue) {
+        this(icebergTable, latestSnapshotCacheValue, false);
+    }
+
+    /**
+     * @param closeFileIO whether this cache value owns its Iceberg FileIO and should close it when evicted.
+     *     Must be false when the table shares a catalog-level FileIO.
+     */
+    public IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue,
+            boolean closeFileIO) {
         this.icebergTable = icebergTable;
         this.latestSnapshotCacheValue = Suppliers.memoize(latestSnapshotCacheValue::get);
+        this.closeFileIO = closeFileIO;
     }
 
     public Table getIcebergTable() {
@@ -37,5 +48,11 @@ public class IcebergTableCacheValue {
 
     public IcebergSnapshotCacheValue getLatestSnapshotCacheValue() {
         return latestSnapshotCacheValue.get();
+    }
+
+    public void close() {
+        if (closeFileIO) {
+            icebergTable.io().close();
+        }
     }
 }

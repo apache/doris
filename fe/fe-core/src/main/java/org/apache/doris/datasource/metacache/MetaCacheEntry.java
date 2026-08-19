@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 
 import java.util.Objects;
@@ -108,6 +109,52 @@ public class MetaCacheEntry<K, V> {
                 true,
                 null);
         this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        this.data = loadingData;
+        // Initialize striped locks eagerly to keep the hot path allocation-free.
+        for (int i = 0; i < loadLocks.length; i++) {
+            loadLocks[i] = new Object();
+        }
+    }
+
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable RemovalListener<K, V> removalListener) {
+        this.name = name;
+        if (contextualOnly) {
+            if (loader != null) {
+                throw new IllegalArgumentException("contextual-only entry loader must be null");
+            }
+            if (autoRefresh) {
+                throw new IllegalArgumentException("contextual-only entry can not enable auto refresh");
+            }
+        } else {
+            Objects.requireNonNull(loader, "loader can not be null");
+        }
+        this.loader = loader;
+        this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
+        this.autoRefresh = autoRefresh;
+        Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
+        this.effectiveEnabled = CacheSpec.isCacheEnabled(
+                this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
+        OptionalLong expireAfterAccessSec =
+                effectiveEnabled ? CacheSpec.toExpireAfterAccess(this.cacheSpec.getTtlSecond()) : OptionalLong.empty();
+        OptionalLong refreshAfterWriteSec =
+                effectiveEnabled && autoRefresh
+                        ? OptionalLong.of(Config.external_cache_refresh_time_minutes * 60)
+                        : OptionalLong.empty();
+        long maxSize = effectiveEnabled ? this.cacheSpec.getCapacity() : 0L;
+        CacheFactory cacheFactory = new CacheFactory(
+                expireAfterAccessSec,
+                refreshAfterWriteSec,
+                maxSize,
+                true,
+                null);
+        if (removalListener != null) {
+            this.loadingData = cacheFactory.buildCacheWithAsyncRemovalListener(
+                    this::loadFromDefaultLoader, removalListener, refreshExecutor);
+        } else {
+            this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        }
         this.data = loadingData;
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {

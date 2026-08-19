@@ -40,6 +40,7 @@ import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,7 +93,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         super(ENGINE, refreshExecutor);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
-                MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
+                MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping),
+                this::closeTableCacheValue));
         viewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_VIEW, NameMapping.class, View.class, this::loadView,
                 defaultEntryCacheSpec(), MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
         manifestEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_MANIFEST, IcebergManifestEntryKey.class,
@@ -170,7 +172,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             Table table = ((ExternalCatalog) catalog).getExecutionAuthenticator()
                     .execute(() -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
             ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
-            return new IcebergTableCacheValue(table, () -> loadSnapshotProjection(dorisTable, table));
+            return new IcebergTableCacheValue(table, () -> loadSnapshotProjection(dorisTable, table),
+                    shouldCloseTableFileIO(catalog, ops, table));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
@@ -277,6 +280,36 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             }
         }
         return deleteFiles;
+    }
+
+    private boolean shouldCloseTableFileIO(CatalogIf catalog, IcebergMetadataOps ops, Table table) {
+        if (!(catalog instanceof IcebergExternalCatalog)) {
+            return false;
+        }
+        IcebergExternalCatalog icebergCatalog = (IcebergExternalCatalog) catalog;
+        String type = icebergCatalog.getIcebergCatalogType();
+        if (IcebergExternalCatalog.ICEBERG_GLUE.equals(type)
+                || IcebergExternalCatalog.ICEBERG_DLF.equals(type)) {
+            return true;
+        }
+        if (IcebergExternalCatalog.ICEBERG_REST.equals(type)) {
+            FileIO catalogFileIO = ops.getCatalogFileIO();
+            // Only close a REST table FileIO when it is not the shared catalog-level FileIO.
+            return catalogFileIO != null && table.io() != catalogFileIO;
+        }
+        return false;
+    }
+
+    private void closeTableCacheValue(NameMapping key, IcebergTableCacheValue value,
+            com.github.benmanes.caffeine.cache.RemovalCause cause) {
+        if (value == null) {
+            return;
+        }
+        try {
+            value.close();
+        } catch (Exception e) {
+            LOG.warn("Failed to close Iceberg table cache value", e);
+        }
     }
 
     private void dropManifestFileIoCacheForCatalog(long catalogId) {
