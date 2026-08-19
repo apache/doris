@@ -163,9 +163,29 @@ public class WebSqlStatementExecutor {
 
     private Map<String, Object> sqlDetails(SQLException exception) {
         Map<String, Object> details = new HashMap<>();
+        details.put("message", sqlMessage(exception));
         details.put("sqlState", String.valueOf(exception.getSQLState()));
         details.put("vendorCode", exception.getErrorCode());
         return details;
+    }
+
+    /**
+     * JDBC drivers may put the server's diagnostic text on the chained SQLException rather than
+     * the exception thrown by execute(). Keep the first useful message so the Web SQL client can
+     * show the same SQL error that a MySQL client receives without exposing a Java stack trace.
+     */
+    private String sqlMessage(SQLException exception) {
+        SQLException current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && !message.trim().isEmpty()) {
+                return message;
+            }
+            current = current.getNextException();
+        }
+        Throwable cause = exception.getCause();
+        return cause != null && cause.getMessage() != null && !cause.getMessage().trim().isEmpty()
+                ? cause.getMessage() : "SQL execution failed.";
     }
 
     /** Intermediate result-set data collected before supplementary session metadata is queried. */

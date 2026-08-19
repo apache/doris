@@ -106,6 +106,7 @@ function QueryProfileDetail({ profileId }: { profileId: string }) {
       {messageContext}
       <header className="page-heading">
         <h1>Query Profile</h1>
+        <p className="profile-id" title={profileId}>{profileId}</p>
       </header>
       <section className="operations-section" aria-labelledby="profile-text-heading">
         <div className="section-heading profile-detail-heading">

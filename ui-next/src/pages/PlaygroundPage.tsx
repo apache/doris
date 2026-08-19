@@ -41,13 +41,12 @@ import { format } from 'sql-formatter';
 import { UiApiError } from '../api/client';
 import type { WebSqlExecutionResult } from '../api/types';
 import { adaptCatalogs, adaptSchema, adaptSingleNameColumn, type CatalogItem, type SchemaColumn } from './playground/metadataAdapter';
-import { executableSql, qualifiedName, quoteIdentifier, type SqlSelection } from './playground/sqlSelection';
+import { executableSql, qualifiedName, quoteIdentifier, sqlStatements, statementRangeAt, type SqlSelection } from './playground/sqlSelection';
+import { clearHistory, loadHistory, MAX_RESULT_TABS, saveHistory } from './playground/historyStorage';
 import { useWebSqlSession } from './playground/useWebSqlSession';
 
 const INITIAL_SQL = `SELECT COUNT(*) AS row_count
 FROM tpcds.store_sales;`;
-const MAX_RESULT_TABS = 10;
-
 interface QueryResultTab {
   key: string;
   label: string;
@@ -59,6 +58,7 @@ interface LogMessage {
   id: number;
   tone: 'info' | 'success' | 'error';
   timestamp: string;
+  createdAt: number;
   text: string;
 }
 
@@ -73,25 +73,50 @@ interface SchemaInsertion {
   document: string;
   position: number;
   mode: 'empty' | 'before-existing';
+  statementFrom: number;
+  statementTo: number;
 }
 
 function insertSchemaColumnIntoSql(
   document: string,
   column: string,
   previous: SchemaInsertion | null,
+  cursorOffset: number,
 ): { document: string; insertion: SchemaInsertion } | null {
-  let insertion = previous?.document === document ? previous : null;
+  let insertion = previous?.document === document
+    && cursorOffset >= previous.statementFrom && cursorOffset <= previous.statementTo ? previous : null;
   const continued = insertion !== null;
   if (!insertion) {
-    const select = /\bselect\b/i.exec(document);
+    const statement = statementRangeAt(document, cursorOffset);
+    const statementText = document.slice(statement.from, statement.to);
+    const select = /\bselect\b/i.exec(statementText);
     if (!select) return null;
-    let position = select.index + select[0].length;
+    const statementStart = statement.from;
+    let position = statementStart + select.index + select[0].length;
     while (document[position] === ' ' || document[position] === '\t') position += 1;
+    const from = /\bfrom\b/i.exec(document.slice(position, statement.to));
+    const listEnd = from ? position + from.index : statement.to;
+    const list = document.slice(position, listEnd);
+    const star = /^\s*\*\s*$/.test(list);
     insertion = {
       document,
-      position,
-      mode: /^\r?\n\s*from\b/i.test(document.slice(position)) ? 'empty' : 'before-existing',
+      position: star ? position + list.indexOf('*') : position,
+      mode: star ? 'empty' : /^\s*$/.test(list) ? 'empty' : 'before-existing',
+      statementFrom: statement.from,
+      statementTo: statement.to,
     };
+    if (star) {
+      const nextDocument = `${document.slice(0, insertion.position)}${column}${document.slice(insertion.position + 1)}`;
+      return {
+        document: nextDocument,
+        insertion: {
+          ...insertion,
+          document: nextDocument,
+          position: insertion.position + column.length,
+          statementTo: insertion.statementTo + column.length - 1,
+        },
+      };
+    }
   }
 
   const text = insertion.mode === 'empty'
@@ -104,6 +129,8 @@ function insertSchemaColumnIntoSql(
       document: nextDocument,
       position: insertion.position + text.length,
       mode: insertion.mode,
+      statementFrom: insertion.statementFrom,
+      statementTo: insertion.statementTo + text.length,
     },
   };
 }
@@ -118,10 +145,32 @@ function tableNodeKey(database: string, table: string): string {
 
 function errorText(error: unknown): string {
   if (error instanceof UiApiError) {
-    const details = typeof error.details === 'string' ? ` ${error.details}` : '';
-    return `${error.message}${details} [${error.code}]`;
+    let primary = error.message;
+    let metadata = '';
+    if (typeof error.details === 'string') {
+      metadata = error.details;
+    } else if (error.details && typeof error.details === 'object') {
+      const details = error.details as { message?: unknown; sqlState?: unknown; vendorCode?: unknown };
+      if (typeof details.message === 'string' && details.message) primary = details.message;
+      const fields = [
+        typeof details.sqlState === 'string' && details.sqlState ? `SQLState ${details.sqlState}` : '',
+        details.vendorCode !== undefined && details.vendorCode !== null ? `code ${details.vendorCode}` : '',
+      ].filter(Boolean);
+      metadata = fields.length > 0 ? `(${fields.join(', ')})` : '';
+    }
+    return `${primary}${metadata ? ` ${metadata}` : ''} [${error.code}]`;
   }
   return error instanceof Error ? error.message : 'The operation failed.';
+}
+
+function messageSortValue(message: LogMessage): number {
+  if (message.createdAt) return message.createdAt;
+  const match = /^(\d{1,2}):(\d{2}):(\d{2})/.exec(message.timestamp);
+  return match ? (Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])) * 1000 : 0;
+}
+
+function sortMessages(messages: LogMessage[]): LogMessage[] {
+  return [...messages].sort((left, right) => messageSortValue(right) - messageSortValue(left) || right.id - left.id);
 }
 
 function displayValue(value: unknown): string {
@@ -167,6 +216,7 @@ export function PlaygroundPage() {
   const [closing, setClosing] = useState(false);
   const [results, setResults] = useState<QueryResultTab[]>([]);
   const [messages, setMessages] = useState<LogMessage[]>([]);
+  const [historyLoadedSession, setHistoryLoadedSession] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('messages');
   const [catalogs, setCatalogs] = useState<CatalogItem[]>([]);
   const [databases, setDatabases] = useState<string[]>([]);
@@ -181,20 +231,80 @@ export function PlaygroundPage() {
   const [table, setTable] = useState<string>();
   const [metadataRequestCount, setMetadataRequestCount] = useState(0);
   const [metadataError, setMetadataError] = useState<string>();
+  const [metadataWidth, setMetadataWidth] = useState(320);
+  const [resizingMetadata, setResizingMetadata] = useState(false);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const [editorHeight, setEditorHeight] = useState(330);
+  const [resizingEditor, setResizingEditor] = useState(false);
+  const workbenchRef = useRef<HTMLDivElement | null>(null);
   const metadataGenerationRef = useRef(0);
   const schemaRequestRef = useRef(0);
+  const starRangeRef = useRef<{ document: string; from: number; to: number } | null>(null);
   const loadedDatabasesRef = useRef<Set<string>>(new Set());
   const tableLoadsRef = useRef<Map<string, Promise<void>>>(new Map());
   const catalogRef = useRef<string | undefined>(undefined);
   const metadataLoading = metadataRequestCount > 0;
 
+  useEffect(() => {
+    if (!resizingMetadata) return undefined;
+    const handleMove = (event: PointerEvent) => {
+      const workspace = workspaceRef.current;
+      if (!workspace) return;
+      const bounds = workspace.getBoundingClientRect();
+      setMetadataWidth(Math.max(240, Math.min(520, event.clientX - bounds.left)));
+    };
+    const stopResize = () => setResizingMetadata(false);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', stopResize);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', stopResize);
+    };
+  }, [resizingMetadata]);
+
+  useEffect(() => {
+    if (!resizingEditor) return undefined;
+    const handleMove = (event: PointerEvent) => {
+      const workbench = workbenchRef.current;
+      if (!workbench) return;
+      const bounds = workbench.getBoundingClientRect();
+      setEditorHeight(Math.max(180, Math.min(700, event.clientY - bounds.top - 65)));
+    };
+    const stopResize = () => setResizingEditor(false);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', stopResize);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', stopResize);
+    };
+  }, [resizingEditor]);
+
   const appendMessage = useCallback((tone: LogMessage['tone'], text: string) => {
     messageIdRef.current += 1;
+    const createdAt = Date.now();
     setMessages((current) => [
+      { id: messageIdRef.current, tone, timestamp: new Date(createdAt).toLocaleTimeString(), createdAt, text },
       ...current,
-      { id: messageIdRef.current, tone, timestamp: new Date().toLocaleTimeString(), text },
-    ].slice(-100));
+    ].sort((left, right) => messageSortValue(right) - messageSortValue(left) || right.id - left.id).slice(0, 100));
   }, []);
+
+  useEffect(() => {
+    const sessionId = session.sessionId;
+    if (!sessionId || historyLoadedSession === sessionId) return;
+    const history = loadHistory(sessionId);
+    if (history) {
+      if (results.length === 0) setResults(history.results as QueryResultTab[]);
+      if (messages.length === 0) setMessages(sortMessages(history.messages as LogMessage[]));
+      if (editorValue === INITIAL_SQL && history.editorValue) setEditorValue(history.editorValue);
+      resultIdRef.current = history.results.length;
+    }
+    setHistoryLoadedSession(sessionId);
+  }, [editorValue, historyLoadedSession, messages.length, results.length, session.sessionId]);
+
+  useEffect(() => {
+    if (!session.sessionId || historyLoadedSession !== session.sessionId) return;
+    saveHistory(session.sessionId, { results, messages, editorValue });
+  }, [editorValue, historyLoadedSession, messages, results, session.sessionId]);
 
   const executeMetadata = useCallback(async (statement: string) => {
     setMetadataRequestCount((count) => count + 1);
@@ -347,27 +457,36 @@ export function PlaygroundPage() {
 
   const run = useCallback(async () => {
     if (running || session.status !== 'ready') return;
-    const statement = executableSql(editorValue, selectionRef.current);
-    if (!statement) {
+    const selection = selectionRef.current;
+    const statements = selection.from === selection.to
+      ? sqlStatements(editorValue)
+      : [executableSql(editorValue, selection)].filter(Boolean);
+    if (statements.length === 0) {
       void messageApi.warning('Select or enter one SQL statement first.');
       return;
     }
     setRunning(true);
-    appendMessage('info', `Running: ${statement.replaceAll(/\s+/g, ' ').slice(0, 180)}`);
+    let currentStatement = statements[0];
     try {
-      const result = await session.execute(statement);
-      resultIdRef.current += 1;
-      const ordinal = resultIdRef.current;
-      const key = `result-${Date.now()}-${ordinal}`;
-      const tab = { key, label: `Result ${ordinal}`, sql: statement, result };
-      setResults((current) => [...current, tab].slice(-MAX_RESULT_TABS));
-      setActiveTab(key);
-      appendMessage(
-        'success',
-        `Completed in ${result.elapsedTimeMs} ms · ${result.rows.length} returned row(s) · ${result.affectedRows} affected row(s)${result.truncated ? ' · result truncated' : ''}`,
-      );
+      let lastResultKey: string | null = null;
+      for (const statement of statements) {
+        currentStatement = statement;
+        appendMessage('info', `Running: ${statement.replaceAll(/\s+/g, ' ').slice(0, 180)}`);
+        const result = await session.execute(statement);
+        resultIdRef.current += 1;
+        const ordinal = resultIdRef.current;
+        const key = `result-${Date.now()}-${ordinal}`;
+        const tab = { key, label: `Result ${ordinal}`, sql: statement, result };
+        setResults((current) => [tab, ...current].slice(0, MAX_RESULT_TABS));
+        lastResultKey = key;
+        appendMessage(
+          'success',
+          `Completed in ${result.elapsedTimeMs} ms · ${result.rows.length} returned row(s) · ${result.affectedRows} affected row(s)${result.truncated ? ' · result truncated' : ''}`,
+        );
+      }
+      if (lastResultKey) setActiveTab(lastResultKey);
     } catch (cause) {
-      appendMessage('error', errorText(cause));
+      appendMessage('error', `Failed: ${currentStatement.replaceAll(/\s+/g, ' ').slice(0, 180)} · ${errorText(cause)}`);
       setActiveTab('messages');
     } finally {
       setRunning(false);
@@ -378,7 +497,7 @@ export function PlaygroundPage() {
     const view = editorRef.current;
     if (!view) return;
     const current = view.state.selection.main;
-    const source = executableSql(view.state.doc.toString(), current);
+    const source = current.empty ? view.state.doc.toString() : executableSql(view.state.doc.toString(), current);
     if (!source) return;
     try {
       const formatted = format(source, { language: 'mysql', keywordCase: 'upper' }).trim();
@@ -407,7 +526,7 @@ export function PlaygroundPage() {
     const column = quoteIdentifier(columnName);
     if (!view) {
       setEditorValue((document) => {
-        const result = insertSchemaColumnIntoSql(document, column, schemaInsertionRef.current);
+        const result = insertSchemaColumnIntoSql(document, column, schemaInsertionRef.current, selectionRef.current.from);
         if (!result) return `${document}${column}`;
         schemaInsertionRef.current = result.insertion;
         return result.document;
@@ -416,7 +535,7 @@ export function PlaygroundPage() {
     }
 
     const document = view.state.doc.toString();
-    const result = insertSchemaColumnIntoSql(document, column, schemaInsertionRef.current);
+    const result = insertSchemaColumnIntoSql(document, column, schemaInsertionRef.current, selectionRef.current.from);
     if (!result) {
       insertText(column);
       schemaInsertionRef.current = null;
@@ -432,27 +551,37 @@ export function PlaygroundPage() {
 
   const insertTableQuery = () => {
     if (!catalog || !database || !table) return;
-    const template = `SELECT \nFROM ${qualifiedName(catalog, database, table)}\nLIMIT 100;`;
-    const cursor = 'SELECT '.length;
+    const template = `SELECT * FROM ${qualifiedName(catalog, database, table)} LIMIT 100;`;
     schemaInsertionRef.current = null;
     const view = editorRef.current;
     if (!view) {
-      setEditorValue(template);
-      selectionRef.current = { from: cursor, to: cursor };
+      setEditorValue((document) => {
+        const separator = document.length === 0 ? '' : document.endsWith('\n\n') ? '' : document.endsWith('\n') ? '\n' : '\n\n';
+        return `${document}${separator}${template}`;
+      });
       return;
     }
+    const document = view.state.doc.toString();
+    const separator = document.length === 0 ? '' : document.endsWith('\n\n') ? '' : document.endsWith('\n') ? '\n' : '\n\n';
+    const from = document.length + separator.length;
+    const starFrom = from + 'SELECT '.length;
+    const nextDocument = `${document}${separator}${template}`;
+    starRangeRef.current = { document: nextDocument, from: starFrom, to: starFrom + 1 };
     view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: template },
-      selection: { anchor: cursor },
+      changes: { from: document.length, to: document.length, insert: `${separator}${template}` },
+      selection: { anchor: starFrom, head: starFrom + 1 },
     });
     view.focus();
   };
 
   const reset = async () => {
+    const oldSessionId = session.sessionId;
+    if (oldSessionId) clearHistory(oldSessionId);
     setResetting(true);
     try {
       await session.reset();
       setResults([]);
+      setHistoryLoadedSession(null);
       resultIdRef.current = 0;
       setMessages([]);
       setActiveTab('messages');
@@ -469,10 +598,15 @@ export function PlaygroundPage() {
   };
 
   const close = async () => {
+    const oldSessionId = session.sessionId;
+    if (oldSessionId) clearHistory(oldSessionId);
     setClosing(true);
     try {
       await session.close();
       clearExplorerCache();
+      setResults([]);
+      setMessages([]);
+      setHistoryLoadedSession(null);
       setCatalogs([]);
       setCatalog(undefined);
       catalogRef.current = undefined;
@@ -528,7 +662,7 @@ export function PlaygroundPage() {
     <main className="module-page playground-page">
       {messageContext}
       <header className="page-heading playground-heading">
-        <h1>Playground</h1>
+        <div><h1>Playground</h1></div>
       </header>
 
       {session.status === 'error' && (
@@ -538,7 +672,11 @@ export function PlaygroundPage() {
         <Alert type="info" showIcon title="The SQL session is closed" description="Open a new connection to continue." action={<Button type="primary" onClick={() => void session.open()}>Open session</Button>} />
       )}
 
-      <section className="playground-workspace">
+      <section
+        ref={workspaceRef}
+        className={`playground-workspace${resizingMetadata ? ' is-resizing' : ''}`}
+        style={{ gridTemplateColumns: `${metadataWidth}px 8px minmax(0, 1fr)` }}
+      >
         <aside className="metadata-browser" aria-label="Metadata browser">
           <div className="panel-title"><div><p className="ui-label">Object explorer</p><h2>Metadata</h2></div>{metadataLoading && <Spin size="small" />}</div>
           {metadataError && <Alert type="error" showIcon title="Metadata unavailable" description={metadataError} />}
@@ -590,32 +728,58 @@ export function PlaygroundPage() {
           )}
         </aside>
 
-        <div className="sql-workbench">
+        <div
+          className="workspace-splitter"
+          role="separator"
+          aria-label="Resize metadata and SQL editor panels"
+          aria-orientation="vertical"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            setResizingMetadata(true);
+          }}
+        />
+
+        <div ref={workbenchRef} className={`sql-workbench${resizingEditor ? ' is-resizing' : ''}`}>
           <div className="editor-toolbar">
-            <div><p className="ui-label">Statement editor</p><strong>{running ? 'Executing…' : 'Ready'}</strong></div>
+            <div><p className="ui-label">Statement editor</p></div>
+            <div className={`connection-status session-${session.status}`}>
+              <Tooltip title={`Session ID: ${session.sessionId ?? 'No session'}`}>
+                <strong tabIndex={0}>{session.status}</strong>
+              </Tooltip>
+            </div>
             <Button onClick={formatEditor} disabled={running}>Format</Button>
             <Button danger onClick={() => void cancel()} disabled={!running}>Cancel</Button>
-            <Button type="primary" onClick={() => void run()} loading={running} disabled={running || session.status !== 'ready'}>Run selection / all</Button>
+            <Button type="primary" onClick={() => void run()} loading={running} disabled={running || session.status !== 'ready'}>Run</Button>
           </div>
           <CodeMirror
             aria-label="SQL editor"
             className="sql-editor"
             value={editorValue}
-            height="330px"
+            height={`${editorHeight}px`}
             extensions={[sql(), EditorView.lineWrapping]}
             onCreateEditor={(view) => { editorRef.current = view; }}
             onChange={(value, update) => {
               setEditorValue(value);
+              if (starRangeRef.current?.document !== value) starRangeRef.current = null;
               selectionRef.current = update.state.selection.main;
             }}
             onUpdate={(update) => { selectionRef.current = update.state.selection.main; }}
             basicSetup={{ foldGutter: true, highlightActiveLine: true, highlightSelectionMatches: true }}
           />
           <div className="session-toolbar">
-            <span>One browser tab owns one persistent JDBC connection.</span>
             <Button onClick={() => void reset()} loading={resetting} disabled={running || session.status !== 'ready'}>Reset connection</Button>
             <Button danger onClick={() => void close()} loading={closing} disabled={running || session.status !== 'ready'}>Close session</Button>
           </div>
+          <div
+            className="workbench-splitter"
+            role="separator"
+            aria-label="Resize SQL editor and results panels"
+            aria-orientation="horizontal"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              setResizingEditor(true);
+            }}
+          />
           <Tabs
             className="result-tabs"
             activeKey={activeTab}

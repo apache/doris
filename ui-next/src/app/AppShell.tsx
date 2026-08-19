@@ -20,7 +20,7 @@ import { Button, Drawer, Layout, Menu, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
-import dorisLogoDark from '../assets/doris-logo-horizontal-dark.svg';
+import dorisLogoDark from '../../design/assets/doris-logo-horizontal-dark.svg';
 import { logout } from '../api/auth';
 import { setCsrfToken } from '../api/csrf';
 import type { UiMe } from '../api/types';
@@ -33,9 +33,9 @@ interface NavigationItem {
 }
 
 const navigation: NavigationItem[] = [
-  { key: '/home', label: 'Home', index: '01' },
+  { key: '/home', label: 'Cluster Overview', index: '01' },
   { key: '/playground', label: 'Playground', index: '02' },
-  { key: '/system', label: 'System', index: '03' },
+  { key: '/system', label: 'Proc System', index: '03' },
   { key: '/log', label: 'Log', index: '04' },
   { key: '/query-profiles', label: 'Query Profiles', index: '05' },
   { key: '/sessions', label: 'Sessions', index: '06' },
