@@ -224,16 +224,29 @@ Status LocalFileSystem::file_size_impl(const Path& file, int64_t* file_size) con
 
 Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
     *dir_size = 0;
-    if (std::filesystem::exists(dir_path) && std::filesystem::is_directory(dir_path)) {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path)) {
-            if (std::filesystem::is_regular_file(entry)) {
-                *dir_size += std::filesystem::file_size(entry);
+    std::error_code ec;
+    try {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path, ec)) {
+            bool is_regular_file = entry.is_regular_file(ec);
+            if (ec) {
+                break;
+            }
+            if (is_regular_file) {
+                *dir_size += entry.file_size(ec);
+            }
+            if (ec) {
+                break;
             }
         }
-        return Status::OK();
+    } catch (const std::filesystem::filesystem_error& e) {
+        return localfs_error(e.code(),
+                             fmt::format("failed to get directory size {}, error message: {}",
+                                         dir_path.native(), e.what()));
     }
-    // TODO(plat1ko): Use error code according to std::error_code
-    return Status::InternalError("faile to get dir size {}", dir_path.native());
+    if (ec) {
+        return localfs_error(ec, fmt::format("failed to get directory size {}", dir_path.native()));
+    }
+    return Status::OK();
 }
 
 Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
