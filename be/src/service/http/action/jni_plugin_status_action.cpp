@@ -19,9 +19,8 @@
 
 #include <fmt/format.h>
 
-#include <string>
-
 #include <optional>
+#include <string>
 
 #include "common/config.h"
 #include "common/status.h"
