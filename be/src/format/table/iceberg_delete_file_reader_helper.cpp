@@ -277,8 +277,7 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
     }
 
     TFileRangeDesc delete_range = build_iceberg_delete_file_range(
-            delete_file.path,
-            delete_file.__isset.file_size ? delete_file.file_size : -1);
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
         delete_range.__set_fs_name(*options.fs_name);
     }
@@ -351,8 +350,7 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
                     { return Status::EndOfFile("stop read."); });
 
     TFileRangeDesc delete_range = build_iceberg_delete_file_range(
-            delete_file.path,
-            delete_file.__isset.file_size ? delete_file.file_size : -1);
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
         delete_range.__set_fs_name(*options.fs_name);
     }
