@@ -1624,8 +1624,8 @@ DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 DEFINE_Bool(enable_index_compaction, "false");
 
-// http scheme in S3Client to use. E.g. http or https
-DEFINE_String(s3_client_http_scheme, "http");
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
+DEFINE_String(s3_client_http_scheme, "https");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
