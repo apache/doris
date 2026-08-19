@@ -1509,6 +1509,21 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testSelectFeSplitSizeUsesCoarseSizeOnlyForNativeColumnarFile() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512L * 1024L * 1024L);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, ScanContext.EMPTY);
+
+        Assert.assertEquals(512L * 1024L * 1024L,
+                node.selectFeSplitSizeForRawFile("file.parquet", 64L * 1024L * 1024L, true));
+        Assert.assertEquals(64L * 1024L * 1024L,
+                node.selectFeSplitSizeForRawFile("file.avro", 64L * 1024L * 1024L, true));
+        Assert.assertEquals(64L * 1024L * 1024L,
+                node.selectFeSplitSizeForRawFile("file-without-suffix", 64L * 1024L * 1024L, false));
+    }
+
+    @Test
     public void testGetBackendPaimonOptionsForJdbcCatalog() throws Exception {
         String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
         Map<String, String> props = new HashMap<>();

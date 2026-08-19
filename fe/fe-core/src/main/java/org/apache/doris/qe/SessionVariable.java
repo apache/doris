@@ -97,7 +97,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
     public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
-    public static final String FILE_SCANNER_V2_SPLIT_SIZE = "file_scanner_v2_split_size";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
     public static final String MIN_FILE_SCANNERS_CONCURRENCY = "min_file_scanners_concurrency";
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
@@ -569,6 +568,10 @@ public class SessionVariable implements Serializable, Writable {
 
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
+
+    public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
+
+    public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
 
     public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
 
@@ -1134,11 +1137,6 @@ public class SessionVariable implements Serializable, Writable {
             "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
             "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
     public boolean enableFileScannerV2 = true;
-
-    @VariableMgr.VarAttr(name = FILE_SCANNER_V2_SPLIT_SIZE, needForward = true, description = {
-            "FileScannerV2 在 BE 上细粒度切分的目标大小，单位为字节，默认为 64MB",
-            "Target size in bytes for FileScannerV2 fine-grained splitting in BE. The default is 64MB."})
-    public long fileScannerV2SplitSize = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
@@ -2525,6 +2523,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
+            "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",
+            "Target size in bytes for FE coarse-grained file splits when BE refinement is supported. "
+                    + "The default is 512MB."})
+    public long fileSplitSizeOnFe = 512L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_BE, needForward = true, description = {
+            "BE 上细粒度文件分片的目标大小，单位为字节，默认为 64MB",
+            "Target size in bytes for fine-grained file splits on BE. The default is 64MB."})
+    public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(
             name = MAX_INITIAL_FILE_SPLIT_SIZE,
@@ -4862,12 +4871,20 @@ public class SessionVariable implements Serializable, Writable {
         this.fileSplitSize = fileSplitSize;
     }
 
-    public long getFileScannerV2SplitSize() {
-        return fileScannerV2SplitSize;
+    public long getFileSplitSizeOnFe() {
+        return fileSplitSizeOnFe;
     }
 
-    public void setFileScannerV2SplitSize(long fileScannerV2SplitSize) {
-        this.fileScannerV2SplitSize = fileScannerV2SplitSize;
+    public void setFileSplitSizeOnFe(long fileSplitSizeOnFe) {
+        this.fileSplitSizeOnFe = fileSplitSizeOnFe;
+    }
+
+    public long getFileSplitSizeOnBe() {
+        return fileSplitSizeOnBe;
+    }
+
+    public void setFileSplitSizeOnBe(long fileSplitSizeOnBe) {
+        this.fileSplitSizeOnBe = fileSplitSizeOnBe;
     }
 
     public long getMaxInitialSplitSize() {

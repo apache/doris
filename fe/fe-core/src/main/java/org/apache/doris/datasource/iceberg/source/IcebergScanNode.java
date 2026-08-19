@@ -75,6 +75,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonObject;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -117,7 +118,6 @@ import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
-import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -879,7 +879,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private CloseableIterable<FileScanTask> splitFiles(TableScan scan) {
         if (sessionVariable.getFileSplitSize() > 0) {
             targetSplitSize = sessionVariable.getFileSplitSize();
-            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            return splitFiles(scan.planFiles(), targetSplitSize);
         }
         if (isBatchMode() || tableLevelPushDownCount) {
             // Currently iceberg batch split mode will use max split size.
@@ -888,7 +888,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             // Keep planFiles lazy for that path instead of materializing and retaining the whole
             // table in the statement cache.
             targetSplitSize = sessionVariable.getMaxSplitSize();
-            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            return splitFiles(scan.planFiles(), targetSplitSize);
         }
 
         // Non Batch Mode
@@ -896,7 +896,30 @@ public class IcebergScanNode extends FileQueryScanNode {
         // RISK: It will cost memory if the table is large.
         List<FileScanTask> fileScanTaskList = getOrPlanFileScanTasks(scan, () -> materializeFileScanTasks(scan));
         targetSplitSize = determineTargetFileSplitSize(fileScanTaskList);
-        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+        return splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+    }
+
+    private CloseableIterable<FileScanTask> splitFiles(
+            CloseableIterable<FileScanTask> tasks, long fallbackSize) {
+        // Preserve per-task semantics: files with deletes or unsupported formats must retain the
+        // legacy split size even when neighboring files can use coarse FE ranges.
+        Iterable<FileScanTask> splitTasks = FluentIterable.from(tasks)
+                .transformAndConcat(task -> task.split(selectFeSplitSize(task, fallbackSize)));
+        return CloseableIterable.combine(splitTasks, tasks);
+    }
+
+    @VisibleForTesting
+    long selectFeSplitSize(FileScanTask task, long fallbackSize) {
+        boolean supportsBeSplit = !tableLevelPushDownCount && task.deletes().isEmpty();
+        // Unsupported semantic paths must remain lazy and retain their legacy split target.
+        if (!supportsBeSplit) {
+            return fallbackSize;
+        }
+        FileFormat format = task.file().format();
+        if (format != FileFormat.PARQUET && format != FileFormat.ORC) {
+            return fallbackSize;
+        }
+        return selectFeSplitSizeForBe(fallbackSize, toTFileFormatType(format), true);
     }
 
     private List<FileScanTask> materializeFileScanTasks(TableScan scan) {
@@ -1172,7 +1195,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new IOException("Failed to plan Iceberg scan tasks with manifest cache", e);
         }
         targetSplitSize = determineTargetFileSplitSize(tasks);
-        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+        return splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
 
     @VisibleForTesting
@@ -1384,7 +1407,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             split.setDeleteFileFilters(fileScanTask.deletes(), getDeleteFileFilters(fileScanTask));
         }
         split.setTableFormatType(TableFormatType.ICEBERG);
-        split.setTargetSplitSize(targetSplitSize);
+        split.setTargetSplitSize(selectFeSplitSize(fileScanTask, targetSplitSize));
         if (isPartitionedTable) {
             int specId = fileScanTask.file().specId();
             PartitionSpec partitionSpec = icebergTable.specs().get(specId);

@@ -36,6 +36,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 
@@ -432,6 +433,36 @@ public class HiveScanNodeTest {
         method.setAccessible(true);
         long target = (long) method.invoke(node, caches, false);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testDetermineTargetFileSplitSizeUsesCoarseSizeForParquet() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(31 * MB);
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getFileFormatType(sv)).thenReturn(TFileFormatType.FORMAT_PARQUET);
+        Mockito.when(catalog.bindBrokerName()).thenReturn("");
+        desc.setTable(table);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
+
+        HiveExternalMetaCache.FileCacheValue fileCacheValue = new HiveExternalMetaCache.FileCacheValue();
+        HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
+        status.setLength(10_000L * MB);
+        fileCacheValue.getFiles().add(status);
+
+        Method method = HiveScanNode.class.getDeclaredMethod(
+                "determineTargetFileSplitSize", List.class, boolean.class);
+        method.setAccessible(true);
+        long target = (long) method.invoke(node, Collections.singletonList(fileCacheValue), false);
+        Assert.assertEquals(512 * MB, target);
+
+        Mockito.when(table.isHiveTransactionalTable()).thenReturn(true);
+        target = (long) method.invoke(node, Collections.singletonList(fileCacheValue), false);
+        Assert.assertEquals(31 * MB, target);
     }
 
     @Test

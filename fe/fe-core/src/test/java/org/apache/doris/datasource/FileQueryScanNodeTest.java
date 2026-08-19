@@ -38,6 +38,9 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -82,6 +85,10 @@ public class FileQueryScanNodeTest {
 
         void setTargetTable(TableIf targetTable) {
             this.targetTable = targetTable;
+        }
+
+        long selectFeSplitSize(long fallbackSize, TFileFormatType format, boolean supportsBeSplit) {
+            return selectFeSplitSizeForBe(fallbackSize, format, supportsBeSplit);
         }
 
         @Override
@@ -139,25 +146,111 @@ public class FileQueryScanNodeTest {
     }
 
     @Test
-    public void testFileRangeCarriesDedicatedFileScannerV2SplitSize() {
+    public void testEligibleFileRangeCarriesBeSplitSize() {
         SessionVariable sv = new SessionVariable();
         sv.setFileSplitSize(16 * MB);
-        sv.setFileScannerV2SplitSize(96 * MB);
+        sv.setFileSplitSizeOnBe(96 * MB);
 
         TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_PARQUET);
         FileQueryScanNode.setTargetSplitSize(range, sv);
         Assert.assertTrue(range.isSetTargetSplitSize());
         Assert.assertEquals(96 * MB, range.getTargetSplitSize());
     }
 
     @Test
-    public void testFileRangeOmitsNonPositiveFileScannerV2SplitSize() {
+    public void testIneligibleFileRangeOmitsBeSplitSize() {
         SessionVariable sv = new SessionVariable();
-        sv.setFileScannerV2SplitSize(0);
 
         TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
         FileQueryScanNode.setTargetSplitSize(range, sv);
         Assert.assertFalse(range.isSetTargetSplitSize());
+    }
+
+    @Test
+    public void testIcebergDeleteRangeOmitsBeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        TIcebergFileDesc iceberg = new TIcebergFileDesc();
+        iceberg.setDeleteFiles(Collections.singletonList(new TIcebergDeleteFileDesc()));
+        TTableFormatFileDesc tableFormat = new TTableFormatFileDesc();
+        tableFormat.setTableFormatType(TableFormatType.ICEBERG.value());
+        tableFormat.setIcebergParams(iceberg);
+        range.setTableFormatParams(tableFormat);
+
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assert.assertFalse(range.isSetTargetSplitSize());
+    }
+
+    @Test
+    public void testTransactionalHiveAndMetadataCountRangesOmitBeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        TFileRangeDesc transactionalRange = new TFileRangeDesc();
+        transactionalRange.setFormatType(TFileFormatType.FORMAT_ORC);
+        TTableFormatFileDesc transactional = new TTableFormatFileDesc();
+        transactional.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE.value());
+        transactionalRange.setTableFormatParams(transactional);
+        FileQueryScanNode.setTargetSplitSize(transactionalRange, sv);
+        Assert.assertFalse(transactionalRange.isSetTargetSplitSize());
+
+        TFileRangeDesc countRange = new TFileRangeDesc();
+        countRange.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        TTableFormatFileDesc metadataCount = new TTableFormatFileDesc();
+        metadataCount.setTableLevelRowCount(10);
+        countRange.setTableFormatParams(metadataCount);
+        FileQueryScanNode.setTargetSplitSize(countRange, sv);
+        Assert.assertFalse(countRange.isSetTargetSplitSize());
+    }
+
+    @Test
+    public void testEligibleFileUsesDedicatedFeCoarseSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+
+        Assert.assertEquals(512 * MB,
+                node.selectFeSplitSize(16 * MB, TFileFormatType.FORMAT_ORC, true));
+    }
+
+    @Test
+    public void testIneligibleFileKeepsLegacyFeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+
+        Assert.assertEquals(16 * MB,
+                node.selectFeSplitSize(16 * MB, TFileFormatType.FORMAT_CSV_PLAIN, true));
+        Assert.assertEquals(16 * MB,
+                node.selectFeSplitSize(16 * MB, TFileFormatType.FORMAT_PARQUET, false));
+
+        sv.enableFileScannerV2 = false;
+        Assert.assertEquals(16 * MB,
+                node.selectFeSplitSize(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+
+        sv.enableFileScannerV2 = true;
+        sv.maxFileScannersConcurrency = 1;
+        Assert.assertEquals(16 * MB,
+                node.selectFeSplitSize(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assert.assertFalse(range.isSetTargetSplitSize());
+
+        sv.maxFileScannersConcurrency = 16;
+        node.setLimit(100);
+        Assert.assertEquals(16 * MB,
+                node.selectFeSplitSize(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+    }
+
+    @Test
+    public void testDedicatedSplitSizesHaveCoarseAndFineDefaults() {
+        SessionVariable sv = new SessionVariable();
+        Assert.assertEquals(512 * MB, sv.getFileSplitSizeOnFe());
+        Assert.assertEquals(64 * MB, sv.getFileSplitSizeOnBe());
     }
 
     @Test
