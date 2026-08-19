@@ -106,12 +106,10 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
 fi
 
 # set DISABLE_BUILD_AZURE
+# Azure is built on every platform now. It used to be skipped on aarch64 and macOS
+# because the third-party recipe was x86_64-Linux-only; that is fixed in build_azure.
 if [[ -z "${DISABLE_BUILD_AZURE}" ]]; then
-    if [[ "${TARGET_ARCH}" == *arm* || "${TARGET_ARCH}" == "aarch64" || "${TARGET_SYSTEM}" == 'Darwin' ]]; then
-        export DISABLE_BUILD_AZURE='ON'
-    else
-        export DISABLE_BUILD_AZURE='OFF'
-    fi
+    export DISABLE_BUILD_AZURE='OFF'
 fi
 
 # check python

@@ -482,7 +482,7 @@ fi
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
-    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+    LAST_THIRDPARTY_LIB='hadoop_hdfs_3_4/native/libhdfs.a'
 fi
 
 # The final-library sentinel only proves that some third-party build completed. It cannot
