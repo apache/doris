@@ -138,8 +138,20 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
 
                 List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
                 if (apply.isNot()) {
+                    // the correlation slot can be STALE: analysis records the outer slot, but a
+                    // later normalization may fold the correlation predicate away (e.g.
+                    // `s.g = o.g or true` becomes `true`), leaving isCorrelated() true while no
+                    // effective correlation remains. for NOT IN the null-aware anti join must be
+                    // selected on the EFFECTIVE correlation (a present correlation filter):
+                    // otherwise a nullable build side (s.v contains NULL) would let the ordinary
+                    // anti join emit the row even though NOT IN evaluates to NULL and the ifnull
+                    // predicate must reject it. the predicate branch above already uses the same
+                    // effective-correlation test to decide whether to include the correlation
+                    // filter, so the join-type decision is made consistent with it here.
+                    boolean effectivelyCorrelated =
+                            apply.isCorrelated() && apply.getCorrelationFilter().isPresent();
                     return new LogicalJoin<>(
-                            predicate.nullable() && !apply.isCorrelated()
+                            predicate.nullable() && !effectivelyCorrelated
                                     ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                                     : JoinType.LEFT_ANTI_JOIN,
                             Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),

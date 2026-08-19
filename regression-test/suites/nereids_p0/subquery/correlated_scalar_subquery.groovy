@@ -262,4 +262,180 @@ suite("correlated_scalar_subquery") {
     qt_select_agg_project2 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 = (select if(sum(c1) is null, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_2_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) - min(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_3_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(sum(c1) is null, count(c1), max(c2)) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
+
+    // EXISTS over a top-level scalar aggregate wraps a set operation:
+    // hasTopLevelScalarAgg() in SubExprAnalyzer folds EXISTS to TRUE and
+    // NOT EXISTS to FALSE before checkNoCorrelatedSlotsUnderSetOp() runs,
+    // because a scalar aggregate (no GROUP BY) always returns one row.
+    qt_exists_over_scalar_agg_union """
+        SELECT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u
+        ) AS result
+    """
+    qt_not_exists_over_scalar_agg_union """
+        SELECT NOT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u
+        ) AS result
+    """
+    // Correlated EXISTS over scalar agg + UNION: the outer query references
+    // are inside the UNION branches, but the aggregate still guarantees one
+    // row.  This shape must not throw "Unsupported correlated subquery with
+    // set operation" — the scalar aggregate fold happens first.
+    qt_exists_correlated_scalar_agg_union """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+            ) u
+        ) ORDER BY c1
+    """
+
+    // EXISTS over a scalar aggregate with ORDER BY wrapper — the sort cannot
+    // change EXISTS semantics and hasTopLevelScalarAgg() must see through it.
+    // This shape must not throw "Unsupported correlated subquery with set
+    // operation" or "Unsupported correlated subquery with a LIMIT clause".
+    // Non-correlated variant: EXISTS (SELECT COUNT(*) FROM (... UNION ...) u ORDER BY 1)
+    qt_exists_over_scalar_agg_union_orderby """
+        SELECT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u ORDER BY 1
+        ) AS result
+    """
+    qt_not_exists_over_scalar_agg_union_orderby """
+        SELECT NOT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u ORDER BY 1
+        ) AS result
+    """
+    // Correlated variant: ORDER BY over correlated scalar-agg + UNION.
+    qt_exists_correlated_scalar_agg_union_orderby """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+            ) u ORDER BY 1
+        ) ORDER BY c1
+    """
+
+    // EXISTS over a scalar aggregate wrapped in a derived-table alias:
+    //   WHERE EXISTS (SELECT * FROM (SELECT COUNT(*) FROM (<union>) u) a)
+    // hasTopLevelScalarAgg() must see through LogicalSubQueryAlias to fold.
+    qt_exists_correlated_scalar_agg_union_derived """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+                ) u
+            ) a
+        ) ORDER BY c1
+    """
+    qt_exists_scalar_agg_union_derived """
+        SELECT EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t2
+                ) u
+            ) a
+        ) AS result
+    """
+    qt_not_exists_scalar_agg_union_derived """
+        SELECT NOT EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t2
+                ) u
+            ) a
+        ) AS result
+    """
+
+    sql """
+        drop table if exists correlated_scalar_mark_join;
+    """
+    sql """
+        create table correlated_scalar_mark_join
+                (k bigint, g bigint, x bigint)
+                ENGINE=OLAP
+        DUPLICATE KEY(k, g, x)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into correlated_scalar_mark_join values (1,10,7),(2,20,9);
+    """
+
+    sql """
+        drop table if exists correlated_scalar_mark_in;
+    """
+    sql """
+        create table correlated_scalar_mark_in
+                (k bigint, g bigint)
+                ENGINE=OLAP
+        DUPLICATE KEY(k, g)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into correlated_scalar_mark_in values (1,10);
+    """
+
+    sql """
+        drop table if exists correlated_scalar_mark_src;
+    """
+    sql """
+        create table correlated_scalar_mark_src
+                (g bigint, x bigint)
+                ENGINE=OLAP
+        DUPLICATE KEY(g, x)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(g) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into correlated_scalar_mark_src values (10,7),(20,9),(20,10);
+    """
+
+    // A preceding mark join (ifnull(o.k in (...), false)) must not be eliminated into a
+    // left semi join when a later correlated scalar subquery will synthesize the runtime
+    // assert_true(count(*) <= 1): the elimination prunes the rows that reach the generated
+    // assertion. outer row (k=2,g=20,x=9) has no IN match (so a semi join drops it) but its
+    // scalar group g=20 has two rows, so the retained mark join sends it to the assertion and
+    // raises the error while the eliminated plan silently suppresses it.
+    test {
+        sql """
+            select k from correlated_scalar_mark_join o
+            where ifnull(o.k in (select i.k from correlated_scalar_mark_in i where i.g = o.g), false)
+              and o.x = (select u.x from correlated_scalar_mark_src u where u.g = o.g);
+        """
+        exception "correlate scalar subquery must return only 1 row"
+    }
 }
