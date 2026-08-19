@@ -420,7 +420,7 @@ TEST_F(MetricsTest, HistogramRegistryOutput) {
 
         MetricPrototype task_duration_type(MetricType::HISTOGRAM, MetricUnit::MILLISECONDS,
                                            "task_duration");
-        HistogramMetric* task_duration =
+        auto* task_duration =
                 (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
         for (int j = 1; j <= 100; j++) {
             task_duration->add(j);
@@ -443,7 +443,7 @@ test_registry_task_duration_standard_deviation 28.8661
         EXPECT_EQ(
                 R"*([{"tags":{"metric":"task_duration"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
-                R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
+                R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333333,"percentile_95":100.0,"percentile_99":100.0,)*"
                 R"*("standard_deviation":28.86607004772212,"max":100,"total_sum":5050}}])*",
                 registry.to_json());
         registry.deregister_entity(entity);
@@ -455,7 +455,7 @@ test_registry_task_duration_standard_deviation 28.8661
 
         MetricPrototype task_duration_type(MetricType::HISTOGRAM, MetricUnit::MILLISECONDS,
                                            "task_duration", "", "", {{"type", "create_tablet"}});
-        HistogramMetric* task_duration =
+        auto* task_duration =
                 (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
         for (int j = 1; j <= 100; j++) {
             task_duration->add(j);
@@ -479,7 +479,7 @@ test_registry_task_duration_standard_deviation{instance="test",type="create_tabl
         EXPECT_EQ(
                 R"*([{"tags":{"metric":"task_duration","type":"create_tablet","instance":"test"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
-                R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
+                R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333333,"percentile_95":100.0,"percentile_99":100.0,)*"
                 R"*("standard_deviation":28.86607004772212,"max":100,"total_sum":5050}}])*",
                 registry.to_json());
         registry.deregister_entity(entity);
