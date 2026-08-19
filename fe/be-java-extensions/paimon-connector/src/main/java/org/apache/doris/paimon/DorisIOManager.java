@@ -23,177 +23,153 @@ import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.memory.Buffer;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.channels.FileChannel;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
-/** Paimon IOManager adapter which charges temporary channel I/O to Doris spill management. */
+/** Paimon IOManager adapter which charges temporary channel I/O to one Doris spill session. */
 final class DorisIOManager implements IOManager {
     interface SpillAccountant {
-        void reserve(String path, long bytes) throws IOException;
+        String getSpillDirectory() throws IOException;
 
-        void rollback(String path, long bytes);
+        void reserve(long bytes) throws IOException;
 
-        void commitWrite(String path, long bytes);
+        void rollback(long bytes);
 
-        void recordRead(String path, long bytes);
+        void commitWrite(long bytes);
 
-        void release(String path, long bytes);
+        void recordRead(long bytes);
+
+        void release(long bytes);
     }
 
-    private final IOManager delegate;
     private final SpillAccountant accountant;
-    private final Map<String, Long> channelBytes = new ConcurrentHashMap<>();
-    private final Map<String, Integer> activeChannelWriters = new ConcurrentHashMap<>();
+    private volatile IOManager delegate;
 
-    static DorisIOManager create(String[] tempDirs, long nativeSpillDirectory) {
-        return new DorisIOManager(
-                IOManager.create(tempDirs), new NativeSpillAccountant(nativeSpillDirectory));
+    static DorisIOManager create(long nativeSpillSession) {
+        return new DorisIOManager(new NativeSpillAccountant(nativeSpillSession));
+    }
+
+    DorisIOManager(SpillAccountant accountant) {
+        this.accountant = accountant;
     }
 
     DorisIOManager(IOManager delegate, SpillAccountant accountant) {
-        this.delegate = delegate;
         this.accountant = accountant;
+        this.delegate = delegate;
+    }
+
+    private IOManager delegate() throws IOException {
+        if (delegate == null) {
+            synchronized (this) {
+                if (delegate == null) {
+                    String spillDirectory = accountant.getSpillDirectory();
+                    if (spillDirectory == null || spillDirectory.isEmpty()) {
+                        throw new IOException("Doris spill manager returned no available directory");
+                    }
+                    delegate = IOManager.create(spillDirectory);
+                }
+            }
+        }
+        return delegate;
+    }
+
+    private IOManager uncheckedDelegate() {
+        try {
+            return delegate();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to initialize the Doris spill directory", e);
+        }
     }
 
     @Override
     public FileIOChannel.ID createChannel() {
-        return delegate.createChannel();
+        return uncheckedDelegate().createChannel();
     }
 
     @Override
     public FileIOChannel.ID createChannel(String prefix) {
-        return delegate.createChannel(prefix);
+        return uncheckedDelegate().createChannel(prefix);
     }
 
     @Override
     public String[] tempDirs() {
-        return delegate.tempDirs();
+        return uncheckedDelegate().tempDirs();
     }
 
     @Override
     public String pickTempDir() {
-        return delegate.pickTempDir();
+        return uncheckedDelegate().pickTempDir();
     }
 
     @Override
     public FileIOChannel.Enumerator createChannelEnumerator() {
-        return delegate.createChannelEnumerator();
+        return uncheckedDelegate().createChannelEnumerator();
     }
 
     @Override
     public BufferFileWriter createBufferFileWriter(FileIOChannel.ID channelID) throws IOException {
-        // Paimon ExternalBuffer.reset() deletes old channel files directly instead of calling the
-        // IOManager deletion methods. Reconcile once per writer instead of scanning all historical
-        // channels before every block written by the same writer.
-        releaseDeletedChannels();
-        return new AccountingBufferFileWriter(delegate.createBufferFileWriter(channelID), this);
+        return new AccountingBufferFileWriter(delegate().createBufferFileWriter(channelID), this);
     }
 
     @Override
     public BufferFileReader createBufferFileReader(FileIOChannel.ID channelID) throws IOException {
-        return new AccountingBufferFileReader(delegate.createBufferFileReader(channelID), this);
+        return new AccountingBufferFileReader(delegate().createBufferFileReader(channelID), this);
     }
 
     @Override
     public void close() throws Exception {
-        try {
-            delegate.close();
-        } finally {
-            releaseDeletedChannels();
+        IOManager initializedDelegate = delegate;
+        if (initializedDelegate != null) {
+            initializedDelegate.close();
         }
     }
 
-    private boolean releaseDeletedChannels() {
-        boolean releasedAny = false;
-        for (Map.Entry<String, Long> entry : channelBytes.entrySet()) {
-            if (!activeChannelWriters.containsKey(entry.getKey())
-                    && !new File(entry.getKey()).exists()
-                    && channelBytes.remove(entry.getKey(), entry.getValue())) {
-                accountant.release(entry.getKey(), entry.getValue());
-                releasedAny = true;
-            }
-        }
-        return releasedAny;
+    private static long channelSize(FileIOChannel.ID channelID) {
+        return channelID.getPathFile().isFile() ? channelID.getPathFile().length() : 0;
     }
 
-    private void reserveWrite(FileIOChannel.ID channelID, long bytes) throws IOException {
-        String path = channelID.getPath();
-        activeChannelWriters.merge(path, 1, Integer::sum);
-        boolean accounted = false;
-        boolean tracked = false;
-        try {
-            try {
-                accountant.reserve(path, bytes);
-            } catch (IOException reserveFailure) {
-                // A different ExternalBuffer may have directly deleted an old channel after this
-                // writer was created. Retry only when reconciliation actually released capacity.
-                if (!releaseDeletedChannels()) {
-                    throw reserveFailure;
-                }
-                accountant.reserve(path, bytes);
-            }
-            accounted = true;
-            channelBytes.merge(path, bytes, Long::sum);
-            tracked = true;
-        } finally {
-            if (!tracked) {
-                if (accounted) {
-                    accountant.rollback(path, bytes);
-                }
-                finishWrite(channelID);
-            }
-        }
-    }
-
-    private void finishWrite(FileIOChannel.ID channelID) {
-        activeChannelWriters.computeIfPresent(channelID.getPath(), (ignored, writers) ->
-                writers == 1 ? null : writers - 1);
-    }
-
-    private void releaseChannel(FileIOChannel.ID channelID) {
-        Long released = channelBytes.remove(channelID.getPath());
-        if (released != null) {
-            accountant.release(channelID.getPath(), released);
+    private void releaseIfDeleted(FileIOChannel.ID channelID, long bytes) {
+        if (bytes > 0 && !channelID.getPathFile().exists()) {
+            accountant.release(bytes);
         }
     }
 
     private static final class NativeSpillAccountant implements SpillAccountant {
-        private final long nativeSpillDirectory;
+        private final long nativeSpillSession;
 
-        private NativeSpillAccountant(long nativeSpillDirectory) {
-            this.nativeSpillDirectory = nativeSpillDirectory;
+        private NativeSpillAccountant(long nativeSpillSession) {
+            this.nativeSpillSession = nativeSpillSession;
         }
 
         @Override
-        public void reserve(String path, long bytes) throws IOException {
-            PaimonJniWriter.reservePaimonSpill(nativeSpillDirectory, path, bytes);
+        public String getSpillDirectory() throws IOException {
+            return PaimonJniWriter.getPaimonSpillDirectory(nativeSpillSession);
         }
 
         @Override
-        public void rollback(String path, long bytes) {
-            PaimonJniWriter.updatePaimonSpillAccounting(
-                    nativeSpillDirectory, path, -bytes, 0, 0);
+        public void reserve(long bytes) throws IOException {
+            PaimonJniWriter.reservePaimonSpill(nativeSpillSession, bytes);
         }
 
         @Override
-        public void commitWrite(String path, long bytes) {
-            PaimonJniWriter.updatePaimonSpillAccounting(
-                    nativeSpillDirectory, path, 0, bytes, 0);
+        public void rollback(long bytes) {
+            PaimonJniWriter.updatePaimonSpillAccounting(nativeSpillSession, -bytes, 0, 0);
         }
 
         @Override
-        public void recordRead(String path, long bytes) {
-            PaimonJniWriter.updatePaimonSpillAccounting(
-                    nativeSpillDirectory, path, 0, 0, bytes);
+        public void commitWrite(long bytes) {
+            PaimonJniWriter.updatePaimonSpillAccounting(nativeSpillSession, 0, bytes, 0);
         }
 
         @Override
-        public void release(String path, long bytes) {
-            PaimonJniWriter.updatePaimonSpillAccounting(
-                    nativeSpillDirectory, path, -bytes, 0, 0);
+        public void recordRead(long bytes) {
+            PaimonJniWriter.updatePaimonSpillAccounting(nativeSpillSession, 0, 0, bytes);
+        }
+
+        @Override
+        public void release(long bytes) {
+            PaimonJniWriter.updatePaimonSpillAccounting(nativeSpillSession, -bytes, 0, 0);
         }
     }
 
@@ -209,12 +185,20 @@ final class DorisIOManager implements IOManager {
         @Override
         public void writeBlock(Buffer buffer) throws IOException {
             long bytes = Integer.BYTES + buffer.getSize();
-            manager.reserveWrite(getChannelID(), bytes);
+            manager.accountant.reserve(bytes);
             try {
                 delegate.writeBlock(buffer);
-                manager.accountant.commitWrite(getChannelID().getPath(), bytes);
-            } finally {
-                manager.finishWrite(getChannelID());
+                manager.accountant.commitWrite(bytes);
+            } catch (IOException | RuntimeException writeFailure) {
+                try {
+                    delegate.closeAndDelete();
+                } catch (IOException | RuntimeException cleanupFailure) {
+                    writeFailure.addSuppressed(cleanupFailure);
+                }
+                if (!getChannelID().getPathFile().exists()) {
+                    manager.accountant.rollback(bytes);
+                }
+                throw writeFailure;
             }
         }
 
@@ -240,9 +224,11 @@ final class DorisIOManager implements IOManager {
 
         @Override
         public void deleteChannel() {
-            delegate.deleteChannel();
-            if (!getChannelID().getPathFile().exists()) {
-                manager.releaseChannel(getChannelID());
+            long bytes = channelSize(getChannelID());
+            try {
+                delegate.deleteChannel();
+            } finally {
+                manager.releaseIfDeleted(getChannelID(), bytes);
             }
         }
 
@@ -253,9 +239,11 @@ final class DorisIOManager implements IOManager {
 
         @Override
         public void closeAndDelete() throws IOException {
-            delegate.closeAndDelete();
-            if (!getChannelID().getPathFile().exists()) {
-                manager.releaseChannel(getChannelID());
+            long bytes = channelSize(getChannelID());
+            try {
+                delegate.closeAndDelete();
+            } finally {
+                manager.releaseIfDeleted(getChannelID(), bytes);
             }
         }
     }
@@ -273,8 +261,7 @@ final class DorisIOManager implements IOManager {
         public void readInto(Buffer buffer) throws IOException {
             long position = delegate.getNioFileChannel().position();
             delegate.readInto(buffer);
-            manager.accountant.recordRead(
-                    getChannelID().getPath(), delegate.getNioFileChannel().position() - position);
+            manager.accountant.recordRead(delegate.getNioFileChannel().position() - position);
         }
 
         @Override
@@ -304,9 +291,11 @@ final class DorisIOManager implements IOManager {
 
         @Override
         public void deleteChannel() {
-            delegate.deleteChannel();
-            if (!getChannelID().getPathFile().exists()) {
-                manager.releaseChannel(getChannelID());
+            long bytes = channelSize(getChannelID());
+            try {
+                delegate.deleteChannel();
+            } finally {
+                manager.releaseIfDeleted(getChannelID(), bytes);
             }
         }
 
@@ -317,9 +306,11 @@ final class DorisIOManager implements IOManager {
 
         @Override
         public void closeAndDelete() throws IOException {
-            delegate.closeAndDelete();
-            if (!getChannelID().getPathFile().exists()) {
-                manager.releaseChannel(getChannelID());
+            long bytes = channelSize(getChannelID());
+            try {
+                delegate.closeAndDelete();
+            } finally {
+                manager.releaseIfDeleted(getChannelID(), bytes);
             }
         }
     }

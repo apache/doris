@@ -31,7 +31,7 @@
 
 namespace doris {
 
-class ExternalSpillDirectory;
+class ExternalSpillSession;
 class RuntimeState;
 
 extern const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE;
@@ -79,7 +79,7 @@ private:
 
     TPaimonTableSink _sink;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
-    std::unique_ptr<ExternalSpillDirectory> _spill_directory;
+    std::unique_ptr<ExternalSpillSession> _spill_session;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
     bool _opened = false;
