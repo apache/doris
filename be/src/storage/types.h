@@ -41,7 +41,6 @@
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/vdatetime_value.h"
-#include "exprs/function/cast/cast_to_timestamptz.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "util/slice.h"

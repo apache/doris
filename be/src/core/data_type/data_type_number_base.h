@@ -108,6 +108,7 @@ extern template class DataTypeNumberBase<TYPE_DATE>;
 extern template class DataTypeNumberBase<TYPE_DATEV2>;
 extern template class DataTypeNumberBase<TYPE_DATETIME>;
 extern template class DataTypeNumberBase<TYPE_DATETIMEV2>;
+extern template class DataTypeNumberBase<TYPE_TIMESTAMP_NS>;
 extern template class DataTypeNumberBase<TYPE_IPV4>;
 extern template class DataTypeNumberBase<TYPE_IPV6>;
 extern template class DataTypeNumberBase<TYPE_TIMEV2>;

@@ -47,6 +47,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint24.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/vdatetime_value.h"
 #include "util/unaligned.h"
 
@@ -462,6 +463,7 @@ extern template class ColumnVector<TYPE_DATE>;
 extern template class ColumnVector<TYPE_DATEV2>;
 extern template class ColumnVector<TYPE_DATETIME>;
 extern template class ColumnVector<TYPE_DATETIMEV2>;
+extern template class ColumnVector<TYPE_TIMESTAMP_NS>;
 extern template class ColumnVector<TYPE_TIMEV2>;
 extern template class ColumnVector<TYPE_TIMESTAMPTZ>;
 extern template class ColumnVector<TYPE_UINT32>;

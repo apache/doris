@@ -21,9 +21,14 @@
 #include <typeinfo>
 
 #include "common/exception.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/string_ref.h"
 
 namespace doris {
+
+DataTypeSerDeSPtr DataTypeTimeStampNs::get_serde(int nesting_level) const {
+    return std::make_shared<DataTypeTimeStampNsSerDe>(nesting_level);
+}
 
 Field DataTypeTimeStampNs::get_field(const TExprNode& node) const {
     int64_t value = 0;

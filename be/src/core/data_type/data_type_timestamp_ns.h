@@ -21,7 +21,6 @@
 #include <string>
 
 #include "core/data_type/data_type_number_base.h"
-#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/timestamp_ns_value.h"
 
 namespace doris {
@@ -32,10 +31,7 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    using SerDeType = DataTypeTimeStampNsSerDe;
-    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<SerDeType>(nesting_level);
-    }
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override;
 
     Field get_field(const TExprNode& node) const override;
     UInt32 get_scale() const override { return TimeStampNsValue::FRACTIONAL_DIGITS; }

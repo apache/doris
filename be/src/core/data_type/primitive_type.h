@@ -31,13 +31,13 @@
 #include "core/string_view.h"
 #include "core/types.h"
 #include "core/uint24.h"
-#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/template_helpers.hpp"
 
 namespace doris {
 class PathInData;
+class TimeStampNsValue;
 template <typename T>
 class ColumnStr;
 class IColumnDummy;

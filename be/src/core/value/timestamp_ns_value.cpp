@@ -19,9 +19,18 @@
 
 #include <cctz/time_zone.h>
 
+#include "core/type_limit.h"
 #include "exec/common/int_exp.h"
 
 namespace doris {
+
+TimeStampNsValue type_limit<TimeStampNsValue>::min() {
+    return TimeStampNsValue(std::numeric_limits<int64_t>::min());
+}
+
+TimeStampNsValue type_limit<TimeStampNsValue>::max() {
+    return TimeStampNsValue(std::numeric_limits<int64_t>::max());
+}
 
 DateV2Value<DateTimeV2ValueType> TimeStampNsValue::to_datetime() const {
     // epoch_seconds() is floor-divided, so set_microsecond() always receives the first six digits

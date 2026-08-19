@@ -37,7 +37,6 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
