@@ -110,10 +110,12 @@ final class PluginRuntime {
      * directory read by every plugin costs one copy on disk and produces no collisions to
      * adjudicate.
      *
-     * <p>APPENDED, never prepended: these fat jars carry stray copies of third-party classes (and
-     * three {@code org.apache.hadoop.fs} ones), and a plugin's own hadoop must win. That is the
-     * same rule {@code bin/start_be.sh} applies when it puts them after {@code lib/hadoop_hdfs}
-     * on the system classpath for libhdfs.
+     * <p>APPENDED, never prepended: these fat jars carry stray copies of third-party classes,
+     * hadoop's included, and a plugin's own hadoop must win. Counted on the jars this build
+     * packages: jindo-sdk carries 19 hadoop classes (11 in {@code org.apache.hadoop.fs}, 5 in
+     * {@code fs.impl}, 3 in {@code util}) and juicefs-hadoop carries 4, all in
+     * {@code org.apache.hadoop.security}. That is the same rule {@code bin/start_be.sh} applies
+     * when it puts them after {@code lib/hadoop_hdfs} on the system classpath for libhdfs.
      *
      * <p>ISOLATION IS PRESERVED: each plugin loads its own copy of these classes in its own
      * classloader, exactly as it does for hadoop-common. Nothing is shared but the files.
@@ -127,6 +129,13 @@ final class PluginRuntime {
      */
     private List<URL> sharedFilesystemJars() {
         if (fsDir == null || !Files.isDirectory(fsDir)) {
+            // Logged, at the level hadoopConfLoader() uses for the same kind of absence: this is the
+            // normal state of a build that packaged no third-party filesystem, but it is also what
+            // an upgrade that moved the jars and missed this directory looks like - and the symptom
+            // there is "jfs:// stopped working", with nothing on the Java side saying why.
+            LOG.info(() -> "No shared filesystem jars: " + (fsDir == null ? "no directory configured"
+                    : fsDir + " does not exist") + ". Plugins can only open the schemes their own"
+                    + " jars implement; oss-hdfs:// and jfs:// need this directory populated.");
             return List.of();
         }
         List<URL> jars = new ArrayList<>();
@@ -146,6 +155,14 @@ final class PluginRuntime {
         // same reason jarsIn sorts within one: a duplicate class must resolve the same way on
         // every node.
         jars.sort(Comparator.comparing(URL::toString));
+        if (jars.isEmpty()) {
+            // The other half of the silence above: build.sh creates this directory and only
+            // populates it when the filesystems were built, so "exists but empty" is the shape a
+            // half-finished upgrade leaves behind, and it looks identical to a healthy build from
+            // in here.
+            LOG.info(() -> "The shared filesystem directory " + fsDir + " holds no jars; plugins"
+                    + " can only open the schemes their own jars implement.");
+        }
         return jars;
     }
 

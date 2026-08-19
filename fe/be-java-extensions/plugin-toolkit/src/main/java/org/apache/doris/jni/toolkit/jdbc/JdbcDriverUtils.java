@@ -91,8 +91,23 @@ public final class JdbcDriverUtils {
      * cached loader was built from. Without this the check reports success against the current jar
      * while every query keeps using the old driver until BE restarts - a verification that passes
      * for a driver the process is not running.
+     *
+     * <p>An entry is written whenever a loader is created, NOT only when an expectation was stated:
+     * a catalog defined without {@code jdbc_driver_checksum} produces no expectation at all, and
+     * leaving it out of this map is what made the discard below unreachable for exactly the case it
+     * exists for. The operator's sequence is "create the catalog, later replace the jar and declare
+     * its checksum" - the first step has nothing to record and the second then found no previous
+     * entry, read {@code null}, and skipped the discard. {@link #UNDECLARED} is that first step's
+     * entry: it equals no checksum, so any checksum stated later differs from it.
      */
     private static final ConcurrentHashMap<String, String> LOADED_UNDER = new ConcurrentHashMap<>();
+
+    /**
+     * The {@link #LOADED_UNDER} value for a loader built without a stated expectation. Not a valid
+     * checksum in any spelling - {@link #checksumVerifier} lower-cases hex - so it can never be
+     * mistaken for one, and comparing it against a real checksum always says "different".
+     */
+    private static final String UNDECLARED = "<no checksum declared>";
 
     private JdbcDriverUtils() {
     }
@@ -219,9 +234,20 @@ public final class JdbcDriverUtils {
             // Before the loader exists, so that a jar that fails the check is neither opened nor
             // cached. Throwing here leaves nothing behind and the next request checks again.
             verifyOnce(key.driverUrl, verifier, loaded == null);
+            // Re-read, for the same reason the fast path above does and with the same consequence
+            // when it is skipped: verifyOnce may have just discarded the loaders for this jar, and
+            // `loaded` was read before that. Returning it would hand back the stale driver that the
+            // discard was for. Reached only when the fast path missed and this one hit, which is a
+            // publication race rather than the ordinary ALTER - that one is served above.
+            loaded = DRIVER_CLASS_LOADERS.get(key);
             if (loaded == null) {
                 loaded = URLClassLoader.newInstance(new URL[] {key.driverUrl}, key.parent);
                 DRIVER_CLASS_LOADERS.put(key, loaded);
+                // Recorded here rather than only in verifyOnce, so that a loader built with no
+                // stated expectation is still attributable. putIfAbsent because verifyOnce has
+                // already written the real expectation when there was one, and that is the more
+                // specific answer.
+                LOADED_UNDER.putIfAbsent(key.driverUrl.toString(), declaredExpectation(verifier));
             }
             return loaded;
         }
@@ -234,6 +260,12 @@ public final class JdbcDriverUtils {
      * @param loaderIsNew whether the classloader is about to be created, which is the only thing a
      *                    verifier that cannot state its expectation can be keyed on
      */
+    /** What {@link #LOADED_UNDER} records for a loader built under {@code verifier}. */
+    private static String declaredExpectation(DriverJarVerifier verifier) {
+        String expectation = verifier == null ? null : verifier.expectation();
+        return expectation == null ? UNDECLARED : expectation;
+    }
+
     private static void verifyOnce(URL driverJar, DriverJarVerifier verifier, boolean loaderIsNew) {
         if (verifier == null) {
             return;

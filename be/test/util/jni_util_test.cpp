@@ -742,7 +742,13 @@ TEST_F(JniUtilHeapSizeTest, MalformedXmxIsIgnored) {
     // the case that check exists for - and the only input that exercises it.
     EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999g"));
     EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999999m"));
-    // One below the boundary still parses: the check must reject overflow, not large values.
+    // The boundary itself, named exactly rather than approached from far away: the check is
+    // `digits > jlong_max / multiplier`, so for 'g' the largest accepted digit string is
+    // 9223372036854775807 / 1073741824 == 8589934591. A test that only asserts "-Xmx8g" parses
+    // pins nothing - every wrong threshold between 8 and 8589934591 keeps it green.
+    EXPECT_EQ(8589934591L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx8589934591g"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx8589934592g"));
+    // An ordinary large value still parses: the check must reject overflow, not big heaps.
     EXPECT_EQ(8L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx8g"));
     // A good one next to a bad one still counts.
     EXPECT_EQ(1024L * 1024 * 1024, Jni::Util::_parse_xmx("-Xmxbig -Xmx1g"));

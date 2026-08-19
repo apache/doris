@@ -265,6 +265,19 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     fi
 fi
 
+# The same hadoop logging configuration bin/start_be.sh installs, for the same reason: nothing
+# else configures Log4j2 for the hadoop classes libhdfs loads onto the system class path, so
+# without this Log4j2 falls back to its DefaultConfiguration - ERROR only, to the console - and
+# hadoop's INFO and WARN vanish. This tool exists to measure and debug filesystem access, which
+# is exactly when those lines are wanted. Only when the file is actually there, so a deployment
+# without it keeps Log4j2's own default rather than a startup error about a missing file.
+if [[ -f "${DORIS_HOME}/conf/hadoop_log4j2.properties" ]]; then
+    if ! echo "${final_java_opt}" | grep -q -- "-Dlog4j2.configurationFile="; then
+        final_java_opt="${final_java_opt} -Ddoris.log.dir=${DORIS_HOME}/log"
+        final_java_opt="${final_java_opt} -Dlog4j2.configurationFile=file:${DORIS_HOME}/conf/hadoop_log4j2.properties"
+    fi
+fi
+
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
 

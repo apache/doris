@@ -146,6 +146,10 @@ private:
     // Caches an env the bootstrap attached by itself, so that resolving the JNI base right
     // after the JVM comes up stays on Get()'s fast path instead of re-entering ensure_jvm().
     static void set_tls_env(JNIEnv* env) { tls_env_ = env; }
+    // What Get() would hand out on this thread without asking anyone, nullptr when nothing is
+    // cached. For JvmLauncher::ScopedVmEnv, which primes the cache for one scope and has to put
+    // back what it found rather than assume there was nothing: on the bootstrap thread there is.
+    static JNIEnv* tls_env() { return tls_env_; }
     friend class JvmLauncher;
 
 private:
@@ -1233,10 +1237,21 @@ private:
     // libhdfs. JvmLauncher runs it once at the end of its bootstrap and logs a failure; Env, the
     // door every Java caller comes through, refuses to hand out a JNIEnv while it is failing.
     //
-    // Only those two may call it, and JvmLauncher only from inside its bootstrap with the calling
-    // thread already attached and its env cached: the resolution asks Env::Get() for a
-    // JNIEnv, and reaching this from an unattached thread would go back through
-    // ensure_jvm() and deadlock on the once flag the bootstrap is already holding.
+    // Only those two may call it. JvmLauncher calls it from inside its bootstrap, with the
+    // calling thread already attached and its env cached, because the resolution asks Env::Get()
+    // for a JNIEnv and an unattached thread there would go back through ensure_jvm() and deadlock
+    // on the once flag the bootstrap is already holding.
+    //
+    // Env::GetJNIEnvSlowPath() calls it from an unattached thread on purpose, and the invariant
+    // that makes THAT safe is a different one, worth stating because nothing enforces it: by the
+    // time the slow path gets here, ensure_jvm()'s call_once has already run to completion on
+    // some thread, so the resolution below is never the one that runs - it is always the cached
+    // answer of the attempt the bootstrap made. Every early exit of _bootstrap() leaves
+    // jvm_status non-OK, and the slow path returns on that before reaching this line.
+    //
+    // Making the base lazy (that is, resolving it here for real rather than reading a cached
+    // answer) would put the deadlock straight back, so GetJNIEnvSlowPath() holds it down with a
+    // DCHECK: on that path an outcome must already exist before this is called.
     static Status ensure_jni_base();
     friend class JvmLauncher;
     friend class Env;

@@ -28,7 +28,8 @@
 namespace doris {
 
 namespace {
-// The env these stats run on, taken from the JVM directly rather than through Jni::Env::Get().
+// The env these stats run on, taken from the JVM directly rather than through Jni::Env::Get(),
+// and primed as this thread's cached env for as long as the guard lives.
 //
 // Env::Get() is the gate for code that runs Java of Doris's own, and it refuses whenever the
 // plugin SPI could not be resolved. These stats are not that: JvmStats reaches only for
@@ -39,9 +40,19 @@ namespace {
 // Env::Get() took its fast path and never asked), while every later refresh() ran on the metrics
 // daemon, took the slow path, and got the cached base failure - 30 of those and JvmMetrics::update
 // logs "Jvm Stats CLOSE!" and sets every jvm_* gauge to 0. Published once, frozen, then zeroed.
-Status jvm_management_env(JNIEnv** env) {
-    return Jni::JvmLauncher::attach_current_thread(env);
-}
+//
+// Why a guard around the whole body rather than one call at the top. Two reasons, and neither is
+// served by taking the env alone:
+//
+//  * init() is called from JvmLauncher::_bootstrap(), INSIDE ensure_jvm()'s call_once. Anything
+//    on this path that reaches ensure_jvm() - which is what both Jni::Env::Get()'s slow path and
+//    JvmLauncher::attach_current_thread() do - re-enters that once flag and hangs the BE on the
+//    first JVM it ever creates.
+//  * every Jni::Local* this file allocates releases itself through Env::Get() (see
+//    RefHelper<Local>::get_env), so an unprimed thread would put each of those destructors back
+//    behind the same SPI gate: it logs "Can't destroy Jni Ref" and returns without deleting, once
+//    per object, every 15 seconds, on exactly the deployment this indirection exists for.
+using ScopedManagementEnv = Jni::JvmLauncher::ScopedVmEnv;
 } // namespace
 
 #define DEFINE_JVM_SIZE_BYTES_METRIC(name, type)                                     \
@@ -225,8 +236,11 @@ void JvmMetrics::update() {
 }
 
 Status JvmStats::init() {
+    // First declaration in the scope, so it is the last thing destroyed: every JNI wrapper below
+    // is released while this is still in force.
+    ScopedManagementEnv scoped_env;
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(jvm_management_env(&env));
+    RETURN_IF_ERROR(scoped_env.attach(&env));
 
     RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/management/ManagementFactory",
                                           &_managementFactoryClass));
@@ -325,8 +339,11 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
         return Status::InternalError("Jvm Stats not init complete.");
     }
 
+    // First declaration in the scope, so it is the last thing destroyed: every Jni::Local* below
+    // is released while this is still in force. See ScopedManagementEnv at the top of this file.
+    ScopedManagementEnv scoped_env;
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(jvm_management_env(&env));
+    RETURN_IF_ERROR(scoped_env.attach(&env));
 
     Jni::LocalObject memoryMXBeanObj;
     RETURN_IF_ERROR(_managementFactoryClass.call_static_object_method(env, _getMemoryMXBeanMethod)
