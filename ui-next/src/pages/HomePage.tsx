@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import type { TableColumnsType } from 'antd';
-import { Alert, Button, Checkbox, Descriptions, Drawer, Empty, Input, Popover, Skeleton, Table, Tabs, Tag } from 'antd';
+import { Alert, Button, Checkbox, Descriptions, Drawer, Empty, Input, Popover, Skeleton, Tabs, Tag } from 'antd';
 import { useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -63,23 +62,6 @@ function NodeTablePanel({ kind, table, loading, error, updatedAt, onRefresh }: N
   const records = useMemo(() => filterNodeRecords(toNodeRecords(table ?? { columnNames: [], rows: [] }), search), [table, search]);
   const summary = useMemo(() => summarizeNodes(table ?? { columnNames: [], rows: [] }), [table]);
   const aliveIndex = table?.columnNames.findIndex((name) => name.toLocaleLowerCase() === 'alive') ?? -1;
-  const columns = useMemo<TableColumnsType<NodeRecord>>(
-    () => (table?.columnNames ?? [])
-      .map((name, index) => ({ name, index }))
-      .filter(({ name }) => visibleColumns.includes(name))
-      .map(({ name, index }) => ({
-        title: name,
-        key: `${name}-${index}`,
-        width: Math.max(136, Math.min(320, name.length * 12 + 48)),
-        ellipsis: true,
-        sorter: (left, right) => cellValue(left, index).localeCompare(cellValue(right, index), undefined, { numeric: true }),
-        render: (_value, record) => index === aliveIndex
-          ? <AliveValue value={cellValue(record, index)} />
-          : <span className="table-cell-value" title={cellValue(record, index)}>{cellValue(record, index) || '—'}</span>,
-      })),
-    [aliveIndex, table, visibleColumns],
-  );
-
   const columnPicker = (
     <div className="column-picker" aria-label={`${kind} columns`}>
       <Checkbox
@@ -131,18 +113,31 @@ function NodeTablePanel({ kind, table, loading, error, updatedAt, onRefresh }: N
       {!error && loading && !table && <Skeleton active paragraph={{ rows: 5 }} />}
       {!error && table && table.rows.length === 0 && <Empty description={`No ${kind.toLocaleLowerCase()} nodes returned.`} />}
       {!error && table && table.rows.length > 0 && (
-        <Table<NodeRecord>
-          className="node-table"
-          columns={columns}
-          dataSource={records}
-          loading={loading}
-          pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
-          scroll={{ x: 'max-content' }}
-          size="small"
-          onRow={(record) => ({ onClick: () => setSelected(record) })}
-          locale={{ emptyText: search ? 'No nodes match this search.' : 'No nodes returned.' }}
-          rowClassName={() => 'node-row'}
-        />
+        <div className="node-record-list" aria-label={`${kind} records`}>
+          {records.map((record) => (
+            <div
+              key={record.key}
+              className="node-record"
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelected(record)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setSelected(record);
+                }
+              }}
+            >
+              <Descriptions bordered column={1} size="small">
+                {table.columnNames.map((name, index) => visibleColumns.includes(name) ? (
+                  <Descriptions.Item key={`${name}-${index}`} label={name}>
+                    {index === aliveIndex ? <AliveValue value={cellValue(record, index)} /> : cellValue(record, index) || '—'}
+                  </Descriptions.Item>
+                ) : null)}
+              </Descriptions>
+            </div>
+          ))}
+        </div>
       )}
       <Drawer
         title={`${kind} details`}
@@ -187,7 +182,7 @@ export function HomePage() {
         {version.isPending && <Skeleton active paragraph={{ rows: 2 }} />}
         {version.error && <ErrorState error={version.error} title="Version information could not be loaded." />}
         {version.data && (
-          <Descriptions className="version-grid" bordered column={{ xs: 1, sm: 1, md: 2, lg: 3 }} size="small">
+          <Descriptions className="version-grid" bordered column={1} size="small">
             <Descriptions.Item label="Version">{version.data.version || '—'}</Descriptions.Item>
             <Descriptions.Item label="Git">{version.data.git || '—'}</Descriptions.Item>
             <Descriptions.Item label="Build Time">{version.data.buildTime || '—'}</Descriptions.Item>

@@ -67,10 +67,10 @@ export function LogPage() {
         />
         {query.data && (
           <>
-            <Descriptions bordered column={{ xs: 1, sm: 2, lg: 4 }} size="small">
+            <Descriptions bordered column={1} size="small">
               <Descriptions.Item label="Level">{query.data.level || '—'}</Descriptions.Item>
               <Descriptions.Item label="Mode">{query.data.mode || '—'}</Descriptions.Item>
-              <Descriptions.Item label="Audit names" span={2}>
+              <Descriptions.Item label="Audit names">
                 {query.data.auditNames.length > 0 ? query.data.auditNames.join(', ') : '—'}
               </Descriptions.Item>
             </Descriptions>

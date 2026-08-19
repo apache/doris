@@ -100,6 +100,7 @@ public class WebSqlStatementExecutorTest {
         Assertions.assertFalse(exception.getMessage().contains("secret_table"));
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) exception.getDetails();
+        Assertions.assertEquals("table secret_table does not exist", details.get("message"));
         Assertions.assertEquals("42S02", details.get("sqlState"));
         Assertions.assertEquals(2, details.get("vendorCode"));
     }

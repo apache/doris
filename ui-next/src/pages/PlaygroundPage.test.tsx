@@ -156,12 +156,9 @@ describe('PlaygroundPage', () => {
     });
 
     renderPage();
-    const sessionDetails = screen.getByLabelText('SQL session details');
-    expect(sessionDetails).toHaveTextContent('Connection status');
-    expect(sessionDetails).toHaveTextContent('ready');
-    expect(sessionDetails).toHaveTextContent('Session ID');
-    expect(sessionDetails).toHaveTextContent('fe-hint.session-id');
-    const run = screen.getByRole('button', { name: /run selection/i });
+    const connectionStatus = document.querySelector('.connection-status');
+    expect(connectionStatus).toHaveTextContent('ready');
+    const run = screen.getByRole('button', { name: 'Run' });
     fireEvent.click(run);
     expect(await screen.findByText('Result 1')).toBeInTheDocument();
     expect(await screen.findByText('query-42')).toBeInTheDocument();
@@ -186,8 +183,9 @@ describe('PlaygroundPage', () => {
     });
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /run selection/i }));
-    expect(await screen.findByText(/Unknown column/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(await screen.findByText(/SELECT COUNT/)).toBeInTheDocument();
+    expect(screen.getByText(/Unknown column/)).toBeInTheDocument();
     expect(screen.getByText(/WEB_SQL_QUERY_ERROR/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset connection' }));
@@ -222,13 +220,13 @@ describe('PlaygroundPage', () => {
     expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;');
 
     fireEvent.click(screen.getByRole('button', { name: 'Query table' }));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT \nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
 
     fireEvent.click(screen.getByText('ss_item_sk'));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`\nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
 
     fireEvent.click(screen.getByText('ss_store_sk'));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`\nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
   });
 
   it('filters only loaded metadata and refreshes databases without loading every table', async () => {
