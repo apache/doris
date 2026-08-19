@@ -56,6 +56,7 @@ def validate(comment: str, **overrides: object) -> dict[str, object]:
         "reviewed_base_committed_at": "2026-08-17T12:00:00Z",
         "live_base_committed_at": "2026-08-19T11:59:00Z",
         "comment_author": "doris-committer",
+        "comment_author_permission": "write",
     }
     arguments.update(overrides)
     return validate_comment(
@@ -143,6 +144,16 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "comment author"):
             validate(make_comment(reviewer="someone-else"))
 
+    def test_accepts_admin_permission(self) -> None:
+        fields = validate(make_comment(), comment_author_permission="admin")
+        self.assertEqual("doris-committer", fields["reviewer"])
+
+    def test_rejects_non_write_permissions(self) -> None:
+        for permission in ("read", "triage", "none", ""):
+            with self.subTest(permission=permission):
+                with self.assertRaisesRegex(ValidationError, "write permission"):
+                    validate(make_comment(), comment_author_permission=permission)
+
     def test_rejects_a_different_pr(self) -> None:
         with self.assertRaisesRegex(ValidationError, "different pull request"):
             validate(make_comment(pr="apache/doris#124"))
@@ -220,6 +231,42 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
             )
         self.assertEqual(1, result.returncode)
         self.assertIn("base is not a full SHA", result.stderr)
+
+    def test_validate_cli_accepts_write_permission(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as comment_file:
+            comment_file.write(make_comment())
+            comment_file.flush()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VALIDATOR),
+                    "validate",
+                    "--comment-file",
+                    comment_file.name,
+                    "--repository",
+                    "apache/doris",
+                    "--pr-number",
+                    "123",
+                    "--head-sha",
+                    HEAD_SHA,
+                    "--live-base-sha",
+                    LIVE_BASE_SHA,
+                    "--base-compare-status",
+                    "ahead",
+                    "--reviewed-base-committed-at",
+                    "2026-08-17T12:00:00Z",
+                    "--live-base-committed-at",
+                    "2026-08-19T11:59:00Z",
+                    "--comment-author",
+                    "doris-committer",
+                    "--comment-author-permission",
+                    "write",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        self.assertIn("VALID: local pipeline review passed", result.stdout)
 
 
 if __name__ == "__main__":

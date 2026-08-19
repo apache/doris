@@ -52,8 +52,12 @@ jobs:
             echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          can_push="$(jq -r '.user.permissions.push // false' <<<"$permission_info")"
-          if [ "$can_push" != "true" ]; then
+          if ! comment_author_permission="$(jq -er '.permission | strings' <<<"$permission_info")"; then
+            echo "Review comment ignored: cannot read ${COMMENT_AUTHOR}'s repository permission."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$comment_author_permission" != "write" && "$comment_author_permission" != "admin" ]]; then
             echo "Review comment ignored: ${COMMENT_AUTHOR} does not have write permission."
             echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -95,7 +99,8 @@ jobs:
               --base-compare-status "$base_compare_status" \
               --reviewed-base-committed-at "$reviewed_base_committed_at" \
               --live-base-committed-at "$live_base_committed_at" \
-              --comment-author "$COMMENT_AUTHOR" 2>&1)"; then
+              --comment-author "$COMMENT_AUTHOR" \
+              --comment-author-permission "$comment_author_permission" 2>&1)"; then
             echo "$validation_output"
             echo "valid=true" >> "$GITHUB_OUTPUT"
             echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"

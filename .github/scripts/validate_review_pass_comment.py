@@ -25,6 +25,7 @@ ALLOWED_MODELS = frozenset(
     }
 )
 ALLOWED_EFFORTS = frozenset({"xhigh", "max", "ultra"})
+ALLOWED_AUTHOR_PERMISSIONS = frozenset({"write", "admin"})
 EXPECTED_FIELDS = (
     "schema",
     "status",
@@ -100,6 +101,7 @@ def validate_comment(
     reviewed_base_committed_at: str | None,
     live_base_committed_at: str | None,
     comment_author: str,
+    comment_author_permission: str,
 ) -> dict[str, object]:
     fields = parse_comment(comment)
 
@@ -139,6 +141,8 @@ def validate_comment(
 
     if str(fields["reviewer"]).casefold() != comment_author.casefold():
         raise ValidationError("reviewer does not match the GitHub comment author")
+    if comment_author_permission not in ALLOWED_AUTHOR_PERMISSIONS:
+        raise ValidationError("comment author does not have write permission")
     if fields["model"] not in ALLOWED_MODELS:
         raise ValidationError(f"model is not allowed: {fields['model']}")
     if fields["effort"] not in ALLOWED_EFFORTS:
@@ -191,6 +195,7 @@ def main() -> int:
     validate_parser.add_argument("--reviewed-base-committed-at")
     validate_parser.add_argument("--live-base-committed-at")
     validate_parser.add_argument("--comment-author", required=True)
+    validate_parser.add_argument("--comment-author-permission", required=True)
     args = parser.parse_args()
 
     try:
@@ -213,6 +218,7 @@ def main() -> int:
             reviewed_base_committed_at=args.reviewed_base_committed_at,
             live_base_committed_at=args.live_base_committed_at,
             comment_author=args.comment_author,
+            comment_author_permission=args.comment_author_permission,
         )
     except (OSError, ValidationError, ValueError) as exc:
         print(f"INVALID: {exc}", file=sys.stderr)
