@@ -301,7 +301,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         OlapTable table = scan.getTable();
         ScanRowId scanRowId = computeScanRowIdAndKeys(table, scan);
         validateBinlogEnabled(scan);
-        Alias rowIdAlias = new Alias(scanRowId.rowIdExpr, Column.IVM_ROW_ID_COL);
+        Alias rowIdAlias = new Alias(scanRowId.mergedRowIdExpr, Column.IVM_ROW_ID_COL);
         rewriteResult.addRowId(rowIdAlias.toSlot(), scanRowId.deterministic);
         // When the scanned table's only key column is its own IVM row-id (a cascading MV
         // whose hidden identity-key columns are absent from the scan output) and it is under
@@ -1070,14 +1070,14 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * hash-collision protection.
      */
     final class ScanRowId {
-        final Expression rowIdExpr;
+        final Expression mergedRowIdExpr;
         final Optional<Slot> baseTableRowId;
         final List<Slot> remainKeys;
         final boolean deterministic;
 
-        ScanRowId(Expression rowIdExpr, List<Slot> remainKeys, boolean deterministic,
+        ScanRowId(Expression mergedRowIdExpr, List<Slot> remainKeys, boolean deterministic,
                 Optional<Slot> baseTableRowId) {
-            this.rowIdExpr = rowIdExpr;
+            this.mergedRowIdExpr = mergedRowIdExpr;
             this.baseTableRowId = baseTableRowId;
             this.remainKeys = remainKeys;
             this.deterministic = deterministic;
@@ -1133,25 +1133,30 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 .filter(Column::isKey)
                 .map(Column::getName)
                 .collect(Collectors.toSet());
-        List<Slot> keySlots = scan.getOutput().stream()
-                .filter(slot -> keyColNames.contains(slot.getName()))
-                .collect(ImmutableList.toImmutableList());
+        List<Slot> keySlots = new ArrayList<>();
+        List<Slot> remainKeys = new ArrayList<>();
+        Optional<Slot> baseTableRowId = Optional.empty();
+        for (Slot slot : scan.getOutput()) {
+            if (!keyColNames.contains(slot.getName())) {
+                continue;
+            }
+            keySlots.add(slot);
+            if (Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName())) {
+                // When the scanned table is itself an IVM MV, its own row-id key column is kept
+                // as the base-table row-id identity key so that a downstream join can carry it
+                // (renamed) into its unique keys for join hash-collision protection.
+                baseTableRowId = Optional.of(slot);
+            } else {
+                remainKeys.add(slot);
+            }
+        }
         if (keySlots.isEmpty()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM: no key columns found for "
                     + table.getKeysType() + " table: " + table.getName());
         }
-        List<Slot> remainKeys = keySlots.stream()
-                .filter(slot -> !Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
-                .collect(ImmutableList.toImmutableList());
-        // When the scanned table is itself an IVM MV, its own row-id key column is kept as the
-        // base-table row-id identity key so that a downstream join can carry it (renamed) into
-        // its unique keys for join hash-collision protection.
-        Optional<Slot> baseTableRowId = keySlots.stream()
-                .filter(slot -> Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
-                .findFirst();
-        Expression rowIdExpr = IvmUtil.buildRowIdHash(keySlots);
-        return new ScanRowId(rowIdExpr, remainKeys, true, baseTableRowId);
+        Expression mergedRowIdExpr = IvmUtil.buildRowIdHash(keySlots);
+        return new ScanRowId(mergedRowIdExpr, remainKeys, true, baseTableRowId);
     }
 
     private void validateBinlogEnabled(LogicalOlapScan scan) {
