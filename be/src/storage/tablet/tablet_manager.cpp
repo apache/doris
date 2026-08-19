@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <list>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <string_view>
 
@@ -43,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -730,9 +732,13 @@ struct TabletScore {
 
 std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
+        const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction,
+        CompactionScoreStats* score_stats,
         const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                 all_cumulative_compaction_policies) {
+    DCHECK(score_stats != nullptr);
+    *score_stats = {};
+    score_stats->scanned = true;
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base"
                                         : compaction_type == CompactionType::CUMU_BINLOG_COMPACTION
@@ -793,8 +799,9 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
                 return;
             }
         }
-        auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
-                tablet_ptr->tablet_meta()->compaction_policy());
+        const auto& compaction_policy = tablet_ptr->tablet_meta()->compaction_policy();
+        auto cumulative_compaction_policy =
+                all_cumulative_compaction_policies.at(compaction_policy);
         uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(compaction_type);
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
@@ -804,6 +811,24 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
             return;
         }
 
+        std::optional<bool> suitable_for_compaction;
+        auto is_suitable = [&]() {
+            if (!suitable_for_compaction.has_value()) {
+                suitable_for_compaction = tablet_ptr->suitable_for_compaction(
+                        compaction_type, cumulative_compaction_policy);
+            }
+            return suitable_for_compaction.value();
+        };
+
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            int64_t* policy_max_score = compaction_policy == CUMULATIVE_TIME_SERIES_POLICY
+                                                ? &score_stats->time_series_max_score
+                                                : &score_stats->size_based_max_score;
+            if (current_compaction_score > *policy_max_score && is_suitable()) {
+                *policy_max_score = current_compaction_score;
+            }
+        }
+
         if (compaction_num_per_round > 1) {
             TabletScore ts;
             ts.score = current_compaction_score;
@@ -811,9 +836,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
             if ((top_tablets.size() >= compaction_num_per_round &&
                  current_compaction_score > top_tablets.top().score) ||
                 top_tablets.size() < compaction_num_per_round) {
-                bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                               cumulative_compaction_policy);
-                if (ret) {
+                if (is_suitable()) {
                     top_tablets.push(ts);
                     if (top_tablets.size() > compaction_num_per_round) {
                         top_tablets.pop();
@@ -823,9 +846,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
             }
         } else {
             if (current_compaction_score > highest_score) {
-                bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                               cumulative_compaction_policy);
-                if (ret) {
+                if (is_suitable()) {
                     highest_score = current_compaction_score;
                     best_tablet_context = {.tablet_ptr = tablet_ptr,
                                            .score = current_compaction_score};
@@ -855,7 +876,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
         picked_tablet_contexts.emplace_back(TabletCompactionContext {.tablet = it->tablet_ptr});
     }
 
-    *score = highest_score;
+    score_stats->max_score = highest_score;
     return picked_tablet_contexts;
 }
 

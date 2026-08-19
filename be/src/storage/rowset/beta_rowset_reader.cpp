@@ -285,6 +285,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             _read_options.io_ctx.remote_scan_cache_write_limiter =
                     query_ctx->remote_scan_cache_write_limiter();
         }
+        _read_options.io_ctx.inverted_index_snii_read_no_write_file_cache =
+                _read_context->runtime_state->query_options()
+                        .inverted_index_snii_read_no_write_file_cache;
     }
 
     if (_read_context->condition_cache_digest) {

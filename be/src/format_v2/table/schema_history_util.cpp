@@ -27,13 +27,6 @@
 namespace doris::format {
 namespace {
 
-const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
-    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
-        return nullptr;
-    }
-    return field_ptr.field_ptr.get();
-}
-
 const schema::external::TField* find_child_field_by_name(
         const std::vector<schema::external::TFieldPtr>& fields, const std::string& name) {
     for (const auto& field_ptr : fields) {

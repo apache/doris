@@ -183,6 +183,9 @@ message RowsetMetaPB {
     // For row binlog LSN allocation (FE auto-inc RPC)
     optional int64 db_id = 1016;
     optional int64 table_id = 1017;
+    // Actual inverted-index format used by this rowset's files. It is independent
+    // from the shared (index_id, schema_version) schema key.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1018;
 }
 
 message SchemaDictKeyList {
@@ -301,6 +304,9 @@ message RowsetMetaCloudPB {
     optional int64 db_id = 115;
     optional int64 table_id = 116;
 
+    // Actual inverted-index format used by this rowset's files. It is independent
+    // from the shared (index_id, schema_version) schema key.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 117;
 }
 
 message SegmentStatisticsPB {
@@ -446,6 +452,7 @@ enum InvertedIndexStorageFormatPB {
     V1 = 0;
     V2 = 1;
     V3 = 2;
+    SNII = 3;
 }
 
 // Tablet-level storage format. Values match TStorageFormat (Thrift) integer values so
@@ -732,6 +739,8 @@ message TabletMetaPB {
     optional string table_name = 1003;
     optional int64 ttl_seconds = 1004;
     optional int32 schema_version = 1005; // index_id, schema_version -> schema
+    // Immutable format of this tablet's inverted-index files.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1006;
 }
 
 message TabletMetaCloudPB {
@@ -791,6 +800,8 @@ message TabletMetaCloudPB {
     optional string table_name = 101;
     optional int64 ttl_seconds = 102;
     optional int32 schema_version = 103; // index_id, schema_version -> schema
+    // Immutable format of this tablet's inverted-index files.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 104;
 }
 
 message OLAPRawDeltaHeaderMessage {

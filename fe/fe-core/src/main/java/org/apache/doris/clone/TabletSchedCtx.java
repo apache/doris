@@ -36,10 +36,13 @@ import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
@@ -59,6 +62,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -193,6 +197,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private ReplicaAllocation replicaAlloc;
     // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
+
+    private BackendSelectionProvider.RepairSourceSelectionResult repairSourceSelectionResult =
+            BackendSelectionProvider.RepairSourceSelectionResult.DISABLED;
 
     private SubCode schedFailedCode;
 
@@ -444,6 +451,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public long getCopyTimeMs() {
         return copyTimeMs;
+    }
+
+    public BackendSelectionProvider.RepairSourceSelectionResult getRepairSourceSelectionResult() {
+        return repairSourceSelectionResult;
     }
 
     public long getSrcBackendId() {
@@ -713,7 +724,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // choose a replica which slot is available from candidates.
         // sort replica by version count asc and isUserDrop, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, CLONE_SRC_COMPARATOR);
-        for (Replica srcReplica : candidates) {
+
+        boolean selectionEnabled = isRepairSourceSelectionEnabled(destBackendId);
+        List<Replica> orderedCandidates = selectionEnabled
+                ? orderRepairSourceCandidates(candidates, destBackendId)
+                : candidates;
+        for (Replica srcReplica : orderedCandidates) {
             long replicaBeId = srcReplica.getBackendIdWithoutException();
             PathSlot slot = backendsWorkingSlots.get(replicaBeId);
             if (slot == null) {
@@ -733,10 +749,30 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
             setSrc(srcReplica);
+            repairSourceSelectionResult = selectionEnabled
+                    ? BackendSelectionManager.classifyRepairSource(replicaBeId, destBackendId,
+                            tablet.getReplicas(), candidates)
+                    : BackendSelectionProvider.RepairSourceSelectionResult.DISABLED;
             return;
         }
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                 "waiting for source replica's slot");
+    }
+
+    static List<Replica> orderRepairSourceCandidates(List<Replica> candidates, long destBackendId)
+            throws SchedException {
+        try {
+            return new ArrayList<>(BackendSelectionManager.orderRepairSourceCandidates(
+                    candidates, destBackendId));
+        } catch (UserException e) {
+            throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
+        }
+    }
+
+    static boolean isRepairSourceSelectionEnabled(long destBackendId) {
+        return Config.enable_repair_source_backend_selection
+                && BackendSelectionManager.isRepairSourceSelectionEnabled()
+                && destBackendId != -1;
     }
 
     /*

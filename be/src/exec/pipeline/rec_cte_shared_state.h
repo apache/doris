@@ -17,13 +17,18 @@
 
 #pragma once
 
-#include "exec/common/distinct_agg_utils.h"
 #include "exec/pipeline/dependency.h"
-#include "util/brpc_client_cache.h"
 
 namespace doris {
 
+struct DistinctDataVariants;
+
 struct RecCTESharedState : public BasicSharedState {
+    // Defined in rec_cte_shared_state.cpp: DistinctDataVariants carries the
+    // full hash-table variant machinery.
+    RecCTESharedState();
+    ~RecCTESharedState() override;
+
     std::vector<TRecCTETarget> targets;
     std::vector<Block> blocks;
     IColumn::Selector distinct_row;
@@ -34,7 +39,11 @@ struct RecCTESharedState : public BasicSharedState {
     RuntimeProfile::Counter* hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* hash_table_input_counter = nullptr;
 
-    std::unique_ptr<DistinctDataVariants> agg_data = nullptr;
+    // No `= nullptr` initializer: a default member initializer makes GCC
+    // instantiate ~unique_ptr<DistinctDataVariants> in every TU that merely sees
+    // this class, which needs the complete type. The defaulted constructor in
+    // rec_cte_shared_state.cpp already leaves this null.
+    std::unique_ptr<DistinctDataVariants> agg_data;
 
     int current_round = 0;
     int last_round_offset = 0;
@@ -47,130 +56,14 @@ struct RecCTESharedState : public BasicSharedState {
         }
     }
 
-    Status emplace_block(RuntimeState* state, Block&& block) {
-        if (agg_data) {
-            auto num_rows = uint32_t(block.rows());
-            ColumnRawPtrs raw_columns;
-            std::vector<ColumnPtr> columns = block.get_columns_and_convert();
-            for (auto& col : columns) {
-                raw_columns.push_back(col.get());
-            }
-
-            std::visit(Overload {[&](std::monostate& arg) -> void {
-                                     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                            "uninited hash table");
-                                 },
-                                 [&](auto& agg_method) -> void {
-                                     SCOPED_TIMER(hash_table_compute_timer);
-                                     using HashMethodType = std::decay_t<decltype(agg_method)>;
-                                     using AggState = typename HashMethodType::State;
-
-                                     AggState agg_state(raw_columns);
-                                     agg_method.init_serialized_keys(raw_columns, num_rows);
-                                     distinct_row.clear();
-
-                                     size_t row = 0;
-                                     auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                                         HashMethodType::try_presis_key(key, origin, arena);
-                                         ctor(key);
-                                         distinct_row.push_back(row);
-                                     };
-                                     auto creator_for_null_key = [&]() {
-                                         distinct_row.push_back(row);
-                                     };
-
-                                     SCOPED_TIMER(hash_table_emplace_timer);
-                                     lazy_emplace_batch_void(agg_method, agg_state, num_rows,
-                                                             creator, creator_for_null_key,
-                                                             [&](uint32_t r) { row = r; });
-                                     COUNTER_UPDATE(hash_table_input_counter, num_rows);
-                                 }},
-                       agg_data->method_variant);
-
-            if (distinct_row.size() == block.rows()) {
-                blocks.emplace_back(std::move(block));
-            } else if (!distinct_row.empty()) {
-                auto distinct_block = MutableBlock(block.clone_empty());
-                RETURN_IF_ERROR(block.append_to_block_by_selector(&distinct_block, distinct_row));
-                blocks.emplace_back(distinct_block.to_block());
-            }
-        } else {
-            blocks.emplace_back(std::move(block));
-        }
-        return Status::OK();
-    }
+    // Bodies live in rec_cte_shared_state.cpp: they touch the distinct hash
+    // table variant machinery and the brpc client stack.
+    Status emplace_block(RuntimeState* state, Block&& block);
 
     PTransmitRecCTEBlockParams build_basic_param(RuntimeState* state,
-                                                 const TRecCTETarget& target) const {
-        PTransmitRecCTEBlockParams request;
-        request.set_node_id(target.node_id);
-        request.mutable_query_id()->CopyFrom(UniqueId(state->query_id()).to_proto());
-        request.mutable_fragment_instance_id()->CopyFrom(
-                UniqueId(target.fragment_instance_id).to_proto());
-        return request;
-    }
+                                                 const TRecCTETarget& target) const;
 
-    Status send_data_to_targets(RuntimeState* state, size_t round_offset) const {
-        if (targets.size() == 0) {
-            return Status::OK();
-        }
-        int send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
-        int block_number_per_target =
-                int(blocks.size() - round_offset + targets.size() - 1) / targets.size();
-        for (auto target : targets) {
-            auto stub =
-                    state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
-                            target.addr);
-            if (!stub) {
-                return Status::InternalError(fmt::format("Get rpc stub failed, host={}, port={}",
-                                                         target.addr.hostname, target.addr.port));
-            }
-
-            // send blocks
-            int step = block_number_per_target;
-            while (round_offset < blocks.size() && step > 0) {
-                PTransmitRecCTEBlockParams request = build_basic_param(state, target);
-                auto current_bytes = 0;
-                while (round_offset < blocks.size() && step > 0 &&
-                       current_bytes < send_multi_blocks_byte_size) {
-                    auto* pblock = request.add_blocks();
-                    size_t uncompressed_bytes = 0;
-                    size_t compressed_bytes = 0;
-                    int64_t compress_time;
-                    RETURN_IF_ERROR(blocks[round_offset].serialize(
-                            state->be_exec_version(), pblock, &uncompressed_bytes,
-                            &compressed_bytes, &compress_time,
-                            state->fragement_transmission_compression_type()));
-                    round_offset++;
-                    step--;
-                    current_bytes += compressed_bytes;
-                }
-                request.set_eos(false);
-
-                PTransmitRecCTEBlockResult result;
-                brpc::Controller controller;
-                controller.set_timeout_ms(
-                        get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
-
-                stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
-                brpc::Join(controller.call_id());
-                RETURN_IF_ERROR(Status::create(result.status()));
-            }
-
-            // send eos
-            {
-                PTransmitRecCTEBlockParams request = build_basic_param(state, target);
-                request.set_eos(true);
-
-                PTransmitRecCTEBlockResult result;
-                brpc::Controller controller;
-                stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
-                brpc::Join(controller.call_id());
-                RETURN_IF_ERROR(Status::create(result.status()));
-            }
-        }
-        return Status::OK();
-    }
+    Status send_data_to_targets(RuntimeState* state, size_t round_offset) const;
 };
 
 } // namespace doris

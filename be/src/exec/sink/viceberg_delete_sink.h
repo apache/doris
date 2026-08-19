@@ -134,6 +134,7 @@ private:
     Status _init_position_delete_output_exprs();
     std::string _get_file_extension() const;
     void _cleanup_created_files();
+    void _transfer_created_files_to_report_cleanup();
 
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;

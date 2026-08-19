@@ -28,6 +28,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/join_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
 #include "util/uid_util.h"

@@ -26,8 +26,12 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.collect.Maps;
@@ -64,6 +68,7 @@ public class CatalogFactoryPluginRoutingTest {
     @AfterEach
     void tearDown() {
         ConnectorFactory.initPluginManager(new ConnectorPluginManager());
+        FileSystemFactory.initPluginManager(null);
     }
 
     @Test
@@ -154,6 +159,67 @@ public class CatalogFactoryPluginRoutingTest {
         } finally {
             FeConstants.runningUnitTest = savedRunningUnitTest;
         }
+    }
+
+    @Test
+    void createConnectivityTestSeesRawStorageProperties() throws Exception {
+        FileSystemPluginManager fileSystemManager = new FileSystemPluginManager();
+        fileSystemManager.loadBuiltins();
+        FileSystemFactory.initPluginManager(fileSystemManager);
+
+        AtomicInteger connectivityTests = new AtomicInteger();
+        ConnectorPluginManager connectorManager = new ConnectorPluginManager();
+        connectorManager.registerProvider(new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return THIRD_PARTY_TYPE;
+            }
+
+            @Override
+            public boolean isStandaloneCatalogType() {
+                return true;
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return new Connector() {
+                    @Override
+                    public ConnectorMetadata getMetadata(ConnectorSession session) {
+                        return null;
+                    }
+
+                    @Override
+                    public boolean defaultTestConnection() {
+                        return true;
+                    }
+
+                    @Override
+                    public ConnectorTestResult testConnection(ConnectorSession session) {
+                        connectivityTests.incrementAndGet();
+                        boolean found = context.getStorageContext().getStorageProperties().stream()
+                                .filter(S3CompatibleFileSystemProperties.class::isInstance)
+                                .map(S3CompatibleFileSystemProperties.class::cast)
+                                .anyMatch(storage -> "OSS".equals(storage.providerName())
+                                        && "create-ak".equals(storage.getAccessKey())
+                                        && "create-sk".equals(storage.getSecretKey()));
+                        return found ? ConnectorTestResult.success()
+                                : ConnectorTestResult.failure("CREATE context did not expose raw storage props");
+                    }
+                };
+            }
+        });
+        ConnectorFactory.initPluginManager(connectorManager);
+
+        Map<String, String> properties = props(THIRD_PARTY_TYPE);
+        properties.put("oss.endpoint", "https://oss-cn-beijing.aliyuncs.com");
+        properties.put("oss.region", "cn-beijing");
+        properties.put("oss.access_key", "create-ak");
+        properties.put("oss.secret_key", "create-sk");
+        CatalogIf<?> catalog = CatalogFactory.createFromCommand(
+                1L, command("storage_ctx_ctl", properties));
+
+        Assertions.assertInstanceOf(PluginDrivenExternalCatalog.class, catalog);
+        Assertions.assertEquals(1, connectivityTests.get());
     }
 
     /** Registers a single fake provider and returns a counter of how often it was asked to build a connector. */

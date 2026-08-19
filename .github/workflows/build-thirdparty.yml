@@ -80,11 +80,38 @@ jobs:
       - name: Test focused thirdparty lifecycle
         run: thirdparty/test/arrow-paimon-lifecycle-test.sh
 
+  script_test:
+    name: Thirdparty Script Test
+    needs: changes
+    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v4
+
+      # These drive download-thirdparty.sh against stubbed downloads, so they
+      # need none of the toolchain the build jobs spend an hour preparing and
+      # finish in seconds. They were sitting in the tree unreferenced until now.
+      - name: Test download-thirdparty.sh
+        run: |
+          thirdparty/test/download-thirdparty-fallback-test.sh
+          thirdparty/test/juicefs-default-mirror-test.sh
+          thirdparty/test/download-thirdparty-md5-test.sh
+
+      # azure is the only package that fetches its own sources, and it is the
+      # last one built, so a download that fails there costs the whole tree.
+      # This drives build_azure against a stubbed cmake, in seconds.
+      - name: Test build-thirdparty.sh
+        run: |
+          thirdparty/test/azure-vcpkg-retry-test.sh
+
   build_linux:
     name: Build Third Party Libraries (Linux)
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
     runs-on: ubuntu-22.04
+    env:
+      ENABLE_THIRDPARTY_CCACHE: 'ON'
     steps:
       - name: Checkout easimon/maximize-build-space
         run: |
@@ -104,6 +131,24 @@ jobs:
 
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
+
+      # ccache-action is vendored as a submodule and the plain checkout above does not
+      # fetch it. Initialise only this one; `submodules: recursive` would also clone
+      # contrib/clucene, which a third party build does not need.
+      - name: Checkout ccache-action
+        run: git submodule update --init .github/actions/ccache-action
+
+      # This build is cold every time, so changing one package recompiles all ~80 of
+      # them. build-thirdparty.sh routes the cmake-based packages through ccache when
+      # ENABLE_THIRDPARTY_CCACHE is on. Note that a cache saved by a pull request run
+      # is only visible to that same pull request, so this pays off across pushes to
+      # one branch; sharing it across pull requests needs a run on master.
+      - name: Ccache ${{ github.ref }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: THIRDPARTY-Linux
+          max-size: "1G"
+          restore-keys: THIRDPARTY-Linux-
 
       - name: Download
         run: |
@@ -179,9 +224,41 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
     runs-on: macos-15
+    env:
+      ENABLE_THIRDPARTY_CCACHE: 'ON'
+      # thrift's configure finds the dotnet these images ship, so `make` runs
+      # `dotnet build -c Release` for lib/netstd. The build itself takes seconds, and
+      # then the compiler server it leaves behind holds the stdout it inherited for its
+      # full 10 minute keep-alive while nothing happens. Measured in
+      # apache/doris-thirdparty run 31988123966: 600.03s on macos-14 and 598.79s on
+      # macos-15-intel between "Build succeeded" and "Making install in compiler/cpp",
+      # against 0.01s on Linux. Do not start a shared compiler server, and do not keep
+      # MSBuild worker nodes around either.
+      UseSharedCompilation: 'false'
+      MSBUILDDISABLENODEREUSE: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
+
+      # ccache-action is vendored as a submodule and the plain checkout above does not
+      # fetch it. Initialise only this one; `submodules: recursive` would also clone
+      # contrib/clucene, which a third party build does not need.
+      - name: Checkout ccache-action
+        run: git submodule update --init .github/actions/ccache-action
+
+      # This build is cold every time, so changing one package recompiles all ~80 of
+      # them. build-thirdparty.sh routes the cmake-based packages through ccache when
+      # ENABLE_THIRDPARTY_CCACHE is on. Note that a cache saved by a pull request run
+      # is only visible to that same pull request, so this pays off across pushes to
+      # one branch; sharing it across pull requests needs a run on master.
+      - name: Ccache ${{ github.ref }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: THIRDPARTY-macOS
+          max-size: "1G"
+          restore-keys: THIRDPARTY-macOS-
 
       - name: Download
         run: |
@@ -209,7 +286,7 @@ jobs:
             'gettext'
             'wget'
             'pcre'
-            'openjdk@11'
+            'openjdk@17'
             'maven'
             'node'
             'llvm@20'
@@ -244,9 +321,41 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
     runs-on: macos-14
+    env:
+      ENABLE_THIRDPARTY_CCACHE: 'ON'
+      # thrift's configure finds the dotnet these images ship, so `make` runs
+      # `dotnet build -c Release` for lib/netstd. The build itself takes seconds, and
+      # then the compiler server it leaves behind holds the stdout it inherited for its
+      # full 10 minute keep-alive while nothing happens. Measured in
+      # apache/doris-thirdparty run 31988123966: 600.03s on macos-14 and 598.79s on
+      # macos-15-intel between "Build succeeded" and "Making install in compiler/cpp",
+      # against 0.01s on Linux. Do not start a shared compiler server, and do not keep
+      # MSBuild worker nodes around either.
+      UseSharedCompilation: 'false'
+      MSBUILDDISABLENODEREUSE: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
+
+      # ccache-action is vendored as a submodule and the plain checkout above does not
+      # fetch it. Initialise only this one; `submodules: recursive` would also clone
+      # contrib/clucene, which a third party build does not need.
+      - name: Checkout ccache-action
+        run: git submodule update --init .github/actions/ccache-action
+
+      # This build is cold every time, so changing one package recompiles all ~80 of
+      # them. build-thirdparty.sh routes the cmake-based packages through ccache when
+      # ENABLE_THIRDPARTY_CCACHE is on. Note that a cache saved by a pull request run
+      # is only visible to that same pull request, so this pays off across pushes to
+      # one branch; sharing it across pull requests needs a run on master.
+      - name: Ccache ${{ github.ref }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: THIRDPARTY-macOS-arm64
+          max-size: "1G"
+          restore-keys: THIRDPARTY-macOS-arm64-
 
       - name: Download
         run: |
@@ -274,7 +383,7 @@ jobs:
             'gettext'
             'wget'
             'pcre'
-            'openjdk@11'
+            'openjdk@17'
             'maven'
             'node'
             'llvm@20'

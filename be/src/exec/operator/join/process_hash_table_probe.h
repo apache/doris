@@ -23,6 +23,7 @@
 #include "core/column/column.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 class Block;

@@ -48,6 +48,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -56,6 +57,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.UUID;
 
 /**
  * Azure Blob Storage implementation of {@link ObjStorage}.
@@ -218,9 +220,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        // Azure block blobs don't have an explicit "initiate" API.
-        // Return the path itself as the upload ID; block IDs are derived from part numbers.
-        return remotePath;
+        // Azure has no multipart session; this local UUID only namespaces the writer's block IDs.
+        return UUID.randomUUID().toString();
     }
 
     @Override
@@ -230,7 +231,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             AzureUri uri = AzureUri.parse(remotePath);
             BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key()).getBlockBlobClient();
-            String blockId = toBlockId(partNum);
+            String blockId = multipartBlockId(uploadId, partNum);
             blockBlobClient.stageBlock(blockId, body.content(), body.contentLength());
             return new UploadPartResult(partNum, blockId);
         } catch (BlobStorageException e) {
@@ -244,15 +245,20 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             List<UploadPartResult> parts) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
-            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(uri.key()).getBlockBlobClient();
+            BlobContainerClient containerClient = getClient().getBlobContainerClient(uri.container());
             List<String> blockIds = new ArrayList<>();
             List<UploadPartResult> sorted = new ArrayList<>(parts);
             sorted.sort((a, b) -> Integer.compare(a.partNumber(), b.partNumber()));
             for (UploadPartResult part : sorted) {
-                blockIds.add(toBlockId(part.partNumber()));
+                // Guessing a legacy ID cannot recover an old BE payload and can select another writer's block.
+                if (part.etag() == null || part.etag().isEmpty()) {
+                    throw new IOException("Azure multipart completion requires the exact staged block ID "
+                            + "for part " + part.partNumber());
+                }
+                blockIds.add(part.etag());
             }
-            blockBlobClient.commitBlockList(blockIds);
+            // Put Block List is the atomic publication point and does not expose a staging blob to scans.
+            containerClient.getBlobClient(uri.key()).getBlockBlobClient().commitBlockList(blockIds);
         } catch (BlobStorageException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
@@ -261,41 +267,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        // Azure has no native "abort multipart upload" API; the closest equivalent is to
-        // commit an empty block list (which atomically discards any uncommitted blocks
-        // for that blob) and then delete the resulting empty blob so no trace remains.
-        //
-        // SAFETY: commitBlockList(empty) overwrites whatever is at the target blob, so we
-        // MUST refuse to run when a committed blob already exists at this path — otherwise
-        // an abort call could destroy real user data. In that case the staged blocks are
-        // left to expire on their own (Azure GCs them after the service-side timeout).
-        try {
-            AzureUri uri = AzureUri.parse(remotePath);
-            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
-                    .getBlobClient(uri.key()).getBlockBlobClient();
-            boolean committedBlobExists;
-            try {
-                blockBlobClient.getProperties();
-                committedBlobExists = true;
-            } catch (BlobStorageException e) {
-                if (e.getStatusCode() != HTTP_NOT_FOUND) {
-                    throw e;
-                }
-                committedBlobExists = false;
-            }
-            if (committedBlobExists) {
-                LOG.warn("abortMultipartUpload skipped for {}: a committed blob already exists; "
-                        + "uncommitted blocks will expire automatically.", remotePath);
-                return;
-            }
-            blockBlobClient.commitBlockList(Collections.emptyList());
-            blockBlobClient.delete();
-        } catch (BlobStorageException e) {
-            // Best-effort: log and swallow rather than mask the original failure that
-            // triggered the abort path. Uncommitted blocks will be GC'd by the service.
-            LOG.warn("abortMultipartUpload best-effort cleanup failed for {}: {}",
-                    remotePath, e.getMessage());
-        }
+        // Azure cannot selectively remove one writer's uncommitted blocks. They are isolated by
+        // upload UUID and left for the service to garbage-collect without touching published data.
     }
 
     /**
@@ -516,12 +489,15 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return value;
     }
 
-    /**
-     * Converts a part number to a Base64-encoded block ID using little-endian byte order,
-     * consistent with the existing fe-core Azure multipart upload implementation.
-     */
-    private static String toBlockId(int partNum) {
-        byte[] bytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(partNum).array();
-        return Base64.getEncoder().encodeToString(bytes);
+    static String multipartBlockId(String uploadId, int partNum) {
+        byte[] uploadBytes = uploadId.getBytes(StandardCharsets.UTF_8);
+        // Keep the full upload UUID in every block ID so independent writers cannot stage the
+        // same block IDs even though Azure has no per-upload multipart namespace.
+        byte[] rawId = ByteBuffer.allocate(uploadBytes.length + Integer.BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .put(uploadBytes)
+                .putInt(partNum)
+                .array();
+        return Base64.getEncoder().encodeToString(rawId);
     }
 }

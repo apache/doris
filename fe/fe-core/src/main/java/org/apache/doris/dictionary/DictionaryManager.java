@@ -536,11 +536,24 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             }
         }
 
+        // block here in test to simulate the race: INC journal written, commit not done yet.
+        while (DebugPointUtil.isEnable("DictionaryManager.afterIncJournal")) {
+            Thread.sleep(100);
+        }
+
         // commit and check the result. not modify metadata so dont need lock.
         if (!commitNowVersion(ctx, dictionary)) {
             if (!ctx.getStatementContext().isPartialLoadDictionary()) {
                 dictionary.decreaseVersion();
-                Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+                // DROP may have removed the dictionary between the INC journal and this failed
+                // commit. A DEC journal for a dropped dictionary cannot be replayed by name, so
+                // only persist the rollback while the dictionary is still the current one.
+                if (isCurrentDictionary(database, dictionary)) {
+                    Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+                } else {
+                    LOG.warn("Dictionary {} has been dropped or replaced during commit, skip DEC journal",
+                            dictionary.getName());
+                }
             }
             dictionary.trySetStatus(oldStatus);
             abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
@@ -566,6 +579,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     private boolean commitNowVersion(ConnectContext ctx, Dictionary dictionary) {
+        if (DebugPointUtil.isEnable("DictionaryManager.commitNowVersion.fail")) {
+            return false;
+        }
         // use the same BEs when we get before start loading.
         List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
 
@@ -861,21 +877,33 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     public void replayIncreaseVersion(DictionaryIncreaseVersionInfo info) throws DdlException {
-        String dbName = info.getDictionary().getDbName();
-        String dictName = info.getDictionary().getName();
-        Dictionary dictionary = getDictionary(dbName, dictName);
+        long dictId = info.getDictionary().getId();
+        Dictionary dictionary = getDictionary(dictId);
+        if (dictionary == null) {
+            LOG.warn("Dictionary with id {} does not exist when replaying increase version, skip", dictId);
+            return;
+        }
         dictionary.writeLock();
-        dictionary.increaseVersion();
-        dictionary.writeUnlock();
+        try {
+            dictionary.increaseVersion();
+        } finally {
+            dictionary.writeUnlock();
+        }
     }
 
     public void replayDecreaseVersion(DictionaryDecreaseVersionInfo info) throws DdlException {
-        String dbName = info.getDictionary().getDbName();
-        String dictName = info.getDictionary().getName();
-        Dictionary dictionary = getDictionary(dbName, dictName);
+        long dictId = info.getDictionary().getId();
+        Dictionary dictionary = getDictionary(dictId);
+        if (dictionary == null) {
+            LOG.warn("Dictionary with id {} does not exist when replaying decrease version, skip", dictId);
+            return;
+        }
         dictionary.writeLock();
-        dictionary.decreaseVersion();
-        dictionary.writeUnlock();
+        try {
+            dictionary.decreaseVersion();
+        } finally {
+            dictionary.writeUnlock();
+        }
     }
 
     // Metadata serialization

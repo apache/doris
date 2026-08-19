@@ -41,6 +41,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -51,12 +52,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-
-namespace {
-
-constexpr std::string_view HEADER_JSON = "application/json";
-
-} // namespace
 
 DeleteBitmapAction::DeleteBitmapAction(DeleteBitmapActionType ctype, ExecEnv* exec_env,
                                        BaseStorageEngine& engine, TPrivilegeHier::type hier,

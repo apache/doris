@@ -206,6 +206,7 @@ The following components are provided under the Apache License. See project link
 The text of each license is the standard Apache 2.0 license.
 
 software.amazon.awssdk.core.client.builder.SdkDefaultClientBuilder from AWS SDK v2 (sdk-core 2.29.52)
+org.apache.hadoop.fs.FileSystem from Apache Hadoop (hadoop-common 3.4.2)
 
 --------------------------------------------------------------------------------
 

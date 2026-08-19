@@ -17,18 +17,26 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -86,6 +94,40 @@ public class PluginDrivenTableSinkBindingTest {
                 "a plain INSERT must default the connector write handle to non-overwrite");
         Assertions.assertTrue(handle.getStaticPartitionSpec().isEmpty(),
                 "a plain INSERT must pass an empty static partition spec");
+    }
+
+    @Test
+    public void branchTargetUsesItsExactVersionAwareSnapshotPin() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+        ConnectorSession session = ConnectorSessionBuilder.create().withCatalogName("iceberg").build();
+        ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableHandle pinnedHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        ConnectorMvccSnapshot connectorSnapshot = Mockito.mock(ConnectorMvccSnapshot.class);
+        PluginDrivenMvccSnapshot snapshot = new PluginDrivenMvccSnapshot(
+                connectorSnapshot, Collections.emptyMap(), Collections.emptyMap());
+        Mockito.when(metadata.applySnapshot(session, baseHandle, connectorSnapshot)).thenReturn(pinnedHandle);
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(table, provider, session, baseHandle,
+                Collections.emptyList(), null, null, false, metadata);
+        PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
+        ctx.setBranchName(Optional.of("audit"));
+
+        try (MockedStatic<MvccUtil> mvcc = Mockito.mockStatic(MvccUtil.class)) {
+            mvcc.when(() -> MvccUtil.getSnapshotFromContext(
+                    Mockito.eq(table), Mockito.eq(Optional.empty()), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        Optional<TableScanParams> selector = invocation.getArgument(2);
+                        Assertions.assertEquals(TableScanParams.BRANCH,
+                                selector.orElseThrow().getParamType());
+                        Assertions.assertEquals(Collections.singletonList("audit"),
+                                selector.orElseThrow().getListParams());
+                        return Optional.of(snapshot);
+                    });
+            sink.bindDataSink(Optional.of(ctx));
+        }
+
+        Assertions.assertSame(pinnedHandle, provider.capturedHandle.getTableHandle());
     }
 
     private static PluginDrivenTableSink newPlanProviderSink(ConnectorWritePlanProvider provider) {

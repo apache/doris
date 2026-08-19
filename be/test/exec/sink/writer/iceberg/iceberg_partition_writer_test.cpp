@@ -20,6 +20,10 @@
 #include <optional>
 
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
+#include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
+#include "testutil/mock/mock_descriptors.h"
+#include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
 
@@ -27,13 +31,18 @@ namespace {
 
 class FakeFileFormatTransformer final : public VFileFormatTransformer {
 public:
-    explicit FakeFileFormatTransformer(const VExprContextSPtrs& output_exprs)
-            : VFileFormatTransformer(nullptr, output_exprs, false) {}
+    explicit FakeFileFormatTransformer(const VExprContextSPtrs& output_exprs,
+                                       Status close_status = Status::OK())
+            : VFileFormatTransformer(nullptr, output_exprs, false),
+              _close_status(std::move(close_status)) {}
 
     Status open() override { return Status::OK(); }
     Status write(const Block&) override { return Status::OK(); }
-    Status close() override { return Status::OK(); }
+    Status close() override { return _close_status; }
     int64_t written_len() override { return 64; }
+
+private:
+    Status _close_status;
 };
 
 TDataSink make_table_sink(std::optional<bool> collect_column_stats) {
@@ -64,9 +73,10 @@ protected:
     }
 
     static void install_fake_transformer(VIcebergPartitionWriter* writer,
-                                         const VExprContextSPtrs& output_exprs) {
+                                         const VExprContextSPtrs& output_exprs,
+                                         Status close_status = Status::OK()) {
         writer->_file_format_transformer =
-                std::make_unique<FakeFileFormatTransformer>(output_exprs);
+                std::make_unique<FakeFileFormatTransformer>(output_exprs, std::move(close_status));
     }
 
     static Status build_commit_data(VIcebergPartitionWriter* writer,
@@ -102,6 +112,50 @@ TEST_F(VIcebergPartitionWriterTest, MissingPolicyKeepsCollectionEnabledForRollin
                               hadoop_conf);
 
     EXPECT_TRUE(collect_column_stats(*writer));
+}
+
+TEST_F(VIcebergPartitionWriterTest, SortWriterPropagatesUnderlyingCloseFailure) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    auto partition_writer = std::shared_ptr<VIcebergPartitionWriter>(
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+    install_fake_transformer(partition_writer.get(), output_exprs,
+                             Status::IOError("injected close failure"));
+    VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 1024);
+    MockRuntimeState state;
+    sort_writer._runtime_state = &state;
+
+    Status status = sort_writer.close(Status::OK());
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("injected close failure"), std::string::npos);
+}
+
+TEST_F(VIcebergPartitionWriterTest, EosReservationIncludesActualSpillFanIn) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    auto partition_writer = std::shared_ptr<VIcebergPartitionWriter>(
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+    VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 1024);
+    MockRuntimeState state;
+    ObjectPool pool;
+    auto row_desc = std::make_unique<MockRowDescriptor>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool);
+    auto ordering_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    std::vector<bool> is_asc_order {true};
+    std::vector<bool> nulls_first {false};
+    sort_writer._sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order,
+                                                    nulls_first, *row_desc, &state, nullptr);
+    sort_writer._sorted_spill_files.resize(12);
+
+    const auto reservation = sort_writer.get_reserve_mem_size_components(&state, true, 0, 0);
+
+    EXPECT_EQ(72 * 1024 * 1024, reservation.transient_workspace);
 }
 
 } // namespace doris

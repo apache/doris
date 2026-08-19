@@ -17,8 +17,14 @@
 
 package org.apache.doris.cloud.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.TableStreamBaseTableInfo;
 import org.apache.doris.cloud.proto.Cloud;
@@ -26,6 +32,11 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateStreamInfo;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -35,11 +46,113 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 public class CloudInternalCatalogTableStreamTest {
+
+    @Test
+    public void testCreateUsesParsedTypeBeforeCloudPreparation() throws Exception {
+        boolean previousEnableTableStream = Config.enable_table_stream;
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        Config.enable_table_stream = true;
+        Config.cloud_unique_id = "cloud_table_stream_type_validation_ut";
+        Config.meta_service_endpoint = "127.0.0.1:20121";
+        try {
+            CloudInternalCatalog catalog = Mockito.spy(new CloudInternalCatalog());
+            Database streamDb = Mockito.mock(Database.class);
+            OlapTable baseTable = Mockito.mock(OlapTable.class);
+            Mockito.doReturn(streamDb).when(catalog).getDbNullable("test_stream");
+            Mockito.doReturn(streamDb).when(catalog).getDbNullable(10L);
+            Mockito.when(streamDb.getId()).thenReturn(10L);
+            Mockito.when(streamDb.getFullName()).thenReturn("test_stream");
+            Mockito.when(streamDb.getCatalog()).thenReturn(catalog);
+            Mockito.when(streamDb.getTable("append_only_stream")).thenReturn(Optional.empty());
+            Mockito.when(streamDb.getTable("min_delta_stream")).thenReturn(Optional.empty());
+            Mockito.when(streamDb.getTableOrDdlException("base_table")).thenReturn(baseTable);
+            Mockito.when(streamDb.getTable(20L)).thenReturn(Optional.of(baseTable));
+            Mockito.when(streamDb.createTableWithLock(Mockito.any(Table.class), Mockito.eq(false),
+                    Mockito.eq(false))).thenReturn(Pair.of(true, false));
+
+            Mockito.when(baseTable.getId()).thenReturn(20L);
+            Mockito.when(baseTable.getName()).thenReturn("base_table");
+            Mockito.when(baseTable.getDatabase()).thenReturn(streamDb);
+            Mockito.when(baseTable.getType()).thenReturn(TableIf.TableType.OLAP);
+            Mockito.when(baseTable.getBaseSchema()).thenReturn(List.<Column>of());
+            Mockito.when(baseTable.getPartitionIds()).thenReturn(List.of());
+            Mockito.when(baseTable.getBaseSchemaVersion()).thenReturn(7);
+
+            List<BaseTableStream.StreamScanType> checkedTypes = new ArrayList<>();
+            Mockito.doAnswer(invocation -> {
+                BaseTableStream.StreamScanType type = invocation.getArgument(0);
+                checkedTypes.add(type);
+                if (type == BaseTableStream.StreamScanType.MIN_DELTA) {
+                    throw new DdlException("MIN_DELTA rejected before Cloud preparation");
+                }
+                return null;
+            }).when(baseTable).checkAsTableStreamBaseTable(Mockito.any());
+            Mockito.doReturn(List.of()).when(catalog).captureTableStreamInitialOffsets(
+                    Mockito.any(OlapTableStream.class), Mockito.same(baseTable), Mockito.anyList());
+
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            Mockito.when(env.getNextId()).thenReturn(40L, 41L);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.doReturn(catalog).when(catalogMgr).getCatalog(InternalCatalog.INTERNAL_CATALOG_ID);
+
+            MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+            Cloud.IndexResponse indexResponse = Cloud.IndexResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                    .build();
+            Mockito.when(proxy.prepareIndex(Mockito.any())).thenReturn(indexResponse);
+            Mockito.when(proxy.commitIndex(Mockito.any())).thenReturn(indexResponse);
+
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                    MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+
+                catalog.createTableStream(createStreamCommand("append_only_stream", "append_only"));
+                DdlException minDeltaException = Assertions.assertThrows(DdlException.class,
+                        () -> catalog.createTableStream(createStreamCommand("min_delta_stream", "min_delta")));
+                Assertions.assertTrue(minDeltaException.getMessage()
+                        .contains("MIN_DELTA rejected before Cloud preparation"));
+
+                Assertions.assertEquals(List.of(
+                                BaseTableStream.StreamScanType.APPEND_ONLY,
+                                BaseTableStream.StreamScanType.APPEND_ONLY,
+                                BaseTableStream.StreamScanType.MIN_DELTA),
+                        checkedTypes);
+                InOrder order = Mockito.inOrder(baseTable, proxy);
+                order.verify(baseTable).checkAsTableStreamBaseTable(
+                        BaseTableStream.StreamScanType.APPEND_ONLY);
+                order.verify(proxy).prepareIndex(Mockito.any());
+                order.verify(baseTable).checkAsTableStreamBaseTable(
+                        BaseTableStream.StreamScanType.APPEND_ONLY);
+                order.verify(proxy).commitIndex(Mockito.any());
+                order.verify(baseTable).checkAsTableStreamBaseTable(
+                        BaseTableStream.StreamScanType.MIN_DELTA);
+                Mockito.verify(catalog).captureTableStreamInitialOffsets(
+                        Mockito.any(OlapTableStream.class), Mockito.same(baseTable), Mockito.anyList());
+                Mockito.verify(proxy).prepareIndex(Mockito.any());
+
+                ArgumentCaptor<Table> streamCaptor = ArgumentCaptor.forClass(Table.class);
+                Mockito.verify(streamDb).createTableWithLock(streamCaptor.capture(), Mockito.eq(false),
+                        Mockito.eq(false));
+                Assertions.assertEquals(BaseTableStream.StreamScanType.APPEND_ONLY,
+                        ((OlapTableStream) streamCaptor.getValue()).getStreamScanType());
+            }
+        } finally {
+            Config.enable_table_stream = previousEnableTableStream;
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+        }
+    }
 
     @Test
     public void testCreateBatchesOffsetsAndCommitsIndexLast() throws Exception {
@@ -266,6 +379,16 @@ public class CloudInternalCatalogTableStreamTest {
                 .addAllVersions(versions)
                 .addAllCommitTsos(commitTsos)
                 .build();
+    }
+
+    private static CreateStreamCommand createStreamCommand(String streamName, String streamType) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", streamType);
+        properties.put("show_initial_rows", "false");
+        CreateStreamInfo createStreamInfo = new CreateStreamInfo(false, false,
+                new TableNameInfo(null, "test_stream", streamName),
+                new TableNameInfo(null, "test_stream", "base_table"), properties, "");
+        return new CreateStreamCommand(createStreamInfo);
     }
 
     private static class CaptureCloudInternalCatalog extends CloudInternalCatalog {

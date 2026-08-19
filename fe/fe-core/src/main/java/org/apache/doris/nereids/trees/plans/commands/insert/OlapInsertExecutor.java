@@ -52,7 +52,6 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -188,8 +187,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 dataStreamSink.setTabletSinkSchemaParam(olapTableSink.getOlapTableSchemaParam());
                 dataStreamSink.setTabletSinkPartitionParam(olapTableSink.getOlapTablePartitionParam());
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
-                List<TOlapTableLocationParam> locationParams = olapTableSink.getOlapTableLocationParams();
-                dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
+                dataStreamSink.setTabletSinkLocationParam(olapTableSink.getOlapTableLocationParam());
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
                 dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());
             }

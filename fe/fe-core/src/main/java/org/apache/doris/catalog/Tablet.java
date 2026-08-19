@@ -249,6 +249,11 @@ public abstract class Tablet {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowMissingVersion) {
+        return getQueryableReplicas(visibleVersion, backendAlivePathHashs, allowMissingVersion, true);
+    }
+
+    public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
+            boolean allowMissingVersion, boolean skipCompactionSlowerReplica) {
         List<Replica> replicas = getReplicas();
         int replicaNum = replicas.size();
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicaNum);
@@ -312,7 +317,8 @@ public abstract class Tablet {
             allQueryableReplica = userDropReplica;
         }
 
-        if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
+        if (skipCompactionSlowerReplica
+                && Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
             long minVersionCount = Long.MAX_VALUE;
             for (Replica replica : allQueryableReplica) {
                 long visibleVersionCount = replica.getVisibleVersionCount();

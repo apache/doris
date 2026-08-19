@@ -32,6 +32,7 @@
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/json/json_parser.h"
+#include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 
 namespace doris {
