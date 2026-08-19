@@ -5062,9 +5062,9 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
     auto split_options = build_split_options(file_path);
     split_options.cache = &cache;
     split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
-            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0},
-                                                            TFileFormatType::FORMAT_PARQUET,
-                                                            delete_file_size)}));
+            file_path,
+            {make_iceberg_equality_delete_file(
+                    delete_file_path, {0}, TFileFormatType::FORMAT_PARQUET, delete_file_size)}));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     Block block = build_table_block(projected_columns);

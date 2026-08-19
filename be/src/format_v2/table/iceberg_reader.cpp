@@ -1522,8 +1522,7 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
                                     delete_file.file_format);
     }
     auto delete_range = build_iceberg_delete_file_range(
-            delete_file.path,
-            delete_file.__isset.file_size ? delete_file.file_size : -1);
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (_current_task != nullptr && _current_task->data_file != nullptr &&
         !_current_task->data_file->fs_name.empty()) {
         delete_range.__set_fs_name(_current_task->data_file->fs_name);
