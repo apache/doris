@@ -28,7 +28,6 @@
 #include <limits>
 #include <memory>
 
-#include "common/logging.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
@@ -274,7 +273,8 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     RETURN_IF_ERROR(_validate_range(range));
 
     const auto& params = range.table_format_params.lance_params;
-    const auto storage_options = _storage_options(&scan_params);
+    std::vector<std::string> storage_options;
+    RETURN_IF_ERROR(_storage_options(&scan_params, &storage_options));
     std::vector<const char*> storage_option_ptrs;
     storage_option_ptrs.reserve(storage_options.size() + 1);
     for (const auto& option : storage_options) {
@@ -386,7 +386,8 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
         }
     }
 
-    const auto key = _dataset_key(options.current_range);
+    DatasetKey key;
+    RETURN_IF_ERROR(_dataset_key(options.current_range, &key));
     if (_dataset == nullptr) {
         RETURN_IF_ERROR(_open_dataset(key));
         _opened_dataset_key = key;
@@ -898,37 +899,34 @@ Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block,
 // The FE sends these already in Lance's own vocabulary, merged from the catalog properties and
 // from whatever the namespace vended. Re-encoding them here would drop every option this list did
 // not anticipate, so they are handed to lance-c as they arrive.
-std::vector<std::string> LanceTableReader::_storage_options(
-        const TFileScanRangeParams* scan_params) {
+Status LanceTableReader::_storage_options(const TFileScanRangeParams* scan_params,
+                                          std::vector<std::string>* options) {
+    options->clear();
     if (scan_params == nullptr || !scan_params->__isset.lance_storage_options) {
-        return {};
+        return Status::OK();
     }
-    std::vector<std::string> options;
-    options.reserve(scan_params->lance_storage_options.size() * 2);
+    options->reserve(scan_params->lance_storage_options.size() * 2);
     for (const auto& [key, value] : scan_params->lance_storage_options) {
-        if (value.empty()) {
-            continue;
-        }
-        // These become C strings below, so an embedded NUL would silently truncate the option and
-        // leave lance-c reading a different key than the FE resolved. The FE drops those already;
-        // this guards against one that predates the check.
+        // These become C strings below, so a NUL would truncate the option here while the FE went
+        // on using the whole thing, and the two halves would open the dataset with different
+        // configuration. The FE rejects these already; dropping one here instead of failing would
+        // just recreate that divergence against an FE that predates the check.
         if (key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
-            LOG(WARNING) << "Ignoring Lance storage option whose key or value contains a NUL";
-            continue;
+            return Status::InvalidArgument(
+                    "Lance storage option '{}' contains a NUL and cannot reach lance-c",
+                    key.substr(0, key.find('\0')));
         }
-        options.emplace_back(key);
-        options.emplace_back(value);
+        options->emplace_back(key);
+        options->emplace_back(value);
     }
-    return options;
+    return Status::OK();
 }
 
-LanceTableReader::DatasetKey LanceTableReader::_dataset_key(const TFileRangeDesc& range) const {
+Status LanceTableReader::_dataset_key(const TFileRangeDesc& range, DatasetKey* key) const {
     const auto& params = range.table_format_params.lance_params;
-    return {
-            .uri = params.dataset_uri,
-            .version = params.version,
-            .storage_options = _storage_options(_scan_params),
-    };
+    key->uri = params.dataset_uri;
+    key->version = params.version;
+    return _storage_options(_scan_params, &key->storage_options);
 }
 
 Status LanceTableReader::_lance_error(std::string_view operation) {
