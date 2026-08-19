@@ -34,7 +34,6 @@
 
 #include <gtest/gtest.h>
 
-#include <cmath>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -480,9 +479,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpWithCollidingBeforeNameIsSkip
     EXPECT_TRUE(eof);
 }
 
-// compare_at considers +0 and -0 equal. MIN_DELTA therefore retains floating-point UPDATEs until
-// an exact state comparison is available, preserving the changed sign bit.
-TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSignedZeroUpdateIsRetained) {
+// compare_at considers +0 and -0 equal, so they represent no net MIN_DELTA change.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSignedZeroUpdateIsSkipped) {
     auto source = make_signed_zero_source_block();
     BlockReader reader;
     configure_reader(reader, source, 16,
@@ -491,12 +489,7 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSignedZeroUpdateIsRetained) {
     bool eof = false;
     Block output = source->clone_empty();
     ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
-    ASSERT_EQ(output.rows(), 2);
-    const auto& values = assert_cast<const ColumnFloat32&>(*output.get_by_position(VAL_IDX).column);
-    EXPECT_FALSE(std::signbit(values.get_element(0)));
-    EXPECT_TRUE(std::signbit(values.get_element(1)));
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(output.rows(), 0);
     EXPECT_TRUE(eof);
 }
 

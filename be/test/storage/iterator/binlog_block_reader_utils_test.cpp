@@ -81,15 +81,21 @@ TEST_F(BinlogBlockReaderUtilsTest, RejectMalformedValuePairLayout) {
     EXPECT_TRUE(pairs.empty());
 }
 
-TEST_F(BinlogBlockReaderUtilsTest, ComparisonCapabilityRejectsOpaqueAndFloatingTypes) {
+TEST_F(BinlogBlockReaderUtilsTest, ComparisonCapabilityRejectsOpaqueTypes) {
     TabletColumn bigint = make_column("bigint", FieldType::OLAP_FIELD_TYPE_BIGINT, false, 0);
     TabletColumn agg_state =
             make_column("agg_state", FieldType::OLAP_FIELD_TYPE_AGG_STATE, false, 1);
     TabletColumn floating = make_column("floating", FieldType::OLAP_FIELD_TYPE_FLOAT, false, 2);
+    TabletColumn double_value =
+            make_column("double_value", FieldType::OLAP_FIELD_TYPE_DOUBLE, false, 3);
+    TabletColumn discrete_double =
+            make_column("discrete_double", FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE, false, 4);
 
     EXPECT_TRUE(binlog::supports_min_delta_value_comparison(bigint));
     EXPECT_FALSE(binlog::supports_min_delta_value_comparison(agg_state));
-    EXPECT_FALSE(binlog::supports_min_delta_value_comparison(floating));
+    EXPECT_TRUE(binlog::supports_min_delta_value_comparison(floating));
+    EXPECT_TRUE(binlog::supports_min_delta_value_comparison(double_value));
+    EXPECT_TRUE(binlog::supports_min_delta_value_comparison(discrete_double));
 }
 
 TEST_F(BinlogBlockReaderUtilsTest, ComparisonCapabilityChecksNestedChildren) {
@@ -102,7 +108,7 @@ TEST_F(BinlogBlockReaderUtilsTest, ComparisonCapabilityChecksNestedChildren) {
     float_array.add_sub_column(float_item);
 
     EXPECT_TRUE(binlog::supports_min_delta_value_comparison(int_array));
-    EXPECT_FALSE(binlog::supports_min_delta_value_comparison(float_array));
+    EXPECT_TRUE(binlog::supports_min_delta_value_comparison(float_array));
 }
 
 } // namespace doris

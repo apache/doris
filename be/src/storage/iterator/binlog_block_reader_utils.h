@@ -63,14 +63,11 @@ inline bool row_binlog_value_columns_have_same_type(const TabletColumn& lhs,
     return true;
 }
 
-// IColumn::compare_at is unavailable for opaque aggregate-state families. FLOAT/DOUBLE are
-// excluded as well because their ordering comparison treats +0 and -0 as equal even though their
-// stored row states differ. Complex columns inherit the capability of all nested children.
+// IColumn::compare_at is unavailable for opaque aggregate-state families. Floating-point values
+// use compare_at semantics, including treating +0 and -0 as equal. Complex columns inherit the
+// capability of all nested children.
 inline bool supports_min_delta_value_comparison(const TabletColumn& column) {
     switch (column.type()) {
-    case FieldType::OLAP_FIELD_TYPE_FLOAT:
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-    case FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
     case FieldType::OLAP_FIELD_TYPE_HLL:
     case FieldType::OLAP_FIELD_TYPE_BITMAP:
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
