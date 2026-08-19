@@ -85,7 +85,7 @@ Usage: $0 <options>
     ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-    DORIS_DEV_DEBUG_INFO        If set DORIS_DEV_DEBUG_INFO=line-tables, BE is compiled with -gline-tables-only for faster dev builds (clang only, keeps line tables for stack traces). Default is unset (full debug info).
+    DORIS_DEV_DEBUG_INFO        Debug info level for the BE: 'line-tables' compiles with -gline-tables-only for faster dev builds (clang only; keeps line tables for stack traces, drops variable-level DWARF), 'full' is the full debug info. Default is 'full' here; run-be-ut.sh defaults to 'line-tables'.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.

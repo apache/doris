@@ -173,5 +173,11 @@ jobs:
           # compiled. Skip the Java extensions and cdc client (not relevant to a
           # macOS C++ build check), and pass -j explicitly because build.sh
           # otherwise defaults to only ~nproc/4 jobs.
+          #
+          # Nothing here is ever debugged and no binary is kept, so full DWARF is
+          # pure cost: line tables alone cut this build by ~12% and shrink the
+          # objects from 4.25GB to 0.99GB, which also keeps the 5G ccache from
+          # thrashing between runs.
           DISABLE_BE_JAVA_EXTENSIONS=ON DISABLE_BE_CDC_CLIENT=ON \
+          DORIS_DEV_DEBUG_INFO=line-tables \
             ./build.sh --be -j "$(nproc)"
