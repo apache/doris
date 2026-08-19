@@ -200,12 +200,6 @@ public class BaseController {
             LOG.debug("check cookie success for user: {}, thread: {}",
                     sessionValue.currentUser, Thread.currentThread().getId());
         }
-        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
-        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
-        authInfo.remoteIp = request.getRemoteHost();
-        authInfo.password = sessionValue.password;
-        authInfo.userIdentity = sessionValue.currentUser;
-        return authInfo;
     }
 
     public List<String> getCookieValues(HttpServletRequest request, String cookieName, HttpServletResponse response) {
