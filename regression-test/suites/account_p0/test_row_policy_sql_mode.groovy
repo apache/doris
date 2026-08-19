@@ -65,9 +65,14 @@ suite("test_row_policy_sql_mode") {
     sql "SET sql_mode = DEFAULT"
 
     // SHOW ROW POLICY has to render what the query is filtered by, not what the creator's session read.
+    // It renders the parsed predicate, and a compound one renders in the diagnostic form OR[a,b] rather
+    // than infix - see CompoundPredicate#computeToSql - so what is pinned here is the reading and not the
+    // spelling: an OR of the two conditions, which is how every query this policy restricts is filtered,
+    // and not the comparison against a concatenation that PIPES_AS_CONCAT would have read the same text as.
     def shown = sql "SHOW ROW POLICY FOR ${user}"
     def predicate = shown.find { it[0] == 'p_pipes' }[6].toString()
-    assertTrue(predicate.toUpperCase().contains(" OR "),
+    def rendersOr = predicate.toUpperCase().contains("OR[") || predicate.toUpperCase().contains(" OR ")
+    assertTrue(rendersOr && predicate.contains("region = 'cn'") && predicate.contains("region = 'us'"),
             "SHOW ROW POLICY renders a predicate the query is not filtered by: ${predicate}")
 
     def filtered = connect(user, '123abc!@#', url) {
