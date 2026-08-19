@@ -38,7 +38,9 @@ public class SlotRef extends Expr {
     @SerializedName("col")
     private String col;
     // Used in toSql
+    @SerializedName("lbl")
     private String label;
+    @SerializedName("scp")
     private List<String> subColPath;
 
     // results of analysis

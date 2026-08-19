@@ -684,6 +684,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            validateCommonJobProperties(jobProperties);
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
             setRoutineLoadDesc(command.getRoutineLoadDesc());
 
@@ -698,7 +699,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KinesisDataSourceProperties dataSourceProperties)
             throws UserException {
-        validateCommonJobProperties(jobProperties);
         if (dataSourceProperties != null) {
             List<Pair<String, String>> shardPositions = Lists.newArrayList();
             Map<String, String> customKinesisProperties = Maps.newHashMap();

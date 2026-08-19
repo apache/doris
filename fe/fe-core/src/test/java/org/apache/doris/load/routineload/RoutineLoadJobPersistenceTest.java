@@ -19,15 +19,22 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeV2Literal;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -82,13 +89,21 @@ public class RoutineLoadJobPersistenceTest {
         Separator lineDelimiter = analyzedSeparator("\\n");
         List<ImportColumnDesc> columns = Lists.newArrayList(
                 new ImportColumnDesc("source_col"),
-                new ImportColumnDesc("mapped_col", new IntLiteral(7L)));
-        Expr precedingFilter = predicate(BinaryPredicate.Operator.GT, "source_col", 1L);
-        Expr whereExpr = predicate(BinaryPredicate.Operator.LE, "mapped_col", 10L);
+                new ImportColumnDesc("mapped_col", new TimeV2Literal(12, 34, 56, 123456, 6, true)));
+        SlotRef matchSlot = namedSlot("content");
+        Expr precedingFilter = new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
+                matchSlot, new StringLiteral("hello world"), Type.BOOLEAN,
+                NullableMode.DEPEND_ON_ARGUMENT, null, false, "english");
+        SlotRef quotedSlot = namedSlot("a`b");
+        Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.GT, quotedSlot, new IntLiteral(10L));
         Expr deleteCondition = predicate(BinaryPredicate.Operator.EQ, "delete_flag", 1L);
         PartitionNamesInfo partitions = new PartitionNamesInfo(false, Lists.newArrayList("p1", "p2"));
         job.setRoutineLoadDesc(new RoutineLoadDesc(columnSeparator, lineDelimiter, columns,
                 precedingFilter, whereExpr, partitions, deleteCondition, LoadTask.MergeType.MERGE, "seq_col"));
+        String expectedColumnSql = exprToSql(columns.get(1).getExpr());
+        String expectedPrecedingSql = exprToSql(precedingFilter);
+        String expectedWhereSql = exprToSql(whereExpr);
+        String expectedDeleteSql = exprToSql(deleteCondition);
 
         job.desireTaskConcurrentNum = 5;
         job.maxErrorNum = 17L;
@@ -141,6 +156,10 @@ public class RoutineLoadJobPersistenceTest {
         Assert.assertNotNull(restored.columnDescs.descs.get(1).getExpr());
         Assert.assertNotNull(restored.getPrecedingFilter());
         Assert.assertNotNull(restored.getWhereExpr());
+        Assert.assertEquals(expectedColumnSql, exprToSql(restored.columnDescs.descs.get(1).getExpr()));
+        Assert.assertEquals(expectedPrecedingSql, exprToSql(restored.getPrecedingFilter()));
+        Assert.assertEquals(expectedWhereSql, exprToSql(restored.getWhereExpr()));
+        Assert.assertEquals(expectedDeleteSql, exprToSql(restored.getDeleteCondition()));
         Assert.assertEquals("\\x01", restored.getColumnSeparator().getOriSeparator());
         Assert.assertEquals("\u0001", restored.getColumnSeparator().getSeparator());
         Assert.assertEquals("\\n", restored.getLineDelimiter().getOriSeparator());
@@ -389,6 +408,17 @@ public class RoutineLoadJobPersistenceTest {
 
     private static Expr predicate(BinaryPredicate.Operator operator, String column, long value) {
         return new BinaryPredicate(operator, new SlotRef(null, column), new IntLiteral(value));
+    }
+
+    private static SlotRef namedSlot(String column) {
+        SlotRef slotRef = new SlotRef(null, column);
+        slotRef.setLabel("`" + column.replace("`", "``") + "`");
+        slotRef.setType(Type.VARCHAR);
+        return slotRef;
+    }
+
+    private static String exprToSql(Expr expr) {
+        return expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
     }
 
     private static JsonObject imageJson(RoutineLoadJob job) throws IOException {

@@ -2088,6 +2088,7 @@ public abstract class RoutineLoadJob
 
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
+    // Leader-only validation. Replay must accept values written by older FE versions.
     protected void validateCommonJobProperties(Map<String, String> jobProperties) throws UserException {
         validateCsvFormatProperties(jobProperties);
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
@@ -2106,9 +2107,8 @@ public abstract class RoutineLoadJob
         }
     }
 
-    // for ALTER ROUTINE LOAD. Validate all common properties before changing any common runtime state.
+    // Apply ALTER ROUTINE LOAD properties. The leader validates before mutation; replay trusts the journal.
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
-        validateCommonJobProperties(jobProperties);
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));

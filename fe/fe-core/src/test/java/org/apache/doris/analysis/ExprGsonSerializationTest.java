@@ -110,11 +110,39 @@ public class ExprGsonSerializationTest {
         Assertions.assertEquals(json, GsonUtilsCatalog.GSON.toJson(restored));
     }
 
+    @Test
+    public void testRoutineLoadExprSqlRoundTrip() throws Exception {
+        assertExprSqlRoundTrip(new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
+                createNamedSlotRef("content"), new StringLiteral("hello"),
+                Type.BOOLEAN, NullableMode.DEPEND_ON_ARGUMENT, null, false, "english"));
+        assertExprSqlRoundTrip(new TimeV2Literal(12, 34, 56, 123456, 6, true));
+        assertExprSqlRoundTrip(createNamedSlotRef("col1"));
+
+        SlotRef quotedSlot = new SlotRef(null, "a`b");
+        quotedSlot.setLabel("`a``b`");
+        quotedSlot.setType(Type.BIGINT);
+        assertExprSqlRoundTrip(quotedSlot);
+
+        SlotRef subPathSlot = createNamedSlotRef("variant_col");
+        setDeclaredField(SlotRef.class, subPathSlot, "subColPath", Arrays.asList("nested", "field"));
+        String subPathJson = GsonUtilsCatalog.GSON.toJson(subPathSlot, Expr.class);
+        SlotRef restoredSubPath = (SlotRef) GsonUtilsCatalog.GSON.fromJson(subPathJson, Expr.class);
+        Assertions.assertEquals(Arrays.asList("nested", "field"), restoredSubPath.getSubColPath());
+    }
+
     private void assertExprRoundTrip(Class<? extends Expr> expectedClass, Expr expr) {
         String json = GsonUtilsCatalog.GSON.toJson(expr, Expr.class);
         Expr restored = GsonUtilsCatalog.GSON.fromJson(json, Expr.class);
         Assertions.assertEquals(expectedClass, restored.getClass());
         Assertions.assertEquals(json, GsonUtilsCatalog.GSON.toJson(restored, Expr.class));
+    }
+
+    private void assertExprSqlRoundTrip(Expr expr) {
+        String expectedSql = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
+        String json = GsonUtilsCatalog.GSON.toJson(expr, Expr.class);
+        Expr restored = GsonUtilsCatalog.GSON.fromJson(json, Expr.class);
+        Assertions.assertEquals(expectedSql,
+                restored.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
     }
 
     private Map<Class<? extends Expr>, Expr> createExprSamples() throws Exception {

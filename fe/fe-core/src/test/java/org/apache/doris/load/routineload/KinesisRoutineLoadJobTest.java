@@ -274,10 +274,12 @@ public class KinesisRoutineLoadJobTest {
             Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
         }
 
-        AlterRoutineLoadJobOperationLog log = logCaptor.getValue();
+        AlterRoutineLoadJobOperationLog log = journalRoundTrip(logCaptor.getValue());
         replay.replayModifyProperties(log);
 
-        Assert.assertSame(delta, log.getRoutineLoadDesc());
+        Assert.assertNotSame(delta, log.getRoutineLoadDesc());
+        Assert.assertEquals("\n", log.getRoutineLoadDesc().getLineDelimiter().getSeparator());
+        Assert.assertEquals("sequence_col", log.getRoutineLoadDesc().getSequenceColName());
         assertAlterResult(leader);
         assertAlterResult(replay);
         Assert.assertEquals(JsonParser.parseString(checkpointJson(leader)),
@@ -426,6 +428,17 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertEquals((byte) '"', job.getEnclose());
         Assert.assertEquals((byte) '\\', job.getEscape());
         Assert.assertTrue(job.getEmptyFieldAsNull());
+    }
+
+    private AlterRoutineLoadJobOperationLog journalRoundTrip(AlterRoutineLoadJobOperationLog log)
+            throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            log.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return AlterRoutineLoadJobOperationLog.read(in);
+        }
     }
 
     private String checkpointJson(RoutineLoadJob job) throws Exception {

@@ -327,6 +327,21 @@ public class KafkaRoutineLoadJobTest {
         assertAlterState(imageRoundTrip(follower));
     }
 
+    @Test
+    public void testReplayLegacyCsvPropertiesDoesNotRunNewValidation() {
+        KafkaRoutineLoadJob follower = createPausedJob();
+        Map<String, String> legacyJobProperties = Maps.newHashMap();
+        legacyJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "legacy");
+        AlterRoutineLoadJobOperationLog legacyLog = new AlterRoutineLoadJobOperationLog(
+                follower.getId(), legacyJobProperties, null);
+
+        follower.replayModifyProperties(legacyLog);
+
+        Assert.assertEquals((byte) 'l', follower.getEnclose());
+        Map<String, String> persistedJobProperties = Deencapsulation.getField(follower, "jobProperties");
+        Assert.assertEquals("legacy", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+    }
+
     private static KafkaRoutineLoadJob createPausedJob() {
         KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "job1", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);

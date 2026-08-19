@@ -20,14 +20,21 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
+import com.google.gson.annotations.SerializedName;
+
 public class TimeV2Literal extends LiteralExpr {
     public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
     public static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, false);
 
+    @SerializedName("h")
     protected int hour;
+    @SerializedName("M")
     protected int minute;
+    @SerializedName("s")
     protected int second;
+    @SerializedName("ms")
     protected int microsecond;
+    @SerializedName("neg")
     protected boolean negative;
 
     /**
