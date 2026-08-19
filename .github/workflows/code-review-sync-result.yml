@@ -7,10 +7,86 @@ on:
     types: [created, edited]
 
 permissions:
+  contents: read
   pull-requests: read
   statuses: write
 
 jobs:
+  accept-skill-review:
+    name: Accept local skill review PASS
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, '<!-- doris-repo-review:v1:begin -->')
+    steps:
+      - name: Checkout trusted validation script
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Validate local review comment
+        id: validation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+        run: |
+          comment_file="$RUNNER_TEMP/doris-repo-review-comment.md"
+          jq -r '.comment.body' "$GITHUB_EVENT_PATH" > "$comment_file"
+
+          pr_info="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          head_sha="$(jq -r '.head.sha' <<<"$pr_info")"
+          pr_state="$(jq -r '.state' <<<"$pr_info")"
+          if [ "$pr_state" != "open" ]; then
+            echo "Review comment ignored: pull request is ${pr_state}."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! permission_info="$(gh api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission")"; then
+            echo "Review comment ignored: cannot verify ${COMMENT_AUTHOR}'s repository permission."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          can_push="$(jq -r '.user.permissions.push // false' <<<"$permission_info")"
+          if [ "$can_push" != "true" ]; then
+            echo "Review comment ignored: ${COMMENT_AUTHOR} does not have write permission."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if validation_output="$(python3 .github/scripts/validate_review_pass_comment.py \
+              --comment-file "$comment_file" \
+              --repository "$REPO" \
+              --pr-number "$PR_NUMBER" \
+              --head-sha "$head_sha" \
+              --comment-author "$COMMENT_AUTHOR" 2>&1)"; then
+            echo "$validation_output"
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+            echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          else
+            echo "$validation_output"
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mark code review as success
+        if: steps.validation.outputs.valid == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.validation.outputs.head_sha }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+        run: |
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state='success' \
+            -f context='code-review' \
+            -f description="Local xhigh skill review passed for ${HEAD_SHA:0:12}." \
+            -f target_url="$COMMENT_URL"
+
   skip-on-comment:
     name: Skip review via skip buildall comment
     runs-on: ubuntu-latest
@@ -87,7 +163,7 @@ jobs:
 
           if [ "$review_state" = "success" ]; then
             state="success"
-            summary="Automated review was triggered for ${HEAD_SHA}."
+            summary="Code review passed for ${HEAD_SHA}."
           fi
 
           gh api repos/${REPO}/statuses/${HEAD_SHA} \
