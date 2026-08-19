@@ -1872,6 +1872,10 @@ valueExpression
     ;
 
 primaryExpression
+    : primaryExpressionBase primaryExpressionSuffix*
+    ;
+
+primaryExpressionBase
     : name=CURRENT_DATE                                                                        #currentDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
@@ -1879,8 +1883,7 @@ primaryExpression
     | name=LOCALTIMESTAMP                                                                      #localTimestamp
     | name=CURRENT_USER                                                                        #currentUser
     | name=SESSION_USER                                                                        #sessionUser
-    | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
-    | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
+    | CASE caseExpression                                                                      #caseExpressionBase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                          #tryCast
     | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                             #defaultValue
@@ -1892,8 +1895,8 @@ primaryExpression
                 arguments+=expression (COMMA arguments+=expression)*
                 (USING charSet=identifierOrText)?
           RIGHT_PAREN                                                                          #charFunction
-    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN        #convertCharSet
-    | CONVERT LEFT_PAREN argument=expression COMMA castDataType RIGHT_PAREN                    #convertType
+    | CONVERT LEFT_PAREN argument=expression
+        (USING charSet=identifierOrText | COMMA castDataType) RIGHT_PAREN                      #convertExpression
     | GROUP_CONCAT LEFT_PAREN (DISTINCT|ALL)?
         (LEFT_BRACKET identifier RIGHT_BRACKET)?
         argument=expression
@@ -1908,19 +1911,25 @@ primaryExpression
     | (ISNULL | IS_NULL_PRED) LEFT_PAREN expression RIGHT_PAREN                                #isnull
     | IS_NOT_NULL_PRED LEFT_PAREN expression RIGHT_PAREN                                       #is_not_null_pred
     | functionCallExpression                                                                   #functionCall
-    | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
-    | value=primaryExpression LEFT_BRACKET begin=valueExpression
-      COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
-    | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
+    | LEFT_PAREN (query | expression) RIGHT_PAREN                                              #parenthesizedExpression
     | ATSIGN identifierOrText                                                                  #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
     | BINARY? identifier                                                                       #columnReference
-    | base=primaryExpression DOT fieldName=identifier                                          #dereference
-    | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=unitIdentifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
-    | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
+    ;
+
+primaryExpressionSuffix
+    : LEFT_BRACKET begin=valueExpression
+        (COLON (end=valueExpression)?)? RIGHT_BRACKET                                          #arrayAccess
+    | DOT fieldName=identifier                                                                 #dereference
+    | COLLATE (identifier | STRING_LITERAL | DEFAULT)                                          #collate
+    ;
+
+caseExpression
+    : whenClause+ (ELSE elseExpression=expression)? END                                        #searchedCase
+    | value=expression whenClause+ (ELSE elseExpression=expression)? END                       #simpleCase
     ;
 
 exceptOrReplace
