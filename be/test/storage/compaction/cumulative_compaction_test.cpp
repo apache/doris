@@ -66,6 +66,29 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
     return rowset;
 }
 
+class TestableCumulativeCompactionMixin : public CompactionMixin {
+public:
+    TestableCumulativeCompactionMixin(StorageEngine& engine, TabletSharedPtr tablet)
+            : CompactionMixin(engine, tablet, "TestableCumulativeCompactionMixin") {}
+
+    void set_input_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
+        _input_rowsets = rowsets;
+    }
+
+    Status prepare_compact() override { return Status::OK(); }
+
+    Status execute_compact() override { return Status::OK(); }
+
+    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
+
+    std::string_view compaction_name() const override { return "testable cumulative compaction"; }
+
+protected:
+    Status construct_output_rowset_writer(RowsetWriterContext&) override { return Status::OK(); }
+
+    Status update_delete_bitmap() override { return Status::OK(); }
+};
+
 TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
     EngineOptions options;
     StorageEngine storage_engine(options);
@@ -292,6 +315,41 @@ TEST_F(CumulativeCompactionTest, TestShouldDelayLargeTask) {
     storage_engine._cumu_compaction_thread_pool_used_threads = 3;
     storage_engine._cumu_compaction_thread_pool_small_tasks_running = 0;
     EXPECT_EQ(storage_engine._should_delay_large_task(), true);
+}
+
+TEST_F(CumulativeCompactionTest, TestCalcInputRowsetsRowNumUsesRowCount) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+
+    TabletMetaSharedPtr tablet_meta;
+    tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                     UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                     TCompressionType::LZ4F));
+    TabletSharedPtr tablet(
+            new Tablet(storage_engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+
+    std::vector<RowsetSharedPtr> rowsets;
+    auto rowset1 = create_rowset({1, 1}, 1, false, 1024);
+    ASSERT_NE(rowset1, nullptr);
+    rowset1->rowset_meta()->set_num_rows(10);
+    rowsets.push_back(rowset1);
+
+    auto rowset2 = create_rowset({2, 2}, 1, false, 2048);
+    ASSERT_NE(rowset2, nullptr);
+    rowset2->rowset_meta()->set_num_rows(20);
+    rowsets.push_back(rowset2);
+
+    auto rowset3 = create_rowset({3, 3}, 1, false, 4096);
+    ASSERT_NE(rowset3, nullptr);
+    rowset3->rowset_meta()->set_num_rows(30);
+    rowsets.push_back(rowset3);
+
+    compaction.set_input_rowsets(rowsets);
+
+    EXPECT_EQ(compaction.calc_input_rowsets_row_num(), 60);
+    EXPECT_EQ(compaction.calc_input_rowsets_total_size(), 7168);
 }
 
 } // namespace doris
