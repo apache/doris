@@ -207,6 +207,9 @@ public class IcebergScanRangeTest {
         Assertions.assertEquals(10L, d.getPositionLowerBound());
         Assertions.assertTrue(d.isSetPositionUpperBound());
         Assertions.assertEquals(99L, d.getPositionUpperBound());
+        // file_size is propagated from DeleteFile to TIcebergDeleteFileDesc.
+        Assertions.assertTrue(d.isSetFileSize());
+        Assertions.assertEquals(100L, d.getFileSize());
         // A position delete carries neither equality field-ids nor a deletion-vector blob ref.
         Assertions.assertFalse(d.isSetFieldIds());
         Assertions.assertFalse(d.isSetContentOffset());
@@ -255,6 +258,8 @@ public class IcebergScanRangeTest {
         Assertions.assertEquals(64L, dvDesc.getContentSizeInBytes());
         Assertions.assertEquals(5L, dvDesc.getPositionLowerBound());
         Assertions.assertEquals(42L, dvDesc.getPositionUpperBound());
+        Assertions.assertTrue(dvDesc.isSetFileSize());
+        Assertions.assertEquals(100L, dvDesc.getFileSize());
 
         TIcebergDeleteFileDesc eqDesc = deletes.get(1);
         Assertions.assertEquals(2, eqDesc.getContent());
@@ -262,6 +267,8 @@ public class IcebergScanRangeTest {
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, eqDesc.getFileFormat());
         Assertions.assertFalse(eqDesc.isSetContentOffset());
         Assertions.assertFalse(eqDesc.isSetPositionLowerBound());
+        Assertions.assertTrue(eqDesc.isSetFileSize());
+        Assertions.assertEquals(100L, eqDesc.getFileSize());
     }
 
     @Test

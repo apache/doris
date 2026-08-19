@@ -5019,10 +5019,6 @@ TEST(IcebergV2ReaderTest, DataFileIsMarkedImmutableForPageCache) {
     EXPECT_TRUE(reader.current_data_file_is_immutable());
 }
 
-// E2E: Verify file_size from FE thrift propagates through the full reader chain.
-// Data file: 3 rows (id=1,2,3). Equality delete: delete id=2.
-// With file_size set on TIcebergDeleteFileDesc, the reader should use it
-// instead of falling back to stat, and return correct results (id=1,3).
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_eq_delete_file_size_test";
@@ -5080,9 +5076,6 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
     std::filesystem::remove_all(test_dir);
 }
 
-// E2E: Verify that when file_size is not set (thrift optional defaults to 0),
-// build_iceberg_delete_file_range converts 0 to -1, and FileFactory falls back
-// to stat. The reader should still return correct results.
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_eq_delete_no_file_size_test";
@@ -5094,13 +5087,11 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
 
-    // Construct delete file WITHOUT file_size (simulating FE not setting it)
     TIcebergDeleteFileDesc delete_file;
     delete_file.__set_content(2);
     delete_file.__set_path(delete_file_path);
     delete_file.__set_field_ids({0});
     delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
-    // file_size intentionally not set — thrift defaults to 0
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
