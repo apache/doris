@@ -30,7 +30,6 @@ import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -148,7 +147,9 @@ public class LegacyAccessControllerPluginTest {
      * The refused column is named in the message; that name is the answer and has to arrive intact - and in
      * the bare form the controller wrote it, because the engine puts it back into an
      * {@link AuthorizationException} on the way out and that class renders its own error code in front.
-     * Carrying the rendered form across would print that prefix twice on every denied column query.
+     * Carrying the rendered form across would print that prefix twice on every denied column query, so the
+     * bare wording is what is asserted: counting the prefixes in the rendered result cannot tell the two
+     * worlds apart, because {@code UserException.deleteUselessMsg} strips exactly one repetition.
      */
     @Test
     public void testAColumnRefusalKeepsTheMessageThatNamesTheColumn() throws Exception {
@@ -162,15 +163,10 @@ public class LegacyAccessControllerPluginTest {
                         AuthorizedResource.columns("ctl", "db", "tbl", ImmutableSet.of("col1", "col2")),
                         SELECT, AccessContext.NONE));
 
-        Assert.assertEquals("no privilege on [col2]", denied.getMessage());
+        Assert.assertEquals("the wording naming the column was restated on the way out, so what the user"
+                        + " reads no longer says which column was refused",
+                "no privilege on [col2]", denied.getMessage());
         Assert.assertEquals("legacy", denied.getDeniedBy().orElse(null));
-        // Carried as the bare wording, not as rendered: the engine wraps this in an AuthorizationException
-        // again on the way out, and that class puts its own error code in front of whatever it is given. The
-        // count is the claim - carrying the rendered form renders the code twice and the user reads both.
-        Assert.assertEquals("the error code is rendered more than once in what the user reads: "
-                        + new AuthorizationException(denied.getMessage()).getMessage(),
-                1, StringUtils.countMatches(
-                        new AuthorizationException(denied.getMessage()).getMessage(), "detailMessage"));
     }
 
     /**

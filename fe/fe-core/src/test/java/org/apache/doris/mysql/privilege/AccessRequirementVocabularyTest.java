@@ -24,6 +24,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Map;
 
 /**
@@ -87,5 +89,29 @@ public class AccessRequirementVocabularyTest {
                 AccessTranslation.requirementOf(PrivPredicate.SHOW_WORKLOAD_GROUP)));
         Assertions.assertSame(PrivPredicate.SHOW_RESOURCES, AccessTranslation.privPredicateOf(
                 AccessTranslation.requirementOf(PrivPredicate.SHOW_RESOURCES)));
+    }
+
+    /**
+     * The table above is the whole vocabulary, not a sample of it.
+     *
+     * <p>Hand-written, it says nothing about a requirement added to {@link AccessRequirements} and left out
+     * of it: the two cases above would stay green while the new name meant one thing to the engine and
+     * nothing to a plugin. {@link AccessRequirements} is a frozen surface, so adding a constant is a
+     * deliberate act - this is what makes it a deliberate act here too. Enumerated reflectively for the same
+     * reason {@code AccessTranslation} enumerates its own: a list written twice is a list that drifts.
+     */
+    @Test
+    public void testTheVocabularyCoversEveryNamedRequirement() throws IllegalAccessException {
+        for (Field field : AccessRequirements.class.getFields()) {
+            if (!Modifier.isStatic(field.getModifiers())
+                    || !AccessRequirement.class.equals(field.getType())) {
+                continue;
+            }
+            AccessRequirement named = (AccessRequirement) field.get(null);
+            Assertions.assertTrue(VOCABULARY.containsKey(named),
+                    "AccessRequirements." + field.getName() + " is a question plugins recognise by name, and"
+                            + " nothing here says which PrivPredicate the engine asks it with - so nothing"
+                            + " notices if the two stop meaning the same thing");
+        }
     }
 }

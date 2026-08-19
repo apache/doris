@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 
@@ -54,6 +55,12 @@ public class RangerHiveAccessControllerTest {
     /**
      * A Ranger policy may be written against a role, and which roles a Doris account holds is the engine's to
      * know: the source has no user directory of its own to look them up in.
+     *
+     * <p>The client address is here too, because it is the other half of what a Ranger policy can be
+     * conditioned on and the two come from different places. The address belongs to the connection and
+     * arrives in the {@link AccessContext}; {@code AuthorizedSubject.getHost()} is the host <em>pattern</em>
+     * of the account - {@code '%'} for an ordinary {@code CREATE USER} - and matching an IP condition
+     * against that matches nothing anybody wrote.
      */
     @Test
     public void testRequestCarriesTheRolesTheEngineKnows() {
@@ -67,15 +74,31 @@ public class RangerHiveAccessControllerTest {
             RangerHiveAccessController controller = new RangerHiveAccessController(
                     ImmutableMap.of("ranger.service.name", "hive"), context);
             try {
-                RangerAccessRequestImpl request = controller.createRequest(SUBJECT);
+                RangerAccessRequestImpl request = controller.createRequest(SUBJECT, connectedFrom("10.0.0.7"));
 
                 Assertions.assertEquals("user1", request.getUser());
                 Assertions.assertEquals(roles, request.getUserRoles());
-                Assertions.assertEquals("%", request.getClientIPAddress());
+                Assertions.assertEquals("10.0.0.7", request.getClientIPAddress(),
+                        "the account's host pattern was sent to Ranger as the client's address,"
+                                + " so a policy conditioned on an IP matches on a pattern instead");
+
+                // No connection behind the check - a background job, a replay - and the pattern is what this
+                // source has always sent, so a policy written against it keeps working.
+                Assertions.assertEquals("%",
+                        controller.createRequest(SUBJECT, AccessContext.NONE).getClientIPAddress());
             } finally {
                 controller.close();
             }
         }
+    }
+
+    private static AccessContext connectedFrom(String clientIp) {
+        return new AccessContext() {
+            @Override
+            public Optional<String> getClientIp() {
+                return Optional.of(clientIp);
+            }
+        };
     }
 
     /**
@@ -242,14 +265,14 @@ public class RangerHiveAccessControllerTest {
                         .isAccessAllowed(asked.capture(), Mockito.any());
 
                 RangerAccessRequest database = asked.getAllValues().get(0);
-                Assert.assertEquals("select", database.getAccessType());
-                Assert.assertEquals("db", database.getResource().getValue("database"));
-                Assert.assertNull(database.getResource().getValue("table"));
+                Assertions.assertEquals("select", database.getAccessType());
+                Assertions.assertEquals("db", database.getResource().getValue("database"));
+                Assertions.assertNull(database.getResource().getValue("table"));
 
                 RangerAccessRequest table = asked.getAllValues().get(1);
-                Assert.assertEquals("update", table.getAccessType());
-                Assert.assertEquals("db", table.getResource().getValue("database"));
-                Assert.assertEquals("tbl", table.getResource().getValue("table"));
+                Assertions.assertEquals("update", table.getAccessType());
+                Assertions.assertEquals("db", table.getResource().getValue("database"));
+                Assertions.assertEquals("tbl", table.getResource().getValue("table"));
             } finally {
                 controller.close();
             }
@@ -281,21 +304,21 @@ public class RangerHiveAccessControllerTest {
                 ArgumentCaptor<Collection<RangerAccessRequest>> asked =
                         ArgumentCaptor.forClass(Collection.class);
                 Mockito.verify(plugin.constructed().get(0)).isAccessAllowed(asked.capture(), Mockito.any());
-                Assert.assertEquals("one request per column, in one call", 2, asked.getValue().size());
+                Assertions.assertEquals("one request per column, in one call", 2, asked.getValue().size());
                 Set<String> columnsAsked = new LinkedHashSet<>();
                 for (RangerAccessRequest request : asked.getValue()) {
-                    Assert.assertEquals("select", request.getAccessType());
-                    Assert.assertEquals("db", request.getResource().getValue("database"));
-                    Assert.assertEquals("tbl", request.getResource().getValue("table"));
+                    Assertions.assertEquals("select", request.getAccessType());
+                    Assertions.assertEquals("db", request.getResource().getValue("database"));
+                    Assertions.assertEquals("tbl", request.getResource().getValue("table"));
                     columnsAsked.add((String) request.getResource().getValue("column"));
                 }
-                Assert.assertEquals(ImmutableSet.of("col1", "col2"), columnsAsked);
+                Assertions.assertEquals(ImmutableSet.of("col1", "col2"), columnsAsked);
 
-                AccessDeniedException denied = Assert.assertThrows(AccessDeniedException.class,
+                AccessDeniedException denied = Assertions.assertThrows(AccessDeniedException.class,
                         () -> controller.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
                                 ImmutableSet.of("col1", "secret")), AccessRequirements.SELECT,
                                 AccessContext.NONE));
-                Assert.assertEquals(RangerHiveAccessController.NAME, denied.getDeniedBy().orElse(null));
+                Assertions.assertEquals(RangerHiveAccessController.NAME, denied.getDeniedBy().orElse(null));
             } finally {
                 controller.close();
             }
@@ -321,10 +344,10 @@ public class RangerHiveAccessControllerTest {
             RangerHiveAccessController controller = new RangerHiveAccessController(
                     ImmutableMap.of("ranger.service.name", "hive"), context);
             try {
-                AccessDeniedException denied = Assert.assertThrows(AccessDeniedException.class,
+                AccessDeniedException denied = Assertions.assertThrows(AccessDeniedException.class,
                         () -> controller.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
                                 ImmutableSet.of("col1")), AccessRequirements.SELECT, AccessContext.NONE));
-                Assert.assertTrue(denied.getMessage(),
+                Assertions.assertTrue(denied.getMessage(),
                         denied.getMessage().contains(RangerHiveAccessController.NAME));
             } finally {
                 controller.close();
@@ -350,14 +373,14 @@ public class RangerHiveAccessControllerTest {
             RangerHiveAccessController controller = new RangerHiveAccessController(
                     ImmutableMap.of("ranger.service.name", "hive"), context);
             ScheduledFuture<?> scheduled = controller.logFlushFuture;
-            Assert.assertNotNull("no audit flush task was scheduled, so this binding audits nothing",
+            Assertions.assertNotNull("no audit flush task was scheduled, so this binding audits nothing",
                     scheduled);
 
             controller.close();
 
-            Assert.assertTrue("the audit flush task outlived the binding that scheduled it",
+            Assertions.assertTrue("the audit flush task outlived the binding that scheduled it",
                     scheduled.isCancelled() || scheduled.isDone());
-            Assert.assertNull(controller.logFlushFuture);
+            Assertions.assertNull(controller.logFlushFuture);
 
             RangerHiveAuditHandler handler = audit.constructed().get(0);
             RangerHivePlugin hive = plugin.constructed().get(0);

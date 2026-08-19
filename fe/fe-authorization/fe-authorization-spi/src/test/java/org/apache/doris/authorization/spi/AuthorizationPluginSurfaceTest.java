@@ -75,9 +75,11 @@ import java.util.TreeSet;
  * cannot reach is a type no plugin can encounter, so leaving it out is not a gap.
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
- * too, and identically in the other families' baselines. They are loaded parent-first for every family, so a
- * change to them breaks all plugin kinds at once - and turns all baselines red at once, each asking for its
- * own bump.
+ * too, and named in the other families' baselines. They are loaded parent-first for every family, so a
+ * change to them breaks all plugin kinds at once - but only a changed method signature turns all the
+ * baselines red. This renderer is the only one recording declaration kinds, constructors, modifiers, type
+ * arguments and thrown types, so a {@code final} dropped from {@code PluginContext} or a constructor added
+ * to it shows up here alone. See {@code fe/fe-authorization/AGENTS.md}, obligation 1.
  */
 public class AuthorizationPluginSurfaceTest {
 
@@ -224,8 +226,10 @@ public class AuthorizationPluginSurfaceTest {
             if (constructor.isSynthetic()) {
                 continue;
             }
-            rendered.add(signature(type, "<init>", constructor.getGenericParameterTypes(), void.class));
+            rendered.add(signature(type, "<init>", constructor.getGenericParameterTypes(), void.class)
+                    + throwsOf(constructor.getGenericExceptionTypes()));
             expandAll(constructor.getGenericParameterTypes(), pending);
+            expandAll(constructor.getGenericExceptionTypes(), pending);
         }
         for (Method method : type.getMethods()) {
             if (method.isSynthetic() || !isOurs(method.getDeclaringClass())
@@ -235,7 +239,8 @@ public class AuthorizationPluginSurfaceTest {
             }
             rendered.add(signature(type, method.getName(), method.getGenericParameterTypes(),
                     method.getGenericReturnType())
-                    + modifiersOf(method.getModifiers(), method.getDeclaringClass().isInterface()));
+                    + modifiersOf(method.getModifiers(), method.getDeclaringClass().isInterface())
+                    + throwsOf(method.getGenericExceptionTypes()));
             expandAll(method.getGenericParameterTypes(), pending);
             expand(method.getGenericReturnType(), pending);
             expandAll(method.getGenericExceptionTypes(), pending);
@@ -328,6 +333,32 @@ public class AuthorizationPluginSurfaceTest {
             interesting.add("final");
         }
         return interesting.isEmpty() ? "" : " [" + String.join(", ", interesting) + "]";
+    }
+
+    /**
+     * The checked exceptions one member declares, as {@code " throws a,b"} or nothing.
+     *
+     * <p>Part of the contract for the same reason the modifiers are: adding a checked exception to a method
+     * a plugin overrides is source-incompatible with every plugin overriding it, and removing one from a
+     * method a plugin <em>calls</em> makes the plugin's {@code catch} block uncompilable. Neither shows up
+     * in a signature, so without this both render byte-identically and the mandatory major bump is not
+     * triggered.
+     *
+     * <p>Last on the line on purpose: appending rather than interleaving is what lets a baseline refresh
+     * prove it is a pure rendering change - strip {@code " throws …"} off every line and the old file has to
+     * come back exactly. See {@code fe/fe-authorization/AGENTS.md}, obligation 1.
+     */
+    private static String throwsOf(Type[] exceptionTypes) {
+        if (exceptionTypes.length == 0) {
+            return "";
+        }
+        // Sorted, because the reflective order follows the declaration order and reordering a throws clause
+        // is not a change to the contract.
+        TreeSet<String> names = new TreeSet<>();
+        for (Type exceptionType : exceptionTypes) {
+            names.add(exceptionType.getTypeName());
+        }
+        return " throws " + String.join(",", names);
     }
 
     private static String signature(Class<?> owner, String name, Type[] params, Type returnType) {

@@ -35,7 +35,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -70,14 +69,10 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     private final int requestQuerySize;
     private final Object auditBufferLock = new Object();
     private final Object flushLock = new Object();
-    private final Collection<BufferedAuditEvent> auditEvents = new ArrayList<>();
+    private final Collection<AuthzAuditEvent> auditEvents = new ArrayList<>();
     // Only accessed while holding flushLock. Successfully delivered events are removed one by one, so a
     // provider exception leaves the failed event and every later event available for the next periodic tick.
     private final Deque<AuthzAuditEvent> pendingAuditEvents = new ArrayDeque<>();
-    // Which buffered requests carried a denial, so that flushAudit can suppress the allowed records of those
-    // requests and only those. Reset with the buffer it describes.
-    private final Set<Long> requestsWithDenial = new HashSet<>();
-    private long nextRequestId;
 
     public RangerHiveAuditHandler() {
         super();
@@ -248,32 +243,27 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
      */
     @Override
     public void processResults(Collection<RangerAccessResult> results) {
-        // One request, so the events of one call suppress each other and nothing else.
         addAuthzAuditEvents(createAuditEvents(results));
     }
 
+    /**
+     * Writes out what has been buffered, oldest first.
+     *
+     * <p>Nothing is suppressed here on purpose. Hive's rule - a denial hides the allowed records of the same
+     * statement - is already what {@link #createAuditEvents} produces: it stops at the first denial and
+     * answers with that event alone, so one authorization request yields either one denial or the allowed
+     * ones, never both. Applying the rule again over a drain would be a different rule: one of these handlers
+     * serves a whole catalog and is drained on a timer, so it would let any one user's refusal swallow every
+     * masked read anyone else made in that window - and the trail of who read a masked column is what data
+     * masking exists to leave.
+     */
     public void flushAudit() {
         synchronized (flushLock) {
-            Collection<BufferedAuditEvent> eventsToFlush;
-            Set<Long> deniedRequests;
             // Keep the producer critical section limited to snapshot/reset. Provider delivery can block, but
             // authorization callbacks remain free to enqueue into the next batch.
             synchronized (auditBufferLock) {
-                eventsToFlush = new ArrayList<>(auditEvents);
-                deniedRequests = new HashSet<>(requestsWithDenial);
+                pendingAuditEvents.addAll(auditEvents);
                 auditEvents.clear();
-                requestsWithDenial.clear();
-            }
-
-            for (BufferedAuditEvent buffered : eventsToFlush) {
-                // If a deny exists, skip logging allowed results of the same request. Scoped to the request
-                // and not to the drain: Hive applies this per statement, and one of these handlers serves a
-                // whole catalog and is drained on a timer, so a drain-wide rule lets any one user's refusal
-                // swallow every masked read anyone else made in that window - and the trail of who read a
-                // masked column is the one data masking exists to leave.
-                if (buffered.event.getAccessResult() == 0 || !deniedRequests.contains(buffered.requestId)) {
-                    pendingAuditEvents.addLast(buffered.event);
-                }
             }
 
             while (!pendingAuditEvents.isEmpty()) {
@@ -296,33 +286,15 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
         addAuthzAuditEvents(Collections.singletonList(auditEvent));
     }
 
-    /**
-     * Buffers the events of one authorization request, which is the scope the suppression in
-     * {@link #flushAudit()} applies over.
-     */
+    /** Buffers the events of one authorization request until the next drain. */
     void addAuthzAuditEvents(List<AuthzAuditEvent> events) {
         synchronized (auditBufferLock) {
-            long requestId = nextRequestId++;
             for (AuthzAuditEvent auditEvent : events) {
                 if (auditEvent == null) {
                     continue;
                 }
-                auditEvents.add(new BufferedAuditEvent(requestId, auditEvent));
-                if (auditEvent.getAccessResult() == 0) {
-                    requestsWithDenial.add(requestId);
-                }
+                auditEvents.add(auditEvent);
             }
-        }
-    }
-
-    /** An audit event together with the authorization request it was produced for. */
-    private static final class BufferedAuditEvent {
-        private final long requestId;
-        private final AuthzAuditEvent event;
-
-        private BufferedAuditEvent(long requestId, AuthzAuditEvent event) {
-            this.requestId = requestId;
-            this.event = event;
         }
     }
 

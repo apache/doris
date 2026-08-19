@@ -58,7 +58,15 @@ public final class AccessRequirement {
         return of(toSet(actions), ActionMatch.ALL);
     }
 
-    /** A requirement for a single action; the match type is irrelevant for one action. */
+    /**
+     * A requirement for a single action, recorded as {@link ActionMatch#ANY}.
+     *
+     * <p>Which match type is chosen decides nothing for {@link #isSatisfiedBy} - one action is one action
+     * either way - but it does decide equality, and this is a frozen API whose documented way of recognising
+     * a question is comparing it against the constants in {@code AccessRequirements}. So a requirement built
+     * here and one built as {@code allOf(action)} are two different values, and only the first is equal to a
+     * named constant defined this way. Nothing in the engine builds the other, and this note is why.
+     */
     public static AccessRequirement of(AccessAction action) {
         return of(EnumSet.of(Objects.requireNonNull(action, "action is required")), ActionMatch.ANY);
     }

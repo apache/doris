@@ -34,10 +34,12 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -303,17 +305,49 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
      * column or a function does not report one until it is bound, and the coercion above is what it meets.
      */
     private static void refuseUnlessRestricting(RowFilterSpec policy, Expression parsed) {
-        DataType type;
+        DataType notAPredicate = nonPredicateTypeOf(parsed);
+        if (notAPredicate != null) {
+            throw new AnalysisException("row filter policy " + policy.getPolicyIdent() + " is not a predicate:"
+                    + " [" + policy.getFilterSql() + "] is of type " + notAPredicate + ", and a row filter has"
+                    + " to be a boolean expression in Doris dialect over the table's columns");
+        }
+    }
+
+    /**
+     * The type that proves {@code parsed} is not a predicate, or null when nothing about it proves that yet.
+     *
+     * <p>Public because {@code CREATE ROW POLICY} asks the same question of the predicate it is about to
+     * store. Answering it there as well is what turns "every query this policy governs fails from now on"
+     * into "this statement is refused", and the account that can fix it is the one typing the statement.
+     *
+     * <p>A {@code CASE} is asked branch by branch rather than as a whole: {@link CaseWhen#getDataType()}
+     * reports the type of the first branch alone, so asking it directly refuses
+     * {@code CASE WHEN c THEN NULL ELSE k1 = 1 END} and accepts the same filter with its branches swapped. A
+     * branch of no type of its own - a bare {@code NULL} - decides nothing there and is passed over.
+     */
+    public static DataType nonPredicateTypeOf(Expression parsed) {
         try {
-            type = parsed.getDataType();
+            if (parsed instanceof CaseWhen) {
+                CaseWhen caseWhen = (CaseWhen) parsed;
+                for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                    DataType branch = whenClause.getDataType();
+                    if (!branch.isNullType() && !branch.isBooleanType()) {
+                        return branch;
+                    }
+                }
+                if (caseWhen.getDefaultValue().isPresent()) {
+                    DataType otherwise = caseWhen.getDefaultValue().get().getDataType();
+                    if (!otherwise.isNullType() && !otherwise.isBooleanType()) {
+                        return otherwise;
+                    }
+                }
+                return null;
+            }
+            DataType type = parsed.getDataType();
+            return type.isBooleanType() ? null : type;
         } catch (Exception e) {
             // Not knowable yet - a payload naming columns or functions, resolved when the filter is bound.
-            return;
-        }
-        if (!type.isBooleanType()) {
-            throw new AnalysisException("row filter policy " + policy.getPolicyIdent() + " is not a predicate:"
-                    + " [" + policy.getFilterSql() + "] is of type " + type + ", and a row filter has to be a"
-                    + " boolean expression in Doris dialect over the table's columns");
+            return null;
         }
     }
 

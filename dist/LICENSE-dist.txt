@@ -1316,11 +1316,13 @@ Common Development and Distribution License (CDDL) v1.1 -- licenses/LICENSE-CDDL
     * javax.ws.rs-api:
         - javax.ws.rs:javax.ws.rs-api:2.0.1 (http://jax-rs-spec.java.net)
     * jersey-server:
-        - com.sun.jersey:jersey-server:1.9 (https://jersey.java.net/jersey-server/)
+        - com.sun.jersey:jersey-server:1.19.4 (https://jersey.java.net/jersey-server/)
     * jersey-guice:
-        - com.sun.jersey.contribs:jersey-guice:1.9 (https://jersey.java.net/jersey-contribs/jersey-guice/)
+        - com.sun.jersey.contribs:jersey-guice:1.19.4 (https://jersey.java.net/jersey-contribs/jersey-guice/)
     * jersey-json:
-        - com.sun.jersey:jersey-json:1.9 (https://jersey.java.net/jersey-json/)
+        - com.sun.jersey:jersey-json:1.22.0 (https://jersey.java.net/jersey-json/)
+    * jersey-servlet:
+        - com.sun.jersey:jersey-servlet:1.19.4 (https://jersey.java.net/jersey-servlet/)
     * JAXB API bundle for GlassFish V3:
         - javax.xml.bind:jaxb-api:2.2.2 (https://jaxb.dev.java.net/)
     * jersey-core:
