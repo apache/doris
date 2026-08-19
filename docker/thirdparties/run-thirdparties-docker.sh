@@ -76,12 +76,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio,fluss
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,fluss"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -303,6 +303,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_RANGER=1
     elif [[ "${element}"x == "polaris"x ]]; then
         RUN_POLARIS=1
+    elif [[ "${element}"x == "fluss"x ]]; then
+        RUN_FLUSS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -1056,6 +1058,18 @@ start_kafka() {
         compose_up_stack "${ROOT}/docker-compose/kafka/kafka.yaml" "${ROOT}/docker-compose/kafka/kafka.env" --build --remove-orphans -d
         wait_for_kafka_ready "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
         create_kafka_topics "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
+    fi
+}
+
+start_fluss() {
+    # fluss
+    render_uid_template "${ROOT}/docker-compose/fluss/fluss.yaml.tpl" "${ROOT}/docker-compose/fluss/fluss.yaml"
+    sed -i "s/localhost/${IP_HOST}/g" "${ROOT}/docker-compose/fluss/fluss.yaml"
+    register_stack_metadata "fluss" "${ROOT}/docker-compose/fluss/fluss.yaml" "${ROOT}/docker-compose/fluss/fluss_settings.env"
+    compose_down_stack "${ROOT}/docker-compose/fluss/fluss.yaml" "${ROOT}/docker-compose/fluss/fluss_settings.env" --remove-orphans
+
+    if [[ "${STOP}" -ne 1 ]]; then
+        compose_up_stack "${ROOT}/docker-compose/fluss/fluss.yaml" "${ROOT}/docker-compose/fluss/fluss_settings.env" --remove-orphans -d --wait
     fi
 }
 
@@ -1879,6 +1893,10 @@ fi
 
 if [[ "${RUN_RANGER}" -eq 1 ]]; then
     launch_component "ranger" "${LOG_ROOT}/start_ranger.log" start_ranger
+fi
+
+if [[ "${RUN_FLUSS}" -eq 1 ]]; then
+    launch_component "fluss" "${LOG_ROOT}/start_fluss.log" start_fluss
 fi
 echo "waiting all dockers starting done"
 
