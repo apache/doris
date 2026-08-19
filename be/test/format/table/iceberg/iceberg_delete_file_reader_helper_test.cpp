@@ -219,6 +219,9 @@ TEST(IcebergDeleteFileReaderHelperTest, BuildDeleteFileRange) {
     EXPECT_EQ(range.start_offset, 0);
     EXPECT_EQ(range.size, -1);
     EXPECT_EQ(range.file_size, -1);
+
+    auto range2 = build_iceberg_delete_file_range("s3://bucket/delete.parquet", 1024);
+    EXPECT_EQ(range2.file_size, 1024);
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, IsDeletionVector) {
