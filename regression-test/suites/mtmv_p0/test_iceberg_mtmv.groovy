@@ -210,7 +210,9 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable2}"""
 
         // Test rewrite and union partitions
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        // Iceberg has a statement-pinned snapshot id, so rewrite does not require the
+        // data-unawareness opt-in used by external tables without exact snapshot tracking.
+        sql """set materialized_view_rewrite_enable_contain_external_table=false;"""
         String mvSql = "SELECT par,count(*) as num FROM ${catalog_name}.${icebergDb}.${icebergTable3} group by par"
         String mvName = "union_mv"
         sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable3}"""
@@ -322,4 +324,3 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
-

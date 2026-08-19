@@ -50,7 +50,8 @@ public class InitConsistentMaterializationContextHook extends InitMaterializatio
                 .getAvailableMTMVs(cascadesContext.getStatementContext().getCandidateMTMVs(),
                         cascadesContext.getConnectContext(),
                         true, ((connectContext, mtmv) -> {
-                            return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
+                            return MTMVUtil.mtmvContainsExternalTableWithDataUnawareness(mtmv)
+                                    && (!connectContext.getSessionVariable()
                                     .isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness());
                         }));
     }

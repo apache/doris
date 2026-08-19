@@ -184,7 +184,8 @@ public class InitMaterializationContextHook implements PlannerHook {
                 .getAvailableMTMVs(cascadesContext.getStatementContext().getCandidateMTMVs(),
                         cascadesContext.getConnectContext(),
                         false, ((connectContext, mtmv) -> {
-                            return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
+                            return MTMVUtil.mtmvContainsExternalTableWithDataUnawareness(mtmv)
+                                    && (!connectContext.getSessionVariable()
                                     .isEnableMaterializedViewRewriteWhenBaseTableUnawareness());
                         }));
     }

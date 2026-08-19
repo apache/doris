@@ -28,6 +28,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.task.AbstractTask;
@@ -118,6 +120,39 @@ public class MTMVUtil {
         Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevelAndFromView();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (!baseTableInfo.isInternalTable()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether an MTMV contains an external table whose changes cannot be identified by the
+     * statement snapshot. Snapshot-id based tables, such as Iceberg, can safely participate in
+     * rewrite freshness checks because both query planning and MTMV validation use the same pinned
+     * snapshot. Timestamp based tables still require the explicit data-unawareness session switch.
+     */
+    public static boolean mtmvContainsExternalTableWithDataUnawareness(MTMV mtmv) {
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevelAndFromView();
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            if (baseTableInfo.isInternalTable()) {
+                continue;
+            }
+            try {
+                TableIf table = getTable(baseTableInfo);
+                if (!(table instanceof MTMVRelatedTableIf)) {
+                    return true;
+                }
+                Optional<MvccSnapshot> statementSnapshot = MvccUtil.getSnapshotFromContext(table);
+                if (!statementSnapshot.isPresent()) {
+                    return true;
+                }
+                MTMVSnapshotIf tableSnapshot = ((MTMVRelatedTableIf) table)
+                        .getTableSnapshot(statementSnapshot);
+                if (!(tableSnapshot instanceof MTMVSnapshotIdSnapshot)) {
+                    return true;
+                }
+            } catch (AnalysisException e) {
                 return true;
             }
         }
