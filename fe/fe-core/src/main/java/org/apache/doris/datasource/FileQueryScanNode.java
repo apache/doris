@@ -41,6 +41,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -86,6 +87,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -97,6 +99,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
+    private final StatementContext.ExternalScanTaskCache externalScanTaskCache;
+    protected long maxRetainedExternalScanTasks =
+            StatementContext.ExternalScanTaskCache.MAX_RETAINED_TASK_COUNT;
 
     @Getter
     protected TableSample tableSample;
@@ -136,6 +141,40 @@ public abstract class FileQueryScanNode extends FileScanNode {
             StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
         super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv);
         this.sessionVariable = sv;
+        ConnectContext context = ConnectContext.get();
+        StatementContext statementContext = context == null ? null : context.getStatementContext();
+        this.externalScanTaskCache = statementContext == null
+                ? null : statementContext.getExternalScanTaskCache();
+    }
+
+    /** Whether statement-scoped scan-task reuse is active for this node. */
+    protected boolean canReuseExternalScanTasks() {
+        return sessionVariable.enableExternalScanTaskReuse && externalScanTaskCache != null;
+    }
+
+    /**
+     * Run a weighted scan-task loader through the statement cache. When reuse is disabled or no
+     * statement cache exists the loader still runs (callers that serialize tasks should check
+     * {@link #canReuseExternalScanTasks()} first and consume native tasks directly, so an
+     * opt-out never pays the feature's encode/decode cost).
+     */
+    protected <T> List<T> getOrLoadExternalScanTasks(
+            ExternalScanTaskCacheKey<T> key,
+            StatementContext.ExternalScanTaskCache.WeightedLoader<T> loader,
+            ToLongFunction<List<T>> weigher,
+            StatementContext.ExternalScanTaskCache.WeightBudget weightBudget,
+            long maxEntryWeight, long maxRetainedWeight,
+            boolean reserveBeforeLoad) throws Exception {
+        if (!canReuseExternalScanTasks()) {
+            return loader.load(maxEntryWeight);
+        }
+        return externalScanTaskCache.getOrLoad(
+                key, loader, weigher, weightBudget, maxEntryWeight, maxRetainedWeight,
+                reserveBeforeLoad);
+    }
+
+    protected static long externalScanTaskCount(List<?> tasks) {
+        return Math.max(1, tasks.size());
     }
 
     /**
