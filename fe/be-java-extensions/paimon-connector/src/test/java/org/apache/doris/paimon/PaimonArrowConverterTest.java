@@ -18,6 +18,7 @@
 package org.apache.doris.paimon;
 
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.TimeStampVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -93,6 +94,54 @@ public class PaimonArrowConverterTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> converter.toPaimonTimestamp(
                         0, arrowType, new TimestampType(6)));
+    }
+
+    @Test
+    public void testTimestampReaderBindsUnitAndTargetOnce() {
+        LocalDateTime wallClock = LocalDateTime.parse("2024-01-15T10:30:00.123456");
+        long civilMicros = wallClock.toEpochSecond(ZoneOffset.UTC) * 1_000_000L
+                + wallClock.getNano() / 1_000L;
+        Field timestampField = new Field(
+                "event_time",
+                FieldType.nullable(new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)),
+                null);
+
+        try (RootAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Collections.singletonList(timestampField)), allocator)) {
+            TimeStampVector vector = (TimeStampVector) root.getVector("event_time");
+            root.allocateNew();
+            vector.setSafe(0, civilMicros);
+            root.setRowCount(1);
+
+            PaimonArrowConverter converter = new PaimonArrowConverter(ZoneId.of("Asia/Shanghai"));
+            PaimonArrowConverter.RowReader rows = converter.rows(
+                    root,
+                    new org.apache.paimon.types.DataType[] {
+                        new LocalZonedTimestampType(6)
+                    });
+            Timestamp result = (Timestamp) rows.values(0)[0];
+            long expectedMicros = wallClock.toEpochSecond(ZoneOffset.ofHours(8)) * 1_000_000L
+                    + wallClock.getNano() / 1_000L;
+            Assertions.assertEquals(expectedMicros, result.toMicros());
+        }
+    }
+
+    @Test
+    public void testTimestampReaderRejectsPrecisionUnitMismatchAtBind() {
+        Field timestampField = new Field(
+                "event_time",
+                FieldType.nullable(new ArrowType.Timestamp(TimeUnit.MILLISECOND, null)),
+                null);
+        try (RootAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Collections.singletonList(timestampField)), allocator)) {
+            Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new PaimonArrowConverter(ZoneId.of("UTC")).rows(
+                            root,
+                            new org.apache.paimon.types.DataType[] {new TimestampType(6)}));
+        }
     }
 
     @Test

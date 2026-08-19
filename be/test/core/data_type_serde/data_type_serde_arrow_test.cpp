@@ -88,6 +88,7 @@
 #include "core/value/hll.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/arrow_column_to_doris_column.h"
+#include "exec/sink/writer/paimon/paimon_arrow_write_converter.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -537,6 +538,43 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
+TEST(DataTypeSerDeArrowTest, PaimonTimestampUsesStrictTimezoneFreeBinding) {
+    auto block = create_test_block({TYPE_DATETIMEV2}, 2, false);
+    std::shared_ptr<arrow::Schema> paimon_schema;
+    ASSERT_TRUE(get_paimon_arrow_schema_from_block(*block, &paimon_schema).ok());
+
+    const auto& timestamp_type =
+            assert_cast<const arrow::TimestampType&>(*paimon_schema->field(0)->type());
+    EXPECT_EQ(arrow::TimeUnit::MILLI, timestamp_type.unit());
+    EXPECT_TRUE(timestamp_type.timezone().empty());
+
+    const auto convert = [&](const std::shared_ptr<arrow::Schema>& schema,
+                             const ArrowWriteConverter& converter) {
+        std::shared_ptr<arrow::RecordBatch> record_batch;
+        return convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &record_batch,
+                                      cctz::utc_time_zone(), 0, block->rows(), converter);
+    };
+
+    Status status = convert(paimon_schema, paimon_arrow_write_converter());
+    EXPECT_TRUE(status.ok()) << status;
+
+    auto timezone_schema = arrow::schema(
+            {arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI, "UTC"), false)});
+    status = convert(timezone_schema, paimon_arrow_write_converter());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
+
+    auto wrong_unit_schema =
+            arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
+    status = convert(wrong_unit_schema, paimon_arrow_write_converter());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
+
+    status = convert(paimon_schema, plain_arrow_write_converter());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
+}
+
 TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     auto block = std::make_shared<Block>();
     auto strcol = ColumnString::create();
@@ -570,7 +608,7 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
 }
 
-TEST(DataTypeSerDeArrowTest, CanonicalConverterDoesNotInferIcebergUuid) {
+TEST(DataTypeSerDeArrowTest, PlainArrowConverterDoesNotInferIcebergUuid) {
     Block block;
     auto column = ColumnString::create();
     column->insert_data("550e8400-e29b-41d4-a716-446655440000", 36);
@@ -584,7 +622,7 @@ TEST(DataTypeSerDeArrowTest, CanonicalConverterDoesNotInferIcebergUuid) {
     const Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
                                                  &record_batch, cctz::utc_time_zone());
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("Canonical Arrow writer is not bound"));
+    EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
 }
 
 TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
@@ -938,9 +976,9 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryRejectsInvalidBindingsAndValue
               status.to_string().find("Iceberg fixed writer requires Doris VARBINARY"));
 
     status = convert(std::make_shared<DataTypeVarbinary>(4), "abcd", 4,
-                     canonical_arrow_write_converter());
+                     plain_arrow_write_converter());
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("Canonical Arrow writer is not bound"));
+    EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
 }
 
 TEST(DataTypeSerDeArrowTest, NestedIcebergFixedVarbinaryUsesIcebergConverterRecursively) {

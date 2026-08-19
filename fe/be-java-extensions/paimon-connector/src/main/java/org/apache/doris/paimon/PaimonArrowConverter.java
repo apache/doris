@@ -74,6 +74,8 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.LongFunction;
+import java.util.function.LongUnaryOperator;
 
 /** Converts Arrow columns into Paimon internal values without owning writer state. */
 final class PaimonArrowConverter {
@@ -197,11 +199,7 @@ final class PaimonArrowConverter {
         if (vector instanceof TimeStampVector
                 && (targetType instanceof TimestampType
                         || targetType instanceof LocalZonedTimestampType)) {
-            TimeStampVector typed = (TimeStampVector) vector;
-            ArrowType.Timestamp arrowType = (ArrowType.Timestamp) typed.getField().getType();
-            validateTimestampBinding(arrowType, targetType);
-            return index -> typed.isNull(index) ? null : toPaimonTimestamp(
-                    arrowTimestampToMicros(typed.get(index), arrowType), arrowType, targetType);
+            return bindTimestampReader((TimeStampVector) vector, targetType);
         }
         if (vector instanceof DecimalVector && targetType instanceof DecimalType) {
             DecimalVector decimalVector = (DecimalVector) vector;
@@ -221,6 +219,16 @@ final class PaimonArrowConverter {
             };
         }
         throw unsupportedBinding(vector, targetType);
+    }
+
+    private ValueReader bindTimestampReader(TimeStampVector vector, DataType targetType) {
+        ArrowType.Timestamp arrowType = (ArrowType.Timestamp) vector.getField().getType();
+        validateTimestampBinding(arrowType, targetType);
+        LongUnaryOperator toMicros = bindArrowTimestampToMicros(arrowType);
+        LongFunction<Timestamp> materialize = bindTimestampMaterializer(targetType);
+        return index -> vector.isNull(index)
+                ? null
+                : materialize.apply(toMicros.applyAsLong(vector.get(index)));
     }
 
     private static <T extends FieldVector> T requireVector(
@@ -360,8 +368,9 @@ final class PaimonArrowConverter {
     }
 
     private void validateTimestampBinding(ArrowType.Timestamp arrowType, DataType targetType) {
-        arrowTimestampToMicros(0, arrowType);
-        toPaimonTimestamp(0, arrowType, targetType);
+        requireTimezoneFree(arrowType);
+        bindArrowTimestampToMicros(arrowType);
+        bindTimestampMaterializer(targetType);
         int precision = targetType instanceof TimestampType
                 ? ((TimestampType) targetType).getPrecision()
                 : ((LocalZonedTimestampType) targetType).getPrecision();
@@ -375,6 +384,49 @@ final class PaimonArrowConverter {
                     "Arrow timestamp unit " + arrowType.getUnit()
                             + " does not match Paimon precision " + precision);
         }
+    }
+
+    private static LongUnaryOperator bindArrowTimestampToMicros(ArrowType.Timestamp timestampType) {
+        switch (timestampType.getUnit()) {
+            case SECOND:
+                return value -> Math.multiplyExact(value, 1_000_000L);
+            case MILLISECOND:
+                return value -> Math.multiplyExact(value, 1_000L);
+            case MICROSECOND:
+                return value -> value;
+            case NANOSECOND:
+                return value -> Math.floorDiv(value, 1_000L);
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported Arrow timestamp unit: " + timestampType.getUnit());
+        }
+    }
+
+    private LongFunction<Timestamp> bindTimestampMaterializer(DataType targetType) {
+        if (targetType instanceof LocalZonedTimestampType) {
+            return micros -> Timestamp.fromInstant(
+                    microsToCivilTime(micros).atZone(sessionTimeZone).toInstant());
+        }
+        if (targetType instanceof TimestampType) {
+            return micros -> Timestamp.fromLocalDateTime(microsToCivilTime(micros));
+        }
+        throw new IllegalArgumentException(
+                "Arrow timestamp cannot be written to Paimon type " + targetType);
+    }
+
+    private static void requireTimezoneFree(ArrowType.Timestamp arrowType) {
+        String arrowTimeZone = arrowType.getTimezone();
+        if (arrowTimeZone != null && !arrowTimeZone.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Paimon write timestamp must use a timezone-free Arrow type");
+        }
+    }
+
+    private static LocalDateTime microsToCivilTime(long micros) {
+        long epochSecond = Math.floorDiv(micros, 1_000_000L);
+        long microsOfSecond = Math.floorMod(micros, 1_000_000L);
+        return LocalDateTime.ofEpochSecond(
+                epochSecond, (int) microsOfSecond * 1_000, ZoneOffset.UTC);
     }
 
     private static BigDecimal getBigDecimalFromArrowBuf(
@@ -392,35 +444,10 @@ final class PaimonArrowConverter {
         return new BigDecimal(new BigInteger(value), scale);
     }
 
-    private static long arrowTimestampToMicros(
-            long value, ArrowType.Timestamp timestampType) {
-        switch (timestampType.getUnit()) {
-            case SECOND:
-                return Math.multiplyExact(value, 1_000_000L);
-            case MILLISECOND:
-                return Math.multiplyExact(value, 1_000L);
-            case MICROSECOND:
-                return value;
-            case NANOSECOND:
-                return Math.floorDiv(value, 1_000L);
-            default:
-                throw new IllegalArgumentException(
-                        "Unsupported Arrow timestamp unit: " + timestampType.getUnit());
-        }
-    }
-
     Timestamp toPaimonTimestamp(long micros, ArrowType.Timestamp arrowType,
                                 DataType targetType) {
-        String arrowTimeZone = arrowType.getTimezone();
-        if (arrowTimeZone != null && !arrowTimeZone.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Paimon write timestamp must use a timezone-free Arrow type");
-        }
-        long epochSecond = Math.floorDiv(micros, 1_000_000L);
-        long microsOfSecond = Math.floorMod(micros, 1_000_000L);
-        LocalDateTime civilTime = LocalDateTime.ofEpochSecond(
-                epochSecond, (int) microsOfSecond * 1_000, ZoneOffset.UTC);
-        return toPaimonTimestamp(civilTime, targetType);
+        requireTimezoneFree(arrowType);
+        return bindTimestampMaterializer(targetType).apply(micros);
     }
 
     Timestamp toPaimonTimestamp(LocalDateTime civilTime, DataType targetType) {

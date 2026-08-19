@@ -419,6 +419,29 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
     return Status::OK();
 }
 
+namespace {
+
+template <typename WriteElement>
+Status write_struct_column_to_target(const IColumn& column, const NullMap* null_map,
+                                     arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                     WriteElement&& write_element) {
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
+        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
+            RETURN_IF_ERROR(write_element(struct_column, builder, element, row));
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 Status DataTypeStructSerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
                                                    const IColumn& column, const NullMap* null_map,
                                                    const std::shared_ptr<arrow::Field>& field,
@@ -426,22 +449,15 @@ Status DataTypeStructSerDe::write_column_to_paimon(const std::shared_ptr<const I
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
-    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
-    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
-    for (auto r = start; r < end; ++r) {
-        if (null_map != nullptr && (*null_map)[r]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
-            continue;
-        }
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
-        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
-            RETURN_IF_ERROR(elem_serdes_ptrs[element]->write_column_to_paimon(
-                    struct_type.get_element(element), struct_column.get_column(element), nullptr,
-                    field->type()->field(cast_set<int>(element)),
-                    builder.field_builder(cast_set<int>(element)), r, r + 1, ctz));
-        }
-    }
-    return Status::OK();
+    return write_struct_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
+                int64_t row) {
+                return elem_serdes_ptrs[element]->write_column_to_paimon(
+                        struct_type.get_element(element), struct_column.get_column(element),
+                        nullptr, field->type()->field(cast_set<int>(element)),
+                        builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
+            });
 }
 
 Status DataTypeStructSerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
@@ -451,22 +467,15 @@ Status DataTypeStructSerDe::write_column_to_iceberg(const std::shared_ptr<const 
                                                     int64_t start, int64_t end,
                                                     const cctz::time_zone& ctz) const {
     const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
-    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
-    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
-    for (auto r = start; r < end; ++r) {
-        if (null_map != nullptr && (*null_map)[r]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
-            continue;
-        }
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
-        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
-            RETURN_IF_ERROR(elem_serdes_ptrs[element]->write_column_to_iceberg(
-                    struct_type.get_element(element), struct_column.get_column(element), nullptr,
-                    field->type()->field(cast_set<int>(element)),
-                    builder.field_builder(cast_set<int>(element)), r, r + 1, ctz));
-        }
-    }
-    return Status::OK();
+    return write_struct_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
+                int64_t row) {
+                return elem_serdes_ptrs[element]->write_column_to_iceberg(
+                        struct_type.get_element(element), struct_column.get_column(element),
+                        nullptr, field->type()->field(cast_set<int>(element)),
+                        builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
+            });
 }
 
 Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,

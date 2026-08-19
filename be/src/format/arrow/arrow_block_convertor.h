@@ -52,22 +52,22 @@ public:
                                 const cctz::time_zone& ctz) const = 0;
 
 protected:
-    Status write_canonical_column(const std::shared_ptr<const IDataType>& type,
-                                  const DataTypeSerDe& serde, const IColumn& column,
-                                  const NullMap* null_map,
-                                  const std::shared_ptr<arrow::Field>& field,
-                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                                  const cctz::time_zone& ctz) const;
+    Status write_plain_arrow_column(const std::shared_ptr<const IDataType>& type,
+                                    const DataTypeSerDe& serde, const IColumn& column,
+                                    const NullMap* null_map,
+                                    const std::shared_ptr<arrow::Field>& field,
+                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                    const cctz::time_zone& ctz) const;
 };
 
-const ArrowWriteConverter& canonical_arrow_write_converter();
+const ArrowWriteConverter& plain_arrow_write_converter();
 
 class FromBlockToRecordBatchConverter {
 public:
     FromBlockToRecordBatchConverter(
             const Block& block, const std::shared_ptr<arrow::Schema>& schema,
             arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj,
-            const ArrowWriteConverter& write_converter = canonical_arrow_write_converter())
+            const ArrowWriteConverter& write_converter = plain_arrow_write_converter())
             : _block(block),
               _schema(schema),
               _pool(pool),
@@ -81,7 +81,7 @@ public:
             const Block& block, const std::shared_ptr<arrow::Schema>& schema,
             arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj, size_t start_row,
             size_t end_row,
-            const ArrowWriteConverter& write_converter = canonical_arrow_write_converter())
+            const ArrowWriteConverter& write_converter = plain_arrow_write_converter())
             : _block(block),
               _schema(schema),
               _pool(pool),

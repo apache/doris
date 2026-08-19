@@ -95,14 +95,14 @@ public:
             bool output_object_data, const ParquetFileOptions& parquet_options,
             const std::string* iceberg_schema_json = nullptr,
             const iceberg::Schema* iceberg_schema = nullptr,
-            const ArrowWriteConverter& arrow_write_converter = canonical_arrow_write_converter());
+            const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
 
     VParquetTransformer(
             RuntimeState* state, doris::io::FileWriter* file_writer,
             const VExprContextSPtrs& output_vexpr_ctxs, std::vector<TParquetSchema> parquet_schemas,
             bool output_object_data, const ParquetFileOptions& parquet_options,
             const std::string* iceberg_schema_json = nullptr,
-            const ArrowWriteConverter& arrow_write_converter = canonical_arrow_write_converter());
+            const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
 
     ~VParquetTransformer() override = default;
 
