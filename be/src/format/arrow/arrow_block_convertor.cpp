@@ -102,10 +102,10 @@ std::shared_ptr<arrow::DataType> extension_storage_type(
     }
 }
 
-bool is_declared_canonical_binding(const DataTypePtr& type,
-                                   const std::shared_ptr<arrow::DataType>& canonical_type,
-                                   const std::shared_ptr<arrow::DataType>& target_type) {
-    if (canonical_type->Equals(target_type)) {
+bool is_declared_plain_arrow_binding(const DataTypePtr& type,
+                                     const std::shared_ptr<arrow::DataType>& plain_arrow_type,
+                                     const std::shared_ptr<arrow::DataType>& target_type) {
+    if (plain_arrow_type->Equals(target_type)) {
         return true;
     }
     const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
@@ -177,21 +177,21 @@ Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type
 
 } // namespace
 
-Status ArrowWriteConverter::write_canonical_column(const std::shared_ptr<const IDataType>& type,
-                                                   const DataTypeSerDe& serde,
-                                                   const IColumn& column, const NullMap* null_map,
-                                                   const std::shared_ptr<arrow::Field>& field,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
-    std::shared_ptr<arrow::DataType> canonical_type;
-    RETURN_IF_ERROR(convert_to_arrow_type(type, &canonical_type, ctz.name()));
+Status ArrowWriteConverter::write_plain_arrow_column(const std::shared_ptr<const IDataType>& type,
+                                                     const DataTypeSerDe& serde,
+                                                     const IColumn& column, const NullMap* null_map,
+                                                     const std::shared_ptr<arrow::Field>& field,
+                                                     arrow::ArrayBuilder* array_builder,
+                                                     int64_t start, int64_t end,
+                                                     const cctz::time_zone& ctz) const {
+    std::shared_ptr<arrow::DataType> plain_arrow_type;
+    RETURN_IF_ERROR(convert_to_arrow_type(type, &plain_arrow_type, ctz.name()));
     const auto storage_type = extension_storage_type(field->type());
     // This is an exact binding check selected by the target converter, not a recovery path. A
     // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
-    if (!is_declared_canonical_binding(type, canonical_type, storage_type)) {
+    if (!is_declared_plain_arrow_binding(type, plain_arrow_type, storage_type)) {
         return Status::InvalidArgument(
-                "Canonical Arrow writer is not bound for Doris type {} and Arrow field {}",
+                "Plain Arrow writer is not bound for Doris type {} and Arrow field {}",
                 type->get_name(), field->ToString());
     }
     return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
@@ -199,22 +199,22 @@ Status ArrowWriteConverter::write_canonical_column(const std::shared_ptr<const I
 
 namespace {
 
-class CanonicalArrowWriteConverter final : public ArrowWriteConverter {
+class PlainArrowWriteConverter final : public ArrowWriteConverter {
 public:
     Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
                         const IColumn& column, const NullMap* null_map,
                         const std::shared_ptr<arrow::Field>& field,
                         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                         const cctz::time_zone& ctz) const override {
-        return write_canonical_column(type, serde, column, null_map, field, array_builder, start,
-                                      end, ctz);
+        return write_plain_arrow_column(type, serde, column, null_map, field, array_builder, start,
+                                        end, ctz);
     }
 };
 
 } // namespace
 
-const ArrowWriteConverter& canonical_arrow_write_converter() {
-    static const CanonicalArrowWriteConverter converter;
+const ArrowWriteConverter& plain_arrow_write_converter() {
+    static const PlainArrowWriteConverter converter;
     return converter;
 }
 
