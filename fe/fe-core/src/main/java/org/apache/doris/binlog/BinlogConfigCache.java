@@ -173,6 +173,15 @@ public class BinlogConfigCache {
         return tableBinlogConfig.isEnableForCCR();
     }
 
+    public void putTableBinlogConfig(long tableId, BinlogConfig binlogConfig) {
+        lock.writeLock().lock();
+        try {
+            dbTableBinlogEnableMap.put(tableId, new BinlogConfig(binlogConfig));
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public long getTableTtlSeconds(long dbId, long tableId) {
         BinlogConfig tableBinlogConfig = getTableBinlogConfig(dbId, tableId);
         if (tableBinlogConfig == null) {
