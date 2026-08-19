@@ -50,6 +50,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
@@ -271,7 +272,8 @@ public class IcebergConnector implements Connector {
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
                 : new IcebergTableCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY,
+                        this::closeCachedTable);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
         // per-user resolveTableForRead today (so a hit cannot precede authz), but that safety rests entirely on
@@ -894,6 +896,50 @@ public class IcebergConnector implements Connector {
     boolean isUserSessionEnabled() {
         return restProperties.isUserSession()
                 && IcebergCatalogProperties.TYPE_REST.equals(catalogProps.getFlavor());
+    }
+
+    /**
+     * Closes a table's FileIO when the cached raw table owns it. Glue and S3Tables create a per-table
+     * S3FileIO; REST tables are closed only when they do not share the catalog-level FileIO. Other catalog
+     * flavors are left untouched because they may share a catalog-level FileIO.
+     */
+    private void closeCachedTable(Table table) {
+        if (table == null) {
+            return;
+        }
+        try {
+            String flavor = catalogProps.getFlavor();
+            boolean tableOwned = false;
+            if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
+                    || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
+                tableOwned = true;
+            } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)) {
+                FileIO catalogFileIO = getCatalogFileIO();
+                tableOwned = catalogFileIO != null && table.io() != catalogFileIO;
+            }
+            if (tableOwned) {
+                table.io().close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to close Iceberg table FileIO", e);
+        }
+    }
+
+    private FileIO getCatalogFileIO() {
+        if (restSessionCatalog instanceof ReauthenticatingRestSessionCatalog) {
+            RESTSessionCatalog rawSessionCatalog =
+                    ((ReauthenticatingRestSessionCatalog) restSessionCatalog).currentDelegate();
+            if (rawSessionCatalog != null) {
+                try {
+                    java.lang.reflect.Field field = RESTSessionCatalog.class.getDeclaredField("io");
+                    field.setAccessible(true);
+                    return (FileIO) field.get(rawSessionCatalog);
+                } catch (Exception e) {
+                    LOG.warn("Failed to get REST catalog FileIO", e);
+                }
+            }
+        }
+        return null;
     }
 
     private Catalog getOrCreateCatalog() {

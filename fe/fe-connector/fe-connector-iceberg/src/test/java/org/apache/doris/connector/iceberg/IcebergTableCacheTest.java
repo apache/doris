@@ -113,6 +113,15 @@ public class IcebergTableCacheTest {
     }
 
     @Test
+    public void invalidateCallsCleanerForEvictedTable() {
+        AtomicInteger cleanerCalls = new AtomicInteger();
+        IcebergTableCache c = new IcebergTableCache(100, 1000, table -> cleanerCalls.incrementAndGet());
+        c.getOrLoad(id(), () -> table("first"));
+        c.invalidate(id());
+        Assertions.assertEquals(1, cleanerCalls.get(), "removing a cached table must release its resources");
+    }
+
+    @Test
     public void invalidateForcesReload() {
         AtomicInteger loads = new AtomicInteger();
         IcebergTableCache c = new IcebergTableCache(100, 1000);

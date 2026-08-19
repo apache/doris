@@ -25,6 +25,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 import java.util.concurrent.ForkJoinPool;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -61,10 +62,15 @@ final class IcebergTableCache {
     private final MetaCacheEntry<TableIdentifier, Table> entry;
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
+        this(ttlSeconds, maxSize, table -> { });
+    }
+
+    IcebergTableCache(long ttlSeconds, int maxSize, Consumer<Table> cleaner) {
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+                ForkJoinPool.commonPool(), false, true, 0L, true,
+                (identifier, table, cause) -> cleaner.accept(table));
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */

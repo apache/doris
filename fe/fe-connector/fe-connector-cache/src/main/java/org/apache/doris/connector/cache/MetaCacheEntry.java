@@ -19,6 +19,7 @@ package org.apache.doris.connector.cache;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 
 import java.util.Objects;
@@ -84,6 +85,19 @@ public class MetaCacheEntry<K, V> {
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             long refreshAfterWriteSeconds, boolean manualMissLoadEnabled) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                refreshAfterWriteSeconds, manualMissLoadEnabled, null);
+    }
+
+    /**
+     * Creates an entry with a synchronous removal listener. The listener is invoked when a cached value is
+     * evicted or invalidated, allowing the cache to release resources owned by the value (e.g. Iceberg FileIO).
+     * This variant does not use refreshAfterWrite, so synchronous removal is safe.
+     */
+    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            long refreshAfterWriteSeconds, boolean manualMissLoadEnabled,
+            RemovalListener<K, V> removalListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -116,7 +130,12 @@ public class MetaCacheEntry<K, V> {
                 maxSize,
                 true,
                 null);
-        this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        if (removalListener != null) {
+            this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(
+                    this::loadFromDefaultLoader, removalListener);
+        } else {
+            this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        }
         this.data = loadingData;
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {
