@@ -152,6 +152,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -1057,6 +1058,11 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
+    /** The action must return derived metadata rather than retain the supplied table. */
+    static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
+        return icebergExternalMetaCache(dorisTable).withIcebergTable(dorisTable, action);
+    }
+
     private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
         Preconditions.checkNotNull(catalog, "catalog can not be null");
         return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());
@@ -1429,10 +1435,10 @@ public class IcebergUtils {
      * @return estimated row count
      */
     public static long getIcebergRowCount(ExternalTable tbl) {
-        // the table may be null when the iceberg metadata cache is not loaded.But I don't think it's a problem,
-        // because the NPE would be caught in the caller and return the default value -1.
-        // Meanwhile, it will trigger iceberg metadata cache to load the table, so we can get it next time.
-        Table icebergTable = getIcebergTable(tbl);
+        return withIcebergTable(tbl, icebergTable -> getIcebergRowCount(tbl, icebergTable));
+    }
+
+    private static long getIcebergRowCount(ExternalTable tbl, Table icebergTable) {
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
             LOG.info("Iceberg table {}.{}.{} is empty, return -1.",
@@ -2058,8 +2064,8 @@ public class IcebergUtils {
     }
 
     private static Optional<SchemaCacheValue> loadTableSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
-        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        return Optional.of(buildTableSchemaCacheValue(dorisTable, schemaId, icebergTable));
+        return Optional.of(IcebergUtils.withIcebergTable(dorisTable,
+                icebergTable -> buildTableSchemaCacheValue(dorisTable, schemaId, icebergTable)));
     }
 
     private static IcebergSchemaCacheValue buildTableSchemaCacheValue(ExternalTable dorisTable, long schemaId,
