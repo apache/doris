@@ -106,7 +106,16 @@ private:
     std::optional<size_t> _global_rowid_output_idx;
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
-    RuntimeProfile::Counter* _fragment_count = nullptr;
+    RuntimeProfile::Counter* _index_segment_count = nullptr;
+    RuntimeProfile::Counter* _indexed_fragment_count = nullptr;
+    RuntimeProfile::Counter* _flat_knn_fragment_count = nullptr;
+    RuntimeProfile::Counter* _metadata_count_split_count = nullptr;
+    RuntimeProfile::Counter* _dataset_open_time = nullptr;
+    RuntimeProfile::Counter* _scanner_open_time = nullptr;
+    RuntimeProfile::Counter* _scanner_next_time = nullptr;
+    RuntimeProfile::Counter* _fill_block_time = nullptr;
+    RuntimeProfile::Counter* _take_rows_time = nullptr;
+    RuntimeProfile::Counter* _row_id_fetch_time = nullptr;
     bool _vector_search = false;
     bool _eof = false;
 };

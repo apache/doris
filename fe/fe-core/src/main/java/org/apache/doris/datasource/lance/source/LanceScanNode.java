@@ -180,6 +180,9 @@ public class LanceScanNode extends FileQueryScanNode {
         }
 
         Map<Long, LanceFragmentInfo> visibleFragments = getVisibleFragments(metadata);
+        if (canUseTableLevelCountStarPushdown()) {
+            setPushDownCount(metadata.getRowCount());
+        }
         if (isExternalSearch() && shouldUseIndex()) {
             Optional<List<Split>> indexSplits = createIndexSegmentSplits(metadata, visibleFragments);
             if (indexSplits.isPresent()) {
@@ -214,7 +217,7 @@ public class LanceScanNode extends FileQueryScanNode {
         List<Split> splits = new ArrayList<>(visibleFragments.size());
         for (LanceFragmentInfo fragment : visibleFragments.values()) {
             LanceSplit split = LanceSplit.forFragment(metadata.getDatasetUri(), metadata.getVersion(),
-                    fragment.getId(), fragment.getPhysicalRows());
+                    fragment.getId(), fragment.getRowCount(), fragment.getPhysicalRows());
             split.setTargetSplitSize(targetRows);
             splits.add(split);
         }
@@ -382,6 +385,14 @@ public class LanceScanNode extends FileQueryScanNode {
 
         TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
         tableFormatParams.setTableFormatType(TableFormatType.LANCE.value());
+        // COUNT(*)/COUNT(1) can consume the fixed-snapshot logical Fragment row count without
+        // opening Lance. Do not expose metadata count for vector search or any pushed/residual
+        // predicate: the unfiltered Fragment count cannot represent either result.
+        if (canUseTableLevelCountStarPushdown() && lanceSplit.getRowCount().isPresent()) {
+            tableFormatParams.setTableLevelRowCount(lanceSplit.getRowCount().getAsLong());
+        } else {
+            tableFormatParams.setTableLevelRowCount(-1);
+        }
         tableFormatParams.setLanceParams(lanceParams);
         rangeDesc.setTableFormatParams(tableFormatParams);
     }
@@ -416,14 +427,7 @@ public class LanceScanNode extends FileQueryScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder result = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
         if (isExternalSearch()) {
-            TVectorSearchParams vector = externalSearchRequest.getSearchQuery().getVectorSearch();
             result.append(prefix).append("externalSearchType=VECTOR\n");
-            result.append(prefix).append("lanceVectorColumn=").append(vector.getColumn()).append("\n");
-            result.append(prefix).append("lanceTopK=").append(vector.getTopK()).append("\n");
-            result.append(prefix).append("lanceOffset=").append(vector.getOffset()).append("\n");
-            result.append(prefix).append("lanceMetric=")
-                    .append(vector.isSetMetric() ? metricName(vector.getMetric()) : "default")
-                    .append("\n");
             result.append(prefix).append("lanceVersion=")
                     .append(plannedMetadata.getVersion()).append("\n");
             result.append(prefix).append("lanceSearchFragments=")
@@ -452,6 +456,11 @@ public class LanceScanNode extends FileQueryScanNode {
 
     private boolean isExternalSearch() {
         return externalSearchRequest != null;
+    }
+
+    private boolean canUseTableLevelCountStarPushdown() {
+        return !isExternalSearch() && isTableLevelCountStarPushdown()
+                && lanceSubstraitFilter.length == 0 && conjuncts.isEmpty();
     }
 
     static TExternalSearchRequest createFragmentSearchRequest(TExternalSearchRequest searchRequest) {

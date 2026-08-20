@@ -156,7 +156,9 @@ void add_output_columns(Block* block, const Columns& columns) {
 
 Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
                    RuntimeState* runtime_state, RuntimeProfile* profile,
-                   TFileScanRangeParams* scan_params, VExprContextSPtrs conjuncts = {}) {
+                   TFileScanRangeParams* scan_params, VExprContextSPtrs conjuncts = {},
+                   TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE,
+                   std::optional<std::vector<GlobalIndex>> push_down_count_columns = std::nullopt) {
     return reader->init({
             .projected_columns = projected_columns,
             .conjuncts = std::move(conjuncts),
@@ -165,6 +167,8 @@ Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
             .io_ctx = nullptr,
             .runtime_state = runtime_state,
             .scanner_profile = profile,
+            .push_down_agg_type = push_down_agg_type,
+            .push_down_count_columns = std::move(push_down_count_columns),
     });
 }
 
@@ -228,6 +232,52 @@ TFileScanRangeParams make_float32_vector_search_params(
     TFileScanRangeParams scan_params;
     scan_params.__set_external_search_request(std::move(request));
     return scan_params;
+}
+
+TEST(LanceTableReaderCountPushdownTest, UsesFixedSnapshotFragmentRowCount) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/metadata_count_must_not_open.lance";
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryOptions query_options;
+    query_options.__set_batch_size(2);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_count_star_metadata_fixture");
+    TFileScanRangeParams scan_params;
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params, {},
+                            TPushAggOp::type::COUNT, std::vector<GlobalIndex> {})
+                        .ok());
+    auto range = make_lance_range(dataset_uri, 42, {7});
+    // The dataset path deliberately does not exist. Receiving five synthetic rows proves that
+    // Lance was not opened and scanned to obtain the result.
+    range.table_format_params.__set_table_level_row_count(5);
+    ASSERT_TRUE(prepare_range(&reader, std::move(range)).ok());
+    EXPECT_TRUE(reader.current_split_uses_metadata_count());
+
+    bool eos = false;
+    for (const size_t expected_rows : {2, 2, 1}) {
+        Block block;
+        add_output_columns(&block, columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_FALSE(eos);
+        EXPECT_EQ(expected_rows, block.rows());
+    }
+    Block block;
+    add_output_columns(&block, columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(0, block.rows());
+    EXPECT_NE(profile.get_counter("LanceDatasetOpenTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceScannerOpenTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceScannerNextTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceFillBlockTime"), nullptr);
+    ASSERT_NE(profile.get_counter("LanceMetadataCountSplitCount"), nullptr);
+    EXPECT_EQ(1, profile.get_counter("LanceMetadataCountSplitCount")->value());
+    EXPECT_TRUE(reader.close().ok());
 }
 
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadingIt) {
@@ -396,8 +446,6 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
-    ASSERT_NE(profile.get_info_string("LanceUseIndex"), nullptr);
-    EXPECT_EQ(*profile.get_info_string("LanceUseIndex"), "false");
     std::vector<int64_t> row_ids;
     for (const auto fragment_id : fixture.fragment_ids) {
         ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, {fragment_id}).ok());
@@ -410,9 +458,16 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
     }
     std::ranges::sort(row_ids);
     EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
-    ASSERT_NE(profile.get_counter("LanceFragmentCount"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceFragmentCount")->value(),
+    ASSERT_NE(profile.get_counter("LanceIndexSegmentCount"), nullptr);
+    EXPECT_EQ(0, profile.get_counter("LanceIndexSegmentCount")->value());
+    ASSERT_NE(profile.get_counter("LanceIndexedFragmentCount"), nullptr);
+    EXPECT_EQ(0, profile.get_counter("LanceIndexedFragmentCount")->value());
+    ASSERT_NE(profile.get_counter("LanceFlatKnnFragmentCount"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceFlatKnnFragmentCount")->value(),
               static_cast<int64_t>(fixture.fragment_ids.size()));
+    EXPECT_NE(profile.get_counter("LanceDatasetOpenTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceScannerOpenTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceScannerNextTime"), nullptr);
     EXPECT_TRUE(reader.close().ok());
 }
 
@@ -516,6 +571,10 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     EXPECT_EQ("extra", label_values.get_data_at(0).to_string());
     EXPECT_EQ("unit-x", label_values.get_data_at(1).to_string());
     EXPECT_EQ("extra", label_values.get_data_at(2).to_string());
+    EXPECT_NE(fetch_profile.get_counter("LanceDatasetOpenTime"), nullptr);
+    EXPECT_NE(fetch_profile.get_counter("LanceTakeRowsTime"), nullptr);
+    EXPECT_NE(fetch_profile.get_counter("LanceFillBlockTime"), nullptr);
+    EXPECT_NE(fetch_profile.get_counter("LanceRowIdFetchTime"), nullptr);
     EXPECT_TRUE(payload_reader.close().ok());
 }
 

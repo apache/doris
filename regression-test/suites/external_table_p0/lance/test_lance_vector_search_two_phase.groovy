@@ -83,8 +83,6 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
                 assertTrue(explainString.contains("limit: 5"))
                 assertTrue(explainString.contains("offset: 1"))
                 assertTrue(explainString.contains("externalSearchType=VECTOR"))
-                assertTrue(explainString.contains("lanceTopK=5"))
-                assertTrue(explainString.contains("lanceOffset=1"))
                 assertTrue(explainString.contains("lanceSearchFragments=2"))
                 assertTrue(explainString.contains("lanceSearchUnindexedFragments=0"))
                 assertTrue(explainString.contains("lanceSearchIndexSegments=1"))

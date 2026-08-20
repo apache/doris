@@ -70,6 +70,14 @@ suite("test_lance_rest_catalog", "p0,external") {
             FROM `${catalogName}`.`default`.`${tableName}`
         """
 
+        String countStarQuery =
+                """SELECT count(*) FROM `${catalogName}`.`default`.`${tableName}`"""
+        explain {
+            sql(countStarQuery)
+            contains "pushdown agg=COUNT (12)"
+        }
+        qt_rest_count_star countStarQuery
+
         String pushedQuery =
                 """SELECT row_id FROM `${catalogName}`.`default`.`${tableName}` WHERE int32_col = 10 ORDER BY row_id"""
         explain {
@@ -79,6 +87,16 @@ suite("test_lance_rest_catalog", "p0,external") {
             notContains "predicates:"
         }
         qt_rest_predicate_pushdown pushedQuery
+
+        // A pushed Lance predicate must disable the unfiltered Fragment metadata count.
+        String filteredCountQuery =
+                """SELECT count(*) FROM `${catalogName}`.`default`.`${tableName}` WHERE int32_col = 10"""
+        explain {
+            sql(filteredCountQuery)
+            contains "pushdown agg=COUNT (-1)"
+            contains "lancePushdownPredicate="
+        }
+        qt_rest_filtered_count filteredCountQuery
 
         String showCreate = sql("""SHOW CREATE CATALOG `${catalogName}`""")[0][1].toString()
         assertFalse(showCreate.contains(bearerToken))

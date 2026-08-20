@@ -30,6 +30,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -95,6 +96,52 @@ public class LanceScanNodeTest {
     }
 
     @Test
+    public void testCountStarSerializesLogicalFragmentRowCounts() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(7, 1000, 1000),
+                        new LanceFragmentInfo(11, 10, 1000)),
+                Collections.emptyMap());
+        LanceScanNode node = newNode();
+        setMetadata(node, metadata);
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+
+        List<Split> splits = node.getSplits(2);
+        TFileRangeDesc firstRange = new TFileRangeDesc();
+        node.setScanParams(firstRange, splits.get(0));
+        TFileRangeDesc secondRange = new TFileRangeDesc();
+        node.setScanParams(secondRange, splits.get(1));
+
+        Assert.assertEquals(1000,
+                firstRange.getTableFormatParams().getTableLevelRowCount());
+        Assert.assertEquals(10,
+                secondRange.getTableFormatParams().getTableLevelRowCount());
+    }
+
+    @Test
+    public void testCountStarWithLancePredicateDisablesMetadataCount() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Collections.singletonList(new LanceFragmentInfo(7, 10, 1000)),
+                Collections.emptyMap());
+        LanceScanNode node = newNode();
+        setMetadata(node, metadata);
+        setLanceSubstraitFilter(node, new byte[] {1});
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+
+        List<Split> splits = node.getSplits(1);
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(0));
+
+        Assert.assertEquals(-1, range.getTableFormatParams().getTableLevelRowCount());
+    }
+
+    @Test
     public void testExternalSearchUsesFragmentSplits() throws Exception {
         LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
                 "s3://bucket/table.lance",
@@ -106,6 +153,7 @@ public class LanceScanNodeTest {
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 2);
         LanceScanNode node = newSearchNode(metadata, request);
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
 
         List<Split> splits = node.getSplits(2);
 
@@ -117,6 +165,7 @@ public class LanceScanNodeTest {
         Assert.assertEquals(Collections.singletonList(11L), range.getTableFormatParams()
                 .getLanceParams().getFragmentIds());
         Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertEquals(-1, range.getTableFormatParams().getTableLevelRowCount());
     }
 
     @Test
@@ -317,6 +366,9 @@ public class LanceScanNodeTest {
                 "Lance dataset version must be non-negative");
         assertInvalidSplit(() -> LanceSplit.forFragment("s3://bucket/table.lance", 42, -1, 1),
                 "Lance fragment id must be non-negative");
+        assertInvalidSplit(() -> LanceSplit.forFragment(
+                "s3://bucket/table.lance", 42, 1, -2, 1),
+                "Lance fragment row count must be non-negative or unknown");
     }
 
     private static LanceScanNode newNode() {
@@ -341,6 +393,12 @@ public class LanceScanNodeTest {
         java.lang.reflect.Field metadataField = LanceScanNode.class.getDeclaredField("plannedMetadata");
         metadataField.setAccessible(true);
         metadataField.set(node, metadata);
+    }
+
+    private static void setLanceSubstraitFilter(LanceScanNode node, byte[] filter) throws Exception {
+        java.lang.reflect.Field filterField = LanceScanNode.class.getDeclaredField("lanceSubstraitFilter");
+        filterField.setAccessible(true);
+        filterField.set(node, filter);
     }
 
     private static void assertSplit(Split split, long fragmentId, long targetRows, long weight) {
