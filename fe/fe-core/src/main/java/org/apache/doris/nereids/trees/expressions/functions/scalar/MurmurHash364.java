@@ -26,6 +26,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -47,7 +48,12 @@ public class MurmurHash364 extends ScalarFunction
      * constructor with 1 or more arguments.
      */
     public MurmurHash364(Expression arg, Expression... varArgs) {
-        super("murmur_hash3_64", ExpressionUtils.mergeArguments(arg, varArgs));
+        this(ExpressionUtils.mergeArguments(arg, varArgs));
+    }
+
+    /** constructor with list arguments. */
+    public MurmurHash364(List<Expression> args) {
+        super("murmur_hash3_64", Utils.fastToImmutableList(args));
     }
 
     /** constructor for withChildren and reuse signature */

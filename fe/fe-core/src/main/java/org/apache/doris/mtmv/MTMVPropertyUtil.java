@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -26,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -40,7 +42,8 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
-            PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE
+            PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
+            PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -74,6 +77,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE:
                 analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -125,6 +131,20 @@ public class MTMVPropertyUtil {
         // do nothing
     }
 
+    public static Set<TableNameInfo> parseTableNameInfos(String value) {
+        Set<TableNameInfo> tableNameInfos = Sets.newHashSet();
+        if (StringUtils.isEmpty(value)) {
+            return tableNameInfos;
+        }
+        for (String tableName : value.split(",")) {
+            String trimmed = tableName.trim();
+            if (!trimmed.isEmpty()) {
+                tableNameInfos.add(new TableNameInfo(trimmed));
+            }
+        }
+        return tableNameInfos;
+    }
+
     private static void analyzeDataChangeStillRewrittenTables(String value) {
         // do nothing
     }
@@ -158,5 +178,10 @@ public class MTMVPropertyUtil {
         if (!"true".equalsIgnoreCase(propertyValue) && !"false".equalsIgnoreCase(propertyValue)) {
             throw new AnalysisException(String.format("valid property %s fail", propertyName));
         }
+    }
+
+    public static boolean isIvmUseFullKeys(Map<String, String> mvProperties) {
+        return mvProperties != null && "true".equalsIgnoreCase(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS));
     }
 }

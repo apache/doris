@@ -23,6 +23,9 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -30,6 +33,8 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -930,6 +935,28 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     public Optional<ScoreRangeInfo> getScoreRangeInfo() {
         return scoreRangeInfo;
+    }
+
+    /** Build a pre-refresh snapshot as a stream scan in snapshot mode. */
+    public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
+        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
+                stream.get(), getTable(), selectedPartitionIds);
+        return new LogicalOlapTableStreamScan(
+                StatementScopeIdGenerator.newRelationId(),
+                streamWrapper,
+                qualifier,
+                selectedPartitionIds,
+                selectedTabletIds,
+                hints,
+                tableSample,
+                operativeSlots
+        ).withReadMode(StreamReadMode.SNAPSHOT);
+    }
+
+    /** Build a post-refresh snapshot as a regular olap scan. */
+    public LogicalPlan withPostSnapshot() {
+        return LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                (LogicalPlan) this, new DeepCopierContext());
     }
 
     private List<SlotReference> createSlotsVectorized(List<Column> columns, boolean skipBinlogBeforeColumn) {

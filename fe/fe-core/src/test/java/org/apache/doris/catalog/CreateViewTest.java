@@ -147,7 +147,7 @@ public class CreateViewTest extends TestWithFeService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assertions.assertEquals(
-                "select `internal`.`test`.`tbl1`.`k1` as `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) as `kc2` from `internal`.`test`.`tbl1` group by kc1",
+                "select `internal`.`test`.`tbl1`.`k1` AS `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) AS `kc2` from `internal`.`test`.`tbl1` group by kc1",
                 alter1.getInlineViewDef());
 
         String alterStmt
@@ -185,6 +185,32 @@ public class CreateViewTest extends TestWithFeService {
 
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN select * from test.alias_star_agg_view");
         Assertions.assertFalse(explainString.contains("Unknown column"));
+    }
+
+    @Test
+    public void testCreateViewWithoutDefinedColumnsDoesNotInjectAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.no_alias_view as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("no_alias_view");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithDefinedColumnsRewritesAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.with_alias_view(c1, c2) as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("with_alias_view");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1` AS `c1`, `internal`.`test`.`tbl1`.`k2` AS `c2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
     }
 
     @Test

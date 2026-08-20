@@ -35,6 +35,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -49,9 +50,15 @@ import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
+import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -359,7 +366,6 @@ public class Alter {
             Env.getCurrentEnv().getMtmvService()
                 .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
         }
-
         olapTable.writeLock();
         try {
             NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
@@ -678,6 +684,12 @@ public class Alter {
                 if (swapTable) {
                     origTable.checkAndSetName(newTblName, true);
                 }
+                // REPLACE TABLE affects dependencies of both logical names. Persist both
+                // barriers before changing the catalog or journaling the replacement.
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuild(
+                        new BaseTableInfo(origTable), "Base table replace changed IVM baseline");
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuild(
+                        new BaseTableInfo(olapNewTbl), "Base table replace changed IVM baseline");
                 replaceTableInternal(db, origTable, olapNewTbl, swapTable, false, isForce);
                 // write edit log
                 ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
@@ -742,6 +754,10 @@ public class Alter {
         } else {
             if (!isReplay) {
                 Env.getCurrentEnv().getConstraintManager().checkNoReferencingForeignKeys(origTableInfo);
+            }
+            if (origTable instanceof MTMV) {
+                Env.getCurrentInternalCatalog().unprotectDropIvmStreams(
+                        db, (MTMV) origTable, isForce, isReplay);
             }
             Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
         }
@@ -1267,7 +1283,6 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
-        boolean alterSuccess = true;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
@@ -1279,17 +1294,30 @@ public class Alter {
                     mtmv.alterStatus(alterMTMV.getStatus());
                     break;
                 case ALTER_PROPERTY:
-                    mtmv.alterMvProperties(alterMTMV.getMvProperties());
-                    break;
+                    if (mtmv.isIvm() && alterMTMV.getMvProperties().containsKey(
+                            PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
+                        Set<TableNameInfo> oldExcludedTriggerTables = mtmv.getExcludedTriggerTables();
+                        Set<TableNameInfo> newExcludedTriggerTables = MTMVPropertyUtil.parseTableNameInfos(
+                                alterMTMV.getMvProperties().get(
+                                        PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
+                        updateIvmStreamsForExcludedTables(db, mtmv, oldExcludedTriggerTables,
+                                newExcludedTriggerTables, isReplay);
+                    }
+                    mtmv.alterMvProperties(alterMTMV, isReplay);
+                    return;
                 case ADD_TASK:
-                    alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
-                            alterMTMV.getPartitionSnapshots(),
-                            isReplay);
+                    if (!mtmv.addTaskResult(alterMTMV, isReplay)) {
+                        return;
+                    }
                     // If it is not a replay thread, it means that the current service is already a new version
                     // and does not require compatibility
                     if (isReplay) {
                         mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
                     }
+                    return;
+                case ALTER_IVM_INFO:
+                    // Live IVM changes are journaled inside MTMV; this branch applies the journal snapshot.
+                    mtmv.alterIvmInfo(alterMTMV.getIvmInfo());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
@@ -1297,13 +1325,72 @@ public class Alter {
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
-            // 4. log it and replay it in the follower
-            if (!isReplay && alterSuccess) {
+            if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
+        }
+    }
+
+    private void updateIvmStreamsForExcludedTables(Database db, MTMV mtmv,
+            Set<TableNameInfo> oldExcludedTriggerTables, Set<TableNameInfo> newExcludedTriggerTables,
+            boolean isReplay) throws UserException {
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null || relation.getBaseTables() == null) {
+            return;
+        }
+        Set<BaseTableInfo> baseTables = relation.getBaseTables();
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
+            boolean wasExcluded = MTMVPartitionUtil.isTableExcluded(
+                    oldExcludedTriggerTables, baseTableName);
+            boolean isExcluded = MTMVPartitionUtil.isTableExcluded(
+                    newExcludedTriggerTables, baseTableName);
+            if (wasExcluded && !isExcluded) {
+                if (!isReplay) {
+                    TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
+                    CreateMTMVCommand.createTableStream(ConnectContext.get(), db, mtmv, baseTable);
+                }
+            }
+        }
+        db.writeLockOrDdlException();
+        try {
+            for (BaseTableInfo baseTableInfo : baseTables) {
+                TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                        baseTableInfo.getDbName(), baseTableInfo.getTableName());
+                if (!MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
+                    continue;
+                }
+                List<String> baseTableFullQualifiers = baseTableInfo.toList();
+                String streamName = IvmUtil.streamName(mtmv.getId(), baseTableFullQualifiers);
+                TableIf streamTable = db.getTableNullable(streamName);
+                if (streamTable == null) {
+                    continue;
+                }
+                if (!(streamTable instanceof BaseTableStream)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it is not a stream", streamName);
+                    continue;
+                }
+                if (!IvmUtil.isStreamOwnedBy((BaseTableStream) streamTable, baseTableFullQualifiers)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it belongs to another base table",
+                            streamName);
+                    continue;
+                }
+                Table table = (Table) streamTable;
+                table.writeLock();
+                try {
+                    Env.getCurrentEnv().unprotectDropTable(db, table, true, isReplay, 0L);
+                } finally {
+                    table.writeUnlock();
+                }
+                LOG.info("dropped IVM stream {} because its base table is excluded from MTMV",
+                        streamName);
+            }
+        } finally {
+            db.writeUnlock();
         }
     }
 }

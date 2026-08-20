@@ -214,4 +214,55 @@ class InsertIntoTableCommandTest {
         Assertions.assertFalse(nonPlugin,
                 "a non-plugin table type must NOT be treated as write-branch capable");
     }
+
+    @Test
+    void testInsertIntoTableCommandIsCancelable() {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        Assertions.assertInstanceOf(CancelableCommand.class, command);
+    }
+
+    @Test
+    void testCancelSetsCancelledFlagAndWaitNotRunningReturnsWhenNotRunning() {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        // Not running yet: waitNotRunning must return immediately (bounded await on a false flag).
+        command.waitNotRunning();
+        command.cancel();
+        // cancel() is idempotent; repeated calls must not throw.
+        command.cancel();
+    }
+
+    @Test
+    void testRunInternalSkipsExecutionWhenCancelled() throws Exception {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        command.cancel();
+        // runInternal() checks isCancelled at its entry and returns without touching initPlan;
+        // a cancelled command must not attempt to build an executor or begin a transaction.
+        // initPlan is reached only if the check passes, so with cancel set the command must
+        // return without throwing (no plan/table mocks are set up here).
+        Deencapsulation.invoke(command, "runInternal", Mockito.mock(ConnectContext.class), stmtExecutor);
+    }
 }

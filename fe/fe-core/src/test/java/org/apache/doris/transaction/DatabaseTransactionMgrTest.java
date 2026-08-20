@@ -19,20 +19,28 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrTest.SubTransactionInfo;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.tso.TSOService;
@@ -51,12 +59,15 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public class DatabaseTransactionMgrTest {
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgrTest.class);
@@ -259,6 +270,81 @@ public class DatabaseTransactionMgrTest {
         expectedEx.expect(UserException.class);
         expectedEx.expectMessage("transaction not found");
         masterDbTransMgr.abortTransaction(txnId1, "test abort transaction", null);
+    }
+
+    @Test
+    public void testUpdateCatalogAfterCommittedAdvancesIvmRefreshVersionForNormalCommitAndReplay()
+            throws Exception {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Database masterDb = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        IvmInfo normalCommitIvmInfo = new IvmInfo();
+        BaseTableStream normalCommitStream = mockStreamTable(masterDb, 10001L, "stream_refresh_version_commit");
+        long normalCommitStreamId = normalCommitStream.getId();
+        injectTable(masterDb, mockIvmTable(10000L, "mv_refresh_version_commit", normalCommitIvmInfo));
+
+        TransactionState normalCommitTxn = buildStreamRefreshTransaction(
+                masterDb.getId(), 9000L, 10000L, normalCommitStreamId, 123L);
+
+        Method method = DatabaseTransactionMgr.class.getDeclaredMethod(
+                "updateCatalogAfterCommitted", TransactionState.class, Database.class, boolean.class);
+        method.setAccessible(true);
+        method.invoke(masterDbTransMgr, normalCommitTxn, masterDb, false);
+
+        Assert.assertEquals(1L, normalCommitIvmInfo.getRefreshVersion());
+        Mockito.verify(normalCommitStream).unprotectedUpdateStreamUpdate(
+                normalCommitTxn.getStreamUpdateInfos().get(0).getUpdate(), normalCommitTxn.getCommitTime());
+
+        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Database slaveDb = slaveEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        IvmInfo replayIvmInfo = new IvmInfo();
+        BaseTableStream replayStream = mockStreamTable(slaveDb, 10003L, "stream_refresh_version_replay");
+        long replayStreamId = replayStream.getId();
+        injectTable(slaveDb, mockIvmTable(10002L, "mv_refresh_version_replay", replayIvmInfo));
+
+        TransactionState replayTxn = buildStreamRefreshTransaction(
+                slaveDb.getId(), 9001L, 10002L, replayStreamId, 456L);
+        method.invoke(slaveDbTransMgr, replayTxn, slaveDb, true);
+
+        Assert.assertEquals(1L, replayIvmInfo.getRefreshVersion());
+        Mockito.verify(replayStream).unprotectedUpdateStreamUpdate(
+                replayTxn.getStreamUpdateInfos().get(0).getUpdate(), replayTxn.getCommitTime());
+    }
+
+    private TransactionState buildStreamRefreshTransaction(long dbId, long txnId, long ivmTableId, long streamId,
+            long commitTime) {
+        TransactionState transactionState = new TransactionState(dbId, Lists.newArrayList(ivmTableId), txnId,
+                "ut_ivm_refresh_" + txnId, new TUniqueId(txnId, txnId),
+                LoadJobSourceType.FRONTEND, transactionSource, -1L,
+                Config.stream_load_default_timeout_second * 1000L);
+        transactionState.setCommitTime(commitTime);
+        transactionState.setStreamUpdateInfos(Collections.singletonList(
+                new TableStreamUpdateInfo(dbId, streamId, Mockito.mock(AbstractTableStreamUpdate.class))));
+        return transactionState;
+    }
+
+    private MTMV mockIvmTable(long tableId, String tableName, IvmInfo ivmInfo) {
+        MTMV ivm = Mockito.mock(MTMV.class);
+        Mockito.when(ivm.getId()).thenReturn(tableId);
+        Mockito.when(ivm.getName()).thenReturn(tableName);
+        Mockito.when(ivm.isIvm()).thenReturn(true);
+        Mockito.when(ivm.getIvmInfo()).thenReturn(ivmInfo);
+        return ivm;
+    }
+
+    private BaseTableStream mockStreamTable(Database db, long streamId, String streamName) {
+        BaseTableStream stream = Mockito.mock(BaseTableStream.class);
+        Mockito.when(stream.getId()).thenReturn(streamId);
+        Mockito.when(stream.getName()).thenReturn(streamName);
+        injectTable(db, stream);
+        return stream;
+    }
+
+    private void injectTable(Database db, Table table) {
+        Map<Long, Table> idToTable = Deencapsulation.getField(db, "idToTable");
+        @SuppressWarnings("unchecked")
+        ConcurrentMap<String, Table> nameToTable = Deencapsulation.getField(db, "nameToTable");
+        idToTable.put(table.getId(), table);
+        nameToTable.put(table.getName(), table);
     }
 
     @Test

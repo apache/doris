@@ -20,22 +20,35 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.IntervalUnit;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.persist.AlterMTMV;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.EditLog.EditLogItem;
+import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -43,11 +56,16 @@ import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMVTest {
     @Test
@@ -122,6 +140,26 @@ public class MTMVTest {
         Assert.assertEquals(baseToMv.get("baseP1_2"), "mvp1");
     }
 
+    @Test
+    public void testChangedBasePartitionsRequireCompleteSnapshotMapping() {
+        BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
+        MTMVRefreshPartitionSnapshot firstSnapshot = new MTMVRefreshPartitionSnapshot();
+        firstSnapshot.getPctSnapshot(baseTableInfo).put("base_p1", new MTMVVersionSnapshot(1L, 11L));
+        MTMVRefreshPartitionSnapshot secondSnapshot = new MTMVRefreshPartitionSnapshot();
+        secondSnapshot.getPctSnapshot(baseTableInfo).put("base_p2", new MTMVVersionSnapshot(1L, 12L));
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.updateSnapshots(
+                Map.of("mv_p1", firstSnapshot, "mv_p2", secondSnapshot), Set.of("mv_p1", "mv_p2"));
+
+        Optional<Set<String>> mappedPartitions = refreshSnapshot.getMvPartitionNames(
+                baseTableInfo, Map.of("base_p1", 11L, "base_p2", 12L));
+
+        Assert.assertTrue(mappedPartitions.isPresent());
+        Assert.assertEquals(Set.of("mv_p1", "mv_p2"), mappedPartitions.get());
+        Assert.assertFalse(refreshSnapshot.getMvPartitionNames(
+                baseTableInfo, Map.of("base_p1", 11L, "base_p3", 13L)).isPresent());
+    }
+
     private Map<PartitionKeyDesc, Set<String>> mockRelatedPartitionDescs() throws AnalysisException {
         Map<PartitionKeyDesc, Set<String>> res = Maps.newHashMap();
         Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
@@ -175,6 +213,14 @@ public class MTMVTest {
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
+                " ctl1.db1.t1 , db2.t2, ,  t3  ");
+        excludedTriggerTables = mtmv.getExcludedTriggerTables();
+        Assert.assertEquals(3, excludedTriggerTables.size());
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
     }
 
     @Test
@@ -193,7 +239,7 @@ public class MTMVTest {
         Map<String, String> newProperties = Maps.newHashMap();
         newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "db1.t1");
 
-        mtmv.alterMvProperties(newProperties);
+        replayAlterMvProperties(mtmv, newProperties);
 
         Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
         Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
@@ -203,7 +249,7 @@ public class MTMVTest {
         oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
         newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "internal.db1.t1");
 
-        mtmv.alterMvProperties(newProperties);
+        replayAlterMvProperties(mtmv, newProperties);
 
         Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
         Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
@@ -224,7 +270,7 @@ public class MTMVTest {
         Map<String, String> newProperties = Maps.newHashMap();
         newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t2,t1");
 
-        mtmv.alterMvProperties(newProperties);
+        replayAlterMvProperties(mtmv, newProperties);
 
         Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
         Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
@@ -245,7 +291,7 @@ public class MTMVTest {
         Map<String, String> newProperties = Maps.newHashMap();
         newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1");
 
-        mtmv.alterMvProperties(newProperties);
+        replayAlterMvProperties(mtmv, newProperties);
 
         Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
         Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
@@ -255,11 +301,26 @@ public class MTMVTest {
         oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
         newProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "");
 
-        mtmv.alterMvProperties(newProperties);
+        replayAlterMvProperties(mtmv, newProperties);
 
         Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
         Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
         Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    @Test
+    public void testIncludingExcludedIvmBaseTableRequiresCompleteBaselineRebuild() {
+        MTMV mtmv = new MTMV();
+        mtmv.setMvProperties(new HashMap<>(
+                Map.of(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1,t2")));
+        BaseTableInfo includedBaseTable = new BaseTableInfo(new TableNameInfo("internal", "db1", "t2"));
+        mtmv.setRelation(new MTMVRelation(Set.of(includedBaseTable), Set.of(), Set.of(), Set.of(), Set.of()));
+        mtmv.getIvmInfo().setEnableIvm(true);
+
+        replayAlterMvProperties(mtmv,
+                Map.of(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1"));
+
+        Assert.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
     @Test
@@ -276,10 +337,27 @@ public class MTMVTest {
         Map<String, String> newProperties = Maps.newHashMap();
         newProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, "10");
 
-        mtmv.alterMvProperties(newProperties);
+        replayAlterMvProperties(mtmv, newProperties);
 
         Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
         Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    @Test
+    public void testHasRefreshSnapshotAllowsIncompletePartitionSnapshot() {
+        MTMV mtmv = new MTMV();
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv", Lists.newArrayList(new Column("k1", PrimitiveType.INT, true)),
+                0, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
+        mtmv.setPartitionInfo(partitionInfo);
+        mtmv.addPartition(new Partition(1L, "p1", new MaterializedIndex(), null));
+        mtmv.addPartition(new Partition(2L, "p2", new MaterializedIndex(), null));
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        Assert.assertTrue(mtmv.hasRefreshSnapshot());
     }
 
     @Test
@@ -302,5 +380,139 @@ public class MTMVTest {
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
         Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
         Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+    }
+
+    @Test
+    public void testAlterPropertiesSubmitsJournalWhileHoldingMvLock() {
+        MTMV mtmv = new MTMV();
+        mtmv.setMvProperties(Maps.newHashMap());
+        ReentrantReadWriteLock mvRwLock = Deencapsulation.getField(mtmv, "mvRwLock");
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
+                    return editLogItem;
+                });
+        Mockito.when(editLogItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
+            return 1L;
+        });
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            AlterMTMV alterMTMV = new AlterMTMV(
+                    new TableNameInfo("db", "mv"), MTMVAlterOpType.ALTER_PROPERTY);
+            alterMTMV.setMvProperties(Map.of(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, "10"));
+            mtmv.alterMvProperties(alterMTMV, false);
+        }
+
+        Mockito.verify(editLog).submitEdit(
+                Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class));
+        Mockito.verify(editLogItem).await();
+    }
+
+    @Test
+    public void testAddTaskResultSubmitsJournalWhileHoldingMvLock() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        ReentrantReadWriteLock mvRwLock = Deencapsulation.getField(mtmv, "mvRwLock");
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        MTMVService mtmvService = Mockito.mock(MTMVService.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getMtmvService()).thenReturn(mtmvService);
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
+                    return editLogItem;
+                });
+        Mockito.when(editLogItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
+            return 1L;
+        });
+        MTMVRelation relation = mtmv.getRelation();
+        MTMVTask task = new MTMVTask(mtmv, relation, null);
+        task.setStatus(TaskStatus.FAILED);
+        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
+        alterMTMV.setTask(task);
+        alterMTMV.setRelation(relation);
+        alterMTMV.setPartitionSnapshots(Map.of());
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assert.assertTrue(mtmv.addTaskResult(alterMTMV, false));
+        }
+
+        Mockito.verify(editLog).submitEdit(
+                Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.same(alterMTMV));
+        Mockito.verify(editLogItem).await();
+    }
+
+    private void replayAlterMvProperties(MTMV mtmv, Map<String, String> properties) {
+        AlterMTMV alterMTMV = new AlterMTMV(
+                new TableNameInfo("db", "mv"), MTMVAlterOpType.ALTER_PROPERTY);
+        alterMTMV.setMvProperties(properties);
+        mtmv.alterMvProperties(alterMTMV, true);
+    }
+
+    @Test
+    public void testUnknownRefreshMethodMarksSchemaChangeAfterDeserialize() {
+        MTMV mtmv = buildSerializableMTMV();
+        String json = GsonUtils.GSON.toJson(mtmv).replace("\"rm\":\"COMPLETE\"", "\"rm\":\"UNKNOWN\"");
+
+        MTMV restored = GsonUtils.GSON.fromJson(json, MTMV.class);
+
+        Assert.assertNull(restored.getRefreshInfo().getRefreshMethod());
+        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, restored.getStatus().getState());
+        Assert.assertEquals("Unknown refresh method detected during deserialization",
+                restored.getStatus().getSchemaChangeDetail());
+    }
+
+    private MTMV buildSerializableMTMV() {
+        MTMV mtmv = new MTMV();
+        mtmv.setId(1L);
+        mtmv.setQualifiedDbName("db1");
+        mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
+        mtmv.setQuerySql("select k1 from t1");
+        mtmv.setStatus(new MTMVStatus(MTMVRefreshState.SUCCESS));
+        mtmv.getStatus().setState(MTMVState.NORMAL);
+        mtmv.setJobInfo(new MTMVJobInfo("job1"));
+        mtmv.setMvProperties(Maps.newHashMap());
+        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
+                Sets.newHashSet()));
+        mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
+        mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
+
+        List<Column> schema = Lists.newArrayList(new Column("k1", PrimitiveType.INT, true));
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv1", schema, 0, 0, (short) 1, TStorageType.COLUMN,
+                KeysType.DUP_KEYS);
+        mtmv.setPartitionInfo(new SinglePartitionInfo());
+        return mtmv;
+    }
+
+    @Test
+    public void testGetInsertedColumnNamesIncludesAllIvmHiddenColumns() {
+        MTMV mtmv = new MTMV();
+        List<Column> schema = Lists.newArrayList(
+                new Column(Column.IVM_ROW_ID_COL, PrimitiveType.LARGEINT, false),
+                new Column(Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__", PrimitiveType.BIGINT, false),
+                new Column("k1", PrimitiveType.INT, true),
+                new Column("hidden", ScalarType.createType(PrimitiveType.INT), false, null,
+                        false, "comment", false, Column.COLUMN_UNIQUE_ID_INIT_VALUE)
+        );
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv", schema, 0, 0, (short) 1, TStorageType.COLUMN, org.apache.doris.catalog.KeysType.DUP_KEYS);
+
+        List<String> insertedColumnNames = mtmv.getInsertedColumnNames();
+
+        Assert.assertEquals(Lists.newArrayList(
+                Column.IVM_ROW_ID_COL,
+                Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__",
+                "k1"), insertedColumnNames);
     }
 }
