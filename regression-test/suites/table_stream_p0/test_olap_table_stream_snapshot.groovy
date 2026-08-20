@@ -62,6 +62,13 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
             exception "__DORIS_STREAM_SEQUENCE_COL__"
         }
     }
+    // DUP snapshot exposes base row LSN.
+    def checkDupSnapshotLsn = { streamName ->
+        def lsns = sql("SELECT __DORIS_ROW_LSN_COL__ FROM ${streamName}@snapshot() ORDER BY id")
+                .collect { it[0] as long }
+        assertTrue(lsns.size() > 0)
+        lsns.each { lsn -> assertTrue(lsn > 0, "snapshot row lsn should be positive but got ${lsn}") }
+    }
 
     // 1) DUP + append_only + show_initial_rows=true + non-partitioned table.
     // snapshot reads the stream creation snapshot and does not advance the stream offset.
@@ -136,6 +143,7 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
     waitVisible()
     checkRows([["1", "10"], ["2", "20"]],
             "SELECT id, v FROM s_dup_np_false@snapshot() ORDER BY id")
+    checkDupSnapshotLsn("s_dup_np_false")
     checkRows([["3", "30"]],
             "SELECT id, v FROM s_dup_np_false ORDER BY id")
     sql """

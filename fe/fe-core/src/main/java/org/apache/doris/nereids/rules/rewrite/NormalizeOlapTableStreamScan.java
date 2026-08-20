@@ -210,8 +210,10 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), buildChangeTypeExpr(opSlot),
                             Column.STREAM_CHANGE_TYPE_COL));
                 } else if (isStreamVirtualSlot(slot, Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
+                    Preconditions.checkArgument(seqSlot != null, "Commit tso column not found in binlog output");
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), seqSlot, Column.STREAM_SEQ_COL));
                 } else if (isStreamVirtualSlot(slot, Column.STREAM_LSN_VIRTUAL_COLUMN)) {
+                    Preconditions.checkArgument(lsnSlot != null, "Row lsn column not found in binlog output");
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), lsnSlot, Column.STREAM_LSN_COL));
                 }
             }
@@ -383,7 +385,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                 }
             }
             Preconditions.checkArgument(tsoSlot != null, "Commit tso column not found in base table output");
-            if (baseTable.getKeysType() == KeysType.DUP_KEYS) {
+            if (baseTable.hasRowLsnColumn()) {
                 Preconditions.checkArgument(lsnSlot != null, "Row lsn column not found in base table output");
             }
             List<NamedExpression> project = mapOriginOutputFromChild(notVirtualSlots, baseOutputSlots, false);
