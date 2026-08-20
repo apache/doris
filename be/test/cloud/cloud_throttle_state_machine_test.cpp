@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace doris::cloud {
 
 // ============== RpcThrottleStateMachine Tests ==============
@@ -541,10 +543,66 @@ TEST_F(RpcThrottleCoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
     // Explicitly clear pending upgrades to simulate the case where
     // the caller decided not to upgrade (report_ms_busy sets it internally)
     coord.set_has_pending_upgrades(false);
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
 
     for (int i = 0; i < 100; i++) {
         EXPECT_FALSE(coord.tick());
     }
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), params.upgrade_cooldown_ticks);
+}
+
+TEST_F(RpcThrottleCoordinatorTest, MsBusyDuringIdleCooldownKeepsBusyCounterInactive) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 3};
+    RpcThrottleCoordinator coord(params);
+
+    EXPECT_TRUE(coord.report_ms_busy());
+    coord.set_has_pending_upgrades(false);
+    EXPECT_FALSE(coord.tick());
+
+    EXPECT_FALSE(coord.report_ms_busy());
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+}
+
+TEST_F(RpcThrottleCoordinatorTest, LargeTickSaturatesWithoutOverflow) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 20};
+    RpcThrottleCoordinator coord(params);
+    constexpr int64_t kBeyondInt32 =
+            static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1000;
+
+    EXPECT_TRUE(coord.report_ms_busy());
+    coord.set_has_pending_upgrades(true);
+
+    EXPECT_TRUE(coord.tick(kBeyondInt32));
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), 0);
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), params.upgrade_cooldown_ticks);
+
+    coord.set_has_pending_upgrades(false);
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+    EXPECT_FALSE(coord.tick(kBeyondInt32));
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), params.upgrade_cooldown_ticks);
+
+    // Saturating the upgrade counter preserves the cooldown decision while idle.
+    EXPECT_TRUE(coord.report_ms_busy());
+}
+
+TEST_F(RpcThrottleCoordinatorTest, IncreasedCooldownContinuesFromSaturatedCounter) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 20};
+    RpcThrottleCoordinator coord(params);
+
+    EXPECT_TRUE(coord.report_ms_busy());
+    coord.set_has_pending_upgrades(false);
+    EXPECT_FALSE(coord.tick(5));
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), 5);
+
+    coord.update_params({.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 20});
+    EXPECT_FALSE(coord.tick(4));
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), 9);
+    EXPECT_FALSE(coord.report_ms_busy());
+
+    EXPECT_FALSE(coord.tick());
+    EXPECT_TRUE(coord.report_ms_busy());
 }
 
 TEST_F(RpcThrottleCoordinatorTest, UpdateUpgradeCooldownAtRuntime) {

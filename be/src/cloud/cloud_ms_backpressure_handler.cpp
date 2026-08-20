@@ -412,13 +412,13 @@ MSBackpressureHandler::~MSBackpressureHandler() {
 
 void MSBackpressureHandler::_tick_thread_callback() {
     // Fixed tick interval: 1 second. Since 1 tick = 1 ms, advance by 1000 ticks each iteration.
-    constexpr int kTickIntervalMs = 1000;
+    constexpr int64_t kTickIntervalMs = 1000;
     while (!_stop_latch.wait_for(std::chrono::milliseconds(kTickIntervalMs))) {
         _advance_time(kTickIntervalMs);
     }
 }
 
-void MSBackpressureHandler::_advance_time(int ticks) {
+void MSBackpressureHandler::_advance_time(int64_t ticks) {
     if (!config::enable_ms_backpressure_handling &&
         !config::enable_ms_backpressure_handling_dry_run) {
         return;
@@ -519,11 +519,11 @@ size_t MSBackpressureHandler::upgrade_level() const {
     return _state_machine->upgrade_level();
 }
 
-int MSBackpressureHandler::ticks_since_last_ms_busy() const {
+int64_t MSBackpressureHandler::ticks_since_last_ms_busy() const {
     return _coordinator->ticks_since_last_ms_busy();
 }
 
-int MSBackpressureHandler::ticks_since_last_upgrade() const {
+int64_t MSBackpressureHandler::ticks_since_last_upgrade() const {
     return _coordinator->ticks_since_last_upgrade();
 }
 

@@ -199,15 +199,15 @@ public:
 
     // Query current state
     size_t upgrade_level() const;
-    int ticks_since_last_ms_busy() const;
-    int ticks_since_last_upgrade() const;
+    int64_t ticks_since_last_ms_busy() const;
+    int64_t ticks_since_last_upgrade() const;
 
 private:
     // Background thread that periodically advances time
     void _tick_thread_callback();
 
     // Advance time by specified ticks, handle any triggered events (e.g., downgrade)
-    void _advance_time(int ticks);
+    void _advance_time(int64_t ticks);
 
     // Apply actions to the throttler
     void _apply_actions(const std::vector<RpcThrottleAction>& actions);
