@@ -1,0 +1,10 @@
+# BuildKit reads this in preference to the repository root .dockerignore when
+# building with -f docker/runtime/all-in-one/4.1/Dockerfile.
+#
+# The context has to be the repository root so that ARTIFACT_SOURCE=local can
+# reach ./output, but nothing else in the tree is needed. Exclude everything,
+# then add back the two paths the build actually reads.
+*
+!docker/runtime/all-in-one/4.1/resource
+!output/fe
+!output/be
