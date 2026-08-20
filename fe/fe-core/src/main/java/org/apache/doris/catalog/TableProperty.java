@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -490,7 +491,7 @@ public class TableProperty implements GsonPostProcessable {
         if (Strings.isNullOrEmpty(storageMediumStr)) {
             storageMedium = null;
         } else {
-            storageMedium = TStorageMedium.valueOf(storageMediumStr);
+            storageMedium = TStorageMedium.valueOf(storageMediumStr.toUpperCase(Locale.ROOT));
         }
         return this;
     }
