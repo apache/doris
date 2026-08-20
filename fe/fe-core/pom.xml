@@ -372,6 +372,12 @@ under the License.
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jetty</artifactId>
         </dependency>
+        <!-- Jetty 12.0.38 calls Jakarta Servlet 6.1 APIs when writing Set-Cookie headers. -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta.servlet-api.version}</version>
+        </dependency>
         <!-- File Upload -->
         <dependency>
             <groupId>commons-fileupload</groupId>
@@ -434,8 +440,8 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- Replace Huawei IAM's bcprov-jdk15on 1.69/1.70 with 1.78.1 from the maintained
-             jdk18on line; versions before 1.73 are affected by CVE-2023-33202. -->
+        <!-- Replace Huawei IAM's bcprov-jdk15on 1.69/1.70 with 1.84 from the maintained
+             jdk18on line; it fixes CVE-2023-33202 and the later 2025/2026 BC Java advisories. -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
