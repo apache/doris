@@ -144,81 +144,14 @@ suite("test_inverted_index", "inverted_index") {
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
 
-    sql """
-            ALTER TABLE ${tbName2}
-                ADD INDEX index1 (k1) USING INVERTED,
-                ADD INDEX index2 (k2) USING INVERTED,
-                ADD INDEX index3 (k3) USING INVERTED,
-                ADD INDEX index4 (k4) USING INVERTED,
-                ADD INDEX index5 (k5) USING INVERTED,
-                ADD INDEX index6 (k6) USING INVERTED,
-                ADD INDEX index7 (k7) USING INVERTED,
-                ADD INDEX index8 (k8) USING INVERTED,
-                ADD INDEX index9 (k9) USING INVERTED,
-                ADD INDEX index10 (k10) USING INVERTED,
-                ADD INDEX index11 (k11) USING INVERTED,
-                ADD INDEX index12 (k12) USING INVERTED,
-                ADD INDEX index13 (k13) USING INVERTED,
-                ADD INDEX index14 (k14) USING INVERTED,
-                ADD INDEX index15 (k15) USING INVERTED;
-        """
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(1000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    // INVERTED index is not allowed on AGG_KEYS tables anymore, even on key columns.
+    test {
+        sql "ALTER TABLE ${tbName2} ADD INDEX index1 (k1) USING INVERTED;"
+        exception "INVERTED index is not supported on AGG_KEYS table"
     }
-    test{
+    test {
         sql "ALTER TABLE ${tbName2} ADD INDEX index16 (v1) USING INVERTED;"
-        exception "errCode = 2, detailMessage = index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of AGG_KEYS table. invalid index: index16"
-    }
-
-    sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
-    qt_sql "desc ${tbName2};"
-    show_result = sql "show index from ${tbName2}"
-    logger.info("show index from " + tbName2 + " result: " + show_result)
-    assertEquals(show_result.size(), 15)
-    assertEquals(show_result[0][2], "index1")
-    assertEquals(show_result[1][2], "index2")
-    assertEquals(show_result[2][2], "index3")
-    assertEquals(show_result[3][2], "index4")
-    assertEquals(show_result[4][2], "index5")
-    assertEquals(show_result[5][2], "index6")
-    assertEquals(show_result[6][2], "index7")
-    assertEquals(show_result[7][2], "index8")
-    assertEquals(show_result[8][2], "index9")
-    assertEquals(show_result[9][2], "index10")
-    assertEquals(show_result[10][2], "index11")
-    assertEquals(show_result[11][2], "index12")
-    assertEquals(show_result[12][2], "index13")
-    assertEquals(show_result[13][2], "index14")
-    assertEquals(show_result[14][2], "index15")
-    qt_sql "select * from ${tbName2};"
-
-    sql "DROP INDEX IF EXISTS index1 ON ${tbName2};"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(1000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+        exception "INVERTED index is not supported on AGG_KEYS table"
     }
     sql "DROP TABLE ${tbName2} FORCE;"
 
