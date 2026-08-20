@@ -3138,6 +3138,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
             return false;
         }
+        // BucketedAggregationNode always finalizes into the output tuple slot
+        // types (need_finalize=true, isPartial=false), so fusing an aggregate
+        // whose functions produce buffers (partial) would fail the BE
+        // result-type check: the slot type of a buffer-producing function is
+        // Varchar while the function's final return type (e.g. DOUBLE for
+        // stddev) is what insert_result_into writes. The one-phase GLOBAL
+        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
+        // the node itself is INPUT_TO_RESULT but its non-distinct functions
+        // run in INPUT_TO_BUFFER mode — and must stay on the regular
+        // AggregationNode path, which serializes when isPartial.
+        if (containsPartialAggFunction(aggregate)) {
+            return false;
+        }
         // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
         // BucketedAggregationNode has no sort-info field, so fusing would drop
         // the aggregate ORDER BY contract. Only aggregates supporting two-phase
@@ -3265,6 +3278,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return true;
+    }
+
+    /**
+     * Check whether the aggregate's output contains any buffer-producing
+     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
+     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
+     * functions: it always finalizes into the output tuple slot types, while a
+     * buffer-producing function's slot type is the serialized Varchar type
+     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
+     * for stddev) into that String column fails the BE result-type check.
+     */
+    private boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
+        for (NamedExpression o : aggregate.getOutputExpressions()) {
+            AtomicBoolean foundPartial = new AtomicBoolean(false);
+            o.foreach(c -> {
+                if (c instanceof AggregateExpression) {
+                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
+                        foundPartial.set(true);
+                    }
+                    return true;
+                }
+                return false;
+            });
+            if (foundPartial.get()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
