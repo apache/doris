@@ -63,6 +63,18 @@ under the License.
             <groupId>com.huaweicloud.sdk</groupId>
             <artifactId>huaweicloud-sdk-iam</artifactId>
             <version>${huaweicloud-sdk-iam.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Replace Huawei IAM's bcprov-jdk15on 1.69/1.70 with 1.78.1 from the maintained
+             jdk18on line; versions before 1.73 are affected by CVE-2023-33202. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
         </dependency>
         <!-- Supplies org.apache.hadoop.fs.obs.OBSFileSystem. Nothing here calls it: this module reaches OBS
              through the native esdk SDK above, and the ONLY reference is the initialize=false
