@@ -27,6 +27,7 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
@@ -52,7 +53,7 @@ using ConstColumnVariant =
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
-                     const ColumnTimeV2*>;
+                     const ColumnTimeV2*, const ColumnTimeStampTz*>;
 
 template <typename T>
 struct is_column_vector : std::false_type {};
@@ -390,46 +391,23 @@ private:
                expr->children()[0]->node_type() == TExprNodeType::LAMBDA_FUNCTION_EXPR;
     }
 
-#define DISPATCH_PRIMITIVE_TYPE(TYPE, COLUMN_CLASS)                 \
-    case TYPE:                                                      \
-        column_variant = &assert_cast<const COLUMN_CLASS&>(column); \
-        break;
-
     Status get_data_from_type(PrimitiveType pType, const IColumn& column,
                               ConstColumnVariant& column_variant) const {
-        switch (pType) {
-            DISPATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN, ColumnUInt8)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_TINYINT, ColumnInt8)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_SMALLINT, ColumnInt16)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_INT, ColumnInt32)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_BIGINT, ColumnInt64)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_LARGEINT, ColumnInt128)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_FLOAT, ColumnFloat32)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DOUBLE, ColumnFloat64)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_CHAR, ColumnString)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_STRING, ColumnString)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_VARCHAR, ColumnString)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_VARBINARY, ColumnVarbinary)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_ARRAY, ColumnArray)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_IPV4, ColumnIPv4)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_IPV6, ColumnIPv6)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32, ColumnDecimal32)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64, ColumnDecimal64)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL128I, ColumnDecimal128V3)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMALV2, ColumnDecimal128V2)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL256, ColumnDecimal256)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DATE, ColumnDate)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIME, ColumnDateTime)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DATEV2, ColumnDateV2)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_TIMEV2, ColumnTimeV2)
-        default:
-            return Status::InternalError("Unsupported type in array_sort");
+        if (pType == TYPE_ARRAY) {
+            column_variant = &assert_cast<const ColumnArray&>(column);
+            return Status::OK();
         }
-        return Status::OK();
-    }
 
-#undef DISPATCH_PRIMITIVE_TYPE
+        if (dispatch_switch_all(pType, [&](const auto& type) {
+                using DispatchType = std::decay_t<decltype(type)>;
+                column_variant = &assert_cast<const typename DispatchType::ColumnType&>(column);
+                return true;
+            })) {
+            return Status::OK();
+        }
+
+        return Status::InternalError("Unsupported type in array_sort");
+    }
 };
 
 void register_function_array_sort(doris::LambdaFunctionFactory& factory) {
