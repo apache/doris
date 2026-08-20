@@ -242,7 +242,6 @@ private:
 
 struct MakeDateImpl {
     static constexpr auto name = "makedate";
-    using DateValueType = PrimitiveTypeTraits<PrimitiveType::TYPE_DATEV2>::CppType;
 
     static bool is_variadic() { return false; }
 
@@ -292,17 +291,36 @@ struct MakeDateImpl {
         const auto* year_col = assert_cast<const ColumnInt32*>(argument_columns[0].get());
         const auto* dayofyear_col = assert_cast<const ColumnInt32*>(argument_columns[1].get());
 
-        ColumnPtr res_column;
+        const auto result_type = block.get_by_position(result).type->get_primitive_type();
+        if (result_type == TYPE_DATE) {
+            return execute_typed<TYPE_DATE>(block, result, input_rows_count, year_col,
+                                            dayofyear_col, col_const[1], result_null_map_column,
+                                            result_null_map);
+        }
+        if (result_type == TYPE_DATEV2) {
+            return execute_typed<TYPE_DATEV2>(block, result, input_rows_count, year_col,
+                                              dayofyear_col, col_const[1], result_null_map_column,
+                                              result_null_map);
+        }
+        return Status::InternalError("Invalid result type {} for function {}",
+                                     block.get_by_position(result).type->get_name(), name);
+    }
 
-        res_column = ColumnDateV2::create(input_rows_count);
-        if (col_const[1]) {
-            execute_impl_right_const(
-                    year_col->get_data(), dayofyear_col->get_element(0), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+private:
+    template <PrimitiveType PType>
+    static Status execute_typed(Block& block, uint32_t result, size_t input_rows_count,
+                                const ColumnInt32* year_col, const ColumnInt32* dayofyear_col,
+                                bool dayofyear_const,
+                                ColumnBool::MutablePtr& result_null_map_column,
+                                const NullMap& result_null_map) {
+        auto res_column = ColumnVector<PType>::create(input_rows_count);
+        auto& result_data = res_column->get_data();
+        if (dayofyear_const) {
+            execute_impl_right_const(year_col->get_data(), dayofyear_col->get_element(0),
+                                     result_null_map, result_data);
         } else {
-            execute_impl(
-                    year_col->get_data(), dayofyear_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+            execute_impl(year_col->get_data(), dayofyear_col->get_data(), result_null_map,
+                         result_data);
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -316,7 +334,7 @@ struct MakeDateImpl {
         return Status::OK();
     }
 
-private:
+    template <typename DateValueType>
     static void execute_impl(const PaddedPODArray<Int32>& year_data,
                              const PaddedPODArray<Int32>& dayofyear_data,
                              const NullMap& result_null_map, PaddedPODArray<DateValueType>& res) {
@@ -333,10 +351,11 @@ private:
             if (dayofyear <= 0 || year < 0 || year > 9999) [[unlikely]] {
                 throw_out_of_bound_two_ints(name, year, dayofyear);
             }
-            _execute_inner_loop(year, dayofyear, res, i);
+            _execute_inner_loop(year, dayofyear, res[i]);
         }
     }
 
+    template <typename DateValueType>
     static void execute_impl_right_const(const PaddedPODArray<Int32>& year_data, Int32 dayofyear,
                                          const NullMap& result_null_map,
                                          PaddedPODArray<DateValueType>& res) {
@@ -352,17 +371,23 @@ private:
             if (dayofyear <= 0 || year < 0 || year > 9999) [[unlikely]] {
                 throw_out_of_bound_two_ints(name, year, dayofyear);
             }
-            _execute_inner_loop(year, dayofyear, res, i);
+            _execute_inner_loop(year, dayofyear, res[i]);
         }
     }
 
-    static void _execute_inner_loop(const int& year, const int& dayofyear,
-                                    PaddedPODArray<DateValueType>& res, size_t index) {
-        auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
-        res_val.unchecked_set_time(year, 1, 1, 0, 0, 0, 0);
+    template <typename DateValueType>
+    static void _execute_inner_loop(int year, int dayofyear, DateValueType& res_val) {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            res_val.unchecked_set_time(year, 1, 1, 0, 0, 0);
+        } else {
+            res_val.unchecked_set_time(year, 1, 1, 0, 0, 0, 0);
+        }
         TimeInterval interval(DAY, dayofyear - 1, false);
         if (!res_val.template date_add_interval<DAY>(interval)) {
             throw_out_of_bound_two_ints(name, year, dayofyear);
+        }
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            res_val.cast_to_date();
         }
     }
 };

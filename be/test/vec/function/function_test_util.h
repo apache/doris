@@ -265,6 +265,8 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if constexpr (std::is_same_v<ReturnType, DataTypeDateTime>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
                                                             false);
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeDate>) {
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATE, false);
     } else if (std::is_same_v<ReturnType, DataTypeDateV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATEV2,
                                                             false);

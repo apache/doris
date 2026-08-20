@@ -26,6 +26,14 @@
 namespace doris {
 
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
+    // TIME (v1) used thrift enum value 18 before it was removed from the IDL. Old FEs can still
+    // send that value during a rolling upgrade. Treat it as TIMEV2, which has the same value
+    // representation, instead of falling through to the fatal unknown-type check below.
+    constexpr auto legacy_thrift_time = static_cast<TPrimitiveType::type>(18);
+    if (ttype == legacy_thrift_time) {
+        return TYPE_TIMEV2;
+    }
+
     switch (ttype) {
     case TPrimitiveType::INVALID_TYPE:
         return INVALID_TYPE;
