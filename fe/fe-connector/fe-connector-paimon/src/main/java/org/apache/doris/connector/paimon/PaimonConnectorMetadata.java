@@ -1085,14 +1085,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * <li><b>Primary-key table</b>: DELETE, UPDATE and MERGE supported. A delete is a
      *     {@code RowKind.DELETE} record the merge engine cancels against the key; UPDATE/MERGE arrive as
      *     an operation-tagged stream whose tags the writer maps to keyed upserts and deletes.</li>
-     * <li><b>DELETE on an unaware-bucket append-only table with deletion vectors</b>: supported (UPDATE/
-     *     MERGE on any append-only shape stay rejected: they need a combined vector-plus-append write) — the scan
-     *     projects the synthetic row locator, and the writer records the removed positions in a
-     *     deletion-vector index.</li>
-     * <li><b>DELETE on an append-only table without deletion vectors</b>: rejected — a Paimon requirement,
-     *     not a Doris one: no key to cancel against, no vector to mark, nowhere to record the removal.</li>
-     * <li><b>DELETE on a bucketed-append table</b> (a pinned bucket count): rejected — the vector must be
-     *     filed under the file's REAL bucket, which the row locator does not carry yet.</li>
+     * <li><b>DELETE, UPDATE and MERGE on an unaware-bucket append-only table with deletion vectors</b>:
+     *     all supported. Every one of the three has to REMOVE the matched rows, which an append-only table
+     *     records as their POSITIONS in a deletion-vector index (the scan projects the synthetic row
+     *     locator for exactly this). An UPDATE/MERGE additionally APPENDS the replacement rows: it arrives
+     *     as an operation-tagged stream whose delete tags drive the deletion vector and whose insert/update
+     *     tags append new data files, both in one commit — the combined vector-plus-append write. A MERGE's
+     *     NOT MATCHED clause is a plain append (no locator, nothing to remove).</li>
+     * <li><b>DELETE/UPDATE/MERGE on an append-only table without deletion vectors</b>: rejected — a Paimon
+     *     requirement, not a Doris one: no key to cancel against, no vector to mark, nowhere to record the
+     *     removal that all three ops require.</li>
+     * <li><b>DELETE/UPDATE/MERGE on a bucketed-append table</b> (a pinned bucket count): rejected — the
+     *     vector must be filed under the file's REAL bucket, which the row locator does not carry yet.</li>
      * </ul>
      *
      * <p>{@code row-tracking.enabled} (the {@code _ROW_ID} whole-file rewrite Spark also implements) is a
@@ -1116,28 +1120,24 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (!table.primaryKeys().isEmpty()) {
             return;
         }
-        // Append-only shapes support DELETE only. An UPDATE/MERGE must carry BOTH halves in one write —
-        // deletion-vector marks for the removed rows AND appended replacement rows — and the writer only
-        // implements the keyed-upsert dispatch (primary-key tables) and the pure-delete mode.
-        if (op != WriteOperation.DELETE) {
-            throw new DorisConnectorException(String.format(
-                    "Doris does not support %s on the append-only Paimon table %s.%s: it needs a combined "
-                            + "deletion-vector-plus-append write, which is not implemented. Only DELETE is "
-                            + "supported on append-only tables; use a primary-key table for UPDATE/MERGE.",
-                    op, paimonHandle.getDatabaseName(), paimonHandle.getTableName()));
-        }
-        // A DELETE is recorded as the row's POSITION in a deletion-vector index, so the table must have
-        // deletion vectors enabled — a Paimon requirement, not a Doris one: with no key to cancel against
-        // and no vector to mark, there is nowhere to record the removal.
+        // Every append-only row-level op — DELETE, UPDATE and MERGE — has to REMOVE the matched rows, which
+        // an append-only table can only do by recording their POSITIONS in a deletion-vector index (an
+        // UPDATE/MERGE additionally APPENDS the replacement rows, but the removal half is what gates the
+        // shape). The remaining checks are therefore common to all three: the table must carry deletion
+        // vectors, and the vector must be file-able under the row's bucket. UPDATE and MERGE need nothing
+        // beyond what DELETE needs, so they pass through the SAME gate rather than a separate rejection.
+        // A DELETE/UPDATE/MERGE is recorded as the row's POSITION in a deletion-vector index, so the table
+        // must have deletion vectors enabled — a Paimon requirement, not a Doris one: with no key to cancel
+        // against and no vector to mark, there is nowhere to record the removal.
         boolean deletionVectors = Boolean.parseBoolean(table.options()
                 .getOrDefault(CoreOptions.DELETION_VECTORS_ENABLED.key(), "false"));
         if (!deletionVectors) {
             throw new DorisConnectorException(String.format(
-                    "Doris does not support DELETE on the append-only Paimon table %s.%s: it has no "
+                    "Doris does not support %s on the append-only Paimon table %s.%s: it has no "
                             + "primary key to cancel rows against and no deletion vectors to mark them. "
                             + "Either create the table with a primary key, or enable deletion vectors: "
                             + "ALTER TABLE %s.%s SET ('%s' = 'true').",
-                    paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
+                    op, paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
                     paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
                     CoreOptions.DELETION_VECTORS_ENABLED.key()));
         }
@@ -1149,10 +1149,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 .getOrDefault(CoreOptions.BUCKET.key(), "-1"));
         if (bucket != -1) {
             throw new DorisConnectorException(String.format(
-                    "Doris supports DELETE on an append-only Paimon table only in unaware-bucket mode; "
+                    "Doris supports %s on an append-only Paimon table only in unaware-bucket mode; "
                             + "%s.%s pins a fixed bucket count ('%s' = %d). Use a primary-key table, or "
                             + "rewrite the data with INSERT OVERWRITE.",
-                    paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
+                    op, paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
                     CoreOptions.BUCKET.key(), bucket));
         }
     }
@@ -1832,9 +1832,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 orderedValues.add(rendered);
                 renderedSpec.put(partitionColumnName, rendered);
             }
-            // generatePartitionPath returns "k1=v1/k2=v2/" (escaped values, trailing separator); drop it.
-            String partitionPath = PartitionPathUtils.generatePartitionPath(renderedSpec);
-            String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
+            String partitionName = renderPartitionName(renderedSpec);
             if (!seenPartitionNames.add(partitionName)) {
                 throw new IllegalStateException("Duplicate Paimon partition name: " + partitionName);
             }
@@ -1851,6 +1849,145 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     partition.fileCount(),
                     orderedValues,
                     nullFlags));
+        }
+        return result;
+    }
+
+    /**
+     * Renders a partition's Doris display name from its ordered rendered spec, exactly as
+     * {@link #collectPartitions} does: {@code PartitionPathUtils.generatePartitionPath} yields the
+     * escaped Hive-style {@code "k1=v1/k2=v2/"} (trailing separator), which is dropped. Shared so the
+     * SHOW PARTITIONS name and the DROP PARTITION lookup name can never drift.
+     */
+    private static String renderPartitionName(LinkedHashMap<String, String> renderedSpec) {
+        String partitionPath = PartitionPathUtils.generatePartitionPath(renderedSpec);
+        return partitionPath.substring(0, partitionPath.length() - 1);
+    }
+
+    // ==================== ALTER TABLE ... DROP PARTITION ====================
+    // DROP PARTITION on a paimon table is a DATA operation (clear the rows of the named partition), not a
+    // schema change: it does NOT bump the schema id and does NOT go through Catalog.alterTable. Semantically
+    // it is closest to INSERT OVERWRITE — a one-shot commit that rewrites (here, empties) a partition — so it
+    // is committed through the paimon committer's truncatePartitions(), NOT the schema-commit path the column
+    // ops use. It also does NOT ride the PaimonConnectorTransaction (that coordinates BE-produced write
+    // fragments across a distributed INSERT); a partition truncate is FE-local metadata work with no BE side.
+
+    /**
+     * Clears the DATA of the named partitions. Each entry of {@code partitionNames} is a partition DISPLAY
+     * name in {@link #listPartitionNames} form ({@code k1=v1/k2=v2}); it is resolved back to paimon's NATIVE
+     * partition spec (DATE as epoch-day, genuine NULL as {@code partition.default-name}) via the same rendering
+     * {@link #collectPartitions} uses, then truncated through the paimon committer.
+     *
+     * <p>{@code ifExists} follows the Doris {@code DROP PARTITION IF EXISTS} contract: a name absent from the
+     * current partition set is a silent no-op when {@code true}, and a {@link DorisConnectorException} when
+     * {@code false} (mirroring the internal-table {@code ERR_DROP_PARTITION_NON_EXISTENT}). Existence is decided
+     * against the live partition listing, so an absent partition is never handed to the committer (paimon's
+     * {@code truncatePartitions} would otherwise treat an unknown spec as an empty prefix and silently no-op,
+     * losing the fail-loud contract). A no-op call (all names absent under {@code ifExists}) skips the commit
+     * entirely.
+     */
+    @Override
+    public void dropPartitions(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames, boolean ifExists) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.getPartitionKeys() == null || paimonHandle.getPartitionKeys().isEmpty()) {
+            throw new DorisConnectorException("Cannot drop partition of non-partitioned Paimon table "
+                    + paimonHandle.getDatabaseName() + "." + paimonHandle.getTableName());
+        }
+        // Authoritative display-name -> native paimon spec map for the CURRENT partitions, built with the
+        // exact rendering listPartitionNames uses so a DROP name matches a SHOW PARTITIONS name byte-for-byte.
+        Map<String, Map<String, String>> nativeSpecByName = nativePartitionSpecsByName(paimonHandle);
+        List<Map<String, String>> specsToTruncate = new ArrayList<>(partitionNames.size());
+        for (String partitionName : partitionNames) {
+            Map<String, String> spec = nativeSpecByName.get(partitionName);
+            if (spec == null) {
+                if (ifExists) {
+                    continue;
+                }
+                throw new DorisConnectorException("Partition '" + partitionName
+                        + "' does not exist in Paimon table " + paimonHandle.getDatabaseName() + "."
+                        + paimonHandle.getTableName());
+            }
+            specsToTruncate.add(spec);
+        }
+        if (specsToTruncate.isEmpty()) {
+            // Every requested partition was absent under IF EXISTS: nothing to commit.
+            return;
+        }
+        Identifier identifier = Identifier.create(
+                paimonHandle.getDatabaseName(), paimonHandle.getTableName());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.truncatePartitions(identifier, specsToTruncate);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop partition(s) " + partitionNames
+                    + " in Paimon table " + identifier + ": " + e.getMessage(), e);
+        }
+        LOG.info("truncated {} partition(s) of Paimon table {}", specsToTruncate.size(), identifier);
+    }
+
+    /**
+     * Builds a {@code displayName -> native paimon spec} map for the current partitions of {@code handle}.
+     * The DISPLAY name is rendered exactly as {@link #collectPartitions} renders it (so a DROP PARTITION
+     * name lines up with a SHOW PARTITIONS name), while the VALUE is paimon's RAW {@link Partition#spec()}
+     * (DATE as epoch-day, genuine NULL as {@code partition.default-name}) — which is what
+     * {@code truncatePartitions} matches partition files against, so it must NOT be the rendered form.
+     *
+     * <p>Reuses the same resolve + list + DATE-detection + null-sentinel logic as {@code collectPartitions};
+     * only the map it accumulates differs (native spec as value instead of a ConnectorPartitionInfo).
+     */
+    private Map<String, Map<String, String>> nativePartitionSpecsByName(PaimonTableHandle paimonHandle) {
+        List<String> partitionKeys = paimonHandle.getPartitionKeys();
+        Table table = resolveTable(paimonHandle);
+        Identifier identifier = Identifier.create(
+                paimonHandle.getDatabaseName(), paimonHandle.getTableName());
+        List<Partition> paimonPartitions;
+        try {
+            paimonPartitions = context.executeAuthenticated(() -> {
+                try {
+                    return catalogOps.listPartitions(identifier, table);
+                } catch (Catalog.TableNotExistException e) {
+                    LOG.warn("Paimon table not found while listing partitions for drop: {}", identifier, e);
+                    return Collections.<Partition>emptyList();
+                }
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to list Paimon partitions for drop: " + identifier, e);
+        }
+
+        boolean legacyName = Boolean.parseBoolean(
+                table.options().getOrDefault("partition.legacy-name", "true"));
+        String defaultPartitionName = table.options()
+                .getOrDefault("partition.default-name", "__DEFAULT_PARTITION__");
+        Set<String> partitionKeyNames = new HashSet<>(partitionKeys);
+        Set<String> dateColumns = new HashSet<>();
+        for (DataField field : table.rowType().getFields()) {
+            if (partitionKeyNames.contains(field.name())
+                    && field.type().getTypeRoot() == DataTypeRoot.DATE) {
+                dateColumns.add(field.name());
+            }
+        }
+
+        Map<String, Map<String, String>> result = new LinkedHashMap<>(paimonPartitions.size());
+        for (Partition partition : paimonPartitions) {
+            Map<String, String> spec = partition.spec();
+            LinkedHashMap<String, String> renderedSpec = new LinkedHashMap<>();
+            for (String partitionColumnName : partitionKeys) {
+                String value = spec.get(partitionColumnName);
+                String rendered;
+                if (defaultPartitionName.equals(value)) {
+                    rendered = ConnectorPartitionValues.NULL_PARTITION_NAME;
+                } else if (legacyName && dateColumns.contains(partitionColumnName)) {
+                    rendered = DateTimeUtils.formatDate(Integer.parseInt(value));
+                } else {
+                    rendered = value;
+                }
+                renderedSpec.put(partitionColumnName, rendered);
+            }
+            // Key = display name (collectPartitions parity); value = paimon's RAW spec (what truncate matches).
+            result.put(renderPartitionName(renderedSpec), spec);
         }
         return result;
     }

@@ -22,6 +22,7 @@ dropColumn(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.conn
 dropDatabase(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,boolean,boolean)
 dropNestedColumn(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.ConnectorColumnPath)
 dropPartitionField(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.PartitionFieldChange)
+dropPartitions(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List,boolean)
 dropTable(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 dropTag(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.DropRefChange)
 dropView(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)

@@ -30,6 +30,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.sink.InnerTableCommit;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.DataField;
@@ -40,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 
 /**
  * Injection seam over the remote Paimon {@link Catalog} calls.
@@ -103,6 +105,21 @@ public interface PaimonCatalogOps {
     void alterTable(Identifier identifier, List<SchemaChange> changes, boolean ignoreIfNotExists)
             throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
             Catalog.ColumnNotExistException;
+
+    /**
+     * Clears the DATA of {@code partitionSpecs} (each a native paimon partition spec {@code {key -> value}})
+     * for the table at {@code identifier}, via the paimon committer's
+     * {@code BatchTableCommit.truncatePartitions}. Backs {@code ALTER TABLE ... DROP PARTITION}: a DATA
+     * operation (empty the partition), NOT a schema change — it creates a new snapshot without bumping the
+     * schema id, which is why it is separate from {@link #alterTable}.
+     *
+     * <p>The commit is self-contained (a fresh per-call commit user, like an INSERT OVERWRITE), so it does not
+     * participate in a {@code PaimonConnectorTransaction}: a partition truncate is FE-local metadata work with
+     * no BE-produced write fragments to coordinate. The table is (re)loaded through {@link #getTable} so the
+     * committer runs against the CURRENT table generation.
+     */
+    void truncatePartitions(Identifier identifier, List<Map<String, String>> partitionSpecs)
+            throws Catalog.TableNotExistException;
 
     // ---- E5: MVCC snapshot lookups (T20) ----
     // These return plain {@code long}s (not paimon {@code Snapshot} objects) so the metadata
@@ -348,6 +365,28 @@ public interface PaimonCatalogOps {
                 throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
                 Catalog.ColumnNotExistException {
             catalog.alterTable(identifier, changes, ignoreIfNotExists);
+        }
+
+        @Override
+        public void truncatePartitions(Identifier identifier, List<Map<String, String>> partitionSpecs)
+                throws Catalog.TableNotExistException {
+            // (Re)load through getTable so the committer runs against the CURRENT table generation (and the
+            // catalog table-option overlay is applied, exactly like every other read of this seam).
+            Table table = getTable(identifier);
+            if (!(table instanceof FileStoreTable)) {
+                throw new UnsupportedOperationException(
+                        "DROP PARTITION is only supported on a Paimon file store table: " + identifier);
+            }
+            // A fresh per-call commit user, like INSERT OVERWRITE: this truncate is a self-contained commit,
+            // not part of a distributed transaction, so it needs no stable cross-retry identity.
+            String commitUser = "doris_drop_partition_" + UUID.randomUUID();
+            try (InnerTableCommit commit = ((FileStoreTable) table).newCommit(commitUser)) {
+                commit.truncatePartitions(partitionSpecs);
+            } catch (Exception e) {
+                // BatchTableCommit.close() declares a checked Exception; surface it as unchecked so the seam
+                // signature matches alterTable (the metadata layer wraps it into a DorisConnectorException).
+                throw new RuntimeException(e);
+            }
         }
 
         @Override

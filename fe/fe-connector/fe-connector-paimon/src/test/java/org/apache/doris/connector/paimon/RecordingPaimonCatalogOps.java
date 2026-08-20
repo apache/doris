@@ -87,6 +87,10 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     List<SchemaChange> lastSchemaChanges;
     boolean lastAlterTableIgnoreIfNotExists;
 
+    // ---- DROP PARTITION capture fields (the native specs the metadata layer resolved) ----
+    Identifier lastTruncatePartitionsTableId;
+    List<Map<String, String>> lastTruncatedPartitionSpecs;
+
     // ---- B3 DDL throw flags (mirror the read-path throwDatabaseNotExist/throwTableNotExist) ----
     boolean throwTableAlreadyExist;
     boolean throwTableNotExistOnDrop;
@@ -267,6 +271,17 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         }
         if (throwColumnNotExist) {
             throw new Catalog.ColumnNotExistException(identifier, alterColumnName);
+        }
+    }
+
+    @Override
+    public void truncatePartitions(Identifier identifier, List<Map<String, String>> partitionSpecs)
+            throws Catalog.TableNotExistException {
+        log.add("truncatePartitions:" + identifier.getFullName() + ",specs=" + partitionSpecs.size());
+        lastTruncatePartitionsTableId = identifier;
+        lastTruncatedPartitionSpecs = partitionSpecs;
+        if (throwTableNotExist) {
+            throw new Catalog.TableNotExistException(identifier);
         }
     }
 

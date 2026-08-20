@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
@@ -391,7 +392,12 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterTableOp instanceof DropTagOp
                     || alterTableOp instanceof AddPartitionFieldOp
                     || alterTableOp instanceof DropPartitionFieldOp
-                    || alterTableOp instanceof ReplacePartitionFieldOp) {
+                    || alterTableOp instanceof ReplacePartitionFieldOp
+                    // DROP PARTITION on an external table is a DATA operation (clear the rows of the named
+                    // partitions), not a schema/partition-spec change. The connector metadata layer decides
+                    // whether it can honor it (paimon truncates the partition via a one-shot commit); a
+                    // connector that cannot rejects it downstream with a "not supported" message.
+                    || alterTableOp instanceof DropPartitionOp) {
                 alterTableOps.add(alterTableOp);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "
