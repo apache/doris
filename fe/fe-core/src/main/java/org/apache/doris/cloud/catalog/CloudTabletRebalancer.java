@@ -1006,6 +1006,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private boolean completeRouteInfo() {
         List<UpdateCloudReplicaInfo> updateReplicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         long[] assignedErrNum = {0L};
+        long[] staleRouteNum = {0L};
+        // removeInvalidRoutes() scans a replica's whole route map, which has nothing to do with the compute
+        // group currently being processed. But loopCloudReplica() has the compute group loop innermost, so
+        // it hands us every replica once per live compute group -- calling the cleanup unconditionally
+        // would repeat the same scan N times per replica, all of it under table.readLock(). Any single
+        // compute group id works as a ticket to run it exactly once per replica per round; which one is
+        // irrelevant. If clusterToBes is empty the callback is never invoked at all, so the serving
+        // catalog keeps the stale entries until it reloads the image -- there is nothing to route in that
+        // state anyway.
+        String cleanupPassTicket = clusterToBes.keySet().stream().findFirst().orElse(null);
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean assigned = false;
@@ -1017,6 +1027,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (Tablet tablet : tablets) {
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
+                    // Drop routes of compute groups that no longer exist; gsonPostProcess() only converges
+                    // the catalog on image load, so without this the leader keeps them until it restarts.
+                    // No edit log op is written for the removal: the entries are already unroutable, every
+                    // FE reaches the same conclusion from its own backend set, and the image is written by
+                    // the checkpoint Env from a fresh load, so a leader/follower difference never reaches
+                    // persisted state and is gone after one round on the new leader.
+                    if (cluster.equals(cleanupPassTicket)) {
+                        staleRouteNum[0] += replica.removeInvalidRoutes();
+                    }
                     // clean secondary map
                     replica.checkAndClearSecondaryClusterToBe(cluster, needRehashDeadTime);
                     // colocate table no need to update primary backends
@@ -1085,7 +1104,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         });
 
-        LOG.info("collect to editlog route {} infos, error num {}", updateReplicaInfos.size(), assignedErrNum[0]);
+        LOG.info("collect to editlog route {} infos, error num {}, stale route entries dropped {}",
+                updateReplicaInfos.size(), assignedErrNum[0], staleRouteNum[0]);
 
         if (updateReplicaInfos.isEmpty()) {
             return true;
