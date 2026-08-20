@@ -255,8 +255,13 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                 return null;
             }
             List<StorageAdapter> vended = StorageAdapter.ofAll(normalized);
-            return vended.stream()
+            Map<StorageTypeId, StorageAdapter> result = vended.stream()
                     .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
+            vended.stream().filter(StorageAdapter::isAzureSasStorage).findFirst().ifPresent(adapter -> {
+                result.remove(StorageTypeId.HDFS);
+                result.put(StorageTypeId.AZURE, adapter);
+            });
+            return result;
         } catch (Exception e) {
             LOG.warn("Failed to normalize vended credentials", e);
             return null;
