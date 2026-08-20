@@ -189,9 +189,9 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     while (_flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
         if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
             _status.update(
-                    Status::Error<true>("wait flush token back pressure time is more than "
-                                        "load_stream_max_wait_flush_token_time {}",
-                                        load_stream_max_wait_flush_token_time_ms));
+                    Status::InternalError("wait flush token back pressure time is more than "
+                                          "load_stream_max_wait_flush_token_time {}",
+                                          load_stream_max_wait_flush_token_time_ms));
             return _status.status();
         }
         bthread_usleep(2 * 1000); // 2ms
@@ -528,8 +528,11 @@ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 void LoadStream::_report_result(StreamId stream, const Status& status,
                                 const std::vector<int64_t>& success_tablet_ids,
                                 const FailedTablets& failed_tablets, bool eos) {
-    LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
-              << ", failed tablet num " << failed_tablets.size();
+    if (!status.ok()) {
+        LOG(WARNING) << "report result " << *this << ", status=" << status
+                     << ", success tablet num " << success_tablet_ids.size()
+                     << ", failed tablet num " << failed_tablets.size();
+    }
     butil::IOBuf buf;
     PLoadStreamResponse response;
     response.set_eos(eos);
