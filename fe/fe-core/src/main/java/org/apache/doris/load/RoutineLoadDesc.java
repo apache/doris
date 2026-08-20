@@ -108,6 +108,8 @@ public class RoutineLoadDesc {
      */
     public String toSql() {
         List<String> clauses = new ArrayList<>();
+        // Routine Load SQL does not currently expose a line-delimiter clause. RoutineLoadJob
+        // persists that scalar separately until the grammar supports representing it here.
         if (columnSeparator != null) {
             clauses.add("COLUMNS TERMINATED BY " + SqlUtils.quoteStringLiteral(
                     columnSeparator.getOriSeparator(), SqlModeHelper.hasNoBackSlashEscapes()));

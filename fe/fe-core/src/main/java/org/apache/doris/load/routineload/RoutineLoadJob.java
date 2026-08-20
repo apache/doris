@@ -119,6 +119,7 @@ public abstract class RoutineLoadJob
         extends AbstractTxnStateChangeCallback
         implements Writable, LoadTaskInfo, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
+
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
@@ -204,7 +205,6 @@ public abstract class RoutineLoadJob
     @SerializedName("men")
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected double maxFilterRatio = DEFAULT_MAX_FILTER_RATIO;
-    @SerializedName("eml")
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
     protected boolean loadToSingleTablet = DEFAULT_LOAD_TO_SINGLE_TABLET;
@@ -274,7 +274,7 @@ public abstract class RoutineLoadJob
     protected String comment = "";
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
@@ -320,7 +320,6 @@ public abstract class RoutineLoadJob
         this.tableId = tableId;
         this.authCode = 0;
         this.userIdentity = userIdentity;
-        this.mergeType = LoadTask.MergeType.APPEND;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
@@ -350,7 +349,6 @@ public abstract class RoutineLoadJob
         this.authCode = 0;
         this.userIdentity = userIdentity;
         this.isMultiTable = true;
-        this.mergeType = LoadTask.MergeType.APPEND;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
