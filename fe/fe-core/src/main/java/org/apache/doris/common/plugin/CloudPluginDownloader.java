@@ -33,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -153,15 +154,22 @@ public class CloudPluginDownloader {
         props.put("s3.bucket", objInfo.getBucket());
 
         // Auto-detect storage type (S3, COS, OSS, etc.)
-        StorageProperties storageProps;
+        AbstractS3CompatibleProperties storageProps;
         try {
-            storageProps = StorageProperties.createAll(props).stream()
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException("Failed to create storage properties"));
+            storageProps = selectS3CompatibleProperties(StorageProperties.createAll(props));
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
 
-        return new S3ObjStorage((AbstractS3CompatibleProperties) storageProps);
+        return new S3ObjStorage(storageProps);
+    }
+
+    static AbstractS3CompatibleProperties selectS3CompatibleProperties(
+            List<StorageProperties> storageProperties) {
+        return storageProperties.stream()
+                .filter(AbstractS3CompatibleProperties.class::isInstance)
+                .map(AbstractS3CompatibleProperties.class::cast)
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Failed to create S3-compatible storage properties"));
     }
 }
