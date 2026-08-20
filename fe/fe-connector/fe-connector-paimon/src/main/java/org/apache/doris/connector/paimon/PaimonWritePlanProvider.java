@@ -235,10 +235,11 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
      * what routes the statement to the connector's OWN error messages instead of the native "olapTable"
      * rejection.
      *
-     * <p>Declared does not mean admitted: {@link PaimonConnectorMetadata#validateRowLevelDmlMode} rejects
-     * UPDATE/MERGE for every table shape today (their operation-tagged merge stream is not consumed by
-     * the writer), and gates DELETE per table shape. {@link #planWrite}'s operation check is the
-     * execution-time backstop for the same contract.</p>
+     * <p>Declared does not mean admitted: {@link PaimonConnectorMetadata#validateRowLevelDmlMode} gates all
+     * three ops per table shape — a primary-key table carries every one, an unaware-bucket append-only
+     * table with deletion vectors carries every one (the operation-tagged merge stream drives a combined
+     * deletion-vector-plus-append write), and every other append-only shape is rejected there.
+     * {@link #planWrite}'s operation check is the execution-time backstop for the same contract.</p>
      */
     @Override
     public Set<WriteOperation> supportedOperations() {
@@ -249,9 +250,10 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     /**
      * Declares the row-id locator column for EVERY paimon table.
      *
-     * <p>Only the append-only delete actually consumes it (the deletion vector needs the physical
-     * address: data file + ordinal). A primary-key delete addresses rows BY KEY and the writer ignores
-     * the locator — but the fe-core row-level plan builders inject the locator unconditionally (the
+     * <p>Only an append-only row-level write actually consumes it — a DELETE, and the removal half of an
+     * UPDATE/MERGE, need the physical address (data file + ordinal) to mark in the deletion vector. A
+     * primary-key write addresses rows BY KEY and the writer ignores the locator — but the fe-core
+     * row-level plan builders inject the locator unconditionally (the
      * plan shape is shared with iceberg, where every table has one), so a table that declares none
      * fails at bind time with an unresolved slot. Declaring it uniformly costs the PK scan one extra
      * projected STRUCT and buys a single plan shape.</p>
