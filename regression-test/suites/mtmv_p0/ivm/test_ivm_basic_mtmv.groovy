@@ -63,40 +63,46 @@ suite("test_ivm_basic_mtmv") {
     logger.info("mv_infos after create: " + mvInfos.toString())
     assertTrue(mvInfos.toString().contains("INIT"))
 
-    // 5. Verify MV is UNIQUE_KEYS with MOW (via desc command)
+    // 5. Verify IVM streams metadata maps each base table (full path) to its auto-created stream
+    def ivmStreams = sql """select IvmBaseTableStreams from mv_infos('database'='${context.dbName}') where Name = 'mv_ivm_basic'"""
+    logger.info("mv_infos ivm streams: " + ivmStreams.toString())
+    assertTrue(ivmStreams.toString().contains("internal.${context.dbName}.t_ivm_basic_base="))
+    assertTrue(ivmStreams.toString().contains("__doris_ivm_stream_"))
+
+    // 6. Verify MV is UNIQUE_KEYS with MOW (via desc command)
     def descResult = sql """desc mv_ivm_basic all"""
     logger.info("desc mv: " + descResult.toString())
     assertTrue(descResult.toString().contains("UNIQUE_KEYS"))
 
-    // 6. First COMPLETE refresh (full overwrite, skips IVM path)
+    // 7. First COMPLETE refresh (full overwrite, skips IVM path)
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
-    // 7. Verify data after first refresh (exclude __IVM_ROW_ID__ column)
+    // 8. Verify data after first refresh (exclude __IVM_ROW_ID__ column)
     order_qt_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
 
-    // 8. Insert more rows into base table
+    // 9. Insert more rows into base table
     sql """
         INSERT INTO t_ivm_basic_base VALUES
             (4, 40, 'ddd'),
             (5, 50, 'eee');
     """
 
-    // 9. Second refresh via IVM incremental path.
+    // 10. Second refresh via IVM incremental path.
     //    Deterministic row_id upserts correctly for the MOW base table.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
     order_qt_after_second_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
 
-    // 10. Update existing rows in base table
+    // 11. Update existing rows in base table
     sql """
         INSERT INTO t_ivm_basic_base VALUES
             (2, 22, 'bbb_updated'),
             (3, 33, 'ccc_updated');
     """
 
-    // 11. Third refresh via IVM incremental — should reflect updated rows
+    // 12. Third refresh via IVM incremental — should reflect updated rows
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
