@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_remote_doris_unique_table_select", "p0,external") {
+suite("test_remote_doris_unique_table_select", "p0,external,nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")

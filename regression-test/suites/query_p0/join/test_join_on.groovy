@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join_on", "query_p0") {
+suite("test_join_on", "query_p0,nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     sql "DROP TABLE IF EXISTS join_on"

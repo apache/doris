@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("any_value") {
+suite("any_value", "nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
     sql "set enable_decimal256 = true;"
     sql """

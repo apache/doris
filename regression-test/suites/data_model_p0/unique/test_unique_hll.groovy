@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_table_hll") {
+suite("test_unique_table_hll", "nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     for (def enable_mow : [true, false]) {

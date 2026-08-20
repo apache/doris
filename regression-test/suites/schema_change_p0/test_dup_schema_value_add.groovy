@@ -625,7 +625,7 @@ suite("test_dup_schema_value_add", "p0") {
 
 
     //TODO Test the duplicate model by adding a value column with HLL
-    errorMessage = "HLL type is only supported in aggregate key tables"
+    errorMessage = "errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: comment"
     expectException({
         sql initTable
         sql initTableData

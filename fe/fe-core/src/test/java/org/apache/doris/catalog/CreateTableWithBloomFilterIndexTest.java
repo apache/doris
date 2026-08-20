@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -404,18 +405,24 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithHllBloomFilterIndex() {
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                " HLL is not supported in bloom filter index. invalid column: k1",
-                () -> createTable("CREATE TABLE test.tbl_hll_bf (\n"
-                        + "v1 INT,\n"
-                        + "k1 HLL\n"
-                        + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(v1)\n"
-                        + "DISTRIBUTED BY HASH(v1) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "\"bloom_filter_columns\" = \"k1\",\n"
-                        + "\"replication_num\" = \"1\"\n"
-                        + ");"));
+        boolean originalValue = Config.allow_non_aggregate_table_state_types;
+        Config.allow_non_aggregate_table_state_types = true;
+        try {
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                    " HLL is not supported in bloom filter index. invalid column: k1",
+                    () -> createTable("CREATE TABLE test.tbl_hll_bf (\n"
+                            + "v1 INT,\n"
+                            + "k1 HLL\n"
+                            + ") ENGINE=OLAP\n"
+                            + "DUPLICATE KEY(v1)\n"
+                            + "DISTRIBUTED BY HASH(v1) BUCKETS 1\n"
+                            + "PROPERTIES (\n"
+                            + "\"bloom_filter_columns\" = \"k1\",\n"
+                            + "\"replication_num\" = \"1\"\n"
+                            + ");"));
+        } finally {
+            Config.allow_non_aggregate_table_state_types = originalValue;
+        }
     }
 
     @Test

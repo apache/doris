@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("mow_negative_mv_test", "mv_negative") {
+suite("mow_negative_mv_test", "mv_negative,nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     String db = context.config.getDbNameByFile(context.file)

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("dup_negative_mv_test", "mv_negative") {
+suite("dup_negative_mv_test", "mv_negative,nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable

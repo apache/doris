@@ -370,7 +370,12 @@ public class ColumnDefinition {
      */
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+        validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+    }
+
+    public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
+            KeysType keysType, boolean isInternalSession) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false, isInternalSession);
     }
 
     /**
@@ -378,11 +383,11 @@ public class ColumnDefinition {
      */
     public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true);
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
     }
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
-            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn) {
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isInternalSession) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
@@ -400,7 +405,7 @@ public class ColumnDefinition {
         }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
-        if (isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
+        if (!isInternalSession && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.allow_non_aggregate_table_state_types) {
             throw new AnalysisException(String.format(
                     "%s type is only supported in aggregate key tables, column: %s. "

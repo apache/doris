@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_duplicate_table_quantile_state") {
+suite("test_duplicate_table_quantile_state", "nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     sql "sync;"

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_state_types_only_in_aggregate_table") {
+suite("test_state_types_only_in_aggregate_table", "nonConcurrent") {
     sql "set enable_agg_state=true"
 
     sql "drop table if exists state_type_dup_hll"

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_default_hll") {
+suite("test_default_hll", "nonConcurrent") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
     def tableName = "test_default_hll"
 
