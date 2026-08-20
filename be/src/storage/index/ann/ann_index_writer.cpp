@@ -44,7 +44,11 @@ AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
 AnnIndexColumnWriter::~AnnIndexColumnWriter() = default;
 
 Status AnnIndexColumnWriter::init() {
-    Result<std::shared_ptr<DorisFSDirectory>> compound_dir = _index_file_writer->open(_index_meta);
+    // The staging directory, not necessarily a filesystem one: under SNII the
+    // faiss output is held in memory until begin_close() seals it into the
+    // container as a blob. Only the write side is used either way.
+    Result<std::shared_ptr<lucene::store::Directory>> compound_dir =
+            _index_file_writer->open_ann_directory(_index_meta);
 
     if (!compound_dir.has_value()) {
         return Status::IOError("Failed to open index file: {}", compound_dir.error().to_string());

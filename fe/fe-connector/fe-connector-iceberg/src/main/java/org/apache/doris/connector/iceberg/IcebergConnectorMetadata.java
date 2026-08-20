@@ -127,10 +127,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
 
     // Snapshot-summary keys for table-level row count (getTableStatistics). Local literal copies of the
-    // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_* and to the COUNT(*)
-    // pushdown copies in IcebergScanPlanProvider (themselves deliberately NOT org.apache.iceberg
-    // .SnapshotSummary.* per that file's note). Duplicated rather than shared so this fix does not touch
-    // the unrelated scan provider. All THREE keys are read: legacy getIcebergRowCount (via
+    // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_*. These remain optimizer
+    // estimates only; exact COUNT(*) pushdown deliberately derives its result from live manifest-list counters.
+    // All THREE keys are read: legacy getIcebergRowCount (via
     // getCountFromSummary, upstream 32a2651f66b / #64648) nets out position deletes AND gates the count to
     // UNKNOWN on any equality delete — see computeRowCount.
     private static final String TOTAL_RECORDS = "total-records";
@@ -823,9 +822,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * .getIcebergRowCount} (which calls {@code getCountFromSummary(summary, true)}, upstream 32a2651f66b /
      * #64648): any equality delete ({@code total-equality-deletes} absent or {@code != "0"}) -> -1 (UNKNOWN),
      * since equality deletes re-project at read time and the summary cannot net them out; otherwise
-     * {@code total-records - total-position-deletes}. Shares the equality-delete gate with the COUNT(*)
-     * pushdown {@code IcebergScanPlanProvider.getCountFromSummary}, differing only in dangling-delete handling
-     * (table statistics always net out position deletes; the pushdown honors the dangling-delete session var).
+     * {@code total-records - total-position-deletes}. This best-effort optimizer estimate is not used as an
+     * exact query result; COUNT(*) pushdown independently sums live-row counters from the manifest list.
      * Empty table (no current snapshot) -> -1, which the caller maps to UNKNOWN.
      */
     private static long computeRowCount(Table table) {
@@ -842,8 +840,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // summary, true) (upstream 32a2651f66b, #64648): an absent total-* counter (compaction / replace /
         // overwrite snapshots may omit one — the pre-fix Long.parseLong(null) NPE-d), or any equality delete
         // (total-equality-deletes != "0"), makes the summary row count unsafe -> -1 (caller maps to UNKNOWN),
-        // because equality deletes re-project at read time and the summary cannot net them out. Same gate as
-        // the COUNT(*) pushdown IcebergScanPlanProvider.getCountFromSummary.
+        // because equality deletes re-project at read time and the summary cannot net them out.
         String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
         String totalRecords = summary.get(TOTAL_RECORDS);
         String positionDeletes = summary.get(TOTAL_POSITION_DELETES);

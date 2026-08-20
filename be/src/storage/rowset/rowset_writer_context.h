@@ -99,6 +99,12 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
+    // SNII only: (column_unique_id, index_id) pairs whose postings are produced
+    // by index compaction. The segment writer raw-builds every OTHER SNII index
+    // of the column, so one eligible and one new index on the same column can
+    // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
+    // their per-column CLucene directories cannot split an index off a column.
+    std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;

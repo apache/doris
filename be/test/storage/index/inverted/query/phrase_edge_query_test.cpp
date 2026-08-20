@@ -62,12 +62,19 @@ public:
         _inverted_index_query_cache = std::unique_ptr<segment_v2::InvertedIndexQueryCache>(
                 InvertedIndexQueryCache::create_global_cache(inverted_index_cache_limit, 1));
 
+        // Both caches are owned by this fixture, so the previous globals must come back in
+        // TearDown -- otherwise ExecEnv keeps pointing at them after the fixture is destroyed and
+        // the next test that reaches InvertedIndexQueryCache::instance() reads freed memory.
+        _previous_searcher_cache = ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+        _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
                 _inverted_index_searcher_cache.get());
-        ExecEnv::GetInstance()->_inverted_index_query_cache = _inverted_index_query_cache.get();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_inverted_index_query_cache.get());
     }
 
     void TearDown() override {
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_previous_searcher_cache);
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_previous_query_cache);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -180,6 +187,8 @@ public:
     ~PhraseEdgeQueryTest() override = default;
 
 private:
+    InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
+    InvertedIndexQueryCache* _previous_query_cache = nullptr;
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
     std::unique_ptr<InvertedIndexQueryCache> _inverted_index_query_cache;
 };

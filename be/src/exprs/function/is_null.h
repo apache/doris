@@ -37,6 +37,7 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 #include "exprs/vslot_ref.h"
+#include "storage/index/index_iterator.h"
 
 namespace doris {
 class FunctionContext;

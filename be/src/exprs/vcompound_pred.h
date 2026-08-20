@@ -44,6 +44,15 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
     }
 }
 
+inline bool inverted_index_status_allows_row_fallback(const Status& status) {
+    DORIS_CHECK(!status.ok());
+    return status.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+           status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+           status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+}
+
 class VCompoundPred : public VectorizedFnCall {
     ENABLE_FACTORY_CREATOR(VCompoundPred);
 
@@ -272,6 +281,9 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    if (!inverted_index_status_allows_row_fallback(st)) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }
@@ -301,6 +313,9 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    if (!inverted_index_status_allows_row_fallback(st)) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }

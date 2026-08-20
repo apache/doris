@@ -85,6 +85,7 @@ Usage: $0 <options>
     ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
+    DORIS_DEV_DEBUG_INFO        Debug info level for the BE: 'line-tables' compiles with -gline-tables-only for faster dev builds (clang only; keeps line tables for stack traces, drops variable-level DWARF), 'full' is the full debug info. Default is 'full' here; run-be-ut.sh defaults to 'line-tables'.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
@@ -356,6 +357,7 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
+            BUILD_BE=1
             shift
             ;;
         --benchmark)
@@ -481,7 +483,7 @@ fi
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
-    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+    LAST_THIRDPARTY_LIB='hadoop_hdfs_3_4/native/libhdfs.a'
 fi
 
 # The final-library sentinel only proves that some third-party build completed. It cannot
@@ -761,12 +763,14 @@ echo "Get params:
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
+    DORIS_DEV_DEBUG_INFO                -- ${DORIS_DEV_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
     ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD                  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_FE_MODULES                    -- ${EXTRA_FE_MODULES}
     EXTRA_BE_MODULES                    -- ${EXTRA_BE_MODULES}
     EXTRA_CLOUD_MODULES                 -- ${EXTRA_CLOUD_MODULES}
@@ -941,8 +945,10 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
+        -DDORIS_DEV_DEBUG_INFO="${DORIS_DEV_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
@@ -1246,10 +1252,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
     # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
-    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
-    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
-    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
-    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # com.aliyun.jindodata is child-first (only org.apache.doris.connector./.filesystem. and
+    # org.apache.hadoop. are parent-first, see ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES),
+    # so without its OWN copy JindoOssFileSystem resolves from the parent 'app' classloader.
+    # Historically that could not be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem;
+    # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
+    # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
+    # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
     # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
     # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
     # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
@@ -1487,6 +1496,14 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
         mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
         cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
+    fi
+    # copy-dependencies writes only the transitive deps to target/lib; the patched
+    # org.apache.hadoop.fs.FileSystem lives in the module's own jar at target/. Without this the
+    # meta-service would run on the vanilla class and silently ignore doris.fs.cache.key.<scheme>.
+    # cloud/script/start.sh loads it ahead of the vanilla hadoop jars beside it.
+    if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi

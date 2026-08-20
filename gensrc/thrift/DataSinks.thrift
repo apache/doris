@@ -384,6 +384,7 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    13: optional bool supports_deferred_azure_multipart
 }
 
 enum TUpdateMode {
@@ -539,6 +540,10 @@ struct TIcebergMergeSink {
     14: optional bool collect_column_stats;
     // Unset preserves old-FE UPDATE behavior; execution version gates SQL MERGE validation.
     15: optional bool require_merge_cardinality_check;
+    // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
+    16: optional bool writes_data_files;
+    // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
+    17: optional bool has_variant_schema;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

@@ -145,4 +145,10 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 };
+
+/// Instantiated once in data_type_date_or_datetime_serde.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class DataTypeDateSerDe<TYPE_DATE>;
+extern template class DataTypeDateSerDe<TYPE_DATETIME>;
+
 } // namespace doris

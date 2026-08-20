@@ -11605,6 +11605,10 @@ TEST(MetaServiceTest, RestoreJobTest) {
     brpc::Controller cntl;
     RestoreJobRequest req;
     RestoreJobResponse res;
+    int64_t max_txn_commit_byte = config::max_txn_commit_byte;
+    DORIS_CLOUD_DEFER {
+        config::max_txn_commit_byte = max_txn_commit_byte;
+    };
 
     // ------------Test prepare restore job------------
     // invalid args prepare restore job
@@ -11768,6 +11772,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         res.Clear();
     }
     // normal commit restore job
+    config::max_txn_commit_byte = 1;
     for (int store_version = 0; store_version < 4; store_version++) {
         reset_meta_service();
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -11911,6 +11916,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         req.Clear();
         res.Clear();
     }
+    config::max_txn_commit_byte = max_txn_commit_byte;
     // large commit restore job request with 10000 rowset meta
     {
         reset_meta_service();

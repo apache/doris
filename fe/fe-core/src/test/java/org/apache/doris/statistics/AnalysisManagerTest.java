@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -28,16 +29,24 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.DBObjects;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.collect.ImmutableList;
@@ -53,6 +62,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // CHECKSTYLE OFF
@@ -252,6 +263,213 @@ public class AnalysisManagerTest {
                 "job.message must remain stable across flushBuffer replays");
         Assertions.assertEquals(skip1, ti1.message);
         Assertions.assertEquals(skip2, ti2.message);
+    }
+
+    @Test
+    public void testUpdateTaskStatusClearsSharedPartitionUpdateRowsOnFailure() {
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+        BaseAnalysisTask task2 = Mockito.mock(BaseAnalysisTask.class);
+
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+
+        ConcurrentMap<Long, Long> partitionRows = new ConcurrentHashMap<>();
+        partitionRows.put(1L, 10L);
+        partitionRows.put(2L, 20L);
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1).setPartitionUpdateRows(partitionRows)
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo taskInfo1 = new AnalysisInfoBuilder(job).setJobId(1).setTaskId(2)
+                .setJobType(JobType.MANUAL).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setState(AnalysisState.PENDING).build();
+        AnalysisInfo taskInfo2 = new AnalysisInfoBuilder(job).setJobId(1).setTaskId(3)
+                .setJobType(JobType.MANUAL).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setState(AnalysisState.PENDING).build();
+        // Tasks share the job's partitionUpdateRows map instead of deep-copying it.
+        Assertions.assertSame(job.partitionUpdateRows, taskInfo1.partitionUpdateRows);
+        Assertions.assertSame(job.partitionUpdateRows, taskInfo2.partitionUpdateRows);
+
+        manager.replayCreateAnalysisJob(job);
+        manager.replayCreateAnalysisTask(taskInfo1);
+        manager.replayCreateAnalysisTask(taskInfo2);
+        task1.info = taskInfo1;
+        task2.info = taskInfo2;
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(2L, task1);
+        tasks.put(3L, task2);
+        manager.addToJobIdTasksMap(1, tasks);
+
+        // Job still running (task2 pending): the shared map must survive.
+        manager.updateTaskStatus(taskInfo1, AnalysisState.FAILED, "err1", 0);
+        Assertions.assertFalse(job.partitionUpdateRows.isEmpty());
+        // Job reached terminal (FAILED) state: the shared map is cleared exactly once,
+        // releasing the memory held by the job and all its task records at once.
+        manager.updateTaskStatus(taskInfo2, AnalysisState.FAILED, "err2", 0);
+        Assertions.assertEquals(AnalysisState.FAILED, job.state);
+        Assertions.assertTrue(job.partitionUpdateRows.isEmpty());
+    }
+
+    @Test
+    public void testPartitionUpdateRowsJobSnapshotNotAliased() {
+        // The job must own an independent snapshot of the table stats' partition update
+        // rows: tasks share it and it is cleared at the job terminal state, so it must
+        // not alias the TableStatsMeta map or that clear would wipe it.
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        ConcurrentMap<Long, Long> tableStatsRows = new ConcurrentHashMap<>();
+        tableStatsRows.put(1L, 10L);
+        tableStatsRows.put(2L, 20L);
+        TableStatsMeta tableStatsStatus = new TableStatsMeta();
+        tableStatsStatus.partitionUpdateRows = tableStatsRows;
+        Mockito.doReturn(tableStatsStatus).when(manager).findTableStatsStatus(30001L);
+
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getNextId()).thenReturn(1L);
+
+            AnalysisInfo job = manager.buildAnalysisJobInfo(
+                    mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.ONCE, false, false));
+            Assertions.assertNotSame(tableStatsRows, job.partitionUpdateRows);
+            Assertions.assertEquals(tableStatsRows, job.partitionUpdateRows);
+        }
+    }
+
+    @Test
+    public void testUpdateTableStatsClearsSharedMapOnThrow() {
+        // updateTableStats must clear the shared map even when the stats update fails
+        // (e.g. the table is dropped), so the terminal job does not leak memory.
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        ConcurrentMap<Long, Long> partitionRows = new ConcurrentHashMap<>();
+        partitionRows.put(1L, 10L);
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobId(1).setPartitionUpdateRows(partitionRows)
+                .setState(AnalysisState.FINISHED).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        try (MockedStatic<StatisticsUtil> suStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            suStatic.when(() -> StatisticsUtil.findTable(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenThrow(new RuntimeException("table gone"));
+            Assertions.assertThrows(RuntimeException.class, () -> manager.updateTableStats(jobInfo));
+        }
+        Assertions.assertTrue(partitionRows.isEmpty(),
+                "shared map must be cleared even when updateTableStats throws");
+    }
+
+    @Test
+    public void testHandleKillAnalyzeJobClearsSharedPartitionUpdateRows() throws DdlException {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        ConcurrentMap<Long, Long> partitionRows = new ConcurrentHashMap<>();
+        partitionRows.put(1L, 10L);
+        partitionRows.put(2L, 20L);
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1).setPartitionUpdateRows(partitionRows)
+                .setCatalogId(10001L).setDBId(20001L).setTblId(30001L)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo taskInfo = new AnalysisInfoBuilder(job).setJobId(1).setTaskId(2)
+                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).build();
+        // Tasks share the job's partitionUpdateRows map.
+        Assertions.assertSame(job.partitionUpdateRows, taskInfo.partitionUpdateRows);
+
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        task.info = taskInfo;
+        Mockito.when(task.getJobId()).thenReturn(1L);
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(2L, task);
+        manager.addToJobIdTasksMap(1, tasks);
+        manager.replayCreateAnalysisJob(job);
+        manager.replayCreateAnalysisTask(taskInfo);
+
+        ConnectContext ctx = new ConnectContext();
+        MoreFieldsThread.setConnectContext(ctx);
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        DBObjects dbObjects = new DBObjects(Mockito.mock(CatalogIf.class), Mockito.mock(DatabaseIf.class),
+                Mockito.mock(TableIf.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> suStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
+                    .thenReturn(dbObjects);
+            manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
+        }
+        MoreFieldsThread.removeConnectContext();
+        Assertions.assertEquals(AnalysisState.FAILED, job.state);
+        Assertions.assertTrue(partitionRows.isEmpty(),
+                "shared map must be cleared when a running job is killed");
+    }
+
+    @Test
+    public void testHandleKillAnalyzeJobWithEvictedJobRecord() throws DdlException {
+        // The job record may have been evicted from analysisJobInfoMap while the job was
+        // still running: killing it must not NPE and must still cancel its running tasks.
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1).setPartitionUpdateRows(new ConcurrentHashMap<>())
+                .setCatalogId(10001L).setDBId(20001L).setTblId(30001L)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo taskInfo = new AnalysisInfoBuilder(job).setJobId(1).setTaskId(2)
+                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).build();
+
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        task.info = taskInfo;
+        Mockito.when(task.getJobId()).thenReturn(1L);
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(2L, task);
+        manager.addToJobIdTasksMap(1, tasks);
+
+        ConnectContext ctx = new ConnectContext();
+        MoreFieldsThread.setConnectContext(ctx);
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        DBObjects dbObjects = new DBObjects(Mockito.mock(CatalogIf.class), Mockito.mock(DatabaseIf.class),
+                Mockito.mock(TableIf.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> suStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
+                    .thenReturn(dbObjects);
+            manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
+        }
+        MoreFieldsThread.removeConnectContext();
+        Assertions.assertEquals(AnalysisState.FAILED, taskInfo.state,
+                "tasks of an evicted job must still be marked as killed");
+    }
+
+    @Test
+    public void testReplayCreateAnalysisJobEvictionClearsSharedMap() {
+        Config.analyze_record_limit = 2;
+        AnalysisManager manager = new AnalysisManager();
+        // The evicted job may still be running: its updateTaskStatus would return early
+        // on the "job == null" guard and never reach the terminal-state clear, so the
+        // shared map must be cleared at eviction time.
+        ConcurrentMap<Long, Long> evictedRows = new ConcurrentHashMap<>();
+        evictedRows.put(1L, 10L);
+        manager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(1)
+                .setPartitionUpdateRows(evictedRows).setState(AnalysisState.RUNNING)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).setJobType(JobType.MANUAL).build());
+        manager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(2)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(JobType.MANUAL).build());
+        manager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(3)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(JobType.MANUAL).build());
+        Assertions.assertEquals(2, manager.analysisJobInfoMap.size());
+        Assertions.assertTrue(manager.analysisJobInfoMap.containsKey(2L));
+        Assertions.assertTrue(manager.analysisJobInfoMap.containsKey(3L));
+        Assertions.assertTrue(evictedRows.isEmpty(),
+                "the evicted job's shared map must be cleared at eviction");
     }
 
     @Test

@@ -46,14 +46,12 @@
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 namespace {
-
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
 
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
@@ -115,6 +113,16 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
     // The COUNT argument field must not affect other storage-layer aggregate operations.
     EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
                                                 TPushAggOp::type::MINMAX, std::nullopt));
+}
+
+TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
+    EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                           std::vector<int32_t> {}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                            std::vector<int32_t> {7}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT, std::nullopt));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::MINMAX,
+                                                            std::vector<int32_t> {}));
 }
 
 TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
@@ -369,6 +377,24 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
+TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
+                    .ok());
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
+                    .ok());
+
+    const auto status =
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(
+                      "External Variant is supported only for Parquet files in FileScannerV2; "
+                      "file format ARROW is not supported"),
+              std::string::npos)
+            << status;
+}
+
 // Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
 // formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
 TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
@@ -454,6 +480,30 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
+    auto scan_range = [](std::optional<int64_t> row_count) {
+        TScanRangeParams params;
+        auto& file_range = params.scan_range.ext_scan_range.file_scan_range;
+        TFileRangeDesc range;
+        if (row_count.has_value()) {
+            TTableFormatFileDesc table_format;
+            table_format.__set_table_level_row_count(*row_count);
+            range.__set_table_format_params(table_format);
+        }
+        file_range.ranges.push_back(std::move(range));
+        return params;
+    };
+
+    LocalSplitSourceConnector proven({scan_range(4), scan_range(0)}, 2);
+    EXPECT_TRUE(proven.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector missing({scan_range(4), scan_range(std::nullopt)}, 2);
+    EXPECT_FALSE(missing.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
+    EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
 }
 
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {

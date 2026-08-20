@@ -49,7 +49,7 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
 
-static const std::string timer_name = "WaitForDependencyTime";
+static const std::string wait_for_dependency_timer_name = "WaitForDependencyTime";
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -81,17 +81,18 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             "");
     _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlockTime");
     _local_bytes_send_counter = ADD_COUNTER(custom_profile(), "LocalBytesSent", TUnit::BYTES);
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(common_profile(), timer_name, 1);
-    _wait_queue_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(common_profile(), "WaitForRpcBufferQueue", timer_name, 1);
+    _wait_for_dependency_timer =
+            ADD_TIMER_WITH_LEVEL(common_profile(), wait_for_dependency_timer_name, 1);
+    _wait_queue_timer = ADD_CHILD_TIMER_WITH_LEVEL(common_profile(), "WaitForRpcBufferQueue",
+                                                   wait_for_dependency_timer_name, 1);
 
     _create_channels();
     // Make sure brpc stub is ready before execution.
     for (auto& channel : channels) {
         RETURN_IF_ERROR(channel->init(state));
     }
-    _wait_broadcast_buffer_timer =
-            ADD_CHILD_TIMER(common_profile(), "WaitForBroadcastBuffer", timer_name);
+    _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(common_profile(), "WaitForBroadcastBuffer",
+                                                   wait_for_dependency_timer_name);
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     _part_type = p._part_type;
@@ -262,7 +263,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                     _wait_channel_timer.push_back(common_profile()->add_nonzero_counter(
                             fmt::format("WaitForLocalExchangeBuffer{}",
                                         _local_channels_dependency.size()),
-                            TUnit ::TIME_NS, timer_name, 1));
+                            TUnit ::TIME_NS, wait_for_dependency_timer_name, 1));
                 }
             }
         }

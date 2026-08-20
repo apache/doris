@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <map>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -73,6 +72,9 @@ struct TransformExecContext {
     // --- outputs ---
     // the derived column for the writer to generate in batches; null generator = none
     DerivedColumn derived_column;
+    // probe counters of the partial-update fill stages; the flush seam folds them
+    // into the flusher totals
+    PartialUpdateStats partial_update_stats;
 };
 
 // One Block -> Block step run before the segment writers. apply() may mutate
@@ -86,7 +88,8 @@ public:
 };
 
 // An ordered list of transforms. Building one is cheap, so the seams build it
-// per flush; it is immutable and shareable across concurrent flushes.
+// for each transformed block; it is immutable and shareable across concurrent
+// flushes.
 class BlockTransformChain {
 public:
     BlockTransformChain() = default;
@@ -117,10 +120,11 @@ private:
 
 // The single place that decides which transforms a write path gets:
 //   - compaction: empty (rows are already final)
-//   - binlog sub-writer: empty for now (RowBinlogSegmentWriter still derives
-//     the binlog rows itself; a later change moves that in here)
-//   - partial update: [Validate] for now (the segment writers still do their
-//     own fill, parse and row-store work; later changes move the fill in here)
+//   - binlog<row> sub-writer: [PlainRowBinlogDerive] or [MowRowBinlogDerive]
+//     for a direct write, empty otherwise (rows are already binlog shaped)
+//   - fixed partial update: [Validate, FixedPartialUpdateFill, VariantParse, RowStoreFill]
+//   - flexible partial update: [Validate, FlexiblePartialUpdateFill, RowStoreFill, VariantParse]
+//     (row store before parse, the reverse of fixed: each order mirrors its legacy path)
 //   - direct / schema change / transient flush: [Validate, RowStoreFill, VariantParse]
 // RowStoreFill is omitted when the write type does not rebuild the row-store column.
 BlockTransformChain build_transform_chain(const RowsetWriterContext& context);

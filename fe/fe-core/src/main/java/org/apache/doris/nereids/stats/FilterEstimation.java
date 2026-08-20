@@ -58,6 +58,7 @@ import org.apache.doris.statistics.StatisticsBuilder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.math3.util.Precision;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -854,8 +855,17 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Expression child = not.child();
         Statistics childStats = child.accept(this, context);
         childStats.normalizeColumnStatistics();
+        double rowCount = context.statistics.getRowCount() - childStats.getRowCount();
+        if (child instanceof InPredicate
+                && Precision.equals(childStats.getRowCount(), context.statistics.getRowCount(), 0.000001)) {
+            // [not in rows] = [total rows] - [in rows], while [in rows] is usually over-estimated when the
+            // options cover the whole ndv or the ndv statistics is inaccurate, which makes [not in rows]
+            // under-estimated to nearly 0. Following starrocks, fall back to a default coefficient to
+            // avoid the not-in rows being too small.
+            rowCount = context.statistics.getRowCount() * (1 - DEFAULT_IN_COEFFICIENT);
+        }
         //if estimated rowCount is 0, adjust to 1 to make upper join reorder reasonable.
-        double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 1);
+        rowCount = Math.max(rowCount, 1);
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder(context.statistics).setRowCount(rowCount);
         // update key col stats
         for (Slot slot : not.child().getInputSlots()) {

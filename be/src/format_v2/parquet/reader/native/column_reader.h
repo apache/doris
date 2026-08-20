@@ -433,6 +433,7 @@ private:
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
+    NullMap _fused_nullable_selection_nulls;
     NullMap _fixed_width_predicate_nulls;
     IColumn::Filter _fixed_width_predicate_matches;
     IColumn::Filter _fixed_width_predicate_conversion_nulls;
@@ -708,5 +709,11 @@ public:
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
+
+/// Instantiated once in column_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ScalarColumnReader<true, true>;
+extern template class ScalarColumnReader<true, false>;
+extern template class ScalarColumnReader<false, true>;
+extern template class ScalarColumnReader<false, false>;
 
 } // namespace doris::format::parquet::native

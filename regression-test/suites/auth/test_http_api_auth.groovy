@@ -19,33 +19,26 @@ import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
 suite("test_http_api_auth", "docker") {
-    def options = new ClusterOptions()
-    options.cloudMode = false  // 存算一体模式
+    def jsonSlurper = new JsonSlurper()
 
-    docker(options) {
-        // Get FE and BE HTTP addresses from cluster
+    // Helper to check JSON response code
+    def checkJsonCode = { bodyStr, expectedCode ->
+        def json = jsonSlurper.parseText(bodyStr)
+        assertEquals(expectedCode, json.code)
+    }
+
+    // ========== Test Scenario 1: enable_all_http_auth = false ==========
+    // enable_all_http_auth is not a mutable config, so the disabled path can only be exercised
+    // by starting a cluster with it turned off in fe.conf.
+    def authOffOptions = new ClusterOptions()
+    authOffOptions.cloudMode = false  // 存算一体模式
+    authOffOptions.feConfigs += ['enable_all_http_auth=false']
+
+    docker(authOffOptions) {
         def fe = cluster.getFeByIndex(1)
         def be = cluster.getBeByIndex(1)
         def feHost = fe.host + ":" + fe.httpPort
         def beHost = be.host + ":" + be.httpPort
-
-        def jsonSlurper = new JsonSlurper()
-
-        // Helper to check JSON response code
-        def checkJsonCode = { bodyStr, expectedCode ->
-            def json = jsonSlurper.parseText(bodyStr)
-            assertEquals(expectedCode, json.code)
-        }
-
-        // ========== Setup ==========
-        sql """CREATE USER IF NOT EXISTS 'test_user'@'%' IDENTIFIED BY 'test_password'"""
-        sql """GRANT SELECT_PRIV ON *.* TO 'test_user'@'%'"""
-
-        sql """CREATE USER IF NOT EXISTS 'admin_user'@'%' IDENTIFIED BY 'admin_password'"""
-        sql """GRANT ADMIN_PRIV ON *.*.* TO 'admin_user'@'%'"""
-
-        // ========== Test Scenario 1: enable_all_http_auth = false ==========
-        sql """ADMIN SET FRONTEND CONFIG ("enable_all_http_auth" = "false")"""
 
         // FE Health - no auth needed
         httpTest {
@@ -79,9 +72,41 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // ========== Test Scenario 2: enable_all_http_auth = true - Public APIs ==========
+        // The assertions above hold no matter how the flag is set, so on their own they would
+        // still pass if this cluster's startup override were ignored or misspelled. This one
+        // depends on the flag: /api/show_runtime_info gates its whole auth block on
+        // enable_all_http_auth, so with the flag off an anonymous caller gets the payload, and
+        // the default-on block below proves the same request is rejected when it is on.
+        httpTest {
+            endpoint feHost
+            uri "/api/show_runtime_info"
+            op "get"
+            check { code, body ->
+                assertEquals(200, code)
+                checkJsonCode(body, 0)
+                assertTrue("${body}".contains("thread_cnt"))
+            }
+        }
+    }
+
+    // ========== enable_all_http_auth = true (the default) ==========
+    def options = new ClusterOptions()
+    options.cloudMode = false  // 存算一体模式
+
+    docker(options) {
+        // Get FE HTTP address from cluster
+        def fe = cluster.getFeByIndex(1)
+        def feHost = fe.host + ":" + fe.httpPort
+
+        // ========== Setup ==========
+        sql """CREATE USER IF NOT EXISTS 'test_user'@'%' IDENTIFIED BY 'test_password'"""
+        sql """GRANT SELECT_PRIV ON *.* TO 'test_user'@'%'"""
+
+        sql """CREATE USER IF NOT EXISTS 'admin_user'@'%' IDENTIFIED BY 'admin_password'"""
+        sql """GRANT ADMIN_PRIV ON *.*.* TO 'admin_user'@'%'"""
+
+        // ========== Test Scenario 2: Public APIs ==========
         // Health and Metrics endpoints are always public (no auth required)
-        sql """ADMIN SET FRONTEND CONFIG ("enable_all_http_auth" = "true")"""
 
         // FE Health - still accessible without auth (public endpoint)
         httpTest {
@@ -129,7 +154,46 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // ========== Test Scenario 3: Admin APIs ==========
+        // ========== Test Scenario 3: The flag actually took effect ==========
+
+        // Counterpart of the auth-off block's request: with the flag on, the same anonymous
+        // request to /api/show_runtime_info must be rejected.
+        httpTest {
+            endpoint feHost
+            uri "/api/show_runtime_info"
+            op "get"
+            check { code, body ->
+                assertEquals(200, code)
+                checkJsonCode(body, 401)
+            }
+        }
+
+        // A valid but non-admin account is authenticated and then refused by the ADMIN check.
+        httpTest {
+            endpoint feHost
+            uri "/api/show_runtime_info"
+            op "get"
+            basicAuthorization "test_user", "test_password"
+            check { code, body ->
+                assertEquals(200, code)
+                checkJsonCode(body, 401)  // "Access denied; you need ... Admin_priv"
+            }
+        }
+
+        // An admin account gets the payload.
+        httpTest {
+            endpoint feHost
+            uri "/api/show_runtime_info"
+            op "get"
+            basicAuthorization "admin_user", "admin_password"
+            check { code, body ->
+                assertEquals(200, code)
+                checkJsonCode(body, 0)
+                assertTrue("${body}".contains("thread_cnt"))
+            }
+        }
+
+        // ========== Test Scenario 3b: Password-only APIs ==========
 
         // FE Backends API - no auth returns 401 in JSON body
         httpTest {
@@ -142,9 +206,10 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // FE Backends API - normal user returns 401 (Access denied, need Admin_priv)
-        // Note: The current implementation returns 401 for both authentication failure
-        // and authorization failure (insufficient privileges)
+        // BackendsAction only calls executeCheckPassword -- it deliberately has no privilege
+        // check, because the Flink/Spark connectors call it with an ordinary load account to
+        // discover backends before a stream load. So a valid non-admin user succeeds here. This
+        // endpoint authenticates; it does not authorize.
         httpTest {
             endpoint feHost
             uri "/api/backends"
@@ -152,7 +217,7 @@ suite("test_http_api_auth", "docker") {
             basicAuthorization "test_user", "test_password"
             check { code, body ->
                 assertEquals(200, code)
-                checkJsonCode(body, 401)  // Returns 401 with "Access denied; you need Admin_priv"
+                checkJsonCode(body, 0)
             }
         }
 
@@ -209,8 +274,5 @@ suite("test_http_api_auth", "docker") {
         // ========== Cleanup ==========
         sql """DROP USER IF EXISTS 'test_user'@'%'"""
         sql """DROP USER IF EXISTS 'admin_user'@'%'"""
-
-        // Restore default config
-        sql """ADMIN SET FRONTEND CONFIG ("enable_all_http_auth" = "false")"""
     }
 }

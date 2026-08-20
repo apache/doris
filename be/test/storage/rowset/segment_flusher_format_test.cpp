@@ -108,8 +108,8 @@ constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_O
 // regenerating all golden files.
 constexpr int32_t kGoldenBeExecVersion = 10;
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 76;
-constexpr size_t kExpectedGoldenSegmentCount = 154;
+constexpr size_t kExpectedGoldenCaseCount = 81;
+constexpr size_t kExpectedGoldenSegmentCount = 164;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -3134,87 +3134,102 @@ TEST_F(SegmentFlusherTransformFormatTest,
        RowBinlogWritesNotNullComplexColumnsToNullableAfterColumns) {
     const auto schemas = create_complex_row_binlog_schemas();
 
-    auto full_update_tablets = create_complex_row_binlog_tablets(schemas, 22005);
-    auto full_update_block_result = create_complex_row_binlog_block(schemas.source, 0);
-    ASSERT_TRUE(full_update_block_result.has_value()) << full_update_block_result.error();
-    auto full_update_block = std::move(full_update_block_result).value();
-    const auto expected_full_update = full_update_block;
-    ASSERT_TRUE(flush_row_binlog_block("complex_row_binlog_full_update", schemas.row_binlog,
-                                       std::move(full_update_block),
-                                       [this, full_update_tablets](RowsetWriterContext& context) {
-                                           configure_row_binlog_context(
-                                                   context, full_update_tablets.source_tablet,
-                                                   full_update_tablets.binlog_tablet);
-                                       })
-                        .ok());
-    ASSERT_TRUE(verify_complex_row_binlog_segment(full_update_tablets.binlog_tablet,
-                                                  "complex_row_binlog_full_update", 0,
-                                                  expected_full_update)
-                        .ok());
+    // The chain wraps the AFTER values before any writer sees them, so both
+    // writers have to persist them. Pin the writer instead of inheriting the
+    // config default, which now sends binlog through the vertical one.
+    for (const bool enable_vertical_writer : {false, true}) {
+        config::enable_vertical_segment_writer = enable_vertical_writer;
+        const int64_t id_offset = enable_vertical_writer ? 100 : 0;
+        const std::string case_suffix = enable_vertical_writer ? "_vertical" : "";
 
-    auto partial_update_tablets = create_complex_row_binlog_tablets(schemas, 22006);
-    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
-    ASSERT_TRUE(partial_update_info
-                        ->init(partial_update_tablets.source_tablet->tablet_id(), 1,
-                               *schemas.source, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
-                               PartialUpdateNewRowPolicyPB::APPEND,
-                               {"k1", "v_array", "v_map", "v_struct"}, false, 0, 0, "UTC", "")
-                        .ok());
-    auto partial_update_block_result =
-            create_complex_row_binlog_block(schemas.source, 1, partial_update_info);
-    ASSERT_TRUE(partial_update_block_result.has_value()) << partial_update_block_result.error();
-    auto partial_update_block = std::move(partial_update_block_result).value();
-    const auto expected_partial_update = partial_update_block;
-    ASSERT_TRUE(flush_row_binlog_block("complex_row_binlog_partial_update", schemas.row_binlog,
-                                       std::move(partial_update_block),
-                                       [this, partial_update_tablets,
-                                        partial_update_info](RowsetWriterContext& context) {
-                                           configure_row_binlog_context(
-                                                   context, partial_update_tablets.source_tablet,
-                                                   partial_update_tablets.binlog_tablet,
-                                                   partial_update_info);
-                                       })
-                        .ok());
-    ASSERT_TRUE(verify_complex_row_binlog_segment(partial_update_tablets.binlog_tablet,
-                                                  "complex_row_binlog_partial_update", 0,
-                                                  expected_partial_update)
-                        .ok());
+        auto full_update_tablets = create_complex_row_binlog_tablets(schemas, 22005 + id_offset);
+        auto full_update_block_result = create_complex_row_binlog_block(schemas.source, 0);
+        ASSERT_TRUE(full_update_block_result.has_value()) << full_update_block_result.error();
+        auto full_update_block = std::move(full_update_block_result).value();
+        const auto expected_full_update = full_update_block;
+        ASSERT_TRUE(flush_row_binlog_block(
+                            fmt::format("complex_row_binlog_full_update{}", case_suffix),
+                            schemas.row_binlog, std::move(full_update_block),
+                            [this, full_update_tablets](RowsetWriterContext& context) {
+                                configure_row_binlog_context(context,
+                                                             full_update_tablets.source_tablet,
+                                                             full_update_tablets.binlog_tablet);
+                            })
+                            .ok());
+        ASSERT_TRUE(verify_complex_row_binlog_segment(
+                            full_update_tablets.binlog_tablet,
+                            fmt::format("complex_row_binlog_full_update{}", case_suffix), 0,
+                            expected_full_update)
+                            .ok());
 
-    auto missing_update_tablets = create_complex_row_binlog_tablets(schemas, 22007);
-    auto history_block_result = create_complex_row_binlog_block(schemas.source, 0);
-    ASSERT_TRUE(history_block_result.has_value()) << history_block_result.error();
-    auto history_result = write_mow_history(missing_update_tablets.source_tablet, schemas.source,
-                                            31011, std::move(history_block_result).value());
-    ASSERT_TRUE(history_result.has_value()) << history_result.error();
-    std::vector<RowsetSharedPtr> history {history_result.value()};
+        auto partial_update_tablets = create_complex_row_binlog_tablets(schemas, 22006 + id_offset);
+        auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+        ASSERT_TRUE(partial_update_info
+                            ->init(partial_update_tablets.source_tablet->tablet_id(), 1,
+                                   *schemas.source, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                                   PartialUpdateNewRowPolicyPB::APPEND,
+                                   {"k1", "v_array", "v_map", "v_struct"}, false, 0, 0, "UTC", "")
+                            .ok());
+        auto partial_update_block_result =
+                create_complex_row_binlog_block(schemas.source, 1, partial_update_info);
+        ASSERT_TRUE(partial_update_block_result.has_value()) << partial_update_block_result.error();
+        auto partial_update_block = std::move(partial_update_block_result).value();
+        const auto expected_partial_update = partial_update_block;
+        ASSERT_TRUE(flush_row_binlog_block(
+                            fmt::format("complex_row_binlog_partial_update{}", case_suffix),
+                            schemas.row_binlog, std::move(partial_update_block),
+                            [this, partial_update_tablets,
+                             partial_update_info](RowsetWriterContext& context) {
+                                configure_row_binlog_context(
+                                        context, partial_update_tablets.source_tablet,
+                                        partial_update_tablets.binlog_tablet, partial_update_info);
+                            })
+                            .ok());
+        ASSERT_TRUE(verify_complex_row_binlog_segment(
+                            partial_update_tablets.binlog_tablet,
+                            fmt::format("complex_row_binlog_partial_update{}", case_suffix), 0,
+                            expected_partial_update)
+                            .ok());
 
-    auto missing_update_info = std::make_shared<PartialUpdateInfo>();
-    ASSERT_TRUE(missing_update_info
-                        ->init(missing_update_tablets.source_tablet->tablet_id(), 1,
-                               *schemas.source, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
-                               PartialUpdateNewRowPolicyPB::APPEND, {"k1", "v_array"}, false, 0, 0,
-                               "UTC", "")
-                        .ok());
-    auto missing_update_block_result =
-            create_complex_row_binlog_block(schemas.source, 0, missing_update_info);
-    ASSERT_TRUE(missing_update_block_result.has_value()) << missing_update_block_result.error();
-    auto expected_missing_update_result = create_complex_row_binlog_block(schemas.source, 0);
-    ASSERT_TRUE(expected_missing_update_result.has_value())
-            << expected_missing_update_result.error();
-    ASSERT_TRUE(flush_row_binlog_block("complex_row_binlog_missing_update", schemas.row_binlog,
-                                       std::move(missing_update_block_result).value(),
-                                       [this, missing_update_tablets, missing_update_info,
-                                        history](RowsetWriterContext& context) {
-                                           configure_row_binlog_context(
-                                                   context, missing_update_tablets.source_tablet,
-                                                   missing_update_tablets.binlog_tablet,
-                                                   missing_update_info, history);
-                                       })
-                        .ok());
-    ASSERT_TRUE(verify_complex_row_binlog_segment(missing_update_tablets.binlog_tablet,
-                                                  "complex_row_binlog_missing_update", 0,
-                                                  expected_missing_update_result.value())
-                        .ok());
+        auto missing_update_tablets = create_complex_row_binlog_tablets(schemas, 22007 + id_offset);
+        auto history_block_result = create_complex_row_binlog_block(schemas.source, 0);
+        ASSERT_TRUE(history_block_result.has_value()) << history_block_result.error();
+        auto history_result =
+                write_mow_history(missing_update_tablets.source_tablet, schemas.source, 31011,
+                                  std::move(history_block_result).value());
+        ASSERT_TRUE(history_result.has_value()) << history_result.error();
+        std::vector<RowsetSharedPtr> history {history_result.value()};
+
+        auto missing_update_info = std::make_shared<PartialUpdateInfo>();
+        ASSERT_TRUE(missing_update_info
+                            ->init(missing_update_tablets.source_tablet->tablet_id(), 1,
+                                   *schemas.source, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                                   PartialUpdateNewRowPolicyPB::APPEND, {"k1", "v_array"}, false, 0,
+                                   0, "UTC", "")
+                            .ok());
+        auto missing_update_block_result =
+                create_complex_row_binlog_block(schemas.source, 0, missing_update_info);
+        ASSERT_TRUE(missing_update_block_result.has_value()) << missing_update_block_result.error();
+        auto expected_missing_update_result = create_complex_row_binlog_block(schemas.source, 0);
+        ASSERT_TRUE(expected_missing_update_result.has_value())
+                << expected_missing_update_result.error();
+        ASSERT_TRUE(flush_row_binlog_block(
+                            fmt::format("complex_row_binlog_missing_update{}", case_suffix),
+                            schemas.row_binlog, std::move(missing_update_block_result).value(),
+                            [this, missing_update_tablets, missing_update_info,
+                             history](RowsetWriterContext& context) {
+                                configure_row_binlog_context(context,
+                                                             missing_update_tablets.source_tablet,
+                                                             missing_update_tablets.binlog_tablet,
+                                                             missing_update_info, history);
+                            })
+                            .ok());
+        ASSERT_TRUE(verify_complex_row_binlog_segment(
+                            missing_update_tablets.binlog_tablet,
+                            fmt::format("complex_row_binlog_missing_update{}", case_suffix), 0,
+                            expected_missing_update_result.value())
+                            .ok());
+    }
 }
 
 TEST_F(SegmentFlusherFormatTest, VariantLogicalComparisonPreservesScalarTypes) {
@@ -3654,8 +3669,11 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 }
 
 TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepTheirSegmentBytes) {
-    // Flexible partial update is a VerticalSegmentWriter-only generation path on the baseline.
-    constexpr std::array kFlexiblePartialWriterModes {true};
+    // Both writers replay flexible partial update. The vertical baselines were
+    // recorded from the legacy in-writer fill; the horizontal ones pin the path
+    // the transform chain newly opened (the legacy horizontal writer rejected
+    // flexible, so no legacy baseline can exist for it).
+    constexpr std::array kFlexiblePartialWriterModes {false, true};
     auto record = [](Result<std::vector<SegmentFingerprint>> result) {
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -3872,6 +3890,25 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 configure_row_binlog_context(context, plain_source_tablet, plain_binlog_tablet);
             })));
 
+    // The chain derives the binlog rows before any writer runs, so both writers
+    // can write them. The vertical one is the default now that the flusher no
+    // longer forces binlog onto the horizontal writer. These vertical baselines
+    // came out byte-identical to the horizontal ones recorded from the legacy
+    // writer, so they inherit that oracle instead of only pinning today.
+    std::vector<Block> plain_binlog_blocks_vertical;
+    for (int segment_id = 0; segment_id < 2; ++segment_id) {
+        auto block_result =
+                create_integer_tablet_block(plain_source_tablet->tablet_schema(), segment_id);
+        ASSERT_TRUE(block_result.has_value()) << block_result.error();
+        plain_binlog_blocks_vertical.push_back(std::move(block_result).value());
+    }
+    ASSERT_TRUE(record(flush_twice(
+            "plain_row_binlog_vertical", plain_binlog_tablet->tablet_schema(),
+            std::move(plain_binlog_blocks_vertical), true, 0, DataWriteType::TYPE_DIRECT, false,
+            [this, plain_source_tablet, plain_binlog_tablet](RowsetWriterContext& context) {
+                configure_row_binlog_context(context, plain_source_tablet, plain_binlog_tablet);
+            })));
+
     auto mow_binlog_tablets = create_binlog_tablets(22002, true);
     auto mow_source_tablet = mow_binlog_tablets.source_tablet;
     auto mow_binlog_tablet = mow_binlog_tablets.binlog_tablet;
@@ -3920,6 +3957,27 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
         const auto status = verify_row_binlog_partial_update_segment(
                 mow_binlog_tablet, "mow_row_binlog_horizontal", segment_id);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    std::vector<Block> mow_binlog_blocks_vertical;
+    for (int segment_id = 0; segment_id < 2; ++segment_id) {
+        auto block_result = create_binlog_partial_update_block(mow_source_tablet->tablet_schema(),
+                                                               *binlog_partial_update, segment_id);
+        ASSERT_TRUE(block_result.has_value()) << block_result.error();
+        mow_binlog_blocks_vertical.push_back(std::move(block_result).value());
+    }
+    ASSERT_TRUE(record(flush_twice(
+            "mow_row_binlog_vertical", mow_binlog_tablet->tablet_schema(),
+            std::move(mow_binlog_blocks_vertical), true, 0, DataWriteType::TYPE_DIRECT, false,
+            [this, mow_source_tablet, mow_binlog_tablet, binlog_partial_update,
+             binlog_history](RowsetWriterContext& context) {
+                configure_row_binlog_context(context, mow_source_tablet, mow_binlog_tablet,
+                                             binlog_partial_update, binlog_history);
+            })));
+    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
+        const auto status = verify_row_binlog_partial_update_segment(
+                mow_binlog_tablet, "mow_row_binlog_vertical", segment_id);
         ASSERT_TRUE(status.ok()) << status;
     }
 
@@ -4038,6 +4096,31 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
         const auto status = verify_row_binlog_before_segment(
                 before_binlog_tablet, segment_id, {.case_name = "mow_row_binlog_before"});
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    // The BEFORE columns are the one group the derive builds itself instead of
+    // handing through as COW pointers, so they get the vertical writer too.
+    std::vector<Block> before_binlog_blocks_vertical;
+    for (int segment_id = 0; segment_id < 2; ++segment_id) {
+        auto block_result =
+                create_integer_tablet_block(before_source_tablet->tablet_schema(), segment_id,
+                                            {.include_existing_key_delete = true});
+        ASSERT_TRUE(block_result.has_value()) << block_result.error();
+        before_binlog_blocks_vertical.push_back(std::move(block_result).value());
+    }
+    auto before_vertical_result = flush_twice(
+            "mow_row_binlog_before_vertical", before_binlog_tablet->tablet_schema(),
+            before_binlog_blocks_vertical, true, 0, DataWriteType::TYPE_DIRECT, false,
+            [this, before_source_tablet, before_binlog_tablet, before_upsert_info,
+             before_binlog_history](RowsetWriterContext& context) {
+                configure_row_binlog_context(context, before_source_tablet, before_binlog_tablet,
+                                             before_upsert_info, before_binlog_history, true);
+            });
+    ASSERT_TRUE(before_vertical_result.has_value()) << before_vertical_result.error();
+    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
+        const auto status = verify_row_binlog_before_segment(
+                before_binlog_tablet, segment_id, {.case_name = "mow_row_binlog_before_vertical"});
         ASSERT_TRUE(status.ok()) << status;
     }
 

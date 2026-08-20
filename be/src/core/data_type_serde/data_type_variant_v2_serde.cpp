@@ -188,7 +188,7 @@ DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level) : DataTypeSerD
 
 int64_t DataTypeVariantV2SerDe::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                   int be_exec_version) {
-    const auto& variant = get_variant_v2_column(column);
+    const auto& variant = get_variant_v2_column(column).serialization_column();
     int64_t size = sizeof(bool) + sizeof(size_t) * 2 + sizeof(bool);
     if (variant.is_typed()) {
         const DataTypePtr nullable_type = make_nullable(variant._typed_type);
@@ -206,7 +206,7 @@ char* DataTypeVariantV2SerDe::serialize(const IColumn& column, char* buf, int be
     const IColumn* physical = &column;
     size_t saved_rows = 0;
     buf = serialize_const_flag_and_row_num(&physical, buf, &saved_rows);
-    const auto& variant = assert_cast<const ColumnVariantV2&>(*physical);
+    const auto& variant = assert_cast<const ColumnVariantV2&>(*physical).serialization_column();
     DCHECK_EQ(variant.size(), saved_rows);
     unaligned_store<bool>(buf, variant.is_typed());
     buf += sizeof(bool);

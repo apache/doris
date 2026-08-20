@@ -23,11 +23,11 @@
 
 #include "core/string_ref.h"
 #include "core/value/variant/variant_value.h"
-#include "util/json/path_in_data.h"
 
 namespace doris {
 
 struct FieldWithDataType;
+class PathInData;
 class VariantScalarRef;
 using VariantMap = std::map<PathInData, FieldWithDataType>;
 
@@ -43,7 +43,9 @@ void validate_variant_payload(VariantRef value);
 // [u32 little-endian metadata_size][metadata][exactly one value].
 class VariantField {
 public:
-    VariantField() noexcept = default;
+    // Every special member lives in the .cpp: with PathInData forward-declared, any inline
+    // definition would instantiate the VariantMap destructor through the _legacy deleter.
+    VariantField() noexcept;
     ~VariantField();
 
     VariantField(const VariantField& other);

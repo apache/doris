@@ -21,12 +21,16 @@
 
 #include <cstdint>
 #include <fstream>
+#include <string_view>
 
 #include "CLucene/store/Directory.h"
 #include "CLucene/store/FSDirectory.h"
 #include "roaring/roaring.hh"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
+#include "storage/index/inverted/common_grams/common_word_set.h"
 #include "storage/index/inverted/query/phrase_prefix_query.h"
 #include "storage/index/inverted/query/phrase_query.h"
 #include "storage/index/inverted/setting.h"
@@ -253,6 +257,437 @@ TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
     EXPECT_EQ(tokens, expected);
 
     delete token_stream;
+}
+
+CustomAnalyzerConfigPtr common_grams_config(
+        const std::string& tokenizer, const Settings& tokenizer_settings,
+        const std::vector<std::pair<std::string, Settings>>& filters = {},
+        const Settings& common_grams_settings = {}) {
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config(tokenizer, tokenizer_settings);
+    for (const auto& [name, settings] : filters) {
+        builder.add_token_filter_config(name, settings);
+    }
+    builder.add_token_filter_config("common_grams", common_grams_settings);
+    return builder.build();
+}
+
+Settings whitespace_tokenizer_settings() {
+    Settings settings;
+    settings.set("tokenize_on_chars", "[whitespace]");
+    return settings;
+}
+
+std::string expected_gram(std::string_view left, std::string_view right) {
+    auto result = encode_common_gram(left, right);
+    EXPECT_TRUE(result.has_value()) << result.error();
+    return result.value();
+}
+
+void expect_common_grams_analyzer_error(const CustomAnalyzerConfigPtr& config,
+                                        AnalysisPurpose purpose) {
+    try {
+        CustomAnalyzer::build_custom_analyzer(config, purpose);
+        FAIL() << "expected CommonGrams analyzer error";
+    } catch (const Exception& error) {
+        EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    }
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsBuildsIndependentPurposeStreams) {
+    auto config =
+            common_grams_config("char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}});
+    auto index = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kIndex);
+    auto snii_index =
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kSniiTransientIndex);
+    auto plain = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPlainQuery);
+    auto exact = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kExactPhraseQuery);
+    auto prefix =
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPhrasePrefixQuery);
+
+    EXPECT_EQ(tokenize1(index, "Man of the Year"),
+              (std::vector<ExpectedToken> {{"man", 1},
+                                           {expected_gram("man", "of"), 0},
+                                           {"of", 1},
+                                           {expected_gram("of", "the"), 0},
+                                           {"the", 1},
+                                           {expected_gram("the", "year"), 0},
+                                           {"year", 1}}));
+    EXPECT_EQ(tokenize1(snii_index, "Man of the Year"),
+              (std::vector<ExpectedToken> {{"man", 1},
+                                           {expected_gram("man", "of"), 0},
+                                           {"of", 1},
+                                           {expected_gram("of", "the"), 0},
+                                           {"the", 1},
+                                           {expected_gram("the", "year"), 0},
+                                           {"year", 1}}));
+    EXPECT_EQ(tokenize1(plain, "Man of the Year"),
+              (std::vector<ExpectedToken> {{"man", 1}, {"of", 1}, {"the", 1}, {"year", 1}}));
+    EXPECT_EQ(tokenize1(exact, "Man of the Year"),
+              (std::vector<ExpectedToken> {{expected_gram("man", "of"), 1},
+                                           {expected_gram("of", "the"), 1},
+                                           {expected_gram("the", "year"), 1}}));
+    EXPECT_EQ(tokenize1(prefix, "the wo"),
+              (std::vector<ExpectedToken> {{expected_gram("the", "wo"), 1}}));
+
+    EXPECT_EQ(tokenize1(exact, "plain terms"),
+              (std::vector<ExpectedToken> {{"plain", 1}, {"terms", 1}}));
+    EXPECT_EQ(tokenize1(prefix, "of term"),
+              (std::vector<ExpectedToken> {{expected_gram("of", "term"), 1}}));
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsReusableIndexStreamDoesNotBridgeRows) {
+    auto analyzer = CustomAnalyzer::build_custom_analyzer(
+            common_grams_config("char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}}),
+            AnalysisPurpose::kIndex);
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+
+    auto tokenize_row = [&](std::string_view row) {
+        reader->init(row.data(), static_cast<int32_t>(row.size()), false);
+        auto* stream = analyzer->reusableTokenStream(L"", reader);
+        stream->reset();
+        std::vector<ExpectedToken> tokens;
+        Token token;
+        while (stream->next(&token)) {
+            tokens.emplace_back(std::string(token.termBuffer<char>(), token.termLength<char>()),
+                                token.getPositionIncrement());
+        }
+        return std::pair {stream, std::move(tokens)};
+    };
+
+    auto [first_stream, first] = tokenize_row("foo of");
+    auto [second_stream, second] = tokenize_row("the bar");
+
+    EXPECT_EQ(first_stream, second_stream);
+    EXPECT_EQ(first, (std::vector<ExpectedToken> {
+                             {"foo", 1}, {expected_gram("foo", "of"), 0}, {"of", 1}}));
+    EXPECT_EQ(second, (std::vector<ExpectedToken> {
+                              {"the", 1}, {expected_gram("the", "bar"), 0}, {"bar", 1}}));
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsEscapesPlainKeysOnlyForIndexPurpose) {
+    Settings tokenizer_settings;
+    tokenizer_settings.set("tokenize_on_chars", "[\\u0020]");
+    auto config = common_grams_config("char_group", tokenizer_settings);
+    auto index = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kIndex);
+    auto plain = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPlainQuery);
+    auto exact = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kExactPhraseQuery);
+    auto prefix =
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPhrasePrefixQuery);
+
+    const std::string logical = std::string(1, '\x1f') + "literal";
+    const std::string input = "the " + logical;
+    const std::string physical = std::string(1, PLAIN_ESCAPE_PREFIX) + "Gliteral";
+    const std::string common_gram = expected_gram("the", logical);
+
+    EXPECT_EQ(tokenize1(index, input),
+              (std::vector<ExpectedToken> {{"the", 1}, {common_gram, 0}, {physical, 1}}));
+    EXPECT_EQ(tokenize1(plain, input), (std::vector<ExpectedToken> {{"the", 1}, {logical, 1}}));
+    EXPECT_EQ(tokenize1(exact, input), (std::vector<ExpectedToken> {{common_gram, 1}}));
+    EXPECT_EQ(tokenize1(prefix, input), (std::vector<ExpectedToken> {{common_gram, 1}}));
+}
+
+TEST_F(CustomAnalyzerTest, AnalyseResultPreservesCommonGramTermKind) {
+    auto config =
+            common_grams_config("char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}});
+    auto exact = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kExactPhraseQuery);
+    auto reader = InvertedIndexAnalyzer::create_reader({});
+    const std::string input = "Man of year";
+    reader->init(input.data(), static_cast<int32_t>(input.size()), true);
+
+    const auto terms = InvertedIndexAnalyzer::get_analyse_result(reader, exact.get());
+    ASSERT_EQ(terms.size(), 2U);
+    EXPECT_EQ(terms[0].get_single_term(), expected_gram("man", "of"));
+    EXPECT_EQ(terms[0].key_kind, TermKeyKind::kCommonGram);
+    EXPECT_EQ(terms[1].get_single_term(), expected_gram("of", "year"));
+    EXPECT_EQ(terms[1].key_kind, TermKeyKind::kCommonGram);
+
+    auto plain = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPlainQuery);
+    reader = InvertedIndexAnalyzer::create_reader({});
+    reader->init(input.data(), static_cast<int32_t>(input.size()), true);
+    const auto plain_terms = InvertedIndexAnalyzer::get_analyse_result(reader, plain.get());
+    ASSERT_EQ(plain_terms.size(), 3U);
+    for (const auto& term : plain_terms) {
+        EXPECT_EQ(term.key_kind, TermKeyKind::kPlain);
+    }
+}
+
+TEST_F(CustomAnalyzerTest, AnalyseResultPreservesBothCommonGramTermKind) {
+    auto config =
+            common_grams_config("char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}});
+    auto index = CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kIndex);
+    auto reader = InvertedIndexAnalyzer::create_reader({});
+    const std::string input = "of the";
+    reader->init(input.data(), static_cast<int32_t>(input.size()), true);
+
+    const auto terms = InvertedIndexAnalyzer::get_analyse_result(reader, index.get());
+    ASSERT_EQ(terms.size(), 3U);
+    EXPECT_EQ(terms[1].get_single_term(), expected_gram("of", "the"));
+    EXPECT_EQ(terms[1].key_kind, TermKeyKind::kCommonGram);
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsAllowsAbsentOrOneTerminalFilter) {
+    CustomAnalyzerConfig::Builder missing;
+    missing.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+    auto missing_config = missing.build();
+    for (AnalysisPurpose purpose :
+         {AnalysisPurpose::kIndex, AnalysisPurpose::kPlainQuery, AnalysisPurpose::kExactPhraseQuery,
+          AnalysisPurpose::kPhrasePrefixQuery}) {
+        EXPECT_NO_THROW(CustomAnalyzer::build_custom_analyzer(missing_config, purpose));
+    }
+
+    CustomAnalyzerConfig::Builder duplicate;
+    duplicate.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+    duplicate.add_token_filter_config("common_grams", {});
+    duplicate.add_token_filter_config("common_grams", {});
+    expect_common_grams_analyzer_error(duplicate.build(), AnalysisPurpose::kIndex);
+
+    CustomAnalyzerConfig::Builder not_last;
+    not_last.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+    not_last.add_token_filter_config("common_grams", {});
+    not_last.add_token_filter_config("lowercase", {});
+    expect_common_grams_analyzer_error(not_last.build(), AnalysisPurpose::kIndex);
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsValidatesPlainConfigurationButOmitsGrams) {
+    Settings unknown;
+    unknown.set("unknown_setting", "true");
+    auto invalid = common_grams_config("char_group", whitespace_tokenizer_settings(), {}, unknown);
+    expect_common_grams_analyzer_error(invalid, AnalysisPurpose::kPlainQuery);
+
+    auto valid = common_grams_config("char_group", whitespace_tokenizer_settings());
+    auto plain = CustomAnalyzer::build_custom_analyzer(valid, AnalysisPurpose::kPlainQuery);
+    EXPECT_EQ(tokenize1(plain, "the term"), (std::vector<ExpectedToken> {{"the", 1}, {"term", 1}}));
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsIndexChainRejectsInvalidUtf8AfterAValidToken) {
+    auto analyzer = CustomAnalyzer::build_custom_analyzer(
+            common_grams_config("char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}}),
+            AnalysisPurpose::kIndex);
+    const std::string input = std::string("valid b") + static_cast<char>(0xFF) + std::string("ad");
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(input.data(), static_cast<int32_t>(input.size()), false);
+    auto* stream = analyzer->reusableTokenStream(L"", reader);
+    stream->reset();
+
+    Token token;
+    ASSERT_NE(stream->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "valid");
+    try {
+        stream->next(&token);
+        FAIL() << "expected malformed UTF-8 to fail the analyzer chain";
+    } catch (const Exception& error) {
+        EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    }
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsDeniesUnsafePositionFactories) {
+    for (const std::string& tokenizer : {"standard", "pinyin", "basic", "icu", "keyword"}) {
+        expect_common_grams_analyzer_error(common_grams_config(tokenizer, {}),
+                                           AnalysisPurpose::kIndex);
+    }
+
+    Settings preserve_original;
+    preserve_original.set("preserve_original", "true");
+    expect_common_grams_analyzer_error(
+            common_grams_config("char_group", whitespace_tokenizer_settings(),
+                                {{"asciifolding", preserve_original}}),
+            AnalysisPurpose::kIndex);
+    expect_common_grams_analyzer_error(
+            common_grams_config("char_group", whitespace_tokenizer_settings(),
+                                {{"word_delimiter", {}}}),
+            AnalysisPurpose::kIndex);
+    expect_common_grams_analyzer_error(
+            common_grams_config("char_group", whitespace_tokenizer_settings(), {{"pinyin", {}}}),
+            AnalysisPurpose::kIndex);
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsAcceptsReviewedUnitPositionFactories) {
+    for (const std::string& tokenizer : {"empty", "char_group", "ngram", "edge_ngram"}) {
+        EXPECT_NO_THROW(CustomAnalyzer::build_custom_analyzer(
+                common_grams_config(tokenizer, tokenizer == "char_group"
+                                                       ? whitespace_tokenizer_settings()
+                                                       : Settings {}),
+                AnalysisPurpose::kIndex));
+    }
+
+    for (const std::string& filter : {"empty", "lowercase", "icu_normalizer", "asciifolding"}) {
+        EXPECT_NO_THROW(CustomAnalyzer::build_custom_analyzer(
+                common_grams_config("char_group", whitespace_tokenizer_settings(), {{filter, {}}}),
+                AnalysisPurpose::kIndex));
+    }
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsRejectsTokensNormalizedToEmpty) {
+    const auto config = common_grams_config("char_group", whitespace_tokenizer_settings(),
+                                            {{"icu_normalizer", {}}});
+    const std::string input = std::string("\xC2\xAD") + " the";
+    for (AnalysisPurpose purpose :
+         {AnalysisPurpose::kIndex, AnalysisPurpose::kPlainQuery, AnalysisPurpose::kExactPhraseQuery,
+          AnalysisPurpose::kPhrasePrefixQuery}) {
+        auto analyzer = CustomAnalyzer::build_custom_analyzer(config, purpose);
+        try {
+            tokenize1(analyzer, input);
+            ADD_FAILURE() << "expected analyzer error for purpose " << static_cast<int>(purpose);
+        } catch (const Exception& error) {
+            EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+        }
+    }
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsInternalQueryFiltersAreNotRegistered) {
+    for (const std::string& internal : {"common_grams_query", "common_grams_phrase_prefix"}) {
+        CustomAnalyzerConfig::Builder builder;
+        builder.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+        builder.add_token_filter_config(internal, {});
+        builder.add_token_filter_config("common_grams", {});
+        EXPECT_THROW(
+                CustomAnalyzer::build_custom_analyzer(builder.build(), AnalysisPurpose::kIndex),
+                Exception);
+    }
+}
+
+// "the" is a member of the built-in stop-word list, which is what default_word_set() resolves to
+// when no wordset file is installed -- the provider can no longer be handed a word list of its own.
+TEST_F(CustomAnalyzerTest, CommonGramsProviderCachesPurposeAnalyzersWithOneWordSetSnapshot) {
+    auto provider = std::make_shared<CustomAnalyzerProvider>(common_grams_config(
+            "char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}}));
+
+    auto index = provider->get_analyzer(AnalysisPurpose::kIndex);
+    auto snii_index = provider->get_analyzer(AnalysisPurpose::kSniiTransientIndex);
+    auto plain = provider->get_analyzer(AnalysisPurpose::kPlainQuery);
+    auto exact = provider->get_analyzer(AnalysisPurpose::kExactPhraseQuery);
+    auto prefix = provider->get_analyzer(AnalysisPurpose::kPhrasePrefixQuery);
+
+    EXPECT_EQ(tokenize1(std::dynamic_pointer_cast<CustomAnalyzer>(index), "The year"),
+              (std::vector<ExpectedToken> {
+                      {"the", 1}, {expected_gram("the", "year"), 0}, {"year", 1}}));
+    EXPECT_EQ(tokenize1(std::dynamic_pointer_cast<CustomAnalyzer>(snii_index), "The year"),
+              (std::vector<ExpectedToken> {
+                      {"the", 1}, {expected_gram("the", "year"), 0}, {"year", 1}}));
+    EXPECT_EQ(tokenize1(std::dynamic_pointer_cast<CustomAnalyzer>(plain), "The year"),
+              (std::vector<ExpectedToken> {{"the", 1}, {"year", 1}}));
+    EXPECT_EQ(tokenize1(std::dynamic_pointer_cast<CustomAnalyzer>(exact), "The year"),
+              (std::vector<ExpectedToken> {{expected_gram("the", "year"), 1}}));
+    EXPECT_EQ(tokenize1(std::dynamic_pointer_cast<CustomAnalyzer>(prefix), "The ye"),
+              (std::vector<ExpectedToken> {{expected_gram("the", "ye"), 1}}));
+
+    // Every purpose analyzer shares the one process-wide word list.
+    EXPECT_EQ(provider->common_words(), CommonWordSet::default_word_set());
+    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kPlainQuery), plain);
+    EXPECT_NE(index, plain);
+    EXPECT_NE(index, snii_index);
+    EXPECT_NE(plain, exact);
+    EXPECT_NE(exact, prefix);
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsProviderOwnsDeterministicBuiltinIdentity) {
+    Settings first_settings;
+    first_settings.set("max_token_length", "16383");
+    first_settings.set("tokenize_on_chars", "[whitespace]");
+    Settings second_settings;
+    second_settings.set("tokenize_on_chars", "[whitespace]");
+    second_settings.set("max_token_length", "16383");
+
+    CustomAnalyzerProvider first(
+            common_grams_config("char_group", first_settings, {{"lowercase", {}}}));
+    CustomAnalyzerProvider second(
+            common_grams_config("char_group", second_settings, {{"lowercase", {}}}));
+
+    ASSERT_NE(first.common_grams_identity(), nullptr);
+    ASSERT_NE(second.common_grams_identity(), nullptr);
+    EXPECT_EQ(first.common_grams_identity()->common_grams_dictionary_identity,
+              BUILTIN_COMMON_WORDS_RESOURCE);
+    EXPECT_EQ(*first.common_grams_identity(), *second.common_grams_identity());
+    EXPECT_EQ(first.common_grams_identity()->base_analyzer_fingerprint.size(), 64U);
+    EXPECT_EQ(first.common_grams_identity()->common_grams_fingerprint.size(), 64U);
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsProviderSeparatesBaseAndDictionaryIdentity) {
+    Settings first_settings = whitespace_tokenizer_settings();
+    first_settings.set("max_token_length", "100");
+    Settings second_settings = whitespace_tokenizer_settings();
+    second_settings.set("max_token_length", "101");
+    CustomAnalyzerProvider first(common_grams_config("char_group", first_settings));
+    CustomAnalyzerProvider second(common_grams_config("char_group", second_settings));
+
+    ASSERT_NE(first.common_grams_identity(), nullptr);
+    ASSERT_NE(second.common_grams_identity(), nullptr);
+    EXPECT_NE(first.common_grams_identity()->base_analyzer_fingerprint,
+              second.common_grams_identity()->base_analyzer_fingerprint);
+    EXPECT_EQ(first.common_grams_identity()->common_grams_fingerprint,
+              second.common_grams_identity()->common_grams_fingerprint);
+
+    // The dictionary half of the identity is the word list's own content identity. Neither the
+    // provider nor an index policy can supply one, so every provider in this process agrees on it.
+    EXPECT_EQ(first.common_grams_identity()->common_grams_dictionary_identity,
+              CommonWordSet::default_word_set()->identity());
+    EXPECT_EQ(second.common_grams_identity()->common_grams_dictionary_identity,
+              first.common_grams_identity()->common_grams_dictionary_identity);
+}
+
+TEST_F(CustomAnalyzerTest, CommonGramsIdentityIncludesOuterCharFilter) {
+    CustomAnalyzerProvider no_outer_filter(
+            common_grams_config("char_group", whitespace_tokenizer_settings()));
+    ASSERT_NE(no_outer_filter.common_grams_identity(), nullptr);
+
+    const std::map<std::string, std::string> slash_to_space = {
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "/"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
+    const std::map<std::string, std::string> dash_to_space = {
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "-"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
+    CustomAnalyzerProvider slash_filter(
+            common_grams_config("char_group", whitespace_tokenizer_settings()), slash_to_space);
+    CustomAnalyzerProvider repeated_slash_filter(
+            common_grams_config("char_group", whitespace_tokenizer_settings()), slash_to_space);
+    CustomAnalyzerProvider dash_filter(
+            common_grams_config("char_group", whitespace_tokenizer_settings()), dash_to_space);
+    ASSERT_NE(slash_filter.common_grams_identity(), nullptr);
+    ASSERT_NE(repeated_slash_filter.common_grams_identity(), nullptr);
+    ASSERT_NE(dash_filter.common_grams_identity(), nullptr);
+
+    EXPECT_EQ(*slash_filter.common_grams_identity(),
+              *repeated_slash_filter.common_grams_identity());
+    EXPECT_EQ(slash_filter.common_grams_identity()->common_grams_dictionary_identity,
+              no_outer_filter.common_grams_identity()->common_grams_dictionary_identity);
+    EXPECT_EQ(slash_filter.common_grams_identity()->common_grams_fingerprint,
+              no_outer_filter.common_grams_identity()->common_grams_fingerprint);
+    EXPECT_NE(slash_filter.common_grams_identity()->base_analyzer_fingerprint,
+              no_outer_filter.common_grams_identity()->base_analyzer_fingerprint);
+    EXPECT_NE(slash_filter.common_grams_identity()->base_analyzer_fingerprint,
+              dash_filter.common_grams_identity()->base_analyzer_fingerprint);
+}
+
+TEST_F(CustomAnalyzerTest, ProviderSharesOneLegacyAnalyzerWhenCommonGramsIsAbsent) {
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+    builder.add_token_filter_config("lowercase", {});
+    auto provider = std::make_shared<CustomAnalyzerProvider>(builder.build());
+
+    auto analyzer = provider->get_analyzer(AnalysisPurpose::kIndex);
+    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kPlainQuery), analyzer);
+    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kExactPhraseQuery), analyzer);
+    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kPhrasePrefixQuery), analyzer);
+    EXPECT_EQ(provider->common_grams_identity(), nullptr);
+}
+
+TEST_F(CustomAnalyzerTest, ProviderExposesBaseFingerprintWithoutCommonGrams) {
+    CustomAnalyzerConfig::Builder plain_builder;
+    plain_builder.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+    plain_builder.add_token_filter_config("lowercase", {});
+    CustomAnalyzerProvider plain(plain_builder.build());
+
+    CustomAnalyzerProvider common_grams(common_grams_config(
+            "char_group", whitespace_tokenizer_settings(), {{"lowercase", {}}}));
+
+    EXPECT_EQ(plain.base_analyzer_fingerprint().size(), 64U);
+    EXPECT_EQ(plain.base_analyzer_fingerprint(), common_grams.base_analyzer_fingerprint());
+    ASSERT_NE(common_grams.common_grams_identity(), nullptr);
+    EXPECT_EQ(common_grams.base_analyzer_fingerprint(),
+              common_grams.common_grams_identity()->base_analyzer_fingerprint);
 }
 
 // TEST_F(CustomAnalyzerTest, test) {
