@@ -2778,6 +2778,10 @@ public class Coordinator implements CoordInterface {
         boolean accepted = false;
         try {
             Status status = new Status(params.status);
+            // Publish the tracking URL before an error status can release the completion latch.
+            if (params.isSetTrackingUrl()) {
+                trackingUrl = params.getTrackingUrl();
+            }
             // for now, abort the query if we see any error except if the error is cancelled
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
@@ -2806,7 +2810,6 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetTrackingUrl()) {
                 LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
-                trackingUrl = params.getTrackingUrl();
             }
             if (params.isSetFirstErrorMsg()) {
                 LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());

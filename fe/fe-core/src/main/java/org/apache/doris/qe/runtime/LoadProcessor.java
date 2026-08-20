@@ -159,6 +159,16 @@ public class LoadProcessor extends AbstractJobProcessor {
         return latch.get().await(timeout, unit);
     }
 
+    @Override
+    protected void publishReportDiagnosticsBeforeStatus(TReportExecStatusParams params) {
+        updateTrackingUrl(params);
+    }
+
+    private void updateTrackingUrl(TReportExecStatusParams params) {
+        if (params.isSetTrackingUrl()) {
+            loadContext.updateTrackingUrl(params.getTrackingUrl());
+        }
+    }
 
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
@@ -224,9 +234,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetLoadCounters()) {
             loadContext.updateLoadCounters(params.getLoadCounters());
         }
-        if (params.isSetTrackingUrl()) {
-            loadContext.updateTrackingUrl(params.getTrackingUrl());
-        }
+        updateTrackingUrl(params);
         if (params.isSetFirstErrorMsg()) {
             loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
         }
