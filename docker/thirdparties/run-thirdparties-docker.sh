@@ -58,6 +58,7 @@ host_admin_cmd() {
 . "${ROOT}/custom_settings.env"
 . "${ROOT}/juicefs-helpers.sh"
 . "${ROOT}/docker-health.sh"
+. "${ROOT}/reserved-ports.sh"
 . "${ROOT}/docker-compose/hive/scripts/bootstrap/bootstrap-groups.sh"
 
 usage() {
@@ -258,8 +259,6 @@ RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
 
-RESERVED_PORTS="65535"
-
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -275,7 +274,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive2"x ]]; then
         RUN_HIVE2=1
-        RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
@@ -286,7 +284,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ICEBERG_REST=1
     elif [[ "${element}"x == "hudi"x ]]; then
         RUN_HUDI=1
-        RESERVED_PORTS="${RESERVED_PORTS},19083,19100,19101,18080"
     elif [[ "${element}"x == "mariadb"x ]]; then
         RUN_MARIADB=1
     elif [[ "${element}"x == "db2"x ]]; then
@@ -343,6 +340,12 @@ fi
 if [[ "${RUN_HIVE3}" -eq 1 ]] && hive_requires_mysql_component "hive3"; then
     RUN_MYSQL=1
 fi
+
+RESERVED_PORT_COMPONENTS="${COMPONENTS}"
+if [[ "${RUN_MYSQL}" -eq 1 && ",${RESERVED_PORT_COMPONENTS}," != *",mysql,"* ]]; then
+    RESERVED_PORT_COMPONENTS="${RESERVED_PORT_COMPONENTS},mysql"
+fi
+RESERVED_PORTS="$(thirdparty_reserved_ports_for_components "${RESERVED_PORT_COMPONENTS}")"
 
 reserve_ports() {
     if [[ "${NEED_RESERVE_PORTS}" -eq 0 ]]; then
