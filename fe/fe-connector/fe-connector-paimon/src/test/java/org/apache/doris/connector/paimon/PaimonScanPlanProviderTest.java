@@ -2502,6 +2502,16 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
     }
 
+    @Test
+    public void disabledScanReuseDoesNotDisableSplitTypeFiltering() {
+        Map<String, String> sessionProperties = new HashMap<>();
+        sessionProperties.put("enable_external_scan_task_reuse", "false");
+        sessionProperties.put("ignore_split_type", "IGNORE_NATIVE");
+
+        Assertions.assertEquals("IGNORE_NATIVE", PaimonScanPlanProvider.resolveIgnoreSplitType(
+                sessionWithProps(sessionProperties)));
+    }
+
     // ---------------------------------------------------------------------
     // FIX-REST-VENDED — per-table vended credentials overlaid as location.*
     // ---------------------------------------------------------------------
