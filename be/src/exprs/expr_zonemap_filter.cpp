@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/check.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_nullable.h"
@@ -39,8 +40,6 @@
 
 namespace doris::expr_zonemap {
 namespace {
-
-constexpr size_t kInZoneMapPointCheckThreshold = 64;
 
 std::optional<std::pair<Field, DataTypePtr>> field_from_literal_expr(const VExprSPtr& expr) {
     auto literal = std::dynamic_pointer_cast<VLiteral>(expr);
@@ -198,8 +197,7 @@ void get_hybrid_set_min_max_for_zonemap_filter(const std::shared_ptr<HybridSetBa
     const auto value_type = remove_nullable(data_type);
     DORIS_CHECK(value_type != nullptr);
 
-    result.contains_nan = set->contains_nan();
-    set->get_min_max(result.min_value, result.max_value);
+    set->get_min_max(result.min_value, result.max_value, result.contains_nan);
     const auto value_count = set->size();
     DORIS_CHECK_EQ(result.min_value.is_null(), result.max_value.is_null());
     if (result.min_value.is_null()) {
@@ -477,10 +475,8 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
         return ZoneMapFilterResult::kNoMatch;
     }
 
-    // For large IN sets and dense-domain containers, avoid exact checks on the scan hot path. A
-    // BitSet iterator may inspect its entire value domain even when the set itself is small.
-    if (!set.supports_fast_range_lookup() ||
-        std::cmp_greater(set.size(), kInZoneMapPointCheckThreshold)) {
+    // For large IN sets and dense-domain containers, avoid exact checks on the scan hot path.
+    if (set.size() > config::in_zonemap_point_check_threshold) {
         ++ctx.stats.in_zonemap_range_only_count;
         return ZoneMapFilterResult::kMayMatch;
     }
@@ -573,7 +569,12 @@ ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
-        break;
+        return values.any_match_raw(value_type,
+                                    [slot_filter](const char* data, size_t size) {
+                                        return slot_filter->bloom_filter->test_bytes(data, size);
+                                    })
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
     case TYPE_FLOAT:
         return values.any_match_raw(value_type,
                                     [slot_filter](const char* data, size_t size) {
@@ -597,12 +598,6 @@ ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
     default:
         return ZoneMapFilterResult::kMayMatch;
     }
-    return values.any_match_raw(value_type,
-                                [slot_filter](const char* data, size_t size) {
-                                    return slot_filter->bloom_filter->test_bytes(data, size);
-                                })
-                   ? ZoneMapFilterResult::kMayMatch
-                   : ZoneMapFilterResult::kNoMatch;
 }
 
 // Return the only slot ordinal referenced by a zonemap-evaluable expression. A negative result is

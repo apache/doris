@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
@@ -62,6 +63,7 @@
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/segment_iterator.h"
+#include "util/defer_op.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -1077,7 +1079,12 @@ TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
               expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values.min_max, *values.set));
 }
 
-TEST(ExprZonemapFilterTest, InZonemapFallsBackToRangeWhenPointListIsLarge) {
+TEST(ExprZonemapFilterTest, InZonemapUsesConfiguredPointCheckThreshold) {
+    const int32_t old_threshold = config::in_zonemap_point_check_threshold;
+    Defer restore_threshold {
+            [old_threshold]() { config::in_zonemap_point_check_threshold = old_threshold; }};
+    config::in_zonemap_point_check_threshold = 64;
+
     auto type = int_type();
     auto slot = make_slot(0, type);
     auto ctx = make_context(make_int_zonemap(10, 20), type);
@@ -1105,6 +1112,14 @@ TEST(ExprZonemapFilterTest, InZonemapFallsBackToRangeWhenPointListIsLarge) {
 
     EXPECT_EQ(0, ctx.stats.in_zonemap_point_check_count);
     EXPECT_EQ(1, ctx.stats.in_zonemap_range_only_count);
+
+    config::in_zonemap_point_check_threshold = 65;
+    auto point_ctx = make_context(make_int_zonemap(10, 20), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              expr_zonemap::eval_in_zonemap(point_ctx, slot, false, values_with_min_max.min_max,
+                                            *values_with_min_max.set));
+    EXPECT_EQ(1, point_ctx.stats.in_zonemap_point_check_count);
+    EXPECT_EQ(0, point_ctx.stats.in_zonemap_range_only_count);
 }
 
 TEST(ExprZonemapFilterTest, InZonemapUsesPointChecksUnderThreshold) {
@@ -1129,10 +1144,10 @@ TEST(ExprZonemapFilterTest, InZonemapUsesRangeOnlyForDenseBitSetContainer) {
 
     auto values = make_typed_set_with_min_max<TYPE_TINYINT>({int8_t {-100}, int8_t {100}}, type);
     EXPECT_FALSE(values.set->supports_fast_range_lookup());
-    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               expr_zonemap::eval_in_zonemap(ctx, slot, false, values.min_max, *values.set));
-    EXPECT_EQ(0, ctx.stats.in_zonemap_point_check_count);
-    EXPECT_EQ(1, ctx.stats.in_zonemap_range_only_count);
+    EXPECT_EQ(1, ctx.stats.in_zonemap_point_check_count);
+    EXPECT_EQ(0, ctx.stats.in_zonemap_range_only_count);
 }
 
 TEST(ExprZonemapFilterTest, InZonemapHandlesEmptyListAndNotInSingleValueRange) {

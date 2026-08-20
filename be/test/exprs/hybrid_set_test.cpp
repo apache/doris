@@ -141,7 +141,8 @@ TEST_F(HybridSetTest, IntegerMinMaxAndRangeLookup) {
 
         Field min_value;
         Field max_value;
-        set.get_min_max(min_value, max_value);
+        bool contains_nan = false;
+        set.get_min_max(min_value, max_value, contains_nan);
         EXPECT_EQ(min_value.get<TYPE_INT>(), 1);
         EXPECT_EQ(max_value.get<TYPE_INT>(), 9);
 
@@ -152,7 +153,7 @@ TEST_F(HybridSetTest, IntegerMinMaxAndRangeLookup) {
         EXPECT_FALSE(set.contains_any_in_range(field(6), field(8)));
 
         set.clear();
-        set.get_min_max(min_value, max_value);
+        set.get_min_max(min_value, max_value, contains_nan);
         EXPECT_TRUE(min_value.is_null());
         EXPECT_TRUE(max_value.is_null());
     };
@@ -191,7 +192,8 @@ TEST_F(HybridSetTest, SignedBitSetRangeLookup) {
 
     Field min_field;
     Field max_field;
-    edge_set.get_min_max(min_field, max_field);
+    bool contains_nan = false;
+    edge_set.get_min_max(min_field, max_field, contains_nan);
     EXPECT_EQ(min_field.get<TYPE_SMALLINT>(), min_value);
     EXPECT_EQ(max_field.get<TYPE_SMALLINT>(), max_value);
     EXPECT_TRUE(
@@ -224,7 +226,8 @@ TEST_F(HybridSetTest, StringRangeLookupPreservesEmbeddedNull) {
     const auto verify = [&](HybridSetBase& set) {
         Field min_value;
         Field max_value;
-        set.get_min_max(min_value, max_value);
+        bool contains_nan = false;
+        set.get_min_max(min_value, max_value, contains_nan);
         EXPECT_EQ(min_value.get<TYPE_STRING>(), values.front());
         EXPECT_EQ(max_value.get<TYPE_STRING>(), values.back());
 
@@ -537,11 +540,12 @@ TEST_F(HybridSetTest, DynamicFloatingSetFindsDorisEqualNanPayload) {
         const T stored_nan = std::bit_cast<T>(stored_bits);
         set->insert(&stored_nan);
         ASSERT_EQ(FIXED_CONTAINER_MAX_SIZE + 1, set->size());
-        EXPECT_TRUE(set->contains_nan());
 
         Field min_value;
         Field max_value;
-        set->get_min_max(min_value, max_value);
+        bool contains_nan = false;
+        set->get_min_max(min_value, max_value, contains_nan);
+        EXPECT_TRUE(contains_nan);
         EXPECT_EQ(T {0}, min_value.get<Type>());
         EXPECT_EQ(T {FIXED_CONTAINER_MAX_SIZE - 1}, max_value.get<Type>());
 

@@ -354,7 +354,8 @@ static void BM_HybridSet_GetMinMaxInt32(benchmark::State& state) {
     for (auto _ : state) {
         Field min_value;
         Field max_value;
-        set.get_min_max(min_value, max_value);
+        bool contains_nan = false;
+        set.get_min_max(min_value, max_value, contains_nan);
         benchmark::DoNotOptimize(min_value);
         benchmark::DoNotOptimize(max_value);
     }
@@ -405,7 +406,8 @@ static void BM_StringSet_GetMinMaxLong(benchmark::State& state) {
     for (auto _ : state) {
         Field min_value;
         Field max_value;
-        set.get_min_max(min_value, max_value);
+        bool contains_nan = false;
+        set.get_min_max(min_value, max_value, contains_nan);
         benchmark::DoNotOptimize(min_value);
         benchmark::DoNotOptimize(max_value);
     }

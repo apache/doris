@@ -360,8 +360,8 @@ public:
 
     // Return owning non-NaN bounds, or two null Fields when the set has no orderable values.
     // Exact range checks continue to read the typed set directly.
-    virtual void get_min_max(Field& min_value, Field& max_value) const = 0;
-    virtual bool contains_nan() const = 0;
+    virtual void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const = 0;
+
     // Dense-domain containers may require scanning their whole value domain even for a small set.
     // Callers on metadata hot paths should use min/max-only pruning when this returns false.
     virtual bool supports_fast_range_lookup() const = 0;
@@ -499,7 +499,8 @@ public:
         return _set.find(value.template get<T>());
     }
 
-    void get_min_max(Field& min_value, Field& max_value) const override {
+    void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const override {
+        contains_nan = false;
         if constexpr (std::is_floating_point_v<ElementType>) {
             min_value = Field {};
             max_value = Field {};
@@ -508,6 +509,7 @@ public:
             ElementType typed_max {};
             for (const auto& value : _set) {
                 if (std::isnan(value)) {
+                    contains_nan = true;
                     continue;
                 }
                 if (!found_ordered_value) {
@@ -532,13 +534,6 @@ public:
                 },
                 [](const ElementType& value) { return Field::create_field<T>(value); }, min_value,
                 max_value);
-    }
-
-    bool contains_nan() const override {
-        if constexpr (std::is_floating_point_v<ElementType>) {
-            return std::ranges::any_of(_set, [](const auto& value) { return std::isnan(value); });
-        }
-        return false;
     }
 
     bool supports_fast_range_lookup() const override {
@@ -822,7 +817,8 @@ public:
         return find(string_value.data(), string_value.size());
     }
 
-    void get_min_max(Field& min_value, Field& max_value) const override {
+    void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const override {
+        contains_nan = false;
         detail::get_hybrid_set_min_max(
                 _set, [](const std::string& lhs, const std::string& rhs) { return lhs < rhs; },
                 [](const std::string& value) {
@@ -830,8 +826,6 @@ public:
                 },
                 min_value, max_value);
     }
-
-    bool contains_nan() const override { return false; }
 
     bool supports_fast_range_lookup() const override { return true; }
 
@@ -1067,7 +1061,8 @@ public:
         return find(string_value.data(), string_value.size());
     }
 
-    void get_min_max(Field& min_value, Field& max_value) const override {
+    void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const override {
+        contains_nan = false;
         detail::get_hybrid_set_min_max(
                 _set, [](const StringRef& lhs, const StringRef& rhs) { return lhs < rhs; },
                 [](const StringRef& value) {
@@ -1076,8 +1071,6 @@ public:
                 },
                 min_value, max_value);
     }
-
-    bool contains_nan() const override { return false; }
 
     bool supports_fast_range_lookup() const override { return true; }
 
