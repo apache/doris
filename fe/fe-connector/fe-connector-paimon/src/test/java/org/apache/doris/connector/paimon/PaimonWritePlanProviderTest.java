@@ -94,6 +94,44 @@ public class PaimonWritePlanProviderTest {
                 plan.getDataSink().getPaimonTableSink().getWriteMode());
     }
 
+    // Regression for the 2026-08-20 production crash: a static-partition INSERT OVERWRITE dropped one
+    // BE with DORIS_CHECK_EQ(column_names.size(), block.columns()). BindSink materializes the
+    // PARTITION-clause literal into the row (PaimonWritePlanProvider#requiresMaterializeStaticPartitionValues
+    // returns true), so the projected block the writer actually receives carries the FULL bound schema —
+    // but planWrite was still sizing/populating column_names off handle.getColumns(), which BindSink's
+    // selectConnectorSinkBindColumns deliberately narrows to a subset that EXCLUDES the static-partition
+    // column (see ConnectorWriteHandle#getColumns javadoc). This pins the two lists to their real-world
+    // shape (getColumns() sans "pt", getBoundTargetColumns() with it) and asserts column_names lines up
+    // with the full bound schema, not the narrowed INSERT list.
+    @Test
+    public void staticPartitionOverwriteColumnNamesMatchTheFullBoundSchemaNotTheInsertList() throws Exception {
+        Fixture fixture = fixture();
+        List<ConnectorColumn> fullSchema = fixture.provider.getWriteColumns(
+                fixture.session, fixture.tableHandle, Optional.empty()).get();
+        List<ConnectorColumn> insertColumnsSansPartition = fullSchema.stream()
+                .filter(column -> !"pt".equalsIgnoreCase(column.getName()))
+                .collect(java.util.stream.Collectors.toList());
+        Map<String, String> partition = new LinkedHashMap<>();
+        partition.put("pt", "2026-08-14");
+
+        ConnectorSinkPlan plan = fixture.provider.planWrite(
+                fixture.session, new WriteHandle(fixture.tableHandle, insertColumnsSansPartition)
+                        .boundTargetColumns(fullSchema)
+                        .overwrite(true).staticPartition(partition));
+        TPaimonTableSink sink = plan.getDataSink().getPaimonTableSink();
+
+        // The writer's Arrow schema is built from the projected block, which BindSink materialized to
+        // the full bound schema (id, pt) — not the caller-supplied insert list (id only). Sizing
+        // column_names off the narrower list here is exactly what the production crash reproduced:
+        // DORIS_CHECK_EQ(column_names.size(), block.columns()) failing 1 != 2.
+        Assertions.assertEquals(fullSchema.size(), sink.getColumnNames().size(),
+                "column_names must size to the materialized full bound schema, not the narrowed "
+                        + "INSERT list that excludes the static-partition column");
+        Assertions.assertEquals(
+                fullSchema.stream().map(ConnectorColumn::getName).collect(java.util.stream.Collectors.toList()),
+                sink.getColumnNames());
+    }
+
     @Test
     public void rejectsNonPartitionStaticColumn() throws Exception {
         Fixture fixture = fixture();
@@ -209,6 +247,10 @@ public class PaimonWritePlanProviderTest {
     private static final class WriteHandle implements ConnectorWriteHandle {
         private final ConnectorTableHandle tableHandle;
         private final List<ConnectorColumn> columns;
+        // Defaults to columns, mirroring the SPI default (ConnectorWriteHandle#getBoundTargetColumns):
+        // a handle that never calls boundTargetColumns(...) behaves like a plain full-column write,
+        // where the INSERT list and the bound target schema coincide.
+        private List<ConnectorColumn> boundTargetColumns;
         private boolean overwrite;
         private Map<String, String> staticPartition = Collections.emptyMap();
         private WriteOperation operation = WriteOperation.INSERT;
@@ -216,6 +258,7 @@ public class PaimonWritePlanProviderTest {
         private WriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns) {
             this.tableHandle = tableHandle;
             this.columns = columns;
+            this.boundTargetColumns = columns;
         }
 
         private WriteHandle overwrite(boolean value) {
@@ -233,6 +276,16 @@ public class PaimonWritePlanProviderTest {
             return this;
         }
 
+        // Simulates BindSink#bindConnectorTableSink on a real static-partition write: getColumns() is
+        // the INSERT column list with the partition column excluded (canonicalStaticPartitionColNames /
+        // selectConnectorSinkBindColumns), while getBoundTargetColumns() stays the full bound schema the
+        // partition literal is later materialized into. Real callers never diverge these by hand; this
+        // setter exists purely so the test can pin the two lists to different values.
+        private WriteHandle boundTargetColumns(List<ConnectorColumn> value) {
+            boundTargetColumns = value;
+            return this;
+        }
+
         @Override
         public ConnectorTableHandle getTableHandle() {
             return tableHandle;
@@ -241,6 +294,11 @@ public class PaimonWritePlanProviderTest {
         @Override
         public List<ConnectorColumn> getColumns() {
             return columns;
+        }
+
+        @Override
+        public List<ConnectorColumn> getBoundTargetColumns() {
+            return boundTargetColumns;
         }
 
         @Override

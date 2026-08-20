@@ -285,6 +285,7 @@ suite("test_paimon_row_level_delete",
         // it as __DEFAULT_PARTITION__. Full-table OVERWRITE keeps its documented static semantics:
         // it replaces EVERY partition.
 
+        sql """drop table if exists ow_part"""
         sql """create table ow_part (id int, v string, dt date) engine=paimon partition by list (dt) ()"""
         sql """insert into ow_part values (1, 'd1-a', date '2026-01-01'), (2, 'd1-b', date '2026-01-01'), (3, 'd2-a', date '2026-01-02')"""
         order_qt_ow_seed """select id, v, cast(dt as string) from ow_part"""
