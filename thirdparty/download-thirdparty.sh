@@ -130,7 +130,7 @@ md5sum_func() {
     fi
     if [[ "${md5}" != "${MD5SUM}" ]]; then
         echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
-        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        echo -e "expected-md5 ${MD5SUM} \nactual-md5 ${md5}"
         return 1
     fi
     return 0
