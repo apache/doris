@@ -81,6 +81,8 @@ public:
         bool aggregation;
         bool read_row_binlog = false;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        int32_t bucket_seq = 0;
+        int32_t bucket_num = 0;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
     };
@@ -95,7 +97,9 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
-    bool check_partition_pruned() const override;
+    bool is_pruned_by_runtime_filter() const override;
+
+    void release_unopened_resources() override;
 
     void update_realtime_counters() override;
 
@@ -124,6 +128,8 @@ private:
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;
     std::optional<int64_t> _end_tso;
+    int32_t _bucket_seq;
+    int32_t _bucket_num;
 
 public:
     std::vector<ColumnId> _return_columns;

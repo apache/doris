@@ -65,6 +65,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -128,6 +129,9 @@ import java.util.stream.Collectors;
 // Full scan of an Olap table.
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
+    @VisibleForTesting
+    static final String MISSING_RF_BUCKET_METADATA_DEBUG_POINT =
+            "OlapScanNode.setRuntimeFilterBucketPruneParameters.missingBucketMetadata";
 
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
@@ -210,7 +214,9 @@ public class OlapScanNode extends ScanNode {
     private Set<Long> nereidsPrunedTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
-    private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    // Pack bucket number and sequence into one value to avoid retaining two all-tablet maps.
+    private Map<Long, Long> tabletId2BucketInfo = Maps.newHashMap();
+    private boolean runtimeFilterBucketPruneParametersSet = false;
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -797,7 +803,9 @@ public class OlapScanNode extends ScanNode {
 
     private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {
         if (!isPointQuery()) {
-            Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
+            long bucketInfo = Preconditions.checkNotNull(tabletId2BucketInfo.get(tabletId),
+                    "missing bucket metadata for tablet %s", tabletId);
+            int bucketSeq = decodeBucketSeq(bucketInfo);
             bucketSeq2locations.put(bucketSeq, locations);
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
         }
@@ -1063,8 +1071,9 @@ public class OlapScanNode extends ScanNode {
             }
 
             if (!isPointQuery()) {
+                int bucketNum = partition.getDistributionInfo().getBucketNum();
                 for (int i = 0; i < allTabletIds.size(); i++) {
-                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+                    tabletId2BucketInfo.put(allTabletIds.get(i), encodeBucketInfo(i, bucketNum));
                 }
             }
 
@@ -1094,7 +1103,7 @@ public class OlapScanNode extends ScanNode {
         selectionHint = null;
         scanBackendOrderBySelection = false;
         scanTabletIds.clear();
-        tabletId2BucketSeq.clear();
+        tabletId2BucketInfo.clear();
         bucketSeq2locations.clear();
         bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
@@ -1475,14 +1484,12 @@ public class OlapScanNode extends ScanNode {
         // filter whose target expression can drive partition pruning according
         // to the FE-side classifier, so we don't bloat thrift for tables with
         // many partitions but no usable RF target.
-        // Gated by session variable `enable_runtime_filter_partition_prune`.
-        ConnectContext rfPruneCtx = ConnectContext.get();
-        if (rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()
-                && hasRfDrivingPartitionPruning()) {
+        if (hasRfDrivingPartitionPruning()) {
             setPartitionBoundariesForRuntimeFilter(msg.olap_scan_node);
         }
-
+        if (hasRfDrivingBucketPruning()) {
+            setRuntimeFilterBucketPruneParameters();
+        }
         super.toThrift(msg);
     }
 
@@ -1530,6 +1537,58 @@ public class OlapScanNode extends ScanNode {
         if (!runtimeFilterPartitionBoundaries.isEmpty()) {
             olapScanNode.setPartitionBoundaries(new ArrayList<>(runtimeFilterPartitionBoundaries));
         }
+    }
+
+    private boolean hasRfDrivingBucketPruning() {
+        PlanNodeId myId = this.getId();
+        for (RuntimeFilter rf : runtimeFilters) {
+            if (rf.canPruneBucketsFor(myId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @VisibleForTesting
+    synchronized void setRuntimeFilterBucketPruneParameters() {
+        if (runtimeFilterBucketPruneParametersSet) {
+            return;
+        }
+        long debugMissingTabletId = DebugPointUtil.getDebugParamOrDefault(
+                MISSING_RF_BUCKET_METADATA_DEBUG_POINT, -1L);
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            Long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
+            if (scanRange.getTabletId() == debugMissingTabletId) {
+                bucketInfo = null;
+            }
+            if (bucketInfo == null || decodeBucketNum(bucketInfo) <= 0) {
+                LOG.warn("missing bucket metadata for runtime-filter bucket pruning, "
+                                + "scanNode={}, tablet={}; disable pruning for this scan node",
+                        getId(), scanRange.getTabletId());
+                runtimeFilterBucketPruneParametersSet = true;
+                return;
+            }
+        }
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
+            scanRange.setBucketSeq(decodeBucketSeq(bucketInfo));
+            scanRange.setBucketNum(decodeBucketNum(bucketInfo));
+        }
+        runtimeFilterBucketPruneParametersSet = true;
+    }
+
+    private static long encodeBucketInfo(int bucketSeq, int bucketNum) {
+        return ((long) bucketNum << Integer.SIZE) | Integer.toUnsignedLong(bucketSeq);
+    }
+
+    private static int decodeBucketSeq(long bucketInfo) {
+        return (int) bucketInfo;
+    }
+
+    private static int decodeBucketNum(long bucketInfo) {
+        return (int) (bucketInfo >>> Integer.SIZE);
     }
 
     private List<TPartitionBoundary> buildPartitionBoundariesForRuntimeFilter() {

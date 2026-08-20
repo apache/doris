@@ -73,25 +73,26 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
-    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads.
     LockGuard lock(_conjuncts_lock);
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
+    VExprContextSPtrs new_conjuncts;
+    if (_conjuncts.size() > conjuncts_before) {
+        new_conjuncts.assign(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+    }
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
-    };
-    // Only re-run partition pruning when try_append_late_arrival_runtime_filter
-    // actually appended new conjuncts. Otherwise this hook would re-scan all
-    // partition boundaries on every scheduler pass while there are still
-    // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
-    // CPU re-evaluating the same set of RFs against the same boundaries.
-    if (_conjuncts.size() > conjuncts_before) {
-        RETURN_IF_ERROR(_on_runtime_filter_update());
     }
-    return Status::OK();
+    if (new_conjuncts.empty()) {
+        return Status::OK();
+    }
+    // Partition projection executes the shared expression tree. Keep it serialized with
+    // clone_conjunct_ctxs(), whose VExprContext::clone() opens that same tree.
+    return _on_runtime_filter_update(new_conjuncts);
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {
@@ -104,19 +105,15 @@ Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjun
     return Status::OK();
 }
 
-bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
-    return _rf_partition_pruner.is_partition_pruned(partition_id);
-}
-
-Status ScanLocalStateBase::_on_runtime_filter_update() {
+Status ScanLocalStateBase::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
     const auto* parsed = _parent->parsed_partition_boundaries();
     if (parsed != nullptr && !parsed->empty()) {
-        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf(new_conjuncts));
     }
     return Status::OK();
 }
 
-Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
+Status ScanLocalStateBase::_do_partition_pruning_by_rf(const VExprContextSPtrs& conjuncts) {
     if (!_state->query_options().enable_runtime_filter_partition_prune) {
         return Status::OK();
     }
@@ -126,7 +123,7 @@ Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
     }
     int64_t newly_pruned = 0;
     RETURN_IF_ERROR(_rf_partition_pruner.prune_by_runtime_filters(
-            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            *parsed, conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
             &newly_pruned));
     if (newly_pruned > 0) {
         COUNTER_SET(_partitions_pruned_by_rf_counter,
@@ -234,7 +231,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
     if (_conjuncts.size() > conjuncts_before) {
-        RETURN_IF_ERROR(_on_runtime_filter_update());
+        VExprContextSPtrs new_conjuncts(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+        RETURN_IF_ERROR(_on_runtime_filter_update(new_conjuncts));
     }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
