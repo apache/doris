@@ -2613,6 +2613,7 @@ public class IcebergExternalMetaCacheTest {
 
             Map<String, MetaCacheEntryStats> stats = cache.stats(catalogId);
             Assert.assertTrue(stats.containsKey(IcebergExternalMetaCache.ENTRY_TABLE));
+            Assert.assertTrue(stats.get(IcebergExternalMetaCache.ENTRY_TABLE).isAutoRefresh());
             Assert.assertTrue(stats.get(IcebergExternalMetaCache.ENTRY_MANIFEST).isConfigEnabled());
             Assert.assertTrue(stats.get(IcebergExternalMetaCache.ENTRY_MANIFEST).isEffectiveEnabled());
             Assert.assertFalse(stats.get(IcebergExternalMetaCache.ENTRY_MANIFEST).isAutoRefresh());

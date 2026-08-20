@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -105,6 +106,26 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
         Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+    }
+
+    @Test
+    public void testArrowFlightDefersStatementResourcesUntilDoGetCompletion() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        StatementContext statementContext = connectContext.getStatementContext();
+        AtomicInteger resourceCloseCount = new AtomicInteger();
+        statementContext.getOrRegisterStatementResource("hudi-batch-owner",
+                () -> resourceCloseCount::incrementAndGet);
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        stmtExecutor.setCoord(coord);
+
+        stmtExecutor.deferArrowFlightQuery();
+        statementContext.close();
+        Assert.assertEquals(0, resourceCloseCount.get());
+
+        stmtExecutor.finalizeArrowFlightQuery();
+        Assert.assertEquals(1, resourceCloseCount.get());
+        Mockito.verify(coord).close();
     }
 
     @Test

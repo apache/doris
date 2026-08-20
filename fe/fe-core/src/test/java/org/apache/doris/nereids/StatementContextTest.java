@@ -84,6 +84,38 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testPreparedStatementStartsFreshResourceGenerationForEveryExecute() {
+        StatementContext statementContext = new StatementContext();
+        AtomicInteger firstClosed = new AtomicInteger();
+        AtomicInteger secondClosed = new AtomicInteger();
+
+        statementContext.getOrRegisterStatementResource("table", () -> firstClosed::incrementAndGet);
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, firstClosed.get());
+
+        statementContext.beginStatementResourceGeneration();
+        statementContext.getOrRegisterStatementResource("table", () -> secondClosed::incrementAndGet);
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, firstClosed.get());
+        org.junit.jupiter.api.Assertions.assertEquals(1, secondClosed.get());
+    }
+
+    @Test
+    public void testDetachedStatementResourcesOutliveStatementContext() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        AtomicInteger closed = new AtomicInteger();
+        statementContext.getOrRegisterStatementResource("arrow-flight", () -> closed::incrementAndGet);
+
+        Closeable detached = statementContext.detachStatementResources();
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(0, closed.get());
+
+        detached.close();
+        detached.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, closed.get());
+    }
+
+    @Test
     public void testPreloadExternalTablesBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
