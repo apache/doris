@@ -226,7 +226,7 @@ void IndexFileWriter::_release_snii_blob_directories() {
 }
 
 Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
-                                       std::vector<uint32_t> null_docids,
+                                       doris::snii::writer::TrackedNullDocids null_docids,
                                        doris::snii::writer::SpimiTermBuffer* const term_buffer,
                                        doris::snii::format::IndexConfig index_config,
                                        SniiAddIndexOptions options,
@@ -249,14 +249,13 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.index_suffix = index_meta->get_index_suffix();
     input.config = index_config;
     input.doc_count = doc_count;
-    input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
     input.common_grams_metadata = std::move(options.common_grams_metadata);
     input.common_grams_posting_policy = options.common_grams_posting_policy;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     snii_resolve_index_write_params(options.is_direct_load, &input);
-    RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
+    RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input, std::move(null_docids)));
     ++_snii_index_count;
     return Status::OK();
 }
