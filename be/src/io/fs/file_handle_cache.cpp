@@ -122,12 +122,14 @@ FileHandleCache::Accessor::~Accessor() {
     if (_cache_accessor.get()) {
         auto* handle = get();
         if (handle->file() == nullptr) {
-            // Not opened (lazy open), no resources to release
-            release();
+            // Not opened or open failed (call_once won't retry), destroy to avoid cache pollution
+            destroy();
             return;
         }
 #ifdef USE_HADOOP_HDFS
-        if (hdfsUnbufferFile(handle->file()) != 0) {
+        int unbuffer_ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsUnbufferFile(handle->file()),
+                                                        "HdfsFileHandle::close::hdfsUnbufferFile");
+        if (unbuffer_ret != 0) {
             VLOG_FILE << "FS does not support file handle unbuffering, closing file="
                       << _cache_accessor.get_key()->second.first;
             destroy();

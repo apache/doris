@@ -24,6 +24,7 @@
 
 #include "cpp/sync_point.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "io/fs/hdfs_file_reader.h"
 
 namespace doris::io {
 
@@ -63,12 +64,13 @@ TEST(FileHandleCacheTest, DestructorSafeWithoutOpen) {
     }
 }
 
-// Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsFreeFileInfo via SyncPoint to avoid JNI.
+// Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsFreeFileInfo/hdfsUnbufferFile via SyncPoint to avoid JNI.
 struct MockHandleGuard {
     SyncPoint::CallbackGuard open_guard;
     SyncPoint::CallbackGuard close_guard;
     SyncPoint::CallbackGuard info_guard;
     SyncPoint::CallbackGuard free_guard;
+    SyncPoint::CallbackGuard unbuffer_guard;
     static inline hdfsFileInfo mock_info;
     MockHandleGuard(hdfsFile mock_file, int64_t file_size = 4096) {
         mock_info.mSize = file_size;
@@ -106,6 +108,14 @@ struct MockHandleGuard {
                     ret->second = true;
                 },
                 &free_guard);
+        sp->set_call_back(
+                "HdfsFileHandle::close::hdfsUnbufferFile",
+                [](auto&& args) {
+                    auto* ret = try_any_cast_ret<int>(args);
+                    ret->first = 0;
+                    ret->second = true;
+                },
+                &unbuffer_guard);
     }
 };
 
@@ -207,6 +217,91 @@ TEST(FileHandleCacheTest, EnsureOpenReturnsNotFoundForMissingFile) {
     auto st = handle.ensure_open();
     ASSERT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::NOT_FOUND);
+}
+
+// --- Cache lifecycle tests ---
+
+// Helper: create a FileHandleCache with small capacity for testing.
+static std::unique_ptr<FileHandleCache> make_test_cache() {
+    return std::make_unique<FileHandleCache>(4, 1, 0);
+}
+
+// Helper: get a file handle from cache, asserting success.
+static void get_handle(FileHandleCache& cache, const hdfsFS& fs, const std::string& fname,
+                       int64_t mtime, FileHandleCache::Accessor* accessor, bool* cache_hit) {
+    ASSERT_TRUE(cache.get_file_handle(fs, fname, mtime, 4096, false, accessor, cache_hit).ok());
+}
+
+// ensure_open succeeds → ~Accessor releases (unbuffer OK) → next get_file_handle hits cache.
+TEST(FileHandleCacheTest, OpenedHandleReleasedBackToCache) {
+    MockHandleGuard mg(reinterpret_cast<hdfsFile>(static_cast<uintptr_t>(0xdeadbeef)));
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    auto cache = make_test_cache();
+    const std::string fname = "/test/opened_release.parquet";
+    constexpr int64_t mtime = 12345;
+
+    bool cache_hit = false;
+    {
+        FileHandleCache::Accessor accessor;
+        get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
+        EXPECT_FALSE(cache_hit);
+        ASSERT_TRUE(accessor.get()->ensure_open().ok());
+        EXPECT_NE(accessor.get()->file(), nullptr);
+    }
+
+    FileHandleCache::Accessor accessor2;
+    get_handle(*cache, mock_fs, fname, mtime, &accessor2, &cache_hit);
+    EXPECT_TRUE(cache_hit);
+    EXPECT_NE(accessor2.get()->file(), nullptr);
+}
+
+// ensure_open fails → ~Accessor destroys → next get_file_handle misses cache.
+TEST(FileHandleCacheTest, OpenFailedHandleDestroyedNotCached) {
+    MockHandleGuard mg(nullptr);
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    auto cache = make_test_cache();
+    const std::string fname = "/test/open_fail.parquet";
+    constexpr int64_t mtime = 12345;
+
+    bool cache_hit = false;
+    {
+        FileHandleCache::Accessor accessor;
+        get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
+        EXPECT_FALSE(cache_hit);
+        auto st = accessor.get()->ensure_open();
+        ASSERT_FALSE(st.ok());
+        EXPECT_EQ(accessor.get()->file(), nullptr);
+    }
+
+    FileHandleCache::Accessor accessor2;
+    get_handle(*cache, mock_fs, fname, mtime, &accessor2, &cache_hit);
+    EXPECT_FALSE(cache_hit);
+}
+
+// read_at triggers ensure_open failure → reader destroyed → ~Accessor destroys → cache miss.
+TEST(FileHandleCacheTest, ReadAtOpenFailedHandleDestroyedNotCached) {
+    MockHandleGuard mg(nullptr);
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    auto cache = make_test_cache();
+    const std::string fname = "/test/read_at_fail.parquet";
+    constexpr int64_t mtime = 12345;
+
+    bool cache_hit = false;
+    {
+        FileHandleCache::Accessor accessor;
+        get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
+        EXPECT_FALSE(cache_hit);
+        auto reader = std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor),
+                                                       nullptr, mtime);
+        char buf[16];
+        size_t bytes_read = 0;
+        auto st = reader->read_at(0, {buf, sizeof(buf)}, &bytes_read, nullptr);
+        ASSERT_FALSE(st.ok());
+    }
+
+    FileHandleCache::Accessor accessor2;
+    get_handle(*cache, mock_fs, fname, mtime, &accessor2, &cache_hit);
+    EXPECT_FALSE(cache_hit);
 }
 
 } // namespace doris::io
