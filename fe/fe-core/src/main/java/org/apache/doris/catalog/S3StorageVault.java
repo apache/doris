@@ -90,12 +90,12 @@ public class S3StorageVault extends StorageVault {
     public S3StorageVault(String name, boolean ifNotExists,
             boolean setAsDefault, CreateResourceCommand command) throws DdlException {
         super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
-        resource = Resource.fromCommand(command);
+        resource = S3Resource.fromStorageVaultCommand(command);
     }
 
     @Override
     public void modifyProperties(ImmutableMap<String, String> properties) throws DdlException {
-        resource.setProperties(properties);
+        resource.setStorageVaultProperties(properties);
     }
 
     @Override

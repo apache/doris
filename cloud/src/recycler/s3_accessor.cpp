@@ -43,6 +43,7 @@
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/gcp_workload_identity_token_provider.h"
 #ifdef USE_AZURE
 #include "cpp/obj-client/auth/azure_auth_factory.h"
 #include "cpp/obj-client/azure_obj_storage_client.h"
@@ -299,6 +300,10 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
                 s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
             }
         }
+
+        s3_conf.cred_provider_type = resolve_cred_provider_type(
+                s3_conf.cred_provider_type, !s3_conf.ak.empty() && !s3_conf.sk.empty(),
+                !s3_conf.role_arn.empty());
     }
 
     s3_conf.endpoint = obj_info.endpoint();
@@ -325,6 +330,14 @@ std::string S3Accessor::to_uri(const std::string& relative_path) const {
 
 int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
+    if (conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity &&
+        (conf.provider != S3Conf::GCS || !is_gcs_xml_endpoint(conf.endpoint) || !conf.ak.empty() ||
+         !conf.sk.empty() || !conf.role_arn.empty())) {
+        LOG_WARNING("invalid GCP workload identity configuration")
+                .tag("provider", static_cast<int>(conf.provider))
+                .tag("endpoint", conf.endpoint);
+        return -1;
+    }
     switch (conf.provider) {
     case S3Conf::GCS:
         *accessor = std::make_shared<GcsAccessor>(conf);
@@ -447,6 +460,9 @@ int S3Accessor::init() {
                                              (long)aws_config.maxConnections);
 
         set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
+        if (conf_.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+            aws_config.scheme = Aws::Http::Scheme::HTTPS;
+        }
         // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry, /*retry_slow_down=*/false);
@@ -472,12 +488,18 @@ int S3Accessor::init() {
                 std::move(credentials.provider), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 conf_.use_virtual_addressing /* useVirtualAddressing */);
-        auto client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
-                                                           ObjStorageEndpointInfo {
-                                                                   .endpoint = conf_.endpoint,
-                                                                   .ak = conf_.ak,
-                                                                   .sk = conf_.sk,
-                                                           });
+        std::shared_ptr<GcpWorkloadIdentityTokenProvider> token_provider;
+        if (conf_.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+            token_provider = global_gcp_workload_identity_token_provider();
+        }
+        auto client = std::make_shared<S3ObjStorageClient>(
+                std::move(s3_client),
+                ObjStorageEndpointInfo {
+                        .endpoint = conf_.endpoint,
+                        .ak = conf_.ak,
+                        .sk = conf_.sk,
+                },
+                std::move(token_provider));
         obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
                 std::move(client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
         return 0;

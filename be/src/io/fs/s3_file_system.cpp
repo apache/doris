@@ -81,40 +81,21 @@ Status ObjClientHolder::init() {
 }
 
 Status ObjClientHolder::reset(const S3ClientConf& conf) {
-    S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        reset_conf = _conf;
-        reset_conf.ak = conf.ak;
-        reset_conf.sk = conf.sk;
-        reset_conf.token = conf.token;
-        reset_conf.bucket = conf.bucket;
-        reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
-        reset_conf.max_connections = conf.max_connections;
-        reset_conf.request_timeout_ms = conf.request_timeout_ms;
-        reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
-        reset_conf.is_internal_bucket = conf.is_internal_bucket;
-
-        reset_conf.role_arn = conf.role_arn;
-        reset_conf.external_id = conf.external_id;
-        reset_conf.cred_provider_type = conf.cred_provider_type;
-
-        // Compare full-field equality of the merged conf, not get_hash(): the hash is
-        // an XOR of crc32s and distinct configurations can collide, which would skip a
-        // required client rebuild (e.g. a credential update).
-        if (reset_conf == _conf) {
+        if (conf == _conf) {
             return Status::OK(); // Same conf
         }
     }
 
-    auto client = DORIS_TRY(S3ClientFactory::instance().create(reset_conf));
+    auto client = DORIS_TRY(S3ClientFactory::instance().create(conf));
 
     LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
 
     {
         std::lock_guard lock(_mtx);
         _client = std::move(client);
-        _conf = std::move(reset_conf);
+        _conf = conf;
     }
 
     return Status::OK();
@@ -142,6 +123,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
 }
 
 std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
+    std::shared_lock lock(_mtx);
     return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
 }
 
@@ -442,21 +424,25 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
 
 // oss has public endpoint and private endpoint, is_public_endpoint determines
 // whether to return a public endpoint.
-std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
-                                                 bool is_public_endpoint) const {
+Result<std::string> S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                                         bool is_public_endpoint) const {
+    auto current_conf = _client->s3_client_conf();
+    if (current_conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+        return ResultError(Status::NotSupported(
+                "presigned URLs are not supported with GCP Workload Identity"));
+    }
+
     std::string key = fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
-    if (is_public_endpoint &&
-        _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        auto new_s3_conf = _client->s3_client_conf();
-        new_s3_conf.endpoint.erase(
-                _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
-                LEN_OF_OSS_PRIVATE_SUFFIX);
-        auto client_result = S3ClientFactory::instance().create(new_s3_conf);
+    if (is_public_endpoint && current_conf.endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        auto public_conf = std::move(current_conf);
+        public_conf.endpoint.erase(public_conf.endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+                                   LEN_OF_OSS_PRIVATE_SUFFIX);
+        auto client_result = S3ClientFactory::instance().create(public_conf);
         if (!client_result) {
             LOG(WARNING) << "failed to create S3 client for presigned URL: "
                          << client_result.error();
-            return {};
+            return ResultError(std::move(client_result).error());
         }
         client = std::move(client_result).value();
     } else {

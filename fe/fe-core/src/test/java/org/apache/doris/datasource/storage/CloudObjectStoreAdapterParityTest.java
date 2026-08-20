@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.storage;
 
+import org.apache.doris.catalog.S3StorageVault;
 import org.apache.doris.cloud.proto.Cloud;
 
 import org.junit.jupiter.api.Assertions;
@@ -126,5 +127,88 @@ public class CloudObjectStoreAdapterParityTest {
     public void testEmptyMap() {
         Assertions.assertEquals(Cloud.ObjectStoreInfoPB.newBuilder().build(),
                 CloudObjectStoreAdapter.getObjStoreInfoPB(new HashMap<>()).build());
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityCredentialsProvider() {
+        Map<String, String> props = map(
+                "s3.endpoint", "storage.googleapis.com",
+                "s3.region", "us-central1",
+                "s3.bucket", "bucket",
+                "s3.root.path", "root",
+                "provider", "GCP",
+                "s3.credentials_provider_type", "gcp_workload_identity");
+
+        Cloud.ObjectStoreInfoPB pb = CloudObjectStoreAdapter.getObjStoreInfoPB(props).build();
+        Assertions.assertEquals(Cloud.CredProviderTypePB.GCP_WORKLOAD_IDENTITY,
+                pb.getCredProviderType());
+        Assertions.assertEquals(S3ResourceCompat.GCS_XML_ENDPOINT, pb.getEndpoint());
+        Assertions.assertFalse(pb.hasAk());
+        Assertions.assertFalse(pb.hasSk());
+        Assertions.assertFalse(pb.hasRoleArn());
+        Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(
+                S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityEndpointValidation() {
+        Map<String, String> props = map(
+                "s3.endpoint", "http://storage.googleapis.com",
+                "provider", "GCP",
+                "s3.credentials_provider_type", "gcp_workload_identity");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CloudObjectStoreAdapter.getObjStoreInfoPB(props));
+
+        props.put("s3.endpoint", "https://example.com");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CloudObjectStoreAdapter.getObjStoreInfoPB(props));
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityPartialAlterProperties() {
+        Map<String, String> props = map(
+                "s3.credentials_provider_type", "gcp_workload_identity");
+
+        Cloud.ObjectStoreInfoPB pb = CloudObjectStoreAdapter.getObjStoreInfoPB(props).build();
+        Assertions.assertEquals(Cloud.CredProviderTypePB.GCP_WORKLOAD_IDENTITY,
+                pb.getCredProviderType());
+        Assertions.assertFalse(pb.hasProvider());
+        Assertions.assertFalse(pb.hasEndpoint());
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityRequiresGcpProvider() {
+        Map<String, String> props = map(
+                "s3.endpoint", "s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2",
+                "s3.bucket", "bucket",
+                "s3.root.path", "root",
+                "provider", "S3",
+                "s3.credentials_provider_type", "gcp_workload_identity");
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CloudObjectStoreAdapter.getObjStoreInfoPB(props));
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityRejectsStaticCredentialsAndRole() {
+        Map<String, String> props = map(
+                "s3.endpoint", "storage.googleapis.com",
+                "s3.region", "us-central1",
+                "s3.bucket", "bucket",
+                "s3.root.path", "root",
+                "provider", "GCP",
+                "s3.credentials_provider_type", "gcp_workload_identity",
+                "s3.access_key", "hmac_id",
+                "s3.secret_key", "hmac_secret");
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CloudObjectStoreAdapter.getObjStoreInfoPB(props));
+
+        props.remove("s3.access_key");
+        props.remove("s3.secret_key");
+        props.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CloudObjectStoreAdapter.getObjStoreInfoPB(props));
     }
 }

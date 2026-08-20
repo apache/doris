@@ -20,6 +20,9 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#ifdef BE_TEST
+#include <gtest/gtest_prod.h>
+#endif
 
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
@@ -36,6 +39,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+struct S3ClientConf;
 namespace cloud {
 class CloudMetaMgr;
 }
@@ -207,6 +211,11 @@ public:
 #endif
 
 private:
+#ifdef BE_TEST
+    FRIEND_TEST(CloudStorageEngineTest, CheckNewAndChangedKeylessStorageVault);
+#endif
+    static bool _should_check_storage_vault(const S3ClientConf* current_conf,
+                                            const S3ClientConf& new_conf);
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
     void _sync_tablets_thread_callback();
@@ -287,7 +296,7 @@ private:
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
     CumuPolices _cumulative_compaction_policies;
 
-    std::atomic_bool first_sync_storage_vault {true};
+    std::mutex _sync_storage_vault_mtx;
 
     EngineOptions _options;
     std::mutex _store_lock;
