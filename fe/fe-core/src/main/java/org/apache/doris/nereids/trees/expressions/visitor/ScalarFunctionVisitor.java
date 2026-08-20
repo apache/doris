@@ -519,7 +519,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StXMax;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StXMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StYMax;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StYMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
@@ -2466,6 +2470,22 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStPolygonfromtext(StPolygonfromtext stPolygonfromtext, C context) {
         return visitScalarFunction(stPolygonfromtext, context);
+    }
+
+    default R visitStXMax(StXMax stXMax, C context) {
+        return visitScalarFunction(stXMax, context);
+    }
+
+    default R visitStXMin(StXMin stXMin, C context) {
+        return visitScalarFunction(stXMin, context);
+    }
+
+    default R visitStYMax(StYMax stYMax, C context) {
+        return visitScalarFunction(stYMax, context);
+    }
+
+    default R visitStYMin(StYMin stYMin, C context) {
+        return visitScalarFunction(stYMin, context);
     }
 
     default R visitStX(StX stX, C context) {

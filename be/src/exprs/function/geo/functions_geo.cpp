@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
 #include <utility>
 
 #include "common/compiler_util.h"
@@ -188,6 +189,166 @@ struct StY {
             }
             auto y_value = point.y();
             res->insert_value(y_value);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+
+        return Status::OK();
+    }
+};
+
+// Bounding box accessors, Trino compatible:
+// st_xmax / st_xmin / st_ymax / st_ymin return the max/min X (longitude) and
+// Y (latitude) of a geometry. All shape types are decoded via GeoShape, and the
+// result is NULL when the value is not available.
+struct StXMax {
+    static constexpr auto NAME = "st_xmax";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeFloat64;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& input = block.get_by_position(arguments[0]).column;
+
+        auto size = input->size();
+
+        auto res = ColumnFloat64::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        res->reserve(size);
+
+        for (int row = 0; row < size; ++row) {
+            auto value = input->get_data_at(row);
+            auto shape = GeoShape::from_encoded(value.data, value.size);
+
+            if (shape == nullptr) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            const double x_max = shape->bounding_box().x_max;
+            if (std::isnan(x_max)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(x_max);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+
+        return Status::OK();
+    }
+};
+
+struct StXMin {
+    static constexpr auto NAME = "st_xmin";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeFloat64;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& input = block.get_by_position(arguments[0]).column;
+
+        auto size = input->size();
+
+        auto res = ColumnFloat64::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        res->reserve(size);
+
+        for (int row = 0; row < size; ++row) {
+            auto value = input->get_data_at(row);
+            auto shape = GeoShape::from_encoded(value.data, value.size);
+
+            if (shape == nullptr) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            const double x_min = shape->bounding_box().x_min;
+            if (std::isnan(x_min)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(x_min);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+
+        return Status::OK();
+    }
+};
+
+struct StYMax {
+    static constexpr auto NAME = "st_ymax";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeFloat64;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& input = block.get_by_position(arguments[0]).column;
+
+        auto size = input->size();
+
+        auto res = ColumnFloat64::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        res->reserve(size);
+
+        for (int row = 0; row < size; ++row) {
+            auto value = input->get_data_at(row);
+            auto shape = GeoShape::from_encoded(value.data, value.size);
+
+            if (shape == nullptr) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            const double y_max = shape->bounding_box().y_max;
+            if (std::isnan(y_max)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(y_max);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+
+        return Status::OK();
+    }
+};
+
+struct StYMin {
+    static constexpr auto NAME = "st_ymin";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeFloat64;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& input = block.get_by_position(arguments[0]).column;
+
+        auto size = input->size();
+
+        auto res = ColumnFloat64::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        res->reserve(size);
+
+        for (int row = 0; row < size; ++row) {
+            auto value = input->get_data_at(row);
+            auto shape = GeoShape::from_encoded(value.data, value.size);
+
+            if (shape == nullptr) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            const double y_min = shape->bounding_box().y_min;
+            if (std::isnan(y_min)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(y_min);
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
@@ -1084,6 +1245,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAsText<StAsTextName>>>();
     factory.register_function<GeoFunction<StX>>();
     factory.register_function<GeoFunction<StY>>();
+    factory.register_function<GeoFunction<StXMax>>();
+    factory.register_function<GeoFunction<StXMin>>();
+    factory.register_function<GeoFunction<StYMax>>();
+    factory.register_function<GeoFunction<StYMin>>();
     factory.register_function<GeoFunction<StDistanceSphere>>();
     factory.register_function<GeoFunction<StAngleSphere>>();
     factory.register_function<GeoFunction<StAngle>>();
