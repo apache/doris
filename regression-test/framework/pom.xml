@@ -464,7 +464,7 @@ under the License.
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-table-runtime</artifactId>
-            <version>1.16.3</version>
+            <version>1.20.4</version>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
