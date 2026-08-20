@@ -312,6 +312,31 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
+    public void testReplacementSizingWithAliasKeyPreservesRetainedKeyWidth() {
+        // Drop/add partition events replace through an alias key whose type list is null but
+        // that compares equal to the retained wide key; the estimate must keep charging the
+        // retained key's type-list width from the value's column count.
+        List<Type> wideTypes = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            wideTypes.add(Type.STRING);
+        }
+        NameMapping mapping = NameMapping.createForTest("db", "tbl");
+        HiveExternalMetaCache.PartitionValueCacheKey wideKey =
+                new HiveExternalMetaCache.PartitionValueCacheKey(mapping, wideTypes);
+        HiveExternalMetaCache.PartitionValueCacheKey aliasKey =
+                new HiveExternalMetaCache.PartitionValueCacheKey(mapping, null);
+        Assertions.assertEquals(wideKey, aliasKey);
+        HiveExternalMetaCache.HivePartitionValues values = new HiveExternalMetaCache.HivePartitionValues(
+                new HashMap<>(), HashBiMap.create(), new HashMap<>(), 0L, wideTypes.size());
+
+        long loadedEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(
+                wideKey, values).getBytes();
+        long replacedEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(
+                aliasKey, values.mutableCopy()).getBytes();
+        Assertions.assertEquals(loadedEstimate, replacedEstimate);
+    }
+
+    @Test
     public void testEmptyTableKeyWidthFormulaAgainstJolOwnedGraph() throws Exception {
         // An empty partitioned table still retains the key's immutable type list; the estimate
         // must scale with the partition column width even when partitionCount is zero. Type

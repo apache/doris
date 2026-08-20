@@ -54,7 +54,11 @@ final class HiveCacheSizeEstimator {
                 ENTRY_BASE_BYTES, MetaCacheWeightUtils.estimatedNameMappingBytes(key.getNameMapping()));
         // The retained key width does not depend on how many partitions the table has today;
         // an empty partitioned table still retains one type list slot per partition column.
-        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, keyTypeListBytes(key.retainedTypeCount()));
+        // Event-driven replacements look up with a null-typed alias key that compares equal to
+        // the retained key, so replacement sizing falls back to the value's column width to keep
+        // covering the type list the cache still retains.
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, keyTypeListBytes(
+                Math.max(key.retainedTypeCount(), value.getPartitionColumnCount())));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.saturatedMultiply(partitionCount, perPartitionBytes));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
