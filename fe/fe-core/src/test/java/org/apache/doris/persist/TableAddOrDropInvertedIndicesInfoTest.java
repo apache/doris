@@ -41,12 +41,11 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-public class TableAddOrDropColumnsInfoTest {
-    private static String fileName = "./TableAddOrDropColumnsInfoTest";
+public class TableAddOrDropInvertedIndicesInfoTest {
+    private static String fileName = "./TableAddOrDropInvertedIndicesInfoTest";
 
     @Test
     public void testSerialization() throws IOException {
-        // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();
 
@@ -60,45 +59,32 @@ public class TableAddOrDropColumnsInfoTest {
         LinkedList<Column> fullSchema = new LinkedList<>();
         fullSchema.add(new Column("testCol1", ScalarType.createType(PrimitiveType.INT)));
         fullSchema.add(new Column("testCol2", ScalarType.createType(PrimitiveType.VARCHAR)));
-        fullSchema.add(new Column("testCol3", ScalarType.createType(PrimitiveType.DATE)));
-        fullSchema.add(new Column("testCol4", ScalarType.createType(PrimitiveType.DATETIME)));
 
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         indexSchemaMap.put(tableId, fullSchema);
 
-        Map<Long, List<Column>> oldIndexSchemaMap = new HashMap<>();
-        oldIndexSchemaMap.put(tableId, fullSchema);
-
-        Map<String, Long> indexNameToId = new HashMap<>();
-        indexNameToId.put("index", 1L);
-
         List<Index> indexes = Lists.newArrayList(
                 new Index(0, "index", Lists.newArrayList("testCol1"), IndexType.INVERTED, null, "xxxxxx"));
+        List<Index> alterIndexes = Lists.newArrayList(
+                new Index(1, "index_1", Lists.newArrayList("testCol2"), IndexType.INVERTED, null, "yyyyyy"));
 
-        TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo(
-                "", dbId, tableId, tableId,
-                indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId, createTimeMs, finishedTimeMs);
+        TableAddOrDropInvertedIndicesInfo info1 = new TableAddOrDropInvertedIndicesInfo(
+                "", dbId, tableId, indexSchemaMap, indexes, alterIndexes, false, jobId, createTimeMs, finishedTimeMs);
 
-        String c1Json = GsonUtils.GSON.toJson(tableAddOrDropColumnsInfo1);
-        Text.writeString(out, c1Json);
+        Text.writeString(out, GsonUtils.GSON.toJson(info1));
         out.flush();
         out.close();
 
-        // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
-
         String readJson = Text.readString(in);
-        TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo2 = GsonUtils.GSON.fromJson(readJson,
-                TableAddOrDropColumnsInfo.class);
+        TableAddOrDropInvertedIndicesInfo info2 = GsonUtils.GSON.fromJson(readJson,
+                TableAddOrDropInvertedIndicesInfo.class);
 
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getDbId(), tableAddOrDropColumnsInfo2.getDbId());
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getTableId(), tableAddOrDropColumnsInfo2.getTableId());
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getIndexSchemaMap(),
-                tableAddOrDropColumnsInfo2.getIndexSchemaMap());
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getCreateTimeMs(), tableAddOrDropColumnsInfo2.getCreateTimeMs());
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getFinishedTimeMs(),
-                tableAddOrDropColumnsInfo2.getFinishedTimeMs());
-
+        Assert.assertEquals(info1.getDbId(), info2.getDbId());
+        Assert.assertEquals(info1.getTableId(), info2.getTableId());
+        Assert.assertEquals(info1.getIndexSchemaMap(), info2.getIndexSchemaMap());
+        Assert.assertEquals(info1.getCreateTimeMs(), info2.getCreateTimeMs());
+        Assert.assertEquals(info1.getFinishedTimeMs(), info2.getFinishedTimeMs());
     }
 
     @After

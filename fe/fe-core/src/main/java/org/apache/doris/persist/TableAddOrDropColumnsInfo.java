@@ -52,6 +52,10 @@ public class TableAddOrDropColumnsInfo implements Writable {
     private List<Index> indexes;
     @SerializedName(value = "jobId")
     private long jobId;
+    @SerializedName(value = "createTimeMs")
+    private Long createTimeMs;
+    @SerializedName(value = "finishedTimeMs")
+    private Long finishedTimeMs;
     @SerializedName(value = "rawSql")
     private String rawSql;
 
@@ -59,7 +63,7 @@ public class TableAddOrDropColumnsInfo implements Writable {
             Map<Long, LinkedList<Column>> indexSchemaMap,
             Map<Long, List<Column>> oldIndexSchemaMap,
             Map<String, Long> indexNameToId,
-            List<Index> indexes, long jobId) {
+            List<Index> indexes, long jobId, Long createTimeMs, Long finishedTimeMs) {
         this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -69,6 +73,8 @@ public class TableAddOrDropColumnsInfo implements Writable {
         this.indexNameToId = indexNameToId;
         this.indexes = indexes;
         this.jobId = jobId;
+        this.createTimeMs = createTimeMs;
+        this.finishedTimeMs = finishedTimeMs;
     }
 
     public long getDbId() {
@@ -89,6 +95,14 @@ public class TableAddOrDropColumnsInfo implements Writable {
 
     public long getJobId() {
         return jobId;
+    }
+
+    public Long getCreateTimeMs() {
+        return createTimeMs;
+    }
+
+    public Long getFinishedTimeMs() {
+        return finishedTimeMs;
     }
 
     @Override
