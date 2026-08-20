@@ -297,7 +297,7 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testUnknownDataTypeFailsClosedWithoutFailingLoad() {
+    public void testUnknownDataTypeIsChargedGenerically() {
         DataType unknownType = new DataType(true, DataTypeRoot.INTEGER) {
             @Override
             public int defaultSize() {
@@ -319,9 +319,10 @@ public class PaimonExternalMetaCacheTest {
                 return new IntType().accept(visitor);
             }
         };
+        // Unknown logical types receive the generic per-node weight instead of disabling
+        // weighted caching for the table.
         FileStoreTable table = newTableWithPayloadType("unknown-type", unknownType);
-        Assert.assertThrows(IllegalStateException.class,
-                () -> PaimonCacheSizeEstimator.retainedTablePayloadBytes(table));
+        Assert.assertTrue(PaimonCacheSizeEstimator.retainedTablePayloadBytes(table) > 0L);
 
         NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
         PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(mapping, 1L, table.schema().id(), 1L);
@@ -329,7 +330,8 @@ public class PaimonExternalMetaCacheTest {
                 PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, table.schema().id(), table));
         MetaCacheSizeEstimate estimate = value.prepareForCachePublication(key);
 
-        Assert.assertFalse(estimate.isComplete());
+        Assert.assertTrue(estimate.getIncompleteReason(), estimate.isComplete());
+        Assert.assertTrue(estimate.getBytes() > 0L);
         Assert.assertSame(table, value.getSnapshot().getTable());
     }
 
@@ -484,7 +486,7 @@ public class PaimonExternalMetaCacheTest {
         // A RowType whose maps were materialized before admission is estimated identically.
         RowType preloaded = wideRowType(200);
         long unloadedEstimate = PaimonCacheSizeEstimator.retainedTablePayloadBytes(
-                newTableWithPayloadType("row-unloaded", wideRowType(200)));
+                newTableWithPayloadType("row-unload", wideRowType(200)));
         materializeRowTypeIndexes(preloaded);
         Assert.assertEquals(unloadedEstimate, PaimonCacheSizeEstimator.retainedTablePayloadBytes(
                 newTableWithPayloadType("row-loaded", preloaded)));

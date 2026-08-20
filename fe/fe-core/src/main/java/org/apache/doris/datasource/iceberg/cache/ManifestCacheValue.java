@@ -50,13 +50,11 @@ public class ManifestCacheValue {
     // admitted with an underestimate, so it sits well above ordinary wide manifests: 10,000 files
     // with 200 lower/upper bounds each is 4,000,000 elements.
     private static final long MAX_DEEP_ACCOUNTING_ELEMENTS = 8_000_000L;
-    // The per-file constants in IcebergCacheSizeEstimator describe the Iceberg 1.10.1 copies that
-    // ManifestReader + ContentFile.copy() produce. Only those implementations, with their pinned
-    // instance-field layouts, are accounted; anything else fails closed at build time.
-    private static final String GENERIC_DATA_FILE_CLASS_NAME = "org.apache.iceberg.GenericDataFile";
-    private static final String GENERIC_DELETE_FILE_CLASS_NAME =
-            "org.apache.iceberg.GenericDeleteFile";
-    private static final boolean CONTENT_FILE_LAYOUT_SUPPORTED = checkContentFileLayout();
+    // A partition container of an unknown StructLike implementation: instance plus a generous
+    // per-slot share; its (possibly shared) schema graph is unknown and charged per file.
+    private static final long UNKNOWN_PARTITION_CONTAINER_BYTES = 512L;
+    private static final long UNKNOWN_PARTITION_SLOT_BYTES = 128L;
+    private static final long UNKNOWN_PARTITION_VALUE_BYTES = 64L;
 
     private final List<DataFile> dataFiles;
     private final List<DeleteFile> deleteFiles;
@@ -106,31 +104,6 @@ public class ManifestCacheValue {
 
     public static Builder deleteFilesBuilder(boolean accountRetainedSize) {
         return new Builder(false, accountRetainedSize);
-    }
-
-    private static boolean checkContentFileLayout() {
-        ClassLoader loader = ContentFile.class.getClassLoader();
-        return MetaCacheWeightUtils.hasExpectedInstanceFields(GENERIC_DATA_FILE_CLASS_NAME, loader)
-                && MetaCacheWeightUtils.hasExpectedInstanceFields(
-                        GENERIC_DELETE_FILE_CLASS_NAME, loader)
-                && MetaCacheWeightUtils.hasExpectedInstanceFields(
-                        "org.apache.iceberg.BaseFile", loader,
-                        "partitionType:StructType", "fileOrdinal:Long", "manifestLocation:String",
-                        "partitionSpecId:int", "content:FileContent", "filePath:String",
-                        "format:FileFormat", "partitionData:PartitionData", "recordCount:Long",
-                        "fileSizeInBytes:long", "dataSequenceNumber:Long",
-                        "fileSequenceNumber:Long", "columnSizes:Map", "valueCounts:Map",
-                        "nullValueCounts:Map", "nanValueCounts:Map", "lowerBounds:Map",
-                        "upperBounds:Map", "splitOffsets:long[]", "equalityIds:int[]",
-                        "keyMetadata:byte[]", "sortOrderId:Integer", "firstRowId:Long",
-                        "referencedDataFile:String", "contentOffset:Long",
-                        "contentSizeInBytes:Long", "avroSchema:Schema")
-                && MetaCacheWeightUtils.hasExpectedInstanceFields(
-                        "org.apache.iceberg.avro.SupportsIndexProjection", loader,
-                        "fromProjectionPos:int[]")
-                && MetaCacheWeightUtils.hasExpectedInstanceFields(PartitionData.class,
-                        "partitionType:StructType", "size:int", "data:Object[]",
-                        "stringSchema:String", "schema:Schema");
     }
 
     public List<DataFile> getDataFiles() {
@@ -204,7 +177,6 @@ public class ManifestCacheValue {
                 return;
             }
             try {
-                requireSupportedContentFile(file);
                 StructLike partition = file.partition();
                 long nextDeepElements = MetaCacheWeightUtils.saturatedAdd(
                         deepAccountingElements, deepAccountingElements(file, partition));
@@ -220,18 +192,6 @@ public class ManifestCacheValue {
                 // accounting into a manifest-read failure. Keep the files for the current query
                 // and mark the value incomplete so weighted admission rejects it.
                 rejectAccounting();
-            }
-        }
-
-        private void requireSupportedContentFile(ContentFile<?> file) {
-            if (!CONTENT_FILE_LAYOUT_SUPPORTED) {
-                throw new IllegalStateException("unsupported Iceberg content file layout");
-            }
-            String expectedClassName = dataContent
-                    ? GENERIC_DATA_FILE_CLASS_NAME : GENERIC_DELETE_FILE_CLASS_NAME;
-            if (file == null || !expectedClassName.equals(file.getClass().getName())) {
-                throw new IllegalStateException("unsupported Iceberg content file implementation: "
-                        + (file == null ? "null" : file.getClass().getName()));
             }
         }
 
@@ -254,9 +214,13 @@ public class ManifestCacheValue {
                 return;
             }
             if (!(partition instanceof PartitionData)) {
-                throw new IllegalArgumentException(
-                        "unsupported Iceberg partition container: "
-                                + partition.getClass().getName());
+                // Unknown partition containers cannot share their schema accounting across
+                // files; charge a generic conservative weight per file instead of rejecting.
+                retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                        MetaCacheWeightUtils.saturatedAdd(UNKNOWN_PARTITION_CONTAINER_BYTES,
+                                MetaCacheWeightUtils.saturatedMultiply(
+                                        partition.size(), UNKNOWN_PARTITION_SLOT_BYTES)));
+                return;
             }
             PartitionData partitionData = (PartitionData) partition;
             retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
@@ -380,8 +344,8 @@ public class ManifestCacheValue {
                 bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                         MetaCacheWeightUtils.estimatedObjectBytes(16L));
             } else if (value != null) {
-                throw new IllegalArgumentException(
-                        "unsupported Iceberg partition value: " + value.getClass().getName());
+                // Unknown scalar partition value types get a generic conservative weight.
+                bytes = MetaCacheWeightUtils.saturatedAdd(bytes, UNKNOWN_PARTITION_VALUE_BYTES);
             }
         }
         return bytes;

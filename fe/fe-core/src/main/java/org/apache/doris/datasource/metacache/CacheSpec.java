@@ -42,7 +42,9 @@ import java.util.regex.Pattern;
  *   <li>enable=false disables cache</li>
  *   <li>ttlSecond=0 disables cache, ttlSecond=-1 means no expiration</li>
  *   <li>capacity=0 disables cache; otherwise capacity is the count limit only when max-weight is absent</li>
- *   <li>when max-weight is present, Caffeine uses the weight limit instead of the positive capacity</li>
+ *   <li>when max-weight is present, Caffeine uses the weight limit instead of the positive capacity;
+ *       max-weight is an estimated retained-cache admission budget in approximate bytes, not an
+ *       exact heap limit (see {@link MetaCacheWeightUtils})</li>
  * </ul>
  */
 public final class CacheSpec {

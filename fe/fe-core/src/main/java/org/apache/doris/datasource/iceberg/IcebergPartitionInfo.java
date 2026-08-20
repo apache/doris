@@ -34,7 +34,7 @@ public class IcebergPartitionInfo {
     private static final long RANGE_ENDPOINTS_PER_ITEM = 2L;
     // A merged-overlap alias group is a HashSet of the enclosed physical partition names; the
     // names themselves are shared with the partition maps.
-    private static final long HASH_SET_BYTES = MetaCacheWeightUtils.estimatedObjectLayoutBytes(1L, 0L);
+    private static final long HASH_SET_BYTES = 24L;
 
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, IcebergPartition> nameToIcebergPartition;

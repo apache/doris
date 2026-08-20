@@ -48,12 +48,12 @@ public class MetaCacheEntryTest {
 
     @Test
     public void testCompactStringPayloadEstimate() {
-        // Three Latin-1 bytes and two UTF-16 characters both occupy one aligned slot; the exact
-        // slot size follows the JVM object alignment (8 by default, 16 with large heaps).
+        // Latin-1 characters weigh one byte, other characters two; the estimate scales with
+        // string length so skewed payloads dominate their entries.
         long latin1 = MetaCacheWeightUtils.estimatedStringPayloadBytes("abc");
         long utf16 = MetaCacheWeightUtils.estimatedStringPayloadBytes("中文");
-        Assert.assertEquals(latin1, utf16);
-        Assert.assertTrue(latin1 >= 4L && latin1 <= 16L);
+        Assert.assertEquals(3L, latin1);
+        Assert.assertEquals(4L, utf16);
         Assert.assertTrue(MetaCacheWeightUtils.estimatedStringPayloadBytes("abcdefghijklmnopq")
                 > latin1);
     }

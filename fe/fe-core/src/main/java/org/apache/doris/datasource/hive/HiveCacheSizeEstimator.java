@@ -28,12 +28,9 @@ final class HiveCacheSizeEstimator {
     // name plus derived value/literal strings and therefore remains skew-sensitive.
     private static final long ENTRY_BASE_BYTES = objectBytes(2L * 1024L);
     private static final long PARTITION_BASE_BYTES = objectBytes(896L);
-    // PartitionValueCacheKey retains an ImmutableList over the partition column types; the Type
-    // instances themselves are shared catalog singletons and are not charged. A single-element
-    // list is Guava's SingletonImmutableList (one reference, no array); wider lists add a
-    // backing array with one slot per column.
-    private static final long KEY_TYPE_LIST_BYTES =
-            MetaCacheWeightUtils.estimatedObjectLayoutBytes(1L, 0L);
+    // PartitionValueCacheKey retains an immutable list over the partition column types; the Type
+    // instances themselves are shared catalog singletons and are not charged.
+    private static final long KEY_TYPE_LIST_BYTES = 24L;
     private static final long PARTITION_COLUMN_BYTES = objectBytes(256L);
     // One copy is retained as the partition name and another in the decoded partition values.
     private static final long PARTITION_NAME_PAYLOAD_COPIES = 2L;
@@ -47,9 +44,6 @@ final class HiveCacheSizeEstimator {
 
     static MetaCacheSizeEstimate estimatePartitionValuesEntry(
             PartitionValueCacheKey key, HivePartitionValues value) {
-        if (!MetaCacheWeightUtils.isSupportedJvmObjectLayout()) {
-            return MetaCacheSizeEstimate.incomplete("unsupported_jvm_object_alignment");
-        }
         long partitionCount = value.getIdToPartitionItem() == null
                 ? 0L : value.getIdToPartitionItem().size();
         long perPartitionBytes = MetaCacheWeightUtils.saturatedAdd(
