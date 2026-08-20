@@ -18,18 +18,13 @@
 package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.common.CustomThreadFactory;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 
-import com.google.common.collect.Sets;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,18 +33,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The RemoteFSPhantomManager class is responsible for managing the phantom references
- * of RemoteFileSystem objects. It ensures that the associated FileSystem resources are
- * automatically cleaned up when the RemoteFileSystem objects are garbage collected.
+ * of DFSFileSystem objects. It ensures that the associated FileSystem resources are
+ * automatically cleaned up when the DFSFileSystem objects are garbage collected.
  * <p>
  * By utilizing a ReferenceQueue and PhantomReference, this class can monitor the lifecycle
- * of RemoteFileSystem objects. When a RemoteFileSystem object is no longer in use and is
+ * of DFSFileSystem objects. When a DFSFileSystem object is no longer in use and is
  * garbage collected, its corresponding FileSystem resource is properly closed to prevent
  * resource leaks.
  * <p>
  * The class provides a thread-safe mechanism to ensure that the cleanup thread is started only once.
  * <p>
  * Main functionalities include:
- * - Registering phantom references of RemoteFileSystem objects.
+ * - Registering phantom references of DFSFileSystem objects.
  * - Starting a periodic cleanup thread that automatically closes unused FileSystem resources.
  */
 public class RemoteFSPhantomManager {
@@ -59,68 +54,48 @@ public class RemoteFSPhantomManager {
     // Scheduled executor for periodic resource cleanup
     private static ScheduledExecutorService cleanupExecutor;
 
-    // Reference queue for monitoring RemoteFileSystem objects' phantom references
+    // Reference queue for monitoring DFSFileSystem objects' phantom references
     private static final ReferenceQueue<DFSFileSystem> referenceQueue = new ReferenceQueue<>();
 
-    // Map storing the phantom references and their corresponding FileSystem objects
-    private static final ConcurrentHashMap<PhantomReference<DFSFileSystem>, FileSystem> referenceMap
+    // Map storing the phantom references and their corresponding FileSystem resources
+    private static final ConcurrentHashMap<Reference<? extends DFSFileSystem>, DFSFileSystemResource> referenceMap
             = new ConcurrentHashMap<>();
-
-    private static final Set<FileSystem> fsSet = Sets.newConcurrentHashSet();
 
     // Flag indicating whether the cleanup thread has been started
     private static final AtomicBoolean isStarted = new AtomicBoolean(false);
 
     /**
-     * Registers a phantom reference for a RemoteFileSystem object in the manager.
+     * Registers a phantom reference for a DFSFileSystem object in the manager.
      * If the cleanup thread has not been started, it will be started.
      *
-     * @param remoteFileSystem the RemoteFileSystem object to be registered
+     * @param remoteFileSystem the DFSFileSystem object to be registered
      */
-    public static void registerPhantomReference(DFSFileSystem remoteFileSystem) {
-        if (!isStarted.get()) {
-            start();
-            isStarted.set(true);
-        }
-        if (fsSet.contains(remoteFileSystem.dfsFileSystem)) {
-            throw new RuntimeException("FileSystem already exists: " + remoteFileSystem.dfsFileSystem.getUri());
-        }
-        DFSFileSystemPhantomReference phantomReference = new DFSFileSystemPhantomReference(remoteFileSystem,
-                referenceQueue);
-        referenceMap.put(phantomReference, remoteFileSystem.dfsFileSystem);
-        fsSet.add(remoteFileSystem.dfsFileSystem);
+    static void registerPhantomReference(DFSFileSystem remoteFileSystem, DFSFileSystemResource resource) {
+        start();
+        PhantomReference<DFSFileSystem> phantomReference = new PhantomReference<>(remoteFileSystem, referenceQueue);
+        referenceMap.put(phantomReference, resource);
     }
 
     /**
      * Starts the cleanup thread, which periodically checks and cleans up unused FileSystem resources.
-     * The method uses double-checked locking to ensure thread-safe startup of the cleanup thread.
+     * The method uses an atomic flag to ensure thread-safe startup of the cleanup thread.
      */
     public static void start() {
         if (isStarted.compareAndSet(false, true)) {
-            synchronized (RemoteFSPhantomManager.class) {
-                LOG.info("Starting cleanup thread for RemoteFileSystem objects");
-                if (cleanupExecutor == null) {
-                    CustomThreadFactory threadFactory = new CustomThreadFactory("remote-fs-phantom-cleanup");
-                    cleanupExecutor = Executors.newScheduledThreadPool(1, threadFactory);
-                    cleanupExecutor.scheduleAtFixedRate(() -> {
-                        Reference<? extends RemoteFileSystem> ref;
-                        while ((ref = referenceQueue.poll()) != null) {
-                            DFSFileSystemPhantomReference phantomRef = (DFSFileSystemPhantomReference) ref;
-
-                            FileSystem fs = referenceMap.remove(phantomRef);
-                            if (fs != null) {
-                                try {
-                                    fs.close();
-                                    fsSet.remove(fs);
-                                    LOG.info("Closed file system: {}", fs.getUri());
-                                } catch (IOException e) {
-                                    LOG.warn("Failed to close file system", e);
-                                }
-                            }
-                        }
-                    }, 0, 1, TimeUnit.MINUTES);
+            LOG.info("Starting cleanup thread for DFSFileSystem objects");
+            CustomThreadFactory threadFactory = new CustomThreadFactory("remote-fs-phantom-cleanup");
+            cleanupExecutor = Executors.newScheduledThreadPool(1, threadFactory);
+            cleanupExecutor.scheduleAtFixedRate(() -> {
+                Reference<? extends DFSFileSystem> ref;
+                while ((ref = referenceQueue.poll()) != null) {
+                    DFSFileSystemResource resource = referenceMap.remove(ref);
+                    try {
+                        resource.requestClose();
+                    } catch (RuntimeException e) {
+                        LOG.warn("Failed to close file system resource", e);
+                    }
                 }
-            }
+            }, 0, 1, TimeUnit.MINUTES);
         }
     }
 

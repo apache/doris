@@ -19,6 +19,7 @@ package org.apache.doris.fs.io.hdfs;
 
 import org.apache.doris.fs.io.DorisInputStream;
 import org.apache.doris.fs.io.ParsedPath;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
@@ -36,6 +37,7 @@ public class HdfsInputStream extends DorisInputStream {
     private final ParsedPath path;
     // The underlying Hadoop FSDataInputStream used for reading.
     private final FSDataInputStream stream;
+    private final DFSFileSystem.FileSystemLease lease;
     // Indicates whether the stream has been closed.
     private boolean closed;
 
@@ -45,9 +47,10 @@ public class HdfsInputStream extends DorisInputStream {
      * @param path the ParsedPath representing the file location
      * @param stream the underlying Hadoop FSDataInputStream
      */
-    HdfsInputStream(ParsedPath path, FSDataInputStream stream) {
+    HdfsInputStream(ParsedPath path, FSDataInputStream stream, DFSFileSystem.FileSystemLease lease) {
         this.path = Objects.requireNonNull(path, "path is null");
         this.stream = Objects.requireNonNull(stream, "stream is null");
+        this.lease = Objects.requireNonNull(lease, "lease is null");
     }
 
     /**
@@ -174,7 +177,14 @@ public class HdfsInputStream extends DorisInputStream {
      */
     @Override
     public void close() throws IOException {
+        if (closed) {
+            return;
+        }
         closed = true;
-        stream.close();
+        try {
+            stream.close();
+        } finally {
+            lease.close();
+        }
     }
 }
