@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -42,7 +41,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -56,7 +54,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -185,11 +182,17 @@ public abstract class RoutineLoadJob
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
+    @SerializedName("pni")
     protected PartitionNamesInfo partitionNamesInfo; // optional
+    @SerializedName("cds")
     protected ImportColumnDescs columnDescs; // optional
+    @SerializedName("pf")
     protected Expr precedingFilter; // optional
+    @SerializedName("we")
     protected Expr whereExpr; // optional
+    @SerializedName("cs")
     protected Separator columnSeparator; // optional
+    @SerializedName("lidel")
     protected Separator lineDelimiter;
     @SerializedName("dtcn")
     protected int desireTaskConcurrentNum; // optional
@@ -233,6 +236,7 @@ public abstract class RoutineLoadJob
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
+    @SerializedName("sc")
     protected String sequenceCol;
 
     protected boolean memtableOnSinkNode = false;
@@ -261,7 +265,7 @@ public abstract class RoutineLoadJob
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // Persist the current effective load definition as a CREATE statement.
+    // Keep the original CREATE statement for downgrade compatibility and legacy image recovery.
     @SerializedName("ostmt")
     protected OriginStatement origStmt;
     // User who submit this job. Maybe null for the old version job(before v1.1)
@@ -272,7 +276,9 @@ public abstract class RoutineLoadJob
     protected String comment = "";
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    @SerializedName("mt")
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    @SerializedName("dc")
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
@@ -2000,6 +2006,15 @@ public abstract class RoutineLoadJob
                 }
             }
         });
+        // Old images have none of the nullable effective load-definition fields. A new image with
+        // an empty definition also takes this path, which is safe because ALTER cannot unset all
+        // load clauses and the original CREATE statement therefore has the same empty definition.
+        if (hasPersistedLoadDefinition()) {
+            if (userIdentity != null) {
+                userIdentity.setIsAnalyzed();
+            }
+            return;
+        }
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
@@ -2042,68 +2057,10 @@ public abstract class RoutineLoadJob
         }
     }
 
-    protected void replayLoadDefinition(OriginStatement alterStatement) throws UserException {
-        if (alterStatement == null) {
-            return;
-        }
-        Database database = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
-        ConnectContext ctx = createLoadDefinitionContext(database);
-        try {
-            ctx.setThreadLocalInfo();
-            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) parsePersistedStatement(alterStatement);
-            setRoutineLoadDesc(command.analyzeLoadProperties(ctx, this));
-            mergeLoadDescToOriginStatement();
-        } finally {
-            ctx.cleanup();
-        }
-    }
-
-    private ConnectContext createLoadDefinitionContext(Database database) {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setDatabase(database.getName());
-        StatementContext statementContext = new StatementContext();
-        statementContext.setConnectContext(ctx);
-        ctx.setStatementContext(statementContext);
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        if (sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
-            ctx.getSessionVariable().setSqlMode(Long.parseLong(sessionVariables.get(SessionVariable.SQL_MODE)));
-        }
-        ctx.getState().reset();
-        return ctx;
-    }
-
-    protected void mergeLoadDescToOriginStatement() throws UserException {
-        List<ImportColumnDesc> columns =
-                columnDescs == null ? null : Lists.newArrayList(columnDescs.descs);
-        RoutineLoadDesc loadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, columns,
-                precedingFilter, whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
-        StringBuilder sql = new StringBuilder("CREATE ROUTINE LOAD ")
-                .append(SqlUtils.getIdentSql(name));
-        if (!isMultiTable) {
-            sql.append(" ON ").append(SqlUtils.getIdentSql(getTableName()));
-        }
-        sql.append(" WITH ").append(mergeType.name());
-        String loadClauseSql = loadDesc.toSql();
-        if (!loadClauseSql.isEmpty()) {
-            sql.append(" ").append(loadClauseSql);
-        }
-        sql.append(" PROPERTIES (\"desired_concurrent_number\" = \"1\")");
-        sql.append(buildPersistedDataSourceSql());
-        origStmt = new OriginStatement(sql.toString(), 0);
-    }
-
-    private String buildPersistedDataSourceSql() {
-        if (dataSourceType == LoadDataSourceType.KINESIS) {
-            return " FROM KINESIS (\"aws.region\" = \"us-east-1\", "
-                    + "\"kinesis_stream\" = \"__routine_load_persistence__\")";
-        }
-        return " FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
-                + "\"kafka_topic\" = \"__routine_load_persistence__\")";
-    }
-
-    private LogicalPlan parsePersistedStatement(OriginStatement statement) {
-        return new NereidsParser().parseMultiple(statement.originStmt).get(statement.idx).first;
+    private boolean hasPersistedLoadDefinition() {
+        return partitionNamesInfo != null || columnDescs != null || precedingFilter != null
+                || whereExpr != null || columnSeparator != null || lineDelimiter != null
+                || sequenceCol != null || deleteCondition != null;
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;

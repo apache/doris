@@ -17,14 +17,20 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -56,86 +62,73 @@ public class RoutineLoadJobPersistenceTest {
             "/upgrade/routine-load/a8928245/routine-load-kafka-image.b64";
 
     @Test
-    public void testImageRestoresLoadDefinitionFromOrigStmt() throws Exception {
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1001L, "image_job", 8001L,
+    public void testDirectStateImageRoundTripDoesNotParseOrigStmt() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1001L, "direct_job", 8001L,
                 9001L, "127.0.0.1:9092", "image_topic", UserIdentity.ADMIN);
         job.state = RoutineLoadJob.JobState.PAUSED;
-        job.origStmt = new OriginStatement("CREATE ROUTINE LOAD legacy_db.image_job ON stale_table "
-                + "COLUMNS TERMINATED BY '|', "
-                + "COLUMNS(source_col, mapped_col = source_col + 1), "
-                + "PRECEDING FILTER source_col > 1, WHERE mapped_col <= 10 "
-                + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
-                + "\"kafka_topic\" = \"image_topic\")", 0);
-
-        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator(",", ","), null,
-                Lists.newArrayList(new ImportColumnDesc("wrong_column")),
-                null, null, null, null, LoadTask.MergeType.APPEND, null));
+        job.origStmt = new OriginStatement("deliberately invalid SQL", 0);
+        Expr columnExpr = new BinaryPredicate(
+                BinaryPredicate.Operator.GT, new IntLiteral(3), new IntLiteral(2));
+        Expr precedingFilter = new BinaryPredicate(
+                BinaryPredicate.Operator.GE, new IntLiteral(4), new IntLiteral(3));
+        Expr whereExpr = new BinaryPredicate(
+                BinaryPredicate.Operator.LT, new IntLiteral(1), new IntLiteral(2));
+        Expr deleteCondition = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, new IntLiteral(1), new IntLiteral(1));
+        job.setRoutineLoadDesc(new RoutineLoadDesc(
+                new Separator("|", "|"), new Separator("\n", "\\n"),
+                Lists.newArrayList(new ImportColumnDesc("source_col"),
+                        new ImportColumnDesc("mapped_col", columnExpr)),
+                precedingFilter, whereExpr,
+                new PartitionNamesInfo(false, Lists.newArrayList("p1", "p2")),
+                deleteCondition, LoadTask.MergeType.MERGE, "seq_col"));
 
         JsonObject json = imageJson(job);
         Assert.assertTrue(json.has("ostmt"));
         for (String key : Lists.newArrayList(
-                "pni", "cds", "pf", "we", "cs", "sc", "mt", "dc", "eml", "mosn", "lidel")) {
-            Assert.assertFalse("load definition must only be persisted through origStmt: " + key, json.has(key));
+                "pni", "cds", "pf", "we", "cs", "lidel", "sc", "mt", "dc")) {
+            Assert.assertTrue("missing direct-state key " + key, json.has(key));
         }
 
         RoutineLoadJob restored;
-        try (MockedStatic<Env> ignored = mockCatalog()) {
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             restored = imageRoundTrip(job);
+            envStatic.verifyNoInteractions();
         }
 
-        Assert.assertEquals("|", restored.getColumnSeparator().getSeparator());
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+        Assert.assertEquals(Lists.newArrayList("p1", "p2"),
+                restored.getPartitionNamesInfo().getPartitionNames());
         Assert.assertEquals(2, restored.getColumnExprDescs().descs.size());
-        Assert.assertEquals("source_col", restored.getColumnExprDescs().descs.get(0).getColumnName());
-        Assert.assertEquals("mapped_col", restored.getColumnExprDescs().descs.get(1).getColumnName());
-        Assert.assertNotNull(restored.getPrecedingFilter());
-        Assert.assertNotNull(restored.getWhereExpr());
+        Assert.assertEquals(exprToSql(columnExpr),
+                exprToSql(restored.getColumnExprDescs().descs.get(1).getExpr()));
+        Assert.assertEquals(exprToSql(precedingFilter), exprToSql(restored.getPrecedingFilter()));
+        Assert.assertEquals(exprToSql(whereExpr), exprToSql(restored.getWhereExpr()));
+        Assert.assertEquals(exprToSql(deleteCondition), exprToSql(restored.getDeleteCondition()));
+        Assert.assertEquals("|", restored.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\n", restored.getLineDelimiter().getSeparator());
+        Assert.assertEquals("seq_col", restored.getSequenceCol());
+        Assert.assertEquals(LoadTask.MergeType.MERGE, restored.getMergeType());
     }
 
     @Test
-    public void testAlterReplayMergesCurrentDefinitionIntoOrigStmt() throws Exception {
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(2001L, "alter_job", 8001L,
-                9001L, "127.0.0.1:9092", "alter_topic", UserIdentity.ADMIN);
+    public void testEmptyDirectStateSafelyFallsBackToOrigStmt() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(2001L, "empty_job", 8001L,
+                9001L, "127.0.0.1:9092", "empty_topic", UserIdentity.ADMIN);
         job.state = RoutineLoadJob.JobState.PAUSED;
-        job.origStmt = new OriginStatement("CREATE ROUTINE LOAD legacy_db.alter_job ON current_table WITH MERGE "
-                + "COLUMNS TERMINATED BY ',', "
-                + "COLUMNS(source_col, mapped_col = source_col + 1), "
-                + "PRECEDING FILTER source_col > 1, WHERE mapped_col < 100, "
-                + "PARTITION(p1), DELETE ON delete_flag = 1, ORDER BY seq_col "
+        job.origStmt = new OriginStatement("CREATE ROUTINE LOAD legacy_db.empty_job ON current_table "
                 + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
-                + "\"kafka_topic\" = \"alter_topic\")", 0);
+                + "\"kafka_topic\" = \"empty_topic\")", 0);
 
-        try (MockedStatic<Env> ignored = mockCatalog()) {
-            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
-            job.replayLoadDefinition(new OriginStatement(
-                    "ALTER ROUTINE LOAD FOR alter_job COLUMNS TERMINATED BY '|', WHERE mapped_col < 50", 0));
-            job.replayLoadDefinition(new OriginStatement(
-                    "ALTER ROUTINE LOAD FOR alter_job "
-                            + "PRECEDING FILTER content MATCH_ANY 'hello' USING ANALYZER 'english'", 0));
-        }
-
-        Assert.assertTrue(job.origStmt.originStmt.startsWith("CREATE ROUTINE LOAD"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS TERMINATED BY \"|\""));
-        Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS("));
-        Assert.assertTrue(job.origStmt.originStmt.contains("WHERE"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("PRECEDING FILTER"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("USING ANALYZER"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("PARTITION(`p1`)"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("DELETE ON"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("ORDER BY `seq_col`"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("WITH MERGE"));
-
-        JsonObject expectedProperties = JsonParser.parseString(job.jobPropertiesToJsonString()).getAsJsonObject();
         RoutineLoadJob restored;
         try (MockedStatic<Env> ignored = mockCatalog()) {
             restored = imageRoundTrip(job);
         }
-        JsonObject restoredProperties = JsonParser.parseString(restored.jobPropertiesToJsonString()).getAsJsonObject();
-        for (String key : Lists.newArrayList("column_separator", "precedingFilter",
-                "whereExpr", "partitions", "delete", "sequence_col", "merge_type")) {
-            Assert.assertEquals(key, expectedProperties.get(key), restoredProperties.get(key));
-        }
-        Assert.assertTrue(restoredProperties.get("columnToColumnExpr").getAsString().contains("mapped_col="));
-        Assert.assertEquals(job.origStmt.originStmt, restored.origStmt.originStmt);
+
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+        Assert.assertNull(restored.getColumnSeparator());
+        Assert.assertNull(restored.getWhereExpr());
+        Assert.assertEquals(LoadTask.MergeType.APPEND, restored.getMergeType());
     }
 
     @Test
@@ -155,8 +148,14 @@ public class RoutineLoadJobPersistenceTest {
 
         JsonObject newImage = imageJson(restored);
         Assert.assertTrue(newImage.has("ostmt"));
-        Assert.assertFalse(newImage.has("mt"));
-        Assert.assertFalse(newImage.has("cs"));
+        Assert.assertTrue(newImage.has("mt"));
+        Assert.assertTrue(newImage.has("cs"));
+        restored.origStmt = new OriginStatement("invalid after legacy recovery", 0);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            RoutineLoadJob restoredAgain = imageRoundTrip(restored);
+            envStatic.verifyNoInteractions();
+            Assert.assertEquals("|", restoredAgain.getColumnSeparator().getSeparator());
+        }
     }
 
     private static MockedStatic<Env> mockCatalog() throws Exception {
@@ -174,6 +173,7 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.when(catalog.getDbOrAnalysisException("legacy_db")).thenReturn(database);
         Mockito.when(database.getName()).thenReturn("legacy_db");
         Mockito.when(database.getFullName()).thenReturn("legacy_db");
+        Mockito.when(database.getTable(9001L)).thenReturn(Optional.of((Table) table));
         Mockito.when(database.getTableOrMetaException(9001L)).thenReturn(table);
         Mockito.when(database.getTableOrAnalysisException("current_table")).thenReturn(table);
         Mockito.when(table.getName()).thenReturn("current_table");
@@ -186,6 +186,10 @@ public class RoutineLoadJobPersistenceTest {
         envStatic.when(Env::getCurrentEnv).thenReturn(env);
         envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         return envStatic;
+    }
+
+    private static String exprToSql(Expr expr) {
+        return expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
     }
 
     private static JsonObject imageJson(RoutineLoadJob job) throws IOException {

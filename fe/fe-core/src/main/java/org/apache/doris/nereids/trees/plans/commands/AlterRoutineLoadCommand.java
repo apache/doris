@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableSet;
@@ -88,7 +87,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     private final LabelNameInfo labelNameInfo;
     private final Map<String, LoadProperty> loadPropertyMap;
     private RoutineLoadDesc routineLoadDesc;
-    private OriginStatement originStatement;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
     private boolean isPartialUpdate;
@@ -151,16 +149,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         return routineLoadDesc;
     }
 
-    public OriginStatement getOriginStatement() {
-        return originStatement;
-    }
-
-    /** Analyze only the load-clause delta while replaying the persisted ALTER statement. */
-    public RoutineLoadDesc analyzeLoadProperties(ConnectContext ctx, RoutineLoadJob job) throws UserException {
-        return CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
-                job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
-    }
-
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
@@ -171,7 +159,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws UserException {
-        originStatement = ctx.getStatementContext().getOriginStatement();
         labelNameInfo.validate(ctx);
         FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
         // check routine load job properties include desired concurrent number etc.

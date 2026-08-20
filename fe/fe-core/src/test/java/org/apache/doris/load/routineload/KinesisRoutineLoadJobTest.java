@@ -252,21 +252,17 @@ public class KinesisRoutineLoadJobTest {
     }
 
     @Test
-    public void testAlterOriginStatementReplayKeepsCheckpointParity() throws Exception {
+    public void testAlterRoutineLoadDescReplayKeepsCheckpointParity() throws Exception {
         KinesisRoutineLoadJob leader = createPausedJobWithInitialLoadDesc();
         KinesisRoutineLoadJob replay = createPausedJobWithInitialLoadDesc();
 
         Map<String, String> jobProperties = Maps.newHashMap();
         RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null,
                 null, null, null, null, null, LoadTask.MergeType.APPEND, "sequence_col");
-        OriginStatement alterStatement = new OriginStatement(
-                "ALTER ROUTINE LOAD FOR kinesis_routine_load_job "
-                        + "COLUMNS TERMINATED BY ';', ORDER BY sequence_col", 0);
         AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
         Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
         Mockito.when(command.getDataSourceProperties()).thenReturn(null);
         Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
-        Mockito.when(command.getOriginStatement()).thenReturn(alterStatement);
 
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -298,7 +294,7 @@ public class KinesisRoutineLoadJobTest {
             AlterRoutineLoadJobOperationLog log = journalRoundTrip(logCaptor.getValue());
             replay.replayModifyProperties(log);
 
-            Assert.assertEquals(alterStatement.originStmt, log.getOriginStatement().originStmt);
+            Assert.assertEquals(";", log.getRoutineLoadDesc().getColumnSeparator().getSeparator());
             assertAlterResult(leader);
             assertAlterResult(replay);
             Assert.assertEquals(JsonParser.parseString(checkpointJson(leader)),

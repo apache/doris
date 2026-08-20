@@ -17,13 +17,20 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.Separator;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
-import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
@@ -58,10 +65,16 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
-        OriginStatement originStatement = new OriginStatement(
-                "ALTER ROUTINE LOAD FOR job WHERE mapped_col > 10", 0);
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(
+                new Separator(",", ","), new Separator("\n", "\\n"),
+                Lists.newArrayList(new ImportColumnDesc("source_col")),
+                new BinaryPredicate(BinaryPredicate.Operator.GT, new IntLiteral(2), new IntLiteral(1)),
+                new BinaryPredicate(BinaryPredicate.Operator.LT, new IntLiteral(1), new IntLiteral(2)),
+                new PartitionNamesInfo(true, Lists.newArrayList("p1", "p2")),
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1), new IntLiteral(1)),
+                LoadTask.MergeType.MERGE, "sequence_col");
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties, originStatement);
+                jobProperties, routineLoadDataSourceProperties, routineLoadDesc);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
             log.write(out);
@@ -82,19 +95,29 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
-        Assert.assertEquals(originStatement.originStmt, log2.getOriginStatement().originStmt);
-        Assert.assertEquals(originStatement.idx, log2.getOriginStatement().idx);
+        RoutineLoadDesc restoredDesc = log2.getRoutineLoadDesc();
+        Assert.assertEquals(",", restoredDesc.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\n", restoredDesc.getLineDelimiter().getSeparator());
+        Assert.assertEquals("source_col", restoredDesc.getColumnsInfo().get(0).getColumnName());
+        Assert.assertNotNull(restoredDesc.getPrecedingFilter());
+        Assert.assertNotNull(restoredDesc.getFilter());
+        Assert.assertTrue(restoredDesc.getPartitionNamesInfo().isTemp());
+        Assert.assertEquals(Lists.newArrayList("p1", "p2"),
+                restoredDesc.getPartitionNamesInfo().getPartitionNames());
+        Assert.assertNotNull(restoredDesc.getDeleteCondition());
+        Assert.assertEquals(LoadTask.MergeType.MERGE, restoredDesc.getMergeType());
+        Assert.assertEquals("sequence_col", restoredDesc.getSequenceColName());
     }
 
     @Test
-    public void testDeserializeLegacyLogWithoutOriginStatement() throws IOException {
+    public void testDeserializeLegacyLogWithoutRoutineLoadDesc() throws IOException {
         byte[] bytes = loadBase64Fixture(A8928245_LEGACY_LOG);
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
             AlterRoutineLoadJobOperationLog log = AlterRoutineLoadJobOperationLog.read(in);
             Assert.assertEquals(7001L, log.getJobId());
             Assert.assertTrue(log.getJobProperties().isEmpty());
             Assert.assertNull(log.getDataSourceProperties());
-            Assert.assertNull(log.getOriginStatement());
+            Assert.assertNull(log.getRoutineLoadDesc());
         }
     }
 

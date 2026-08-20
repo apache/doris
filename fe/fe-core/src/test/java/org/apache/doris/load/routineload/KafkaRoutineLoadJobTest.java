@@ -285,7 +285,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testAlterPersistsOriginStatementForReplay() throws Exception {
+    public void testAlterPersistsRoutineLoadDescForReplay() throws Exception {
         KafkaRoutineLoadJob leader = createPausedJob();
         KafkaRoutineLoadJob follower = createPausedJob();
         RoutineLoadDesc originalDesc = new RoutineLoadDesc(new Separator("|", "|"), null, null,
@@ -298,13 +298,10 @@ public class KafkaRoutineLoadJobTest {
         Map<String, String> jobProperties = Maps.newHashMap();
         RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null, null,
                 null, null, null, null, LoadTask.MergeType.APPEND, null);
-        OriginStatement alterStatement = new OriginStatement(
-                "ALTER ROUTINE LOAD FOR job1 COLUMNS TERMINATED BY ';'", 0);
         AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
         Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
         Mockito.when(command.getDataSourceProperties()).thenReturn(null);
         Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
-        Mockito.when(command.getOriginStatement()).thenReturn(alterStatement);
 
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -337,7 +334,7 @@ public class KafkaRoutineLoadJobTest {
                     ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
             Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
             alterLog = logCaptor.getValue();
-            Assert.assertEquals(alterStatement.originStmt, alterLog.getOriginStatement().originStmt);
+            Assert.assertEquals(";", alterLog.getRoutineLoadDesc().getColumnSeparator().getSeparator());
             Assert.assertEquals(jobProperties, alterLog.getJobProperties());
             assertAlterState(leader);
 
