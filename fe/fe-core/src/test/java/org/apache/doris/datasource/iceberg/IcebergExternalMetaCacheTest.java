@@ -89,7 +89,7 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testInvalidateTableClosesOwnedFileIO() {
+    public void testInvalidateTableClosesOwnedFileIO() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
@@ -107,6 +107,9 @@ public class IcebergExternalMetaCacheTest {
                     true));
 
             cache.invalidateTable(catalogId, "db1", "tbl1");
+            // Removal listeners run asynchronously on the cache executor. Since this test uses a
+            // single-thread executor, this marker is a deterministic barrier for the close task.
+            executor.submit(() -> { }).get();
 
             Assert.assertNull(tableEntry.getIfPresent(t1));
             Assert.assertTrue("invalidateTable must close table-owned FileIO", closed.get());
