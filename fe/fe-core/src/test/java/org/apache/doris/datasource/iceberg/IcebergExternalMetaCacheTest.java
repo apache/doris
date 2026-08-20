@@ -488,6 +488,22 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testSchemaEntryDoesNotAutoRefreshOutsideAuthenticatorScope() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            // A (table uuid, schemaId) key is immutable, and a timed Caffeine refresh would run
+            // the default loader outside the catalog execution authenticator scope.
+            Assert.assertFalse(cache.stats(1L)
+                    .get(IcebergExternalMetaCache.ENTRY_SCHEMA).isAutoRefresh());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testDisabledTableCacheKeepsPhysicallyKeyedSchemaProjections() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);

@@ -119,8 +119,11 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 .withSizeEstimator((key, value) -> MetaCacheSizeEstimator.estimateSafely(
                         "iceberg_manifest_preparation_failed",
                         () -> IcebergCacheSizeEstimator.estimateManifestEntry(key, value))));
+        // Schema values are keyed by an immutable (table uuid, schemaId) pair, so a timed
+        // refresh can never observe new content; it would also invoke the default loader
+        // outside the catalog execution authenticator scope. Misses load contextually.
         schemaEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_SCHEMA, IcebergSchemaCacheKey.class,
-                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(),
+                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(), false,
                 MetaCacheEntryInvalidation.forNameMapping(IcebergSchemaCacheKey::getNameMapping)));
     }
 

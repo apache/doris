@@ -451,6 +451,22 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testSchemaEntryDoesNotAutoRefreshOutsideAuthenticatorScope() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            // A (generation, schemaId) key is immutable, and a timed Caffeine refresh would run
+            // the default loader outside the catalog execution authenticator scope.
+            Assert.assertFalse(cache.stats(1L)
+                    .get(PaimonExternalMetaCache.ENTRY_SCHEMA).isAutoRefresh());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testFieldDefaultValuePayloadScalesWithLength() throws Exception {
         // Field defaults are retained by every DataField; with a fixed field count the estimate
         // must grow with the default length.

@@ -95,8 +95,11 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSnapshotEntryKey::getNameMapping))
                 .withSizeEstimator((key, value) -> value.prepareForCachePublication(key)));
+        // Schema values are keyed by an immutable (generation, schemaId) pair, so a timed
+        // refresh can never observe new content; it would also invoke the default loader
+        // outside the catalog execution authenticator scope. Misses load contextually.
         schemaEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_SCHEMA, PaimonSchemaCacheKey.class,
-                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(),
+                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(), false,
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSchemaCacheKey::getNameMapping)));
     }
 
