@@ -99,6 +99,25 @@ HNSW_PQ_BUILD_PARAMS = {**HNSW_BUILD_PARAMS, "num_sub_vectors": 4, "num_bits": 8
 # degradation - the regression suite pins that error too.
 HNSW_SEARCH_PARAMS = {"ef": 100}
 
+# multi_frag.lance is the COUNT(*) metadata-pushdown fixture for test_lance_optimize_count:
+# MULTI_FRAG_NUM_FRAGMENTS fragments of MULTI_FRAG_FRAGMENT_ROWS physical rows each, with one
+# deleted row per fragment, so the dataset holds MULTI_FRAG_PHYSICAL_ROWS physical rows on disk
+# but only MULTI_FRAG_LOGICAL_ROWS logical rows after deletions. A COUNT(*) that reported the
+# physical total would be off by MULTI_FRAG_DELETED_ROWS, so this table is what proves the
+# pushdown reads Lance's post-deletion row count and that a multi-split scan applies every
+# fragment's deletion vector exactly once. It carries no index, so unlike the vector tables its
+# data and every derived count are deterministic (there is no IVF training to perturb them and
+# no golden ever shifts on regeneration), and Doris discovers it by directory listing without a
+# __manifest entry (verified against a live FE/BE/MinIO cluster).
+MULTI_FRAG_DIR = "multi_frag.lance"
+MULTI_FRAG_NUM_FRAGMENTS = 3
+MULTI_FRAG_FRAGMENT_ROWS = 10
+MULTI_FRAG_DELETED_ROW_IDS = (5, 15, 25)
+MULTI_FRAG_FILTER_ROW_ID = 15
+MULTI_FRAG_PHYSICAL_ROWS = MULTI_FRAG_NUM_FRAGMENTS * MULTI_FRAG_FRAGMENT_ROWS
+MULTI_FRAG_DELETED_ROWS = len(MULTI_FRAG_DELETED_ROW_IDS)
+MULTI_FRAG_LOGICAL_ROWS = MULTI_FRAG_PHYSICAL_ROWS - MULTI_FRAG_DELETED_ROWS
+
 # One table per ANN algorithm and element type, identical data, exactly one index named
 # embedding_<the table name without its vs_ prefix>. Naming is vs_<algorithm>_<element
 # type>, so one table is exactly one cell of the algorithm x element type matrix and a
@@ -239,8 +258,27 @@ def compact_manifest(root: Path) -> None:
     hint.write_text(f'{{"version":{manifest.version}}}')
 
 
+def build_multi_frag(root: Path) -> None:
+    # Reuse make_fragment_table so the row_id/category/label columns and their NOT NULL mapping
+    # stay identical to the vector tables; multi_frag just drops the embedding it does not need.
+    location = str(root / MULTI_FRAG_DIR)
+    for index in range(MULTI_FRAG_NUM_FRAGMENTS):
+        offset = index * MULTI_FRAG_FRAGMENT_ROWS
+        fragment = make_fragment_table(offset, offset + MULTI_FRAG_FRAGMENT_ROWS)
+        fragment = fragment.drop_columns(["embedding"])
+        # Match all_types.lance (data storage version 2.2) so every committed Lance data file
+        # shares one on-disk format and the oldest reader (lance-rs 4.0.1) can open it.
+        lance.write_dataset(
+            fragment, location, mode="create" if index == 0 else "append",
+            data_storage_version="2.2",
+        )
+    deleted = ", ".join(str(row_id) for row_id in MULTI_FRAG_DELETED_ROW_IDS)
+    lance.dataset(location).delete(f"row_id in ({deleted})")
+
+
 def build(root: Path, all_types_source: Path) -> None:
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
+    build_multi_frag(root)
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(
         RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR)
@@ -431,6 +469,44 @@ def check_ef_discriminator(name: str, dataset, assert_it: bool) -> None:
           f"rows {[row for row, _ in wide]} (differs={differs}, asserted={assert_it})")
 
 
+def check_multi_frag(root: Path) -> None:
+    location = root / MULTI_FRAG_DIR
+    assert location.is_dir(), f"multi_frag location missing: {location}"
+    dataset = lance.dataset(str(location))
+    fragments = dataset.get_fragments()
+    assert len(fragments) == MULTI_FRAG_NUM_FRAGMENTS, (
+        f"multi_frag: expected {MULTI_FRAG_NUM_FRAGMENTS} fragments, got {len(fragments)}"
+    )
+    for fragment in fragments:
+        metadata = fragment.metadata
+        assert metadata.physical_rows == MULTI_FRAG_FRAGMENT_ROWS, (
+            f"multi_frag fragment {fragment.fragment_id}: physical_rows "
+            f"{metadata.physical_rows} != {MULTI_FRAG_FRAGMENT_ROWS}"
+        )
+        assert metadata.num_deletions == 1, (
+            f"multi_frag fragment {fragment.fragment_id}: expected exactly one deleted row, "
+            f"got {metadata.num_deletions}"
+        )
+    # The whole point of this table: logical (post-deletion) count, not the physical total.
+    assert dataset.count_rows() == MULTI_FRAG_LOGICAL_ROWS, (
+        f"multi_frag: logical row count {dataset.count_rows()} != {MULTI_FRAG_LOGICAL_ROWS}; "
+        "test_lance_optimize_count asserts COUNT(*) folds to exactly this number"
+    )
+    surviving = set(dataset.to_table(columns=["row_id"]).column("row_id").to_pylist())
+    expected = set(range(1, MULTI_FRAG_PHYSICAL_ROWS + 1)) - set(MULTI_FRAG_DELETED_ROW_IDS)
+    assert surviving == expected, (
+        "multi_frag: surviving row_ids are not the expected contiguous-minus-deleted set"
+    )
+    # The filtered count in the suite disables the pushdown; keep its golden derivable here so a
+    # data-shape change fails this self-check instead of only the opaque .out diff.
+    expected_half = sum(1 for row_id in expected if row_id > MULTI_FRAG_FILTER_ROW_ID)
+    half = dataset.count_rows(filter=f"row_id > {MULTI_FRAG_FILTER_ROW_ID}")
+    assert half == expected_half, (
+        f"multi_frag: COUNT(*) WHERE row_id > {MULTI_FRAG_FILTER_ROW_ID} is {half}, not "
+        f"{expected_half}; the filtered-count golden in test_lance_optimize_count is now stale"
+    )
+
+
 def check_catalog(root: Path) -> None:
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     tables = namespace.list_tables(ListTablesRequest(id=[NAMESPACE]))
@@ -478,6 +554,7 @@ def check_catalog(root: Path) -> None:
         check_boundary_discriminator(table_name, dataset, search)
         if search.get("ef"):
             check_ef_discriminator(table_name, dataset, spec.get("ef_discriminator", False))
+    check_multi_frag(root)
     print(f"self-check OK: {root}")
 
 

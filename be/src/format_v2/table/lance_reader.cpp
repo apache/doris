@@ -368,10 +368,13 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
     _eof = false;
 
     RETURN_IF_ERROR(TableReader::prepare_split(options));
-    // Lance does not currently provide metadata aggregate pushdown. Do not let a generic
-    // table-level count supplied by a future planner bypass fragment reads.
-    _remaining_table_level_count = -1;
     if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // COUNT(*)/COUNT(1) with no filter is served from Lance metadata. The base class already set
+    // _remaining_table_level_count from the split's table_level_row_count, so skip opening any
+    // dataset scanner; get_block() synthesizes the counted rows.
+    if (_is_table_level_count_active()) {
         return Status::OK();
     }
     if (_global_rowid_output_idx.has_value() && !_global_rowid_context.has_value()) {
@@ -393,6 +396,11 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
     if (_eof) {
         *eos = true;
         return Status::OK();
+    }
+    // Metadata COUNT(*) split: no scanner is opened. Emit synthetic rows for the upper COUNT
+    // operator directly from the row count the base class parsed out of the split.
+    if (_is_table_level_count_active()) {
+        return _read_table_level_count(block, eos);
     }
     if (_scanner == nullptr) {
         return Status::InternalError("Lance scanner is not initialized for the current split");
