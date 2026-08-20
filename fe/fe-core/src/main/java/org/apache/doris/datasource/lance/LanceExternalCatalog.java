@@ -97,7 +97,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
             lanceStorageOptions = LanceStorageOptions.toLanceOptions(
-                    catalogProperty.getBackendStorageProperties());
+                    catalogProperty.getOrderedStoragePropertiesList());
 
             allocator = new RootAllocator(ALLOCATOR_LIMIT);
             namespace = properties.createNamespace(allocator, lanceStorageOptions);
@@ -119,7 +119,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
 
         AbstractLanceProperties properties = getLanceProperties();
         Map<String, String> storageOptions = LanceStorageOptions.toLanceOptions(
-                catalogProperty.getBackendStorageProperties());
+                catalogProperty.getOrderedStoragePropertiesList());
         List<String> parent = LanceNamespaceName.parseParentNamespace(
                 properties.getNamespaceParent(), properties.getNamespaceDelimiter());
         String type = properties.getLanceCatalogType();
@@ -287,7 +287,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         // and the BE through lance-c, so neither can end up with credentials the other lacks. The
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
         Map<String, String> storageOptions = LanceStorageOptions.forDataset(datasetUri,
-                catalogProperty.getBackendStorageProperties(), table.getStorageOptions());
+                catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
         try {
             if (tableSnapshot.isPresent()) {
                 TableSnapshot snapshot = tableSnapshot.get();

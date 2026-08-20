@@ -17,7 +17,10 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,8 +45,8 @@ public final class LanceStorageOptions {
      * <p>Used where there is no dataset to route on - opening the namespace client itself, and the
      * {@code s3()} table-valued function. Both are S3-compatible storage by construction.
      */
-    public static Map<String, String> toLanceOptions(Map<String, String> backendProperties) {
-        return LanceStorageProvider.forDorisCatalog().fromDorisProperties(backendProperties);
+    public static Map<String, String> toLanceOptions(List<StorageProperties> storageProperties) {
+        return LanceStorageProvider.forDorisCatalog().fromDorisProperties(storageProperties);
     }
 
     /**
@@ -56,9 +59,9 @@ public final class LanceStorageOptions {
      * would keep whichever its HashMap yielded last - independently in the FE and in the BE.
      */
     public static Map<String, String> forDataset(String datasetUri,
-            Map<String, String> backendProperties, Map<String, String> vendedOptions) {
+            List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
         LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
-        Map<String, String> result = new HashMap<>(provider.fromDorisProperties(backendProperties));
+        Map<String, String> result = new HashMap<>(provider.fromDorisProperties(storageProperties));
         if (vendedOptions == null) {
             return result;
         }

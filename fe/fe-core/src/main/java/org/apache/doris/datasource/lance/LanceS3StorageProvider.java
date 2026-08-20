@@ -17,9 +17,14 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import com.google.common.collect.ImmutableMap;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -46,6 +51,10 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
 
     static final LanceS3StorageProvider INSTANCE = new LanceS3StorageProvider();
 
+    private static final String ACCESS_KEY_ID = "aws_access_key_id";
+    private static final String SECRET_ACCESS_KEY = "aws_secret_access_key";
+    private static final String SESSION_TOKEN = "aws_session_token";
+    private static final String REGION = "aws_region";
     private static final String ENDPOINT = "aws_endpoint";
     private static final String VIRTUAL_HOSTED_STYLE = "aws_virtual_hosted_style_request";
     /**
@@ -55,15 +64,6 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
      * {@code with_env_s3} runs.
      */
     private static final String ALLOW_HTTP = "allow_http";
-
-    /** Doris backend property to Lance object-store option. */
-    private static final Map<String, String> DORIS_KEYS = ImmutableMap.<String, String>builder()
-            .put("AWS_ACCESS_KEY", "aws_access_key_id")
-            .put("AWS_SECRET_KEY", "aws_secret_access_key")
-            .put("AWS_TOKEN", "aws_session_token")
-            .put("AWS_ENDPOINT", ENDPOINT)
-            .put("AWS_REGION", "aws_region")
-            .build();
 
     /**
      * Every spelling object_store accepts for the options above, mapped onto the one emitted.
@@ -81,20 +81,20 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
      * without being rewritten, and folding it in would replace a defined precedence with map order.
      */
     private static final Map<String, String> CANONICAL_BY_ALIAS = ImmutableMap.<String, String>builder()
-            .put("access_key_id", "aws_access_key_id")
-            .put("aws_access_key_id", "aws_access_key_id")
-            .put("secret_access_key", "aws_secret_access_key")
-            .put("aws_secret_access_key", "aws_secret_access_key")
-            .put("session_token", "aws_session_token")
-            .put("aws_session_token", "aws_session_token")
-            .put("aws_token", "aws_session_token")
-            .put("token", "aws_session_token")
+            .put("access_key_id", ACCESS_KEY_ID)
+            .put("aws_access_key_id", ACCESS_KEY_ID)
+            .put("secret_access_key", SECRET_ACCESS_KEY)
+            .put("aws_secret_access_key", SECRET_ACCESS_KEY)
+            .put("session_token", SESSION_TOKEN)
+            .put("aws_session_token", SESSION_TOKEN)
+            .put("aws_token", SESSION_TOKEN)
+            .put("token", SESSION_TOKEN)
             .put("endpoint", ENDPOINT)
             .put("endpoint_url", ENDPOINT)
             .put("aws_endpoint", ENDPOINT)
             .put("aws_endpoint_url", ENDPOINT)
-            .put("region", "aws_region")
-            .put("aws_region", "aws_region")
+            .put("region", REGION)
+            .put("aws_region", REGION)
             .put("virtual_hosted_style_request", VIRTUAL_HOSTED_STYLE)
             .put("aws_virtual_hosted_style_request", VIRTUAL_HOSTED_STYLE)
             // OpenDAL's own field name, of which the two above are serde aliases. All three would
@@ -108,26 +108,61 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public Map<String, String> fromDorisProperties(Map<String, String> backendProperties) {
+    public Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties) {
         Map<String, String> result = new HashMap<>();
-        if (backendProperties == null) {
+        AbstractS3CompatibleProperties properties = selectS3Compatible(storageProperties);
+        if (properties == null) {
             return result;
         }
-        DORIS_KEYS.forEach((dorisKey, lanceKey) -> putIfNotEmpty(result, lanceKey,
-                backendProperties.get(dorisKey)));
+        putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
+        putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
+        putIfNotEmpty(result, SESSION_TOKEN, properties.getSessionToken());
+        putIfNotEmpty(result, ENDPOINT, properties.getEndpoint());
+        putIfNotEmpty(result, REGION, properties.getRegion());
 
-        String usePathStyle = backendProperties.get("use_path_style");
+        String usePathStyle = properties.getUsePathStyle();
         if (usePathStyle != null && !usePathStyle.isEmpty()) {
             result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!Boolean.parseBoolean(usePathStyle)));
         }
 
         // Lance refuses a plain-HTTP endpoint unless this is set, and Doris configures one for
         // MinIO. It describes the endpoint just mapped, so it is derived from the same properties.
-        String endpoint = backendProperties.get("AWS_ENDPOINT");
+        String endpoint = properties.getEndpoint();
         if (endpoint != null && endpoint.startsWith("http://")) {
             result.put(ALLOW_HTTP, "true");
         }
         return result;
+    }
+
+    /**
+     * Picks the one S3-compatible configuration to read, preferring a concrete provider over the
+     * generic {@link S3Properties}: naming OSS or COS explicitly is a choice, while S3Properties is
+     * also what a heuristic match lands on. The list is not a user-ordered one - it follows
+     * {@code StorageProperties.PROVIDERS} and may lead with a default HDFS entry - so it has to be
+     * filtered by type rather than indexed.
+     *
+     * <p>Same rule as {@code AbstractIcebergProperties.toFileIOProperties}, deliberately copied
+     * rather than shared: hoisting it would mean changing Iceberg in this patch.
+     */
+    private static AbstractS3CompatibleProperties selectS3Compatible(
+            List<StorageProperties> storageProperties) {
+        if (storageProperties == null) {
+            return null;
+        }
+        AbstractS3CompatibleProperties fallback = null;
+        AbstractS3CompatibleProperties concrete = null;
+        for (StorageProperties candidate : storageProperties) {
+            if (!(candidate instanceof AbstractS3CompatibleProperties)) {
+                continue;
+            }
+            if (fallback == null) {
+                fallback = (AbstractS3CompatibleProperties) candidate;
+            }
+            if (concrete == null && !(candidate instanceof S3Properties)) {
+                concrete = (AbstractS3CompatibleProperties) candidate;
+            }
+        }
+        return concrete != null ? concrete : fallback;
     }
 
     @Override

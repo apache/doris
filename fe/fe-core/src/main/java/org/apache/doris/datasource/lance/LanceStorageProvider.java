@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -41,12 +44,18 @@ public interface LanceStorageProvider {
     Set<String> S3_SCHEMES = ImmutableSet.of("s3", "s3+ddb");
 
     /**
-     * Converts Doris's own normalized storage properties into this provider's Lance options.
+     * Converts the catalog's own storage configuration into this provider's Lance options.
      *
-     * <p>Empty when Doris has no static configuration vocabulary for the provider, which is every
-     * provider but S3 today - those datasets are reachable only through what a namespace vends.
+     * <p>Takes Doris's typed properties rather than the flattened backend map, which is only ever
+     * a re-encoding of them: {@code AbstractS3CompatibleProperties.doBuildS3Configuration} builds
+     * that map out of the same getters read here, mixed with BE-only knobs Lance has no use for,
+     * and flattens every configured storage into one namespace where two S3-compatible ones would
+     * silently overwrite each other.
+     *
+     * <p>Empty when the list holds nothing this provider can read, which is every provider but S3
+     * today - those datasets are reachable only through what a namespace vends.
      */
-    Map<String, String> fromDorisProperties(Map<String, String> backendProperties);
+    Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties);
 
     /**
      * Rewrites the options a namespace vended onto the spelling {@link #fromDorisProperties}

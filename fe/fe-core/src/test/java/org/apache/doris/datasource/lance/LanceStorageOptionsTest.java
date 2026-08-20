@@ -17,11 +17,15 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
@@ -29,22 +33,39 @@ public class LanceStorageOptionsTest {
 
     private static final String S3_URI = "s3://warehouse/table.lance";
 
-    private static Map<String, String> minioCatalogProperties() {
-        Map<String, String> backendProperties = new HashMap<>();
-        backendProperties.put("AWS_ACCESS_KEY", "ak");
-        backendProperties.put("AWS_SECRET_KEY", "sk");
-        backendProperties.put("AWS_ENDPOINT", "http://minio:9000");
-        backendProperties.put("AWS_REGION", "us-east-1");
-        backendProperties.put("use_path_style", "true");
-        return backendProperties;
+    /**
+     * Parsed by Doris exactly as a real catalog would, so these fixtures also have to satisfy its
+     * rules: endpoint and region are required, and the access key and secret key must be set
+     * together or not at all.
+     */
+    private static List<StorageProperties> createAll(Map<String, String> properties) {
+        try {
+            return StorageProperties.createAll(properties);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to parse test storage properties", e);
+        }
+    }
+
+    private static Map<String, String> minioProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("s3.endpoint", "http://minio:9000");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "ak");
+        properties.put("s3.secret_key", "sk");
+        properties.put("use_path_style", "true");
+        return properties;
+    }
+
+    private static List<StorageProperties> minioCatalog() {
+        return createAll(minioProperties());
     }
 
     @Test
     public void testCatalogPropertiesMapToTheCanonicalS3Spelling() {
-        Map<String, String> backendProperties = minioCatalogProperties();
-        backendProperties.put("AWS_TOKEN", "token");
+        Map<String, String> properties = minioProperties();
+        properties.put("s3.session_token", "token");
 
-        Map<String, String> options = LanceStorageOptions.toLanceOptions(backendProperties);
+        Map<String, String> options = LanceStorageOptions.toLanceOptions(createAll(properties));
         Assertions.assertEquals("ak", options.get("aws_access_key_id"));
         Assertions.assertEquals("sk", options.get("aws_secret_access_key"));
         Assertions.assertEquals("token", options.get("aws_session_token"));
@@ -61,20 +82,20 @@ public class LanceStorageOptionsTest {
                 new TreeSet<>(options.keySet()));
     }
 
+    /** Doris allows anonymous access; the credential keys are then absent rather than empty. */
     @Test
-    public void testOptionalPropertiesAreOmittedRatherThanEmpty() {
-        Map<String, String> backendProperties = new HashMap<>();
-        backendProperties.put("AWS_ACCESS_KEY", "ak");
-        backendProperties.put("AWS_SECRET_KEY", "");
-        backendProperties.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
+    public void testAnonymousAccessEmitsNoCredentials() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("s3.endpoint", "https://s3.amazonaws.com");
+        properties.put("s3.region", "us-east-1");
 
-        Map<String, String> options = LanceStorageOptions.toLanceOptions(backendProperties);
-        Assertions.assertEquals("ak", options.get("aws_access_key_id"));
+        Map<String, String> options = LanceStorageOptions.toLanceOptions(createAll(properties));
+        Assertions.assertNull(options.get("aws_access_key_id"));
         Assertions.assertNull(options.get("aws_secret_access_key"));
         Assertions.assertNull(options.get("aws_session_token"));
-        Assertions.assertNull(options.get("aws_virtual_hosted_style_request"));
         // allow_http only makes sense for a plain-HTTP endpoint.
         Assertions.assertNull(options.get("allow_http"));
+        Assertions.assertEquals("https://s3.amazonaws.com", options.get("aws_endpoint"));
     }
 
     /**
@@ -93,7 +114,7 @@ public class LanceStorageOptionsTest {
         vended.put("virtual_hosted_style_request", "true");
 
         Map<String, String> merged =
-                LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), vended);
+                LanceStorageOptions.forDataset(S3_URI, minioCatalog(), vended);
 
         Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
         Assertions.assertEquals("vended-sk", merged.get("aws_secret_access_key"));
@@ -116,7 +137,7 @@ public class LanceStorageOptionsTest {
             vended.put(alias, "http://127.0.0.1:9000");
 
             Map<String, String> merged =
-                    LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), vended);
+                    LanceStorageOptions.forDataset(S3_URI, minioCatalog(), vended);
             long endpoints = merged.keySet().stream().filter(k -> k.contains("endpoint")).count();
             Assertions.assertEquals(1, endpoints, alias + " left a competing entry");
             Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"),
@@ -130,18 +151,19 @@ public class LanceStorageOptionsTest {
      */
     @Test
     public void testAmbiguousTokenResolvesOnceTheProviderIsKnown() {
-        Map<String, String> catalogProperties = minioCatalogProperties();
-        catalogProperties.put("AWS_TOKEN", "static-token");
+        Map<String, String> properties = minioProperties();
+        properties.put("s3.session_token", "static-token");
+        List<StorageProperties> catalog = createAll(properties);
+
         Map<String, String> vended = new HashMap<>();
         vended.put("token", "vended-token");
 
-        Map<String, String> onS3 =
-                LanceStorageOptions.forDataset(S3_URI, catalogProperties, vended);
+        Map<String, String> onS3 = LanceStorageOptions.forDataset(S3_URI, catalog, vended);
         Assertions.assertEquals("vended-token", onS3.get("aws_session_token"));
         Assertions.assertNull(onS3.get("token"));
 
         Map<String, String> onAzure = LanceStorageOptions.forDataset(
-                "az://container/table.lance", catalogProperties, vended);
+                "az://container/table.lance", catalog, vended);
         Assertions.assertEquals("vended-token", onAzure.get("token"));
         Assertions.assertNull(onAzure.get("aws_session_token"));
     }
@@ -163,18 +185,31 @@ public class LanceStorageOptionsTest {
                 "oss://bucket/table.lance", "gs://bucket/table.lance", "cos://bucket/table",
                 "file:///tmp/table.lance"}) {
             Map<String, String> merged =
-                    LanceStorageOptions.forDataset(uri, minioCatalogProperties(), vended);
+                    LanceStorageOptions.forDataset(uri, minioCatalog(), vended);
             Assertions.assertEquals(vended, merged,
                     uri + " must reach Lance exactly as the namespace wrote it");
         }
     }
 
-    /** Doris cannot spell static credentials for a non-S3 provider, so it contributes none. */
+    /** Doris has no Lance vocabulary for a non-S3 provider yet, so it contributes none. */
     @Test
     public void testCatalogPropertiesAreNotAppliedToANonS3Dataset() {
         Map<String, String> merged = LanceStorageOptions.forDataset(
-                "oss://bucket/table.lance", minioCatalogProperties(), null);
+                "oss://bucket/table.lance", minioCatalog(), null);
         Assertions.assertTrue(merged.isEmpty(), "S3 credentials must not leak onto another provider");
+    }
+
+    /**
+     * The list is not user-ordered - it follows {@code StorageProperties.PROVIDERS} and leads with
+     * a default HDFS entry - so the S3-compatible one has to be found by type, not by index.
+     */
+    @Test
+    public void testSelectionSkipsNonS3CompatibleEntries() {
+        List<StorageProperties> catalog = minioCatalog();
+        Assertions.assertTrue(catalog.size() > 1,
+                "expected Doris to add its default non-S3 entry ahead of the S3 one");
+        Assertions.assertEquals("ak",
+                LanceStorageOptions.toLanceOptions(catalog).get("aws_access_key_id"));
     }
 
     @Test
@@ -186,18 +221,18 @@ public class LanceStorageOptionsTest {
         // Empty is expressible as a C string, so it is carried rather than second-guessed.
         vended.put("deliberately_empty", "");
 
-        Map<String, String> merged = LanceStorageOptions.forDataset(S3_URI, null, vended);
+        Map<String, String> merged =
+                LanceStorageOptions.forDataset(S3_URI, Collections.emptyList(), vended);
         Assertions.assertEquals(vended, merged);
     }
 
     @Test
     public void testAbsentVendedOptionsLeaveCatalogOptionsIntact() {
-        Map<String, String> catalogOptions =
-                LanceStorageOptions.toLanceOptions(minioCatalogProperties());
+        Map<String, String> catalogOptions = LanceStorageOptions.toLanceOptions(minioCatalog());
         Assertions.assertEquals(catalogOptions,
-                LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), null));
+                LanceStorageOptions.forDataset(S3_URI, minioCatalog(), null));
         Assertions.assertEquals(catalogOptions,
-                LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), new HashMap<>()));
+                LanceStorageOptions.forDataset(S3_URI, minioCatalog(), new HashMap<>()));
     }
 
     /** A namespace contradicting itself is not something to resolve by coin toss. */
@@ -207,14 +242,14 @@ public class LanceStorageOptionsTest {
         vended.put("access_key_id", "one");
         vended.put("aws_access_key_id", "another");
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), vended));
+                () -> LanceStorageOptions.forDataset(S3_URI, minioCatalog(), vended));
 
         // Agreeing on the value is not a conflict.
         Map<String, String> agreeing = new HashMap<>();
         agreeing.put("access_key_id", "same");
         agreeing.put("aws_access_key_id", "same");
         Assertions.assertEquals("same", LanceStorageOptions
-                .forDataset(S3_URI, minioCatalogProperties(), agreeing).get("aws_access_key_id"));
+                .forDataset(S3_URI, minioCatalog(), agreeing).get("aws_access_key_id"));
     }
 
     /**
@@ -225,22 +260,22 @@ public class LanceStorageOptionsTest {
     public void testOptionsThatCannotReachTheBackendAreRejected() {
         Map<String, String> withNulKey = new HashMap<>();
         withNulKey.put("bucket\0ignored", "other-bucket");
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forDataset(S3_URI, null, withNulKey));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .forDataset(S3_URI, Collections.emptyList(), withNulKey));
 
         Map<String, String> withNulValue = new HashMap<>();
         withNulValue.put("aws_region", "us-east-1\0ignored");
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forDataset(S3_URI, null, withNulValue));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .forDataset(S3_URI, Collections.emptyList(), withNulValue));
 
         Map<String, String> withNullValue = new HashMap<>();
         withNullValue.put("aws_region", null);
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forDataset(S3_URI, null, withNullValue));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .forDataset(S3_URI, Collections.emptyList(), withNullValue));
 
         Map<String, String> withNullKey = new HashMap<>();
         withNullKey.put(null, "value");
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forDataset(S3_URI, null, withNullKey));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .forDataset(S3_URI, Collections.emptyList(), withNullKey));
     }
 }

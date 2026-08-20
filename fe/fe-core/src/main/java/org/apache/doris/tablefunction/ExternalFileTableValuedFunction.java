@@ -171,6 +171,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return backendConnectProperties;
     }
 
+    /**
+     * The typed storage configuration this function was analyzed with. Prefer this over
+     * {@link #getBrokerDesc()}, which builds a fresh {@link StorageProperties} on every call.
+     */
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
+    }
+
     public List<String> getPathPartitionKeys() {
         return pathPartitionKeys;
     }
@@ -530,7 +538,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
             fileScanRangeParams.setLanceStorageOptions(
-                    LanceStorageOptions.toLanceOptions(backendConnectProperties));
+                    LanceStorageOptions.toLanceOptions(Collections.singletonList(storageProperties)));
         }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();

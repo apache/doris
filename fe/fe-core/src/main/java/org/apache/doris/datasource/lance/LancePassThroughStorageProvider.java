@@ -17,20 +17,28 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Every provider Doris has no vocabulary of its own for - Azure, GCS, OSS, Tencent COS, local
- * files, and anything Lance adds later.
+ * Every provider Lance routes somewhere other than S3 - Azure, GCS, OSS, Tencent COS, local files,
+ * and anything Lance adds later.
  *
- * <p>Both halves are deliberately inert. Doris cannot spell static credentials for these, so such
- * a dataset is reachable only through what its namespace vends, and those options are the
- * namespace's to name: Lance's OSS provider reads {@code access_key_id} and requires
- * {@code endpoint}, object_store's Azure parser reads {@code endpoint} and takes {@code token} as
- * a bearer token. Rewriting any of that onto the S3 spellings would leave the dataset unreachable,
- * which is exactly what this class exists to prevent.
+ * <p>Both halves are deliberately inert, so such a dataset is reachable only through what its
+ * namespace vends. Those options are the namespace's to name: Lance's OSS provider reads
+ * {@code access_key_id} and requires {@code endpoint}, object_store's Azure parser reads
+ * {@code endpoint} and takes {@code token} as a bearer token. Rewriting any of that onto the S3
+ * spellings would leave the dataset unreachable, which is what this class exists to prevent.
+ *
+ * <p>{@link #fromDorisProperties} is empty for want of a translation, not for want of input: Doris
+ * does model these - {@code OSSProperties} and {@code COSProperties} carry an endpoint and
+ * credentials like any other. Writing that translation means committing to a vocabulary per
+ * provider with no way to exercise it here, which is how the rewriting bug above got in, so it
+ * waits for a backend that can be tested against.
  */
 final class LancePassThroughStorageProvider implements LanceStorageProvider {
 
@@ -40,7 +48,7 @@ final class LancePassThroughStorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public Map<String, String> fromDorisProperties(Map<String, String> backendProperties) {
+    public Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties) {
         return Collections.emptyMap();
     }
 

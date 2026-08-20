@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.lance.Dataset;
@@ -41,10 +43,10 @@ public final class LanceMetadataLoader {
      * Lance dataset through an S3 TVF.
      */
     public static LanceTableMetadata loadLatestForTvf(
-            String datasetUri, Map<String, String> backendProperties)
+            String datasetUri, List<StorageProperties> storageProperties)
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
-            return loadLatest(datasetUri, LanceStorageOptions.toLanceOptions(backendProperties), allocator);
+            return loadLatest(datasetUri, LanceStorageOptions.toLanceOptions(storageProperties), allocator);
         }
     }
 
