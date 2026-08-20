@@ -77,6 +77,20 @@ suite("test_http_tvf", "p0") {
 
         def requestPath = URLDecoder.decode(exchange.requestURI.path, "UTF-8")
         def relativePath = requestPath.startsWith("/") ? requestPath.substring(1) : requestPath
+
+        // Simulate a presigned URL whose signature only covers GET: HEAD is rejected with 403,
+        // but GET (with or without Range) succeeds. FE/BE must fall back to a GET-based probe
+        // to determine the file size instead of failing the query outright.
+        def headForbiddenPrefix = "head_forbidden/" // prefix that rejects HEAD with 403
+        if (relativePath.startsWith(headForbiddenPrefix)) {
+            if ("HEAD".equalsIgnoreCase(exchange.requestMethod)) {
+                exchange.sendResponseHeaders(403, -1)
+                exchange.close()
+                return
+            }
+            relativePath = relativePath.substring(headForbiddenPrefix.length())
+        }
+
         def filePath = dataRoot.resolve(relativePath).normalize()
         if (!filePath.startsWith(dataRoot)) {
             writeResponse(exchange, 403, "Forbidden".getBytes("UTF-8"))
@@ -384,6 +398,18 @@ suite("test_http_tvf", "p0") {
             "uri" = "hf://datasets/stanfordnlp/imdb@main/**/test-00000-of-0000[1].parquet",
             "format" = "parquet"
         ) order by text limit 1;
+    """
+
+    // Simulate a presigned URL whose signature only covers GET: HEAD is rejected with 403,
+    // but GET (with or without Range) succeeds. FE/BE must fall back to a GET-based probe
+    // to determine the file size instead of failing the query outright.
+    qt_sql22 """
+        SELECT count(*)
+        FROM http(
+            "uri" = "${httpUrl("head_forbidden/load_p0/http_stream/all_types.csv")}",
+            "format" = "csv",
+            "column_separator" = ","
+        );
     """
     } finally {
         httpServer.stop(0)
