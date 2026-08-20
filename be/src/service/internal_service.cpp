@@ -2240,22 +2240,13 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
 void PInternalService::multiget_data(google::protobuf::RpcController* controller,
                                      const PMultiGetRequest* request, PMultiGetResponse* response,
                                      google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
-        signal::SignalTaskIdKeeper keeper(request->query_id());
-        // multi get data by rowid
-        MonotonicStopWatch watch;
-        watch.start();
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(0);
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-        Status st = RowIdStorageReader::read_by_rowids(*request, response);
-        st.to_protobuf(response->mutable_status());
-        LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
-    });
-    if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
-        return;
-    }
+    brpc::ClosureGuard closure_guard(done);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    // The deprecated response field is retained only to reject legacy callers explicitly.
+    Status::NotSupported("multiget_data is deprecated; use multiget_data_v2")
+            .to_protobuf(response->mutable_status());
+#pragma GCC diagnostic pop
 }
 
 void PInternalService::multiget_data_v2(google::protobuf::RpcController* controller,

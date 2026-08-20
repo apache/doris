@@ -151,10 +151,6 @@ public:
         return _calc_delete_bitmap_executor_for_load.get();
     }
 
-    void add_quering_rowset(RowsetSharedPtr rs);
-
-    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
-
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
     int get_disk_num() { return _disk_num; }
@@ -167,8 +163,8 @@ public:
 
 protected:
     void _start_adaptive_thread_controller();
-    void _evict_querying_rowset();
-    void _evict_quring_rowset_thread_callback();
+    void _gc_expired_id_file_map();
+    void _gc_expired_id_file_map_thread_callback();
     bool _should_delay_large_task();
 
     int32_t _effective_cluster_id = -1;
@@ -185,10 +181,7 @@ protected:
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;
 
-    // Hold reference of quering rowsets
-    std::mutex _quering_rowsets_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
-    std::shared_ptr<Thread> _evict_quering_rowset_thread;
+    std::shared_ptr<Thread> _id_file_map_gc_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
 

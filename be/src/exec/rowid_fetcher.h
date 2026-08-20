@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <brpc/controller.h>
-#include <bthread/countdown_event.h>
-#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
@@ -31,7 +28,6 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "storage/id_manager.h"
-#include "storage/tablet_info.h" // DorisNodesInfo
 
 namespace doris {
 
@@ -51,40 +47,7 @@ struct IteratorKey;
 struct IteratorItem;
 struct HashOfIteratorKey;
 
-inline void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
-}
-
-template <typename T>
-class ColumnStr;
-using ColumnString = ColumnStr<UInt32>;
 class MutableBlock;
-
-// fetch rows by global rowid
-// tablet_id/rowset_name/segment_id/ordinal_id
-
-struct FetchOption {
-    TupleDescriptor* desc = nullptr;
-    RuntimeState* runtime_state = nullptr;
-    TFetchOption t_fetch_opt;
-};
-
-class RowIDFetcher {
-public:
-    RowIDFetcher(FetchOption fetch_opt) : _fetch_option(std::move(fetch_opt)) {}
-    Status init();
-    Status fetch(const ColumnPtr& row_ids, Block* block);
-
-private:
-    PMultiGetRequest _init_fetch_request(const ColumnString& row_ids) const;
-    Status _merge_rpc_results(const PMultiGetRequest& request,
-                              const std::vector<PMultiGetResponse>& rsps,
-                              const std::vector<brpc::Controller>& cntls, Block* output_block,
-                              std::vector<PRowLocation>* rows_id) const;
-
-    std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
-    FetchOption _fetch_option;
-};
 
 struct RowStoreReadStruct {
     RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
@@ -113,7 +76,6 @@ public:
     static const std::string TopNLazyMaterializationSecondPhaseRowsRead;
     static const std::string TopNLazyMaterializationSecondPhaseSegmentsRead;
 
-    static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
 private:

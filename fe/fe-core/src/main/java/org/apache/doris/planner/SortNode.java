@@ -54,7 +54,6 @@ public class SortNode extends PlanNode {
     private final SortInfo info;
     private final boolean  useTopN;
     private boolean useTopnOpt = false;
-    private boolean useTwoPhaseReadOpt;
     private boolean hasRuntimePredicate = false;
 
     // If mergeByexchange is set to true, the sort information is pushed to the
@@ -109,7 +108,7 @@ public class SortNode extends PlanNode {
         } else {
             if (limit <= 0) {
                 algorithm = TSortAlgorithm.FULL_SORT;
-            } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
+            } else if (hasRuntimePredicate) {
                 algorithm = TSortAlgorithm.HEAP_SORT;
             } else {
                 if (limit + offset < 50000) {
@@ -154,11 +153,6 @@ public class SortNode extends PlanNode {
         this.useTopnOpt = useTopnOpt;
     }
 
-    public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
-        this.useTwoPhaseReadOpt = useTwoPhaseReadOpt;
-        updateSortAlgorithm();
-    }
-
     public List<Expr> getResolvedTupleExprs() {
         return resolvedTupleExprs;
     }
@@ -193,10 +187,6 @@ public class SortNode extends PlanNode {
         if (useTopnOpt) {
             output.append(detailPrefix + "TOPN filter targets: ").append(topnFilterTargets).append("\n");
         }
-        if (useTwoPhaseReadOpt) {
-            output.append(detailPrefix + "OPT TWO PHASE\n");
-        }
-
         output.append(detailPrefix + "algorithm: ");
         if (algorithm == TSortAlgorithm.HEAP_SORT) {
             output.append("heap sort\n");
