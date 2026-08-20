@@ -1446,7 +1446,7 @@ TEST_F(RowBinlogDeriveTest, MowRejectsFlexiblePartialUpdate) {
 }
 
 // N5/N6 (B10): the fixed-PU MoW derive rejects a block that is too narrow
-// (<= num_key_columns) or too wide (>= num_columns).
+// (< num_key_columns) or too wide (>= num_columns).
 TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
     auto binlog_tablet =
             create_binlog_tablets(/*tablet_id=*/8601, TKeysType::DUP_KEYS, /*mow=*/false).binlog;
@@ -1488,12 +1488,11 @@ TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
         return ctx;
     };
 
-    // too narrow: only the key column (1 <= num_key_columns 1)
+    // too narrow: no columns (0 < num_key_columns 1)
     {
         cfg.insert_seg_lsn(0, make_seg_lsn(1));
         TransformExecContext ctx = make_ctx();
-        Block block = source_schema->create_block_by_cids({0});
-        block.get_by_position(0).column->assert_mutable()->insert_default();
+        Block block;
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_NE(st.to_string().find("illegal partial update block columns"), std::string::npos)

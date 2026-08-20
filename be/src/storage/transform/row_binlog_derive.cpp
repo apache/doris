@@ -346,9 +346,9 @@ Status MowRowBinlogDeriveStage::derive(TransformExecContext& ctx, Block* block,
                              cfg.source.partial_update_info->is_fixed_partial_update() &&
                              is_source_direct_write;
     if (is_partial_update) {
-        if (block->columns() <= c.source_schema->num_key_columns() ||
+        if (block->columns() < c.source_schema->num_key_columns() ||
             block->columns() >= c.source_schema->num_columns()) {
-            return Status::InternalError(fmt::format(
+            return Status::InvalidArgument(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
                     "schema columns: {}",
                     block->columns(), c.source_schema->num_key_columns(),
