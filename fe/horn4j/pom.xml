@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <groupId>org.apache.horn4j</groupId>
+    <artifactId>horn4j</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <horn4j.jar.parts>${project.basedir}/../custom_libs/horn4j-1.0.0-SNAPSHOT.jar.parts</horn4j.jar.parts>
+        <horn4j.reconstructed.jar>${project.build.directory}/horn4j-1.0.0-SNAPSHOT.jar</horn4j.reconstructed.jar>
+        <horn4j.sha256>0ce074e632d188dbc671c8e50414374b8db7699ce7269deb3a3ac1c271414212</horn4j.sha256>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>unpack-vendored-horn4j</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}"/>
+                                <concat destfile="${horn4j.reconstructed.jar}" binary="true">
+                                    <filelist dir="${horn4j.jar.parts}"
+                                              files="part-00,part-01,part-02,part-03,part-04,part-05,part-06,part-07"/>
+                                </concat>
+                                <checksum file="${horn4j.reconstructed.jar}" algorithm="SHA-256"
+                                          property="horn4j.actual.sha256"/>
+                                <condition property="horn4j.sha256.ok">
+                                    <equals arg1="${horn4j.actual.sha256}" arg2="${horn4j.sha256}"/>
+                                </condition>
+                                <fail unless="horn4j.sha256.ok"
+                                      message="horn4j jar checksum mismatch: ${horn4j.actual.sha256}"/>
+                                <unzip src="${horn4j.reconstructed.jar}" dest="${project.build.outputDirectory}"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

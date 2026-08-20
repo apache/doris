@@ -90,6 +90,7 @@ public class NereidsParser {
         EXPLAIN_TOKENS.set(DorisLexer.OPTIMIZED);
         EXPLAIN_TOKENS.set(DorisLexer.PLAN);
         EXPLAIN_TOKENS.set(DorisLexer.PROCESS);
+        EXPLAIN_TOKENS.set(DorisLexer.HORN);
 
         ImmutableSet.Builder<String> nonReserveds = ImmutableSet.builder();
         for (Method declaredMethod : NonReservedContext.class.getDeclaredMethods()) {
@@ -177,6 +178,9 @@ public class NereidsParser {
                 token = readUntilNonComment(tokenSource);
             } else if (tokenType == DorisLexer.PHYSICAL || tokenType == DorisLexer.OPTIMIZED) {
                 explainLevel = ExplainLevel.OPTIMIZED_PLAN;
+                token = readUntilNonComment(tokenSource);
+            } else if (tokenType == DorisLexer.HORN) {
+                explainLevel = ExplainLevel.HORN_PLAN;
                 token = readUntilNonComment(tokenSource);
             }
 

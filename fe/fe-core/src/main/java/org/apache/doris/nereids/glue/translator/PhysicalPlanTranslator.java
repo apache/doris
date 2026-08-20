@@ -2449,13 +2449,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 // It means the local has satisfied the Gather property. We can just ignore mergeSort
                 return inputFragment;
             }
-            SortNode sortNode = (SortNode) inputFragment.getPlanRoot().getChild(0);
-            ((ExchangeNode) inputFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+            ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
+            // 主路径 (Nereids 标准 ORDER BY)：从 child LOCAL_SORT 的 SortNode 取 mergeInfo。
+            // 兜底路径 (horn sort_elimination)：child 已天然有序、无 LOCAL_SORT 占位，
+            // 直接从 PhysicalQuickSort orderKeys 构造 SortInfo，sortTuple 必须复用 child input tuple。
+            if (exchangeNode.getChild(0) instanceof SortNode) {
+                SortNode childSort = (SortNode) exchangeNode.getChild(0);
+                exchangeNode.setMergeInfo(childSort.getSortInfo());
+                childSort.setMergeByExchange();
+                // distributeExprLists 必须设到下游 SortNode：BE mergeInfo 路径从 SortNode 取
+                childSort.setChildrenDistributeExprLists(distributeExprLists);
+            } else {
+                TupleDescriptor childTuple = context.getDescTable()
+                        .getTupleDesc(exchangeNode.getTupleIds().get(0));
+                List<Expr> orderingExprs = Lists.newArrayList();
+                List<Boolean> ascOrders = Lists.newArrayList();
+                List<Boolean> nullsFirstParams = Lists.newArrayList();
+                sort.getOrderKeys().forEach(k -> {
+                    orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                    ascOrders.add(k.isAsc());
+                    nullsFirstParams.add(k.isNullFirst());
+                });
+                exchangeNode.setMergeInfo(
+                        new SortInfo(orderingExprs, ascOrders, nullsFirstParams, childTuple));
+                // 兜底路径无 child SortNode，distributeExprLists 由 exchangeNode 自持作 fallback。
+                exchangeNode.setChildrenDistributeExprLists(distributeExprLists);
+            }
             if (inputFragment.hasChild(0) && inputFragment.getChild(0).getSink() != null) {
                 inputFragment.getChild(0).getSink().setMerge(true);
             }
-            sortNode.setMergeByExchange();
-            sortNode.setChildrenDistributeExprLists(distributeExprLists);
         }
         return inputFragment;
     }

@@ -147,3 +147,8 @@ compile_commands.json
 .github
 
 .worktrees/
+
+# Keep horn4j chunks tracked while the reconstructed jar remains ignored by
+# the global *.jar rule. Apache's large-file warning checks individual files.
+!/fe/custom_libs/horn4j-1.0.0-SNAPSHOT.jar.parts/
+!/fe/custom_libs/horn4j-1.0.0-SNAPSHOT.jar.parts/*

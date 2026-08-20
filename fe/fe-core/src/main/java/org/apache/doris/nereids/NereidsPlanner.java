@@ -33,6 +33,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.horn.HornOptimizer;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -118,6 +119,11 @@ public class NereidsPlanner extends Planner {
     protected Plan rewrittenPlan;
     protected Plan optimizedPlan;
     protected PhysicalPlan physicalPlan;
+    // Horn CBO result: set by optimize(), consumed by planWithoutLock().
+    // null means Horn was not used or failed (fallback to Nereids).
+    private PhysicalPlan hornPhysicalPlan;
+    private String hornExplainString;
+    private String hornFallbackReason;
 
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
@@ -294,7 +300,19 @@ public class NereidsPlanner extends Planner {
         }
 
         // rule-based optimize
-        rewrite(showRewriteProcess(explainLevel, showPlanProcess));
+        // Horn's tree IR cannot model a materialized CTE (a DAG). Force CTE inline when Horn is enabled so
+        // the rewrite phase desugars every CTE into plain operators; restored right after rewrite to keep
+        // the session variable clean.
+        SessionVariable cteSv = cascadesContext.getConnectContext().getSessionVariable();
+        boolean savedCteMaterialize = cteSv.enableCTEMaterialize;
+        if (cteSv.enableHornOptimizer) {
+            cteSv.enableCTEMaterialize = false;
+        }
+        try {
+            rewrite(showRewriteProcess(explainLevel, showPlanProcess));
+        } finally {
+            cteSv.enableCTEMaterialize = savedCteMaterialize;
+        }
         // try to pre mv rewrite
         preMaterializedViewRewrite();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -305,27 +323,45 @@ public class NereidsPlanner extends Planner {
         }
 
         optimize(showPlanProcess);
-        // print memo before choose plan.
-        // if chooseNthPlan failed, we could get memo to debug
-        if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
-            Memo memo = cascadesContext.getMemo();
-            if (memo != null) {
-                LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo.toString());
-            } else {
-                LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
-            }
-        }
-        int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-        PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
-        physicalPlan = postProcess(physicalPlan);
+        PhysicalPlan physicalPlan;
+        if (hornPhysicalPlan != null) {
+            // postProcess（RuntimeFilter / Fragment assignment 等）。
+            // Horn does not support lazy materialization yet; disable LazyMaterializeTopN.
+            SessionVariable sv = cascadesContext.getConnectContext().getSessionVariable();
+            int savedThreshold = sv.topNLazyMaterializationThreshold;
+            sv.topNLazyMaterializationThreshold = -1;
+            // 关闭 BE 的 LEFT_SEMI_DIRECT_RETURN 优化：该优化在 multi-instance 下决策不一致
+            // （consumer 拿全局 merged filter，部分 instance DISABLED 却仍走 direct_return、probe 未过滤）。
+            // sticky 修改（不恢复）：仅关一个 hash join 性能优化，不动 plan 形态、不关 RF。
+            sv.enableLeftSemiDirectReturnOpt = false;
+            try {
+                physicalPlan = postProcess(hornPhysicalPlan);
+            } finally {
+                sv.topNLazyMaterializationThreshold = savedThreshold;
+            }
+        } else {
+            // Standard Nereids path: extract best plan from Memo.
+            if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
+                Memo memo = cascadesContext.getMemo();
+                if (memo != null) {
+                    LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo.toString());
+                } else {
+                    LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
+                }
+            }
+            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
+            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+            physicalPlan = postProcess(physicalPlan);
+        }
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
         }
         if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
                 || explainLevel == ExplainLevel.ALL_PLAN
-                || explainLevel == ExplainLevel.SHAPE_PLAN) {
+                || explainLevel == ExplainLevel.SHAPE_PLAN
+                || explainLevel == ExplainLevel.HORN_PLAN) {
             optimizedPlan = physicalPlan;
         }
         // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
@@ -531,9 +567,44 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> {
-            new Optimizer(cascadesContext).execute();
-        });
+
+        // Horn CBO optimizer: try Horn first, fall back to Nereids on any failure.
+        boolean useHorn = cascadesContext.getConnectContext().getSessionVariable().enableHornOptimizer;
+        if (useHorn) {
+            long hornStart = System.currentTimeMillis();
+            try {
+                HornOptimizer hornOptimizer = new HornOptimizer(cascadesContext);
+                Plan rewrittenPlan = cascadesContext.getRewritePlan();
+                if (rewrittenPlan instanceof LogicalPlan) {
+                    hornPhysicalPlan = hornOptimizer.optimize((LogicalPlan) rewrittenPlan);
+                }
+                long hornElapsed = System.currentTimeMillis() - hornStart;
+                if (hornPhysicalPlan != null) {
+                    hornExplainString = hornOptimizer.getHornExplainString();
+                    LOG.info("Horn CBO: succeeded in {} ms", hornElapsed);
+                } else {
+                    String reason = hornOptimizer.getFallbackReason();
+                    hornFallbackReason = (reason != null ? reason : "returned null")
+                            + " (" + hornElapsed + " ms)";
+                    // 反译失败时 horn C++ 侧仍已产出计划文本；捕获它，让 EXPLAIN HORN PLAN
+                    // 能打印 horn 生成的计划，而非只显示 fallback 原因。
+                    hornExplainString = hornOptimizer.getHornExplainString();
+                    LOG.info("Horn CBO: fallback to Nereids: {}", hornFallbackReason);
+                }
+            } catch (Exception e) {
+                long hornElapsed = System.currentTimeMillis() - hornStart;
+                hornFallbackReason = e.getMessage() + " (" + hornElapsed + " ms)";
+                LOG.warn("Horn CBO: fallback to Nereids: {}", hornFallbackReason);
+                hornPhysicalPlan = null;
+            }
+        }
+
+        // If Horn did not produce a usable plan, run the standard Nereids CBO.
+        if (hornPhysicalPlan == null) {
+            keepOrShowPlanProcess(showPlanProcess, () -> {
+                new Optimizer(cascadesContext).execute();
+            });
+        }
         NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
@@ -870,6 +941,26 @@ public class NereidsPlanner extends Planner {
             case OPTIMIZED_PLAN:
                 plan = "cost = " + cost + "\n" + optimizedPlan.treeString() + mvSummary;
                 break;
+            case HORN_PLAN:
+                if (hornExplainString != null && !hornExplainString.isEmpty()) {
+                    plan = hornExplainString;
+                    // horn 出了计划但 Doris 反译失败：打印 horn 计划并附上失败原因；执行仍走 Nereids fallback。
+                    if (hornFallbackReason != null) {
+                        plan += "\n\n"
+                                + "==================== HORN → DORIS BACKWARD FAILED ====================\n"
+                                + "Horn produced the plan above, but Doris backward translation failed.\n"
+                                + "Execution fell back to Nereids.\n"
+                                + "Reason:\n"
+                                + "    " + hornFallbackReason.replace(". ", ".\n    ") + "\n"
+                                + "=====================================================================";
+                    }
+                } else if (hornFallbackReason != null) {
+                    plan = "Horn CBO fallback to Nereids: " + hornFallbackReason;
+                } else {
+                    plan = "Horn CBO was not used for this query. "
+                            + "Check enable_horn_optimizer=true.";
+                }
+                break;
             case SHAPE_PLAN:
                 plan = optimizedPlan.shape("");
                 break;
@@ -927,7 +1018,10 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
                 plan += mvSummary;
-                plan += "\n\n\n========== STATISTICS ==========\n";
+                if (hornFallbackReason != null) {
+                    plan += "\n\nHorn CBO fallback to Nereids: " + hornFallbackReason + "\n";
+                }
+                plan += "\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
                         plan += "planned with unknown column statistics\n";
