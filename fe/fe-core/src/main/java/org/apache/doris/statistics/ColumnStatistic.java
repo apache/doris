@@ -125,6 +125,15 @@ public class ColumnStatistic {
         this.hotValues = hotValues;
     }
 
+    public static boolean isSuspiciousStats(
+            double ndv,
+            boolean minIsNull,
+            boolean maxIsNull,
+            double nullCount,
+            double count) {
+        return ndv == 0 && (!minIsNull || !maxIsNull);
+    }
+
     public static ColumnStatistic fromResultRowList(List<ResultRow> resultRows) {
         ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         for (ResultRow resultRow : resultRows) {
@@ -143,11 +152,18 @@ public class ColumnStatistic {
      */
     public static ColumnStatistic fromResultRow(ResultRow row) {
         double count = Double.parseDouble(row.get(7));
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
+        double nullCount = Double.parseDouble(row.getWithDefault(9, "0"));
+        String min = row.get(10);
+        String max = row.get(11);
+        boolean minIsNull = min == null || min.equalsIgnoreCase("NULL");
+        boolean maxIsNull = max == null || max.equalsIgnoreCase("NULL");
+        if (isSuspiciousStats(ndv, minIsNull, maxIsNull, nullCount, count)) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         columnStatisticBuilder.setNdv(ndv);
-        String nullCount = row.getWithDefault(9, "0");
-        columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
+        columnStatisticBuilder.setNumNulls(nullCount);
         columnStatisticBuilder.setDataSize(Double
                 .parseDouble(row.getWithDefault(12, "0")));
         columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getCount() == 0

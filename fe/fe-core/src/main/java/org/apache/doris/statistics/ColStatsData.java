@@ -138,6 +138,9 @@ public class ColStatsData {
     }
 
     public ColumnStatistic toColumnStatistic() {
+        if (ColumnStatistic.isSuspiciousStats(ndv, isNull(minLit), isNull(maxLit), nullCount, count)) {
+            return ColumnStatistic.UNKNOWN;
+        }
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);
@@ -197,12 +200,6 @@ public class ColStatsData {
     public boolean isValid() {
         if (ndv > 10 * count) {
             String message = String.format("ColStatsData ndv too large. %s", toSQL(true));
-            LOG.warn(message);
-            return false;
-        }
-        if (ndv == 0 && (!isNull(minLit) || !isNull(maxLit)) && nullCount != count) {
-            String message = String.format("ColStatsData ndv 0 but min/max is not null and nullCount != count. %s",
-                    toSQL(true));
             LOG.warn(message);
             return false;
         }
