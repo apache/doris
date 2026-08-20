@@ -29,6 +29,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -161,7 +162,13 @@ public class CreateStorageVaultCommand extends Command implements ForwardWithSyn
             }
             if (isS3Express) {
                 try {
-                    StorageAdapter.ofProvider("S3EXPRESS", properties);
+                    StorageAdapter adapter = StorageAdapter.ofProvider("S3EXPRESS", properties);
+                    S3CompatibleFileSystemProperties s3Properties =
+                            (S3CompatibleFileSystemProperties) adapter.getSpiProperties();
+                    properties = ImmutableMap.<String, String>builder()
+                            .putAll(properties)
+                            .put(S3ResourceCompat.ENDPOINT, s3Properties.getEndpoint())
+                            .buildKeepingLast();
                 } catch (RuntimeException e) {
                     throw new AnalysisException(
                             "Invalid S3 Express storage vault properties: " + e.getMessage(), e);
