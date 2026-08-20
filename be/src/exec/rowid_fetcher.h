@@ -22,6 +22,8 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <semaphore>
 #include <utility>
@@ -55,6 +57,7 @@ inline void fetch_callback(bthread::CountdownEvent* counter) {
 }
 
 namespace vectorized {
+class ScannerScheduler;
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
@@ -142,6 +145,30 @@ private:
             std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
             vectorized::Block& result_block, PRuntimeProfileTree* pprofile,
             int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms, size_t* scan_range_cnt);
+
+    struct ExternalFetchStatistics;
+
+    static Status read_external_row_from_file_mapping(
+            size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
+            const std::shared_ptr<FileMapping>& file_mapping,
+            const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
+            const std::shared_ptr<RuntimeState>& runtime_state,
+            std::vector<vectorized::Block>& scan_blocks,
+            std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+            std::vector<ExternalFetchStatistics>& fetch_statistics,
+            const TFileScanRangeParams& rpc_scan_params,
+            const std::unordered_map<std::string, int>& colname_to_slot_id,
+            std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
+
+    static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
+
+    friend class RowIdStorageReaderTest;
+
+    static Status submit_external_scan_tasks(vectorized::ScannerScheduler* scheduler,
+                                             std::counting_semaphore<>& semaphore,
+                                             size_t task_count,
+                                             const std::function<std::string(size_t)>& make_task_id,
+                                             const std::function<Status(size_t)>& run_task);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;
