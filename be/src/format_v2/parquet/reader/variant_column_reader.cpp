@@ -1266,47 +1266,132 @@ bool residual_supplies_any_row(const ShreddedPathLevel& level, size_t rows) {
     return false;
 }
 
-// Resolves the requested leaf row by row for a batch that mixes shredded values with residuals.
-// Rows served by the shredded leaf keep their exact Parquet identity through append_typed_scalar;
-// the rest copy the encoded value found beside the first null typed value on the path. Rebuilding
-// the complete Variant root would produce the same result at the cost of every unrelated field.
-ColumnPtr merge_typed_leaf_with_residuals(const ParquetColumnSchema& leaf_schema,
-                                          const IColumn& leaf, const NullableColumnView& metadata,
-                                          std::span<const ShreddedPathLevel> levels,
-                                          std::span<const VariantShreddedPathSegment> path) {
-    DORIS_CHECK(levels.size() == path.size() + 1);
-    const auto& nullable = assert_cast<const ColumnNullable&>(leaf);
-    const size_t rows = nullable.size();
+// Seeks object paths inside encoded residual bytes, resolving each key to a dictionary field id
+// once per distinct metadata dictionary instead of once per row. Iceberg normally repeats a single
+// dictionary across a decoded batch, so the dictionary list stays at one entry and identifying a
+// row's dictionary is a byte-range comparison.
+class VariantResidualSeeker {
+public:
+    VariantResidualSeeker(const NullableColumnView& metadata, size_t rows, size_t path_length)
+            : _path_length(path_length) {
+        _row_dictionaries.assign(rows, MISSING_DICTIONARY);
+        for (size_t row = 0; row < rows; ++row) {
+            if (metadata.is_null(row)) {
+                continue;
+            }
+            const StringRef bytes = metadata.values->get_data_at(row);
+            uint32_t dictionary = 0;
+            while (dictionary < _dictionaries.size() && _dictionaries[dictionary] != bytes) {
+                ++dictionary;
+            }
+            if (dictionary == _dictionaries.size()) {
+                _dictionaries.push_back(bytes);
+            }
+            _row_dictionaries[row] = dictionary;
+        }
+        _field_ids.assign(_dictionaries.size() * _path_length, UNRESOLVED_FIELD_ID);
+    }
+
+    // Resolves path[path_offset..] inside `value`. The offset keeps the cache keyed by absolute
+    // path position, because different rows can enter the residual at different depths.
+    bool seek(size_t row, StringRef value, size_t path_offset,
+              std::span<const VariantShreddedPathSegment> path, VariantRef* output) {
+        DORIS_CHECK(output != nullptr);
+        const uint32_t dictionary = _row_dictionaries[row];
+        if (dictionary == MISSING_DICTIONARY) {
+            return false;
+        }
+        const StringRef dictionary_bytes = _dictionaries[dictionary];
+        VariantRef current {
+                .metadata = {.data = dictionary_bytes.data, .size = dictionary_bytes.size},
+                .value = value};
+        for (size_t position = 0; position < path.size(); ++position) {
+            if (path[position].kind != VariantShreddedPathSegment::Kind::OBJECT_KEY) {
+                // Array segments never reach a residual: a shredded array lives in its typed_value,
+                // and the caller keeps those paths on the reconstruction path.
+                return false;
+            }
+            if (current.basic_type() != VariantBasicType::OBJECT) {
+                return false;
+            }
+            int64_t& field_id = _field_ids[dictionary * _path_length + path_offset + position];
+            bool layout_validated = false;
+            if (field_id == UNRESOLVED_FIELD_ID) {
+                // object_find() validates the object layout before consulting the dictionary, so
+                // resolving a key has to validate it here too.
+                static_cast<void>(current.num_elements());
+                layout_validated = true;
+                field_id = current.metadata.find_key(path[position].key);
+            }
+            if (field_id < 0) {
+                // A cached dictionary miss must not hide a corrupt object in a later row.
+                if (!layout_validated) {
+                    static_cast<void>(current.num_elements());
+                }
+                return false;
+            }
+            if (!current.object_find_by_id(static_cast<uint32_t>(field_id), &current)) {
+                return false;
+            }
+        }
+        *output = current;
+        return true;
+    }
+
+private:
+    static constexpr uint32_t MISSING_DICTIONARY = std::numeric_limits<uint32_t>::max();
+    static constexpr int64_t UNRESOLVED_FIELD_ID = -2;
+
+    size_t _path_length;
+    DorisVector<StringRef> _dictionaries;
+    DorisVector<uint32_t> _row_dictionaries;
+    DorisVector<int64_t> _field_ids;
+};
+
+// Resolves the requested path row by row. The first level whose typed value is missing owns the
+// row: its residual holds the value for that path prefix. When `leaf` is null the shredded schema
+// does not describe the path at all, so the deepest collected level owns every row - a key outside
+// the shredding schema can only live in the residual beside it. Rebuilding the complete Variant
+// root would produce the same result at the cost of every unrelated field.
+ColumnPtr resolve_variant_path_rows(const ParquetColumnSchema* leaf_schema, const IColumn* leaf,
+                                    const NullableColumnView& metadata, size_t rows,
+                                    std::span<const ShreddedPathLevel> levels,
+                                    std::span<const VariantShreddedPathSegment> path) {
+    DORIS_CHECK(!levels.empty() && levels.size() <= path.size() + 1);
+    // A shredded leaf always sits one level below the last path segment. Without one the walk
+    // stopped early, and the deepest collected level is where the remaining path resolves.
+    DORIS_CHECK(leaf == nullptr || levels.size() == path.size() + 1);
+    const auto* nullable = leaf == nullptr ? nullptr : &assert_cast<const ColumnNullable&>(*leaf);
+    VariantResidualSeeker seeker(metadata, rows, path.size());
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
     auto nulls = ColumnUInt8::create();
     nulls->get_data().reserve(rows);
     for (size_t row = 0; row < rows; ++row) {
         auto output_row = builder.begin_row();
         bool is_null = true;
-        size_t level = 0;
-        for (; level < levels.size(); ++level) {
-            if (!levels[level].typed_view.is_null(row)) {
-                continue;
+        size_t seek_level = levels.size();
+        for (size_t level = 0; level < levels.size(); ++level) {
+            if (levels[level].typed_view.is_null(row)) {
+                seek_level = level;
+                break;
             }
+        }
+        if (seek_level == levels.size() && nullable == nullptr) {
+            seek_level = levels.size() - 1;
+        }
+        if (seek_level == levels.size()) {
+            // Every typed value on the path is present, so the shredded leaf owns this row.
+            append_typed_scalar(*leaf_schema, nullable->get_nested_column(), row, output_row);
+            is_null = false;
+        } else if (!levels[seek_level].residual_view.is_null(row)) {
             VariantRef value;
-            const StringRef metadata_bytes =
-                    metadata.is_null(row) ? StringRef() : metadata.values->get_data_at(row);
-            if (!levels[level].residual_view.is_null(row) && metadata_bytes.data != nullptr &&
-                find_materialized_path(
-                        VariantRef {.metadata = {.data = metadata_bytes.data,
-                                                 .size = metadata_bytes.size},
-                                    .value = levels[level].residual_view.values->get_data_at(row)},
-                        path.subspan(level), &value)) {
+            if (seeker.seek(row, levels[seek_level].residual_view.values->get_data_at(row),
+                            seek_level, path.subspan(seek_level), &value)) {
                 output_row.add_value(value);
                 is_null = false;
             }
-            break;
         }
-        if (level == levels.size()) {
-            // Every typed value on the path is present, so the shredded leaf owns this row.
-            append_typed_scalar(leaf_schema, nullable.get_nested_column(), row, output_row);
-            is_null = false;
-        } else if (is_null) {
+        if (is_null) {
             output_row.add_null();
         }
         output_row.finish();
@@ -1543,6 +1628,24 @@ public:
         };
         add_level(struct_child(*_schema, _physical, "value", nullptr), typed);
 
+        const size_t rows = _physical->size();
+        ColumnPtr metadata_column = struct_child(*_schema, _physical, "metadata", nullptr);
+        const NullableColumnView metadata = view_column(metadata_column);
+        // A key the shredding schema does not describe can only live in the residual beside the
+        // object that was searched, so seeking it there answers the path exactly. Rebuilding the
+        // canonical root would reach the same value after re-encoding every unrelated field.
+        const auto seek_residual = [&]() -> std::optional<VariantShreddedTypedValue> {
+            if (!metadata.present() || !levels.back().residual_view.present()) {
+                return path_miss();
+            }
+            update_counter(_profile.variant_residual_seek_rows, static_cast<int64_t>(rows));
+            return VariantShreddedTypedValue {
+                    .column = nullptr,
+                    .type = nullptr,
+                    .normalized = resolve_variant_path_rows(nullptr, nullptr, metadata, rows,
+                                                            levels, path)};
+        };
+
         for (size_t position = 0; position < path.size(); ++position) {
             if (path[position].kind != VariantShreddedPathSegment::Kind::OBJECT_KEY) {
                 return path_miss();
@@ -1552,20 +1655,25 @@ public:
             const ParquetColumnSchema* wrapper_schema = nullptr;
             ColumnPtr wrapper = struct_child(*typed_schema, typed, key, &wrapper_schema);
             if (!wrapper) {
-                return path_miss();
+                return seek_residual();
             }
             ColumnPtr residual = struct_child(*wrapper_schema, wrapper, "value", nullptr);
             typed = struct_child(*wrapper_schema, wrapper, "typed_value", &typed_schema);
             if (!typed) {
-                return path_miss();
+                // The wrapper stores this field unshredded. Its residual holds the whole value, so
+                // the remainder of the path resolves inside those bytes.
+                add_level(std::move(residual), nullptr);
+                return seek_residual();
             }
             add_level(std::move(residual), typed);
 
             if (position + 1 < path.size()) {
-                // Every intermediate typed_value must be an object. This prevents a legacy untyped
-                // path produced through an array/explode operation from crossing a repeated node.
+                // Every intermediate typed_value must be an object. A legacy untyped path
+                // produced through an array/explode operation cannot cross a repeated node, so
+                // those rows resolve from the residual beside it instead.
                 if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
-                    return path_miss();
+                    levels.pop_back();
+                    return seek_residual();
                 }
                 continue;
             }
@@ -1584,7 +1692,6 @@ public:
                 return std::nullopt;
             }
 
-            const size_t rows = typed->size();
             const bool needs_row_merge =
                     std::ranges::any_of(levels, [rows](const ShreddedPathLevel& level) {
                         return residual_supplies_any_row(level, rows);
@@ -1592,8 +1699,6 @@ public:
             if (needs_row_merge) {
                 // Decoding a residual needs the root dictionary. A state that projected the
                 // metadata away cannot serve those rows, so it keeps the complete fallback.
-                ColumnPtr metadata_column = struct_child(*_schema, _physical, "metadata", nullptr);
-                const NullableColumnView metadata = view_column(metadata_column);
                 if (!metadata.present()) {
                     update_counter(_profile.variant_direct_leaf_residual_fallbacks, 1);
                     if (!_complete) {
@@ -1612,8 +1717,8 @@ public:
                 return VariantShreddedTypedValue {
                         .column = nullptr,
                         .type = nullptr,
-                        .normalized = merge_typed_leaf_with_residuals(*typed_schema, *typed,
-                                                                      metadata, levels, path)};
+                        .normalized = resolve_variant_path_rows(typed_schema, typed.get(), metadata,
+                                                                rows, levels, path)};
             }
 
             update_counter(_profile.variant_direct_leaf_rows, static_cast<int64_t>(rows));
