@@ -72,6 +72,7 @@
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 using namespace ErrorCode;
@@ -499,18 +500,39 @@ void apply_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
     if (ctx.backpressure_handler && ctx.table_id > 0) {
         LoadRelatedRpc load_rpc = to_load_related_rpc(rpc);
         if (load_rpc != LoadRelatedRpc::COUNT) {
-            auto wait_until = ctx.backpressure_handler->before_rpc(load_rpc, ctx.table_id);
+            auto decision = ctx.backpressure_handler->before_rpc(load_rpc, ctx.table_id);
             auto now = std::chrono::steady_clock::now();
-            if (wait_until > now) {
-                auto wait_us =
-                        std::chrono::duration_cast<std::chrono::microseconds>(wait_until - now)
-                                .count();
+            if (decision.wait_until > now) {
+                auto wait_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                       decision.wait_until - now)
+                                       .count();
                 if (wait_us > 0) {
                     if (auto* recorder = get_throttle_wait_recorder(load_rpc);
                         recorder != nullptr) {
                         *recorder << wait_us;
                     }
-                    bthread_usleep(wait_us);
+                    if (ctx.backpressure_handler->should_log_throttle(load_rpc,
+                                                                      MonotonicMicros())) {
+                        if (decision.dry_run) {
+                            LOG(INFO) << "[ms-throttle] table-level rate limiter dry run would "
+                                         "throttle MS RPC request"
+                                      << ", rpc=" << load_related_rpc_name(load_rpc)
+                                      << ", table_id=" << ctx.table_id
+                                      << ", estimated_wait_us=" << wait_us
+                                      << ", current_qps=" << decision.current_qps
+                                      << ", qps_limit=" << decision.qps_limit;
+                        } else {
+                            LOG(INFO) << "[ms-throttle] table-level rate limiter throttled MS RPC "
+                                         "request"
+                                      << ", rpc=" << load_related_rpc_name(load_rpc)
+                                      << ", table_id=" << ctx.table_id << ", wait_us=" << wait_us
+                                      << ", current_qps=" << decision.current_qps
+                                      << ", qps_limit=" << decision.qps_limit;
+                        }
+                    }
+                    if (!decision.dry_run) {
+                        bthread_usleep(wait_us);
+                    }
                 }
             }
         }

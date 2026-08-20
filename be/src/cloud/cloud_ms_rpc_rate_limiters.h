@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -76,7 +77,7 @@ class DryRunTokenBucketRateLimiter {
 public:
     explicit DryRunTokenBucketRateLimiter(int qps);
 
-    int64_t add(size_t amount);
+    TokenBucketRateLimiterResult add(size_t amount);
     void reset(int qps);
 
 private:
@@ -91,10 +92,15 @@ struct RpcRateLimiter {
 
     RpcRateLimiter(int qps, std::string_view op_name);
 
-    int64_t add_dry_run(size_t amount);
+    TokenBucketRateLimiterResult add_dry_run(size_t amount);
+    // Each RPC type owns one RpcRateLimiter, so log suppression is independent per RPC type.
+    bool should_log(int64_t now_us);
 
     // Reset the rate limiter with new QPS
     void reset(int qps);
+
+private:
+    std::atomic<int64_t> _next_log_time_us {0};
 };
 
 // Host-level rate limiters for MS RPCs to prevent burst traffic

@@ -270,6 +270,10 @@ DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
 
 // Enable MS backpressure response handling (table-level adaptive throttling)
 DECLARE_mBool(enable_ms_backpressure_handling);
+// Evaluate and record table-level adaptive throttling without delaying requests.
+// Dry-run evaluation is independent of enable_ms_backpressure_handling.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_backpressure_handling_dry_run);
 
 // Time window (seconds) for computing per-table QPS via bvar::PerSecond.
 // Larger window smooths out short-term spikes; smaller window reacts faster.

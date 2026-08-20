@@ -26,6 +26,7 @@
 
 #include "cloud/config.h"
 #include "util/cpu_info.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
@@ -110,9 +111,20 @@ TEST_F(HostLevelMSRpcRateLimitersTest, DryRunObservesWithoutThrottling) {
         auto limiter = limiters._limiters[idx].load();
         ASSERT_NE(limiter, nullptr);
         EXPECT_EQ(limiter->latency_recorder->count(), 4);
-        EXPECT_GT(limiter->dry_run_limiter->add(1), 0);
+        EXPECT_GT(limiter->dry_run_limiter->add(1).sleep_duration, 0);
         EXPECT_LT(elapsed, std::chrono::seconds(2));
     }
+}
+
+TEST_F(HostLevelMSRpcRateLimitersTest, RateLimitLogIsRateLimitedPerRpc) {
+    RpcRateLimiter get_tablet_meta_limiter(1, "rate limit log get tablet meta test");
+    RpcRateLimiter get_rowset_limiter(1, "rate limit log get rowset test");
+    constexpr int64_t first_log_time_us = 100;
+
+    EXPECT_TRUE(get_tablet_meta_limiter.should_log(first_log_time_us));
+    EXPECT_FALSE(get_tablet_meta_limiter.should_log(first_log_time_us + MICROS_PER_SEC - 1));
+    EXPECT_TRUE(get_rowset_limiter.should_log(first_log_time_us + MICROS_PER_SEC - 1));
+    EXPECT_TRUE(get_tablet_meta_limiter.should_log(first_log_time_us + MICROS_PER_SEC));
 }
 
 // Test multiple RPC types have independent rate limiters

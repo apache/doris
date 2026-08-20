@@ -28,6 +28,7 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "util/thread.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
@@ -234,7 +235,20 @@ void TableRpcQpsRegistry::cleanup_inactive_tables() {
 
 // ============== TableRpcThrottler ==============
 
+struct TableRpcThrottler::Limiters {
+    explicit Limiters(double qps) : limiter(qps), dry_run_limiter(qps) {}
+
+    StrictQpsLimiter limiter;
+    StrictQpsLimiter dry_run_limiter;
+};
+
+TableRpcThrottler::~TableRpcThrottler() = default;
+
 TableRpcThrottler::TableRpcThrottler() {
+    for (auto& next_log_time_us : _next_log_time_us) {
+        next_log_time_us.store(0, std::memory_order_relaxed);
+    }
+
     // Initialize bvar for throttled table counts
     for (size_t i = 0; i < static_cast<size_t>(LoadRelatedRpc::COUNT); ++i) {
         std::string bvar_name = fmt::format("ms_rpc_backpressure_throttled_tables_{}",
@@ -245,12 +259,32 @@ TableRpcThrottler::TableRpcThrottler() {
 
 std::chrono::steady_clock::time_point TableRpcThrottler::throttle(LoadRelatedRpc rpc_type,
                                                                   int64_t table_id) {
+    return throttle(rpc_type, table_id, false).wait_until;
+}
+
+TableRpcThrottleDecision TableRpcThrottler::throttle(LoadRelatedRpc rpc_type, int64_t table_id,
+                                                     bool dry_run) {
     std::shared_lock lock(_mutex);
     auto it = _limiters.find({rpc_type, table_id});
     if (it == _limiters.end()) {
-        return std::chrono::steady_clock::now();
+        return {.wait_until = std::chrono::steady_clock::now(), .dry_run = dry_run};
     }
-    return it->second->reserve();
+    auto& limiter = dry_run ? it->second->dry_run_limiter : it->second->limiter;
+    return {
+            .wait_until = limiter.reserve(),
+            .qps_limit = limiter.get_qps(),
+            .dry_run = dry_run,
+    };
+}
+
+bool TableRpcThrottler::should_log(LoadRelatedRpc rpc_type, int64_t now_us) {
+    size_t idx = static_cast<size_t>(rpc_type);
+    DCHECK_LT(idx, static_cast<size_t>(LoadRelatedRpc::COUNT));
+    auto& next_log_time_us = _next_log_time_us[idx];
+    int64_t expected = next_log_time_us.load(std::memory_order_relaxed);
+    return now_us >= expected &&
+           next_log_time_us.compare_exchange_strong(expected, now_us + MICROS_PER_SEC,
+                                                    std::memory_order_relaxed);
 }
 
 void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit) {
@@ -262,9 +296,10 @@ void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id,
     auto key = std::make_pair(rpc_type, table_id);
     auto it = _limiters.find(key);
     if (it != _limiters.end()) {
-        it->second->update_qps(qps_limit);
+        it->second->limiter.update_qps(qps_limit);
+        it->second->dry_run_limiter.update_qps(qps_limit);
     } else {
-        _limiters[key] = std::make_unique<StrictQpsLimiter>(qps_limit);
+        _limiters[key] = std::make_unique<Limiters>(qps_limit);
         // Update bvar count
         size_t idx = static_cast<size_t>(rpc_type);
         if (idx < static_cast<size_t>(LoadRelatedRpc::COUNT)) {
@@ -309,7 +344,7 @@ double TableRpcThrottler::get_qps_limit(LoadRelatedRpc rpc_type, int64_t table_i
     std::shared_lock lock(_mutex);
     auto it = _limiters.find({rpc_type, table_id});
     if (it != _limiters.end()) {
-        return it->second->get_qps();
+        return it->second->limiter.get_qps();
     }
     return 0;
 }
@@ -332,7 +367,7 @@ std::vector<TableRpcThrottler::ThrottleEntry> TableRpcThrottler::get_all_throttl
     std::vector<ThrottleEntry> entries;
     entries.reserve(_limiters.size());
     for (const auto& [key, limiter] : _limiters) {
-        entries.push_back({key.first, key.second, limiter->get_qps()});
+        entries.push_back({key.first, key.second, limiter->limiter.get_qps()});
     }
     return entries;
 }
@@ -391,7 +426,8 @@ void MSBackpressureHandler::_tick_thread_callback() {
 }
 
 void MSBackpressureHandler::_advance_time(int ticks) {
-    if (!config::enable_ms_backpressure_handling) {
+    if (!config::enable_ms_backpressure_handling &&
+        !config::enable_ms_backpressure_handling_dry_run) {
         return;
     }
 
@@ -413,7 +449,8 @@ void MSBackpressureHandler::_advance_time(int ticks) {
 bool MSBackpressureHandler::on_ms_busy() {
     g_ms_busy_count << 1;
 
-    if (!config::enable_ms_backpressure_handling) {
+    if (!config::enable_ms_backpressure_handling &&
+        !config::enable_ms_backpressure_handling_dry_run) {
         return false;
     }
 
@@ -440,17 +477,27 @@ bool MSBackpressureHandler::on_ms_busy() {
     return true;
 }
 
-std::chrono::steady_clock::time_point MSBackpressureHandler::before_rpc(LoadRelatedRpc rpc_type,
-                                                                        int64_t table_id) {
-    if (!config::enable_ms_backpressure_handling) {
-        return std::chrono::steady_clock::now();
+TableRpcThrottleDecision MSBackpressureHandler::before_rpc(LoadRelatedRpc rpc_type,
+                                                           int64_t table_id) {
+    const bool dry_run = config::enable_ms_backpressure_handling_dry_run;
+    if (!config::enable_ms_backpressure_handling && !dry_run) {
+        return {.wait_until = std::chrono::steady_clock::now()};
     }
 
-    return _throttler->throttle(rpc_type, table_id);
+    auto decision = _throttler->throttle(rpc_type, table_id, dry_run);
+    if (decision.qps_limit > 0) {
+        decision.current_qps = _qps_registry->get_qps(rpc_type, table_id);
+    }
+    return decision;
+}
+
+bool MSBackpressureHandler::should_log_throttle(LoadRelatedRpc rpc_type, int64_t now_us) {
+    return _throttler->should_log(rpc_type, now_us);
 }
 
 void MSBackpressureHandler::after_rpc(LoadRelatedRpc rpc_type, int64_t table_id) {
-    if (!config::enable_ms_backpressure_handling) {
+    if (!config::enable_ms_backpressure_handling &&
+        !config::enable_ms_backpressure_handling_dry_run) {
         return;
     }
 

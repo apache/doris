@@ -224,6 +224,7 @@ DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 
 // Table-level backpressure handling config
 DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_mBool(enable_ms_backpressure_handling_dry_run, "true");
 DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
 
 // Throttle upgrade config

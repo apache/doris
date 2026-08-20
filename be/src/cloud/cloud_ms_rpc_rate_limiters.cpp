@@ -22,8 +22,8 @@
 #include <algorithm>
 
 #include "cloud/config.h"
-#include "common/logging.h"
 #include "util/cpu_info.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
@@ -79,10 +79,15 @@ DryRunTokenBucketRateLimiter::DryRunTokenBucketRateLimiter(int qps) {
     reset(qps);
 }
 
-int64_t DryRunTokenBucketRateLimiter::add(size_t amount) {
+TokenBucketRateLimiterResult DryRunTokenBucketRateLimiter::add(size_t amount) {
     auto limiter = _limiter.load();
     DCHECK(limiter);
-    return limiter->reserve(amount);
+    return {
+            .sleep_duration = limiter->reserve(amount),
+            .max_speed = limiter->get_max_speed(),
+            .max_burst = limiter->get_max_burst(),
+            .limit = limiter->get_limit(),
+    };
 }
 
 void DryRunTokenBucketRateLimiter::reset(int qps) {
@@ -102,12 +107,19 @@ RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
     dry_run_limiter = std::make_unique<DryRunTokenBucketRateLimiter>(qps);
 }
 
-int64_t RpcRateLimiter::add_dry_run(size_t amount) {
-    int64_t estimated_wait_ns = dry_run_limiter->add(amount);
-    if (estimated_wait_ns > 0) {
-        *latency_recorder << (estimated_wait_ns / 1000);
+TokenBucketRateLimiterResult RpcRateLimiter::add_dry_run(size_t amount) {
+    auto result = dry_run_limiter->add(amount);
+    if (result.sleep_duration > 0) {
+        *latency_recorder << (result.sleep_duration / 1000);
     }
-    return estimated_wait_ns;
+    return result;
+}
+
+bool RpcRateLimiter::should_log(int64_t now_us) {
+    int64_t next_log_time_us = _next_log_time_us.load(std::memory_order_relaxed);
+    return now_us >= next_log_time_us &&
+           _next_log_time_us.compare_exchange_strong(next_log_time_us, now_us + MICROS_PER_SEC,
+                                                     std::memory_order_relaxed);
 }
 
 void RpcRateLimiter::reset(int qps) {
@@ -171,15 +183,22 @@ int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
     DCHECK(limiter->limiter);
 
     if (!dry_run) {
-        return limiter->limiter->add(1);
+        auto result = limiter->limiter->add_with_config(1);
+        if (result.sleep_duration > 0 && limiter->should_log(MonotonicMicros())) {
+            LOG(INFO) << "[ms-throttle] host-level rate limiter throttled MS RPC request"
+                      << ", rpc=" << meta_service_rpc_display_name(rpc)
+                      << ", sleep_ns=" << result.sleep_duration
+                      << ", qps_limit=" << result.max_speed;
+        }
+        return result.sleep_duration;
     }
 
-    int64_t estimated_wait_ns = limiter->add_dry_run(1);
-    if (estimated_wait_ns > 0 && VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << "MS RPC rate limiter dry run would throttle request"
-                   << ", rpc=" << meta_service_rpc_display_name(rpc)
-                   << ", estimated_wait_ns=" << estimated_wait_ns
-                   << ", qps=" << limiter->limiter->get_max_speed();
+    auto result = limiter->add_dry_run(1);
+    if (result.sleep_duration > 0 && limiter->should_log(MonotonicMicros())) {
+        LOG(INFO) << "[ms-throttle] host-level rate limiter dry run would throttle MS RPC request"
+                  << ", rpc=" << meta_service_rpc_display_name(rpc)
+                  << ", estimated_wait_ns=" << result.sleep_duration
+                  << ", qps_limit=" << result.max_speed;
     }
     return 0;
 }
