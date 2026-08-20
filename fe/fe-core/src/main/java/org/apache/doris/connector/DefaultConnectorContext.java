@@ -33,7 +33,10 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
@@ -210,6 +213,46 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public ConnectorStorageContext getStorageContext() {
         return this;
+    }
+
+    /**
+     * Refreshes the engine's own caches for {@code remoteTableName} the same way {@code REFRESH TABLE} does
+     * (drops the {@code ExtMetaCache} entry and the editlog for follower replay), so a connector that detects
+     * an out-of-band remote change on its own (e.g. {@code PaimonExternalChangePoller}) does not leave the
+     * user stuck reading a stale schema until the next manual {@code REFRESH} or the cache TTL.
+     *
+     * <p>Resolves the REMOTE names against the local mapping the same way every other by-remote-name entry
+     * point does ({@code PluginDrivenExternalCatalog#dropTable}, {@code #renameColumn}, …): scans this
+     * catalog's already-loaded databases/tables for a {@code getRemoteName()} match. A catalog with a large,
+     * mostly name-mapped surface pays this scan only on an actual detected change (a rare event by design —
+     * see the poller's own opt-in default), not on the connector's hot path.
+     *
+     * <p>Silently a no-op when: this catalog is not currently registered ({@link CatalogMgr#getCatalog(long)}
+     * returns {@code null} — e.g. mid-drop), is not a {@link PluginDrivenExternalCatalog} (the plugin-driven
+     * refresh plumbing this reuses does not apply to other catalog kinds), or no loaded db/table matches the
+     * remote names (already dropped/renamed locally, or never queried — nothing cached to refresh).
+     */
+    @Override
+    public void notifyExternalTableChanged(String remoteDbName, String remoteTableName) {
+        CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (!(catalogIf instanceof PluginDrivenExternalCatalog)) {
+            return;
+        }
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) catalogIf;
+        for (String dbName : catalog.getDbNames()) {
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable(dbName);
+            if (db == null || !remoteDbName.equals(db.getRemoteName())) {
+                continue;
+            }
+            for (ExternalTable table : db.getTables()) {
+                if (remoteTableName.equals(table.getRemoteName())) {
+                    Env.getCurrentEnv().getRefreshManager()
+                            .refreshTableInternal(db, table, System.currentTimeMillis());
+                    return;
+                }
+            }
+            return;
+        }
     }
 
     @Override
