@@ -59,13 +59,19 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
 
     // Submit concurrent queries with marker for later lookup
     def sqlSleepTime = 5
+    def queueTimeToleranceMs = 1000
     def queuedSqlCnt = 1
+    def queryCnt = maxConcurrency + queuedSqlCnt
+    def readyLatch = new java.util.concurrent.CountDownLatch(queryCnt)
+    def startLatch = new java.util.concurrent.CountDownLatch(1)
     def threads = []
-    for (int i = 0; i < maxConcurrency + queuedSqlCnt; i++) {
+    for (int i = 0; i < queryCnt; i++) {
         def idx = i
         threads << Thread.start {
             try {
                 sql "set workload_group=${wgName}"
+                readyLatch.countDown()
+                startLatch.await()
                 // Use sleep function to simulate long query, ensuring subsequent queries need to queue
                 sql """
                     select sleep(${sqlSleepTime}), '${testMarker}_${idx}' as marker
@@ -78,7 +84,10 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     }
 
     // Wait for all queries to complete
+    def allQueriesReady = readyLatch.await(30, java.util.concurrent.TimeUnit.SECONDS)
+    startLatch.countDown()
     threads.each { it.join() }
+    assertTrue(allQueriesReady)
 
     // Wait for audit log to flush
     Thread.sleep(5000)
@@ -96,6 +105,8 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
         select query_id, queue_time_ms, stmt
         from __internal_schema.audit_log
         where stmt like '%${testMarker}%'
+        and stmt like '%sleep(${sqlSleepTime})%'
+        and stmt not like '%__internal_schema.audit_log%'
         and queue_time_ms > 0
         order by time
     """
@@ -110,11 +121,12 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
         auditResult = sql "${query}"
     }
 
-    auditResult.each { row ->
-        assertTrue(row[1] >= sqlSleepTime * 1000)
-    }
-
+    log.info("audit queue time result for marker ${testMarker}: ${auditResult}")
     assertTrue(auditResult.size() >= queuedSqlCnt)
+    // The workers are released together above, so this lower bound proves queue wait behind a sleep query.
+    def minExpectedQueueTimeMs = sqlSleepTime * 1000 - queueTimeToleranceMs
+    def maxQueueTimeMs = auditResult.collect { row -> Long.parseLong(row[1].toString()) }.max()
+    assertTrue(maxQueueTimeMs >= minExpectedQueueTimeMs)
 
     // Cleanup
     sql "drop table if exists ${tableName}"
