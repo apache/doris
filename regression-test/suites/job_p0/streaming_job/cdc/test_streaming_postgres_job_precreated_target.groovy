@@ -29,6 +29,7 @@ suite("test_streaming_postgres_job_precreated_target",
     def pgPassword = "123456"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+    sql """DROP JOB IF EXISTS where jobname = '${jobName}_invalid_exclude'"""
     sql """drop table if exists ${currentDb}.streaming_precreated_enum_target force"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -105,5 +106,29 @@ suite("test_streaming_postgres_job_precreated_target",
         """
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+
+        test {
+            sql """
+                CREATE JOB ${jobName}_invalid_exclude
+                ON STREAMING
+                FROM POSTGRES (
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pgPort}/${pgDB}",
+                    "driver_url" = "${driverUrl}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user" = "${pgUser}",
+                    "password" = "${pgPassword}",
+                    "database" = "${pgDB}",
+                    "schema" = "${pgSchema}",
+                    "include_tables" = "streaming_precreated_enum_source",
+                    "offset" = "initial",
+                    "table.streaming_precreated_enum_source.target_table" = "streaming_precreated_enum_target",
+                    "table.streaming_precreated_enum_source.exclude_columns" = "missing_searchable"
+                )
+                TO DATABASE ${currentDb} (
+                    "table.create.properties.replication_num" = "1"
+                )
+            """
+            exception "exclude_columns validation failed: column 'missing_searchable' does not exist"
+        }
     }
 }
