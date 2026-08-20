@@ -55,6 +55,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -941,9 +942,12 @@ public class Env {
                 CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
-        } else {
-            return SingletonHolder.INSTANCE;
         }
+        Env snapshotEnv = CloudSnapshotHandler.getSnapshotEnv();
+        if (snapshotEnv != null) {
+            return snapshotEnv;
+        }
+        return SingletonHolder.INSTANCE;
     }
 
     // NOTICE: in most case, we should use getCurrentEnv() to get the right catalog.

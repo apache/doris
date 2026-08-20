@@ -1718,12 +1718,6 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
 
     for (auto cid : _schema->column_ids()) {
-        if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
-            _column_iterators[cid].reset(
-                    new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
-            continue;
-        }
-
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             auto& id_file_map = _opts.runtime_state->get_id_file_map();
             uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(

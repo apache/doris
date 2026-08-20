@@ -78,18 +78,6 @@ PrimaryKeyModelRowRetriever::PrimaryKeyModelRowRetriever() = default;
 
 PrimaryKeyModelRowRetriever::~PrimaryKeyModelRowRetriever() = default;
 
-void PrimaryKeyModelRowRetriever::clear() {
-    _key_columns.clear();
-    _seq_column = nullptr;
-    _use_default_or_null_flag.clear();
-    _has_default_or_nullable = false;
-    _operators.clear();
-    _old_delete_signs.clear();
-    // drops the previous block's rowset pins and read plan
-    DCHECK(_context.tablet_schema != nullptr) << "clear() before init()";
-    _row_fetcher = std::make_unique<HistoricalRowFetcher>(_context);
-}
-
 Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_sign_column_data,
                                                             size_t row_pos, size_t num_rows) {
     auto& tablet_schema = _context.tablet_schema;

@@ -140,20 +140,21 @@ Status decode_header(ByteSource* src, BkdIndexHeader* header) {
     return Status::OK();
 }
 
-// Non-decreasing rather than strictly increasing: a value spanning several leaves
-// makes consecutive leaves start at the same value. Comparison is unsigned
-// byte-wise from offset 0 (INV-1), i.e. plain memcmp over the sortable bytes.
-// An unordered array would silently route the binary search to the wrong leaf --
-// wrong results with no error -- so it must never survive open.
-Status validate_split_order(Slice splits, size_t bytes_per_dim, uint32_t leaf_count) {
-    for (uint32_t i = 1; i + 1 < leaf_count; ++i) {
-        const uint8_t* previous = splits.data() + (i - 1) * bytes_per_dim;
+// The whole routing catalogue is one non-decreasing chain. Equality is legal: a
+// value spanning several leaves makes consecutive leaves start at that value,
+// including at either global bound. Comparison is unsigned byte-wise from offset
+// 0 (INV-1), i.e. plain memcmp over the sortable bytes.
+bool value_order_is_valid(Slice min_value, Slice max_value, Slice splits, size_t bytes_per_dim,
+                          uint32_t leaf_count) {
+    const uint8_t* previous = min_value.data();
+    for (uint32_t i = 0; i + 1 < leaf_count; ++i) {
         const uint8_t* current = splits.data() + i * bytes_per_dim;
         if (std::memcmp(previous, current, bytes_per_dim) > 0) {
-            return corrupted("split_values are not in ascending order");
+            return false;
         }
+        previous = current;
     }
-    return Status::OK();
+    return std::memcmp(previous, max_value.data(), bytes_per_dim) <= 0;
 }
 
 // Leaf directory: delta-varint64 offsets, then varint32 counts (design 5.1).
@@ -245,19 +246,11 @@ void encode_bkd_index_block(const BkdIndexHeader& header, Slice min_value, Slice
         DORIS_CHECK_EQ(min_value.size(), bytes_per_dim);
         DORIS_CHECK_EQ(max_value.size(), bytes_per_dim);
         DORIS_CHECK_EQ(split_values.size(), (header.leaf_count - 1) * bytes_per_dim);
+        DORIS_CHECK(value_order_is_valid(min_value, max_value, split_values, bytes_per_dim,
+                                         header.leaf_count));
         payload.put_bytes(min_value);
         payload.put_bytes(max_value);
         payload.put_bytes(split_values);
-
-        // The reader binary-searches this array and indexes the leaf directory
-        // without re-checking, so both orderings are asserted where they are
-        // produced. Comparison is unsigned byte-wise from offset 0 (INV-1), which
-        // is exactly memcmp over the sortable bytes.
-        for (uint32_t i = 1; i + 1 < header.leaf_count; ++i) {
-            DORIS_CHECK_LE(std::memcmp(split_values.data() + (i - 1) * bytes_per_dim,
-                                       split_values.data() + i * bytes_per_dim, bytes_per_dim),
-                           0);
-        }
 
         uint64_t previous_offset = 0;
         uint64_t total_points = 0;
@@ -332,8 +325,12 @@ Status BkdIndexBlockReader::decode_payload(Slice payload, uint64_t data_length) 
 
     Slice splits;
     RETURN_IF_ERROR(src.get_bytes(static_cast<size_t>((leaf_count - 1) * bytes_per_dim), &splits));
-    RETURN_IF_ERROR(
-            validate_split_order(splits, static_cast<size_t>(bytes_per_dim), header.leaf_count));
+    const auto value_width = static_cast<size_t>(bytes_per_dim);
+    const Slice min_value(bounds.data(), value_width);
+    const Slice max_value(bounds.data() + value_width, value_width);
+    if (!value_order_is_valid(min_value, max_value, splits, value_width, header.leaf_count)) {
+        return corrupted("global bounds and split_values are not in ascending order");
+    }
 
     std::vector<LeafRef> leaves;
     RETURN_IF_ERROR(decode_leaf_directory(&src, header, data_length, &leaves));

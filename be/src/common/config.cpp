@@ -375,6 +375,7 @@ DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
+// Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
@@ -2552,6 +2553,9 @@ std::vector<std::vector<std::string>> get_config_info() {
         // and deprecate the `sys_log_dir` config.
         if (it.first == "sys_log_dir" && config_val == "") {
             config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
+        }
+        if (it.first == "tls_private_key_password") {
+            config_val = "******";
         }
 
         _config.emplace_back(field_it->second.type);

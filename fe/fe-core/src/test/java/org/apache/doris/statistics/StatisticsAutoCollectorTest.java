@@ -42,6 +42,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class StatisticsAutoCollectorTest {
 
@@ -192,6 +194,35 @@ public class StatisticsAutoCollectorTest {
         Assertions.assertEquals(AnalysisMethod.SAMPLE, analyzeJobForTbl.analysisMethod);
         Assertions.assertEquals(100, analyzeJobForTbl.rowCount);
         Assertions.assertEquals(10, analyzeJobForTbl.tableVersion);
+    }
+
+    @Test
+    public void testCreateAnalyzeJobForTblSnapshotPartitionUpdateRows() {
+        StatisticsAutoCollector collector = new StatisticsAutoCollector();
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Database db = Mockito.mock(Database.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getId()).thenReturn(100L);
+        Mockito.when(catalog.getId()).thenReturn(10L);
+
+        Set<Pair<String, String>> jobColumns = Sets.newHashSet();
+        jobColumns.add(Pair.of("a", "b"));
+
+        // The job must own an independent snapshot of the table stats' partition update
+        // rows: it is cleared at the job terminal state, so it must not alias the
+        // TableStatsMeta map or that clear would wipe it.
+        ConcurrentMap<Long, Long> tableStatsRows = new ConcurrentHashMap<>();
+        tableStatsRows.put(1L, 10L);
+        tableStatsRows.put(2L, 20L);
+        TableStatsMeta tableStatsStatus = new TableStatsMeta();
+        tableStatsStatus.partitionUpdateRows = tableStatsRows;
+
+        AnalysisInfo job = collector.createAnalyzeJobForTbl(table, jobColumns, JobPriority.HIGH,
+                AnalysisMethod.SAMPLE, 100, tableStatsStatus, 10);
+        Assertions.assertNotSame(tableStatsRows, job.partitionUpdateRows);
+        Assertions.assertEquals(tableStatsRows, job.partitionUpdateRows);
     }
 
     @Test

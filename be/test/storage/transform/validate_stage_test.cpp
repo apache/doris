@@ -154,19 +154,64 @@ TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
               (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
 }
 
-// Binlog sub-writers keep deriving inside RowBinlogSegmentWriter for now, so
-// their chain stays empty for every write type. The derive stage takes this
-// slot when it moves into the chain.
-TEST_F(ValidateStageTest, CompositionBinlogEmpty) {
+// Binlog sub-writers derive their rows in the chain: a direct write picks the
+// Plain or MoW derive stage, every other write type keeps an empty chain
+// (compaction and schema change feed rows that are already binlog shaped).
+TEST_F(ValidateStageTest, CompositionBinlogDirectDerivesOtherwiseEmpty) {
+    using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext rwc = direct_rwc(schema);
     rwc.write_binlog_opt().enable = true;
 
-    for (auto write_type : {DataWriteType::TYPE_DIRECT, DataWriteType::TYPE_DEFAULT,
-                            DataWriteType::TYPE_SCHEMA_CHANGE}) {
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
+
+    for (auto write_type : {DataWriteType::TYPE_DEFAULT, DataWriteType::TYPE_SCHEMA_CHANGE,
+                            DataWriteType::TYPE_COMPACTION}) {
         rwc.write_type = write_type;
         EXPECT_TRUE(build_transform_chain(rwc).empty());
     }
+}
+
+// The publish phase rewrites conflicting rows through a transient writer: still
+// TYPE_DIRECT and still carrying the partial-update info, but the rows are final,
+// so the binlog op must come from their own delete sign rather than a second
+// history probe. is_transient_rowset_writer is what separates the two.
+TEST_F(ValidateStageTest, CompositionBinlogTransientPartialUpdateStaysPlain) {
+    using V = std::vector<std::string_view>;
+    auto schema = create_mow_schema(/*has_seq=*/false);
+    auto pui = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(pui->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                          PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0, "UTC", "")
+                        .ok());
+    RowsetWriterContext rwc = direct_rwc(schema);
+    rwc.write_binlog_opt().enable = true;
+    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+    cfg.source.partial_update_info = pui;
+    cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+    cfg.source.is_transient_rowset_writer = true;
+
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
+
+    // the same write with a BEFORE image still needs the probe
+    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+
+    // and a non-transient write of the same partial update does probe
+    rwc.write_binlog_opt().write_binlog_config().write_before = false;
+    rwc.write_binlog_opt().write_binlog_config().source.is_transient_rowset_writer = false;
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+}
+
+// A direct binlog write that needs history -- a BEFORE image here -- picks the
+// MoW derive stage instead of the plain one.
+TEST_F(ValidateStageTest, CompositionBinlogBeforeImagePicksMowDerive) {
+    using V = std::vector<std::string_view>;
+    auto schema = create_mow_schema(/*has_seq=*/false);
+    RowsetWriterContext rwc = direct_rwc(schema);
+    rwc.write_binlog_opt().enable = true;
+    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
 }
 
 // =============================================================================
