@@ -27,6 +27,8 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.TableSample;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -43,9 +45,11 @@ public class TableRefInfo {
     protected JoinOperator joinOp;
     protected String tableAlias;
     protected boolean isMark;
+    @SerializedName("n")
     protected org.apache.doris.catalog.info.TableNameInfo tableNameInfo;
     private final TableScanParams scanParams;
     private final TableSnapshot tableSnapShot;
+    @SerializedName("p")
     private final PartitionNamesInfo partitionNamesInfo;
     private final List<Long> sampleTabletIds;
     private final TableSample tableSample;
