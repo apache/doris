@@ -29,7 +29,6 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
@@ -95,8 +94,8 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 MetaCacheEntryInvalidation.forNameMapping(HudiPartitionCacheKey::getNameMapping)));
         fsViewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_FS_VIEW, HudiFsViewCacheKey.class,
                 HudiFsViewCacheValue.class, this::createFsView, defaultEntryCacheSpec(),
-                MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping),
-                this::evictFsView));
+                false, MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping))
+                .withRemovalListener(value -> value, this::evictFsView));
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiMetaClientCacheKey::getNameMapping)));
@@ -111,17 +110,13 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         return metaClientEntry.get(nameMapping.getCtlId()).get(HudiMetaClientCacheKey.of(nameMapping));
     }
 
-    public HoodieTableFileSystemView getFsView(NameMapping nameMapping) {
-        return fsViewEntry.get(nameMapping.getCtlId()).get(HudiFsViewCacheKey.of(nameMapping)).acquire();
-    }
-
-    public void releaseFsView(NameMapping nameMapping) {
-        MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry =
-                fsViewEntry.getIfInitialized(nameMapping.getCtlId());
-        if (entry != null) {
-            HudiFsViewCacheValue value = entry.getIfPresent(HudiFsViewCacheKey.of(nameMapping));
-            if (value != null) {
-                value.release();
+    public HudiFsViewCacheValue.Lease getFsView(NameMapping nameMapping) {
+        HudiFsViewCacheKey key = HudiFsViewCacheKey.of(nameMapping);
+        while (true) {
+            HudiFsViewCacheValue value = fsViewEntry.get(nameMapping.getCtlId()).get(key);
+            HudiFsViewCacheValue.Lease lease = value.tryAcquire();
+            if (lease != null) {
+                return lease;
             }
         }
     }
@@ -166,8 +161,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 FileSystemViewManager.createInMemoryFileSystemView(ctx, tableMetaClient, metadataConfig));
     }
 
-    private void evictFsView(HudiFsViewCacheKey key, HudiFsViewCacheValue value,
-            com.github.benmanes.caffeine.cache.RemovalCause cause) {
+    private void evictFsView(HudiFsViewCacheKey key, HudiFsViewCacheValue value) {
         if (value != null) {
             value.evict();
         }
