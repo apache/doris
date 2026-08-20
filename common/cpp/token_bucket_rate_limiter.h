@@ -59,6 +59,10 @@ public:
     // Returns the sleep duration in nanoseconds, or -1 when the count limit rejects the add.
     int64_t add(size_t amount);
 
+    // Reserve `amount` tokens and return the required sleep duration without sleeping.
+    // The token bucket state is updated in the same way as add().
+    int64_t reserve(size_t amount);
+
     // Return `amount` tokens to the bucket (capped at max_burst) and roll back the
     // cumulative counter. Used to reconcile a reservation with the actually consumed
     // amount, e.g. a short read at EOF.

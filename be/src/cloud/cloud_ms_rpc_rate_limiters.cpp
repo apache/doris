@@ -22,6 +22,7 @@
 #include <algorithm>
 
 #include "cloud/config.h"
+#include "common/logging.h"
 #include "util/cpu_info.h"
 
 namespace doris::cloud {
@@ -74,6 +75,20 @@ static int get_rpc_qps_from_config(MetaServiceRPC rpc) {
     return std::max(1, qps_per_core * num_cores);
 }
 
+DryRunTokenBucketRateLimiter::DryRunTokenBucketRateLimiter(int qps) {
+    reset(qps);
+}
+
+int64_t DryRunTokenBucketRateLimiter::add(size_t amount) {
+    auto limiter = _limiter.load();
+    DCHECK(limiter);
+    return limiter->reserve(amount);
+}
+
+void DryRunTokenBucketRateLimiter::reset(int qps) {
+    _limiter.store(std::make_shared<TokenBucketRateLimiter>(qps, qps, 0));
+}
+
 RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
     latency_recorder = std::make_unique<bvar::LatencyRecorder>("host_level_ms_rpc_rate_limit_sleep",
                                                                std::string(op_name));
@@ -84,10 +99,20 @@ RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
                     *latency_recorder << (sleep_ns / 1000);
                 }
             });
+    dry_run_limiter = std::make_unique<DryRunTokenBucketRateLimiter>(qps);
+}
+
+int64_t RpcRateLimiter::add_dry_run(size_t amount) {
+    int64_t estimated_wait_ns = dry_run_limiter->add(amount);
+    if (estimated_wait_ns > 0) {
+        *latency_recorder << (estimated_wait_ns / 1000);
+    }
+    return estimated_wait_ns;
 }
 
 void RpcRateLimiter::reset(int qps) {
     limiter->reset(qps, qps, 0);
+    dry_run_limiter->reset(qps);
 }
 
 HostLevelMSRpcRateLimiters::HostLevelMSRpcRateLimiters() {
@@ -129,7 +154,8 @@ void HostLevelMSRpcRateLimiters::init_with_uniform_qps(int qps) {
 }
 
 int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
-    if (!config::enable_ms_rpc_host_level_rate_limit) {
+    const bool dry_run = config::enable_ms_rpc_host_level_rate_limit_dry_run;
+    if (!config::enable_ms_rpc_host_level_rate_limit && !dry_run) {
         return 0;
     }
 
@@ -139,8 +165,21 @@ int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
     }
 
     auto limiter = _limiters[idx].load();
-    if (limiter && limiter->limiter) {
+    if (!limiter) {
+        return 0;
+    }
+    DCHECK(limiter->limiter);
+
+    if (!dry_run) {
         return limiter->limiter->add(1);
+    }
+
+    int64_t estimated_wait_ns = limiter->add_dry_run(1);
+    if (estimated_wait_ns > 0 && VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "MS RPC rate limiter dry run would throttle request"
+                   << ", rpc=" << meta_service_rpc_display_name(rpc)
+                   << ", estimated_wait_ns=" << estimated_wait_ns
+                   << ", qps=" << limiter->limiter->get_max_speed();
     }
     return 0;
 }

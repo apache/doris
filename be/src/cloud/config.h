@@ -233,6 +233,10 @@ DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 // MS RPC rate limiting config
 // Enable host-level rate limiting for MS RPCs to prevent burst traffic
 DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+// Evaluate and record host-level MS RPC rate limits without delaying requests.
+// Dry-run evaluation is independent of enable_ms_rpc_host_level_rate_limit.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run);
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores

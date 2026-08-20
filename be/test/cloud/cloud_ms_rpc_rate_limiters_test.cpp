@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -31,12 +32,20 @@ namespace doris::cloud {
 // Basic tests using uniform QPS constructor (completely independent of config and CPU cores)
 class HostLevelMSRpcRateLimitersTest : public testing::Test {
 protected:
-    void SetUp() override { _saved_enable = config::enable_ms_rpc_host_level_rate_limit; }
+    void SetUp() override {
+        _saved_enable = config::enable_ms_rpc_host_level_rate_limit;
+        _saved_dry_run = config::enable_ms_rpc_host_level_rate_limit_dry_run;
+        config::enable_ms_rpc_host_level_rate_limit_dry_run = false;
+    }
 
-    void TearDown() override { config::enable_ms_rpc_host_level_rate_limit = _saved_enable; }
+    void TearDown() override {
+        config::enable_ms_rpc_host_level_rate_limit = _saved_enable;
+        config::enable_ms_rpc_host_level_rate_limit_dry_run = _saved_dry_run;
+    }
 
 private:
     bool _saved_enable;
+    bool _saved_dry_run;
 };
 
 // Test that limit returns 0 when rate limiting is disabled
@@ -79,6 +88,31 @@ TEST_F(HostLevelMSRpcRateLimitersTest, RateLimitingThrottles) {
 
     // With rate limiting, requests beyond burst should be throttled
     EXPECT_GT(total_sleep_ns, 0) << "Rate limiting should have caused some sleep";
+}
+
+// Test that dry-run mode evaluates throttling without delaying requests, regardless of the
+// enforcement switch.
+TEST_F(HostLevelMSRpcRateLimitersTest, DryRunObservesWithoutThrottling) {
+    config::enable_ms_rpc_host_level_rate_limit_dry_run = true;
+
+    for (bool rate_limit_enabled : {false, true}) {
+        config::enable_ms_rpc_host_level_rate_limit = rate_limit_enabled;
+        HostLevelMSRpcRateLimiters limiters(1);
+
+        EXPECT_EQ(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+        auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < 4; ++i) {
+            EXPECT_EQ(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+        }
+        auto elapsed = std::chrono::steady_clock::now() - start;
+
+        size_t idx = static_cast<size_t>(MetaServiceRPC::GET_TABLET_META);
+        auto limiter = limiters._limiters[idx].load();
+        ASSERT_NE(limiter, nullptr);
+        EXPECT_EQ(limiter->latency_recorder->count(), 4);
+        EXPECT_GT(limiter->dry_run_limiter->add(1), 0);
+        EXPECT_LT(elapsed, std::chrono::seconds(2));
+    }
 }
 
 // Test multiple RPC types have independent rate limiters

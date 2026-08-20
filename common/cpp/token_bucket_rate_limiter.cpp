@@ -112,6 +112,14 @@ std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now,
 }
 
 int64_t TokenBucketRateLimiter::add(size_t amount) {
+    int64_t sleep_time_ns = reserve(amount);
+    if (sleep_time_ns > 0) {
+        bthread_usleep(sleep_time_ns / 1000);
+    }
+    return sleep_time_ns;
+}
+
+int64_t TokenBucketRateLimiter::reserve(size_t amount) {
     // Values obtained under lock to be checked after release
     auto duration = std::chrono::steady_clock::now().time_since_epoch();
     auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
@@ -126,7 +134,6 @@ int64_t TokenBucketRateLimiter::add(size_t amount) {
     int64_t sleep_time_ns = 0;
     if (_max_speed && tokens_value < 0) {
         sleep_time_ns = static_cast<int64_t>(-tokens_value / _max_speed * NS);
-        bthread_usleep(sleep_time_ns / 1000);
     }
 
     return sleep_time_ns;
