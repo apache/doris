@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/file_factory.h"
 #include "io/fs/http_file_reader.h"
 
 #include <gtest/gtest.h>
+
+#include "io/file_factory.h"
 
 namespace doris::io {
 
