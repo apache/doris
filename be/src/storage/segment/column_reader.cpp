@@ -29,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -71,6 +72,7 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h" // for PagePointer
+#include "storage/segment/page_prefetcher.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -110,6 +112,23 @@ bool is_current_level_data_access_path(const TColumnAccessPath& path,
 void remove_current_level_meta_access_paths(TColumnAccessPaths& paths) {
     auto removed = std::ranges::remove_if(paths, is_current_level_meta_access_path);
     paths.erase(removed.begin(), removed.end());
+}
+
+PagePrefetchOptions snapshot_page_prefetch_options() {
+    return PagePrefetchOptions {
+            .window_pages = static_cast<size_t>(config::query_page_prefetch_window_pages),
+            .min_window_pages = static_cast<size_t>(config::query_page_prefetch_min_window_pages),
+            .max_window_pages = static_cast<size_t>(config::query_page_prefetch_max_window_pages),
+            .max_gap_bytes = static_cast<size_t>(config::query_page_prefetch_max_gap_bytes),
+            .max_range_bytes = static_cast<size_t>(config::query_page_prefetch_max_range_bytes),
+            .max_pages_per_range =
+                    static_cast<size_t>(config::query_page_prefetch_max_pages_per_range),
+            .max_read_amplification_ratio =
+                    config::query_page_prefetch_max_read_amplification_ratio,
+            .writeback_min_block_coverage =
+                    config::query_page_prefetch_writeback_min_block_coverage,
+            .adaptive_window = config::enable_query_page_prefetch_adaptive_window,
+    };
 }
 
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -440,10 +459,9 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
     return Status::OK();
 }
 
-Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
-                               PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
-    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
+PageReadOptions ColumnReader::_page_read_options(const ColumnIteratorOptions& iter_opts,
+                                                 const PagePointer& pp,
+                                                 BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;
@@ -455,8 +473,31 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    return opts;
+}
 
-    return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
+Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
+                               PageHandle* handle, Slice* page_body, PageFooterPB* footer,
+                               BlockCompressionCodec* codec) const {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
+    return PageIO::read_and_decompress_page(_page_read_options(iter_opts, pp, codec), handle,
+                                            page_body, footer);
+}
+
+bool ColumnReader::lookup_page_cache_for_prefetch(const ColumnIteratorOptions& iter_opts,
+                                                  const PagePointer& pp,
+                                                  BlockCompressionCodec* codec) const {
+    return PageIO::lookup_page_cache_for_prefetch(_page_read_options(iter_opts, pp, codec));
+}
+
+Status ColumnReader::decode_page_from_slice(const ColumnIteratorOptions& iter_opts,
+                                            const PagePointer& pp, Slice compressed_page,
+                                            PageHandle* handle, Slice* page_body,
+                                            PageFooterPB* footer,
+                                            BlockCompressionCodec* codec) const {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
+    return PageIO::decode_page_from_slice(_page_read_options(iter_opts, pp, codec), compressed_page,
+                                          handle, page_body, footer);
 }
 
 Status ColumnReader::get_row_ranges_by_zone_map(
@@ -1079,6 +1120,26 @@ Status MapFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& param
     return Status::OK();
 }
 
+Status MapFileColumnIterator::prepare_page_prefetch(const PagePrefetchRequest& request) {
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        if (_map_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            return _null_iterator->prepare_page_prefetch(request);
+        }
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_offsets_iterator->prepare_page_prefetch(request));
+    if (_map_reader->is_nullable() && need_to_read_meta_columns()) {
+        DORIS_CHECK(_null_iterator != nullptr);
+        RETURN_IF_ERROR(_null_iterator->prepare_page_prefetch(request));
+    }
+    return Status::OK();
+}
+
 void MapFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -1190,6 +1251,18 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             key_ptr->insert_many_defaults(num_items);
             val_ptr->insert_many_defaults(num_items);
         } else {
+            RETURN_IF_ERROR(_key_iterator->prepare_page_prefetch(PagePrefetchRequest {
+                    .kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                    .first_ordinal = _key_iterator->get_current_ordinal(),
+                    .ordinal_count = num_items,
+                    .is_forward = true,
+            }));
+            RETURN_IF_ERROR(_val_iterator->prepare_page_prefetch(PagePrefetchRequest {
+                    .kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                    .first_ordinal = _val_iterator->get_current_ordinal(),
+                    .ordinal_count = num_items,
+                    .is_forward = true,
+            }));
             auto read_or_fill_child = [&](ColumnIterator* iterator,
                                           MutableColumnPtr& column) -> Status {
                 if (_read_phase == ReadPhase::LAZY && read_meta_columns &&
@@ -1425,34 +1498,39 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         return Status::OK();
     };
 
-    size_t this_run = sizes[0];
-    auto start_idx = starts_data[0];
-    auto last_idx = starts_data[0] + this_run;
-    for (size_t i = 1; i < count; ++i) {
-        size_t sz = sizes[i];
+    std::vector<std::pair<ordinal_t, size_t>> item_ranges;
+    ordinal_t last_idx = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const size_t sz = sizes[i];
         if (sz == 0) {
             continue;
         }
-        auto start = static_cast<ordinal_t>(starts_data[i]);
-        if (start != last_idx) {
-            RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
-                                               fill_lazy_skipped_keys));
-            RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
-                                               fill_lazy_skipped_values));
-            start_idx = start;
-            this_run = sz;
-            last_idx = start + sz;
+        const auto start_idx = static_cast<ordinal_t>(starts_data[i]);
+        if (item_ranges.empty() || start_idx != last_idx) {
+            item_ranges.emplace_back(start_idx, sz);
+            last_idx = start_idx + sz;
             continue;
         }
-
-        this_run += sz;
+        item_ranges.back().second += sz;
         last_idx += sz;
     }
 
-    RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
-                                       fill_lazy_skipped_keys));
-    RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
-                                       fill_lazy_skipped_values));
+    for (const auto& [start_idx, num_items] : item_ranges) {
+        PagePrefetchRequest request {
+                .kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                .first_ordinal = start_idx,
+                .ordinal_count = num_items,
+                .is_forward = true,
+        };
+        RETURN_IF_ERROR(_key_iterator->prepare_page_prefetch(request));
+        RETURN_IF_ERROR(_val_iterator->prepare_page_prefetch(request));
+    }
+    for (const auto& [start_idx, num_items] : item_ranges) {
+        RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, num_items,
+                                           fill_lazy_skipped_keys));
+        RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, num_items,
+                                           fill_lazy_skipped_values));
+    }
     return Status::OK();
 }
 
@@ -1766,6 +1844,30 @@ Status StructFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& pa
     return Status::OK();
 }
 
+Status StructFileColumnIterator::prepare_page_prefetch(const PagePrefetchRequest& request) {
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        if (_struct_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            return _null_iterator->prepare_page_prefetch(request);
+        }
+        return Status::OK();
+    }
+
+    for (auto& column_iterator : _sub_column_iterators) {
+        if (column_iterator->need_to_read()) {
+            RETURN_IF_ERROR(column_iterator->prepare_page_prefetch(request));
+        }
+    }
+    if (_struct_reader->is_nullable() && need_to_read_meta_columns()) {
+        DORIS_CHECK(_null_iterator != nullptr);
+        RETURN_IF_ERROR(_null_iterator->prepare_page_prefetch(request));
+    }
+    return Status::OK();
+}
+
 void StructFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -2013,6 +2115,10 @@ Status OffsetFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& pa
     return _offset_iterator->init_prefetcher(params);
 }
 
+Status OffsetFileColumnIterator::prepare_page_prefetch(const PagePrefetchRequest& request) {
+    return _offset_iterator->prepare_page_prefetch(request);
+}
+
 void OffsetFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -2186,6 +2292,12 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
             // OFFSET_ONLY mode: skip reading actual item data, fill with defaults
             column_items_ptr->insert_many_defaults(num_items);
         } else {
+            RETURN_IF_ERROR(_item_iterator->prepare_page_prefetch(PagePrefetchRequest {
+                    .kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                    .first_ordinal = _item_iterator->get_current_ordinal(),
+                    .ordinal_count = num_items,
+                    .is_forward = true,
+            }));
             size_t num_read = num_items;
             bool items_has_null = false;
             RETURN_IF_ERROR(
@@ -2220,6 +2332,26 @@ Status ArrayFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& par
     RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+Status ArrayFileColumnIterator::prepare_page_prefetch(const PagePrefetchRequest& request) {
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        if (_array_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            return _null_iterator->prepare_page_prefetch(request);
+        }
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_offset_iterator->prepare_page_prefetch(request));
+    if (_array_reader->is_nullable() && need_to_read_meta_columns()) {
+        DORIS_CHECK(_null_iterator != nullptr);
+        RETURN_IF_ERROR(_null_iterator->prepare_page_prefetch(request));
     }
     return Status::OK();
 }
@@ -2518,6 +2650,18 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         _reader->disable_index_meta_cache();
     }
     RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
+    _cached_remote_file_reader =
+            std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
+    _enable_page_prefetch =
+            config::is_cloud_mode() && config::enable_query_page_prefetch &&
+            config::enable_async_file_cache_write &&
+            opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
+            opts.page_prefetch_io_service != nullptr &&
+            opts.page_prefetch_io_service->accepting() && opts.io_ctx.query_id != nullptr &&
+            opts.query_ctx.lock() != nullptr && opts.tablet_id > 0 &&
+            _cached_remote_file_reader != nullptr &&
+            _cached_remote_file_reader->file_cache() != nullptr &&
+            _cached_remote_file_reader->file_cache()->async_write_manager() != nullptr;
     if (config::enable_low_cardinality_optimize &&
         opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
@@ -2542,6 +2686,79 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 FileColumnIterator::~FileColumnIterator() = default;
+
+Status FileColumnIterator::_init_page_prefetcher() {
+    DORIS_CHECK(_enable_page_prefetch);
+    DORIS_CHECK(_cached_remote_file_reader != nullptr);
+    DORIS_CHECK(_opts.page_prefetch_io_service != nullptr);
+    DORIS_CHECK(_opts.io_ctx.query_id != nullptr);
+    DORIS_CHECK(!_reader->is_empty());
+    if (_page_prefetcher != nullptr) {
+        return Status::OK();
+    }
+
+    auto runtime_query_context = _opts.query_ctx.lock();
+    if (runtime_query_context == nullptr || !_opts.page_prefetch_io_service->accepting()) {
+        _enable_page_prefetch = false;
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_reader->_load_ordinal_index(_reader->_use_index_page_cache,
+                                                 _reader->_opts.kept_in_memory, _opts));
+    std::vector<PageCandidate> pages;
+    pages.reserve(_reader->_ordinal_index->num_data_pages());
+    for (auto iterator = _reader->_ordinal_index->begin(); iterator.valid(); iterator.next()) {
+        pages.push_back(PageCandidate {
+                .page_index = cast_set<uint32_t>(iterator.page_index()),
+                .first_ordinal = iterator.first_ordinal(),
+                .last_ordinal = iterator.last_ordinal(),
+                .offset = iterator.page().offset,
+                .size = iterator.page().size,
+        });
+    }
+
+    auto query_context = _opts.page_prefetch_io_service->get_or_create_query_context(
+            *_opts.io_ctx.query_id, _opts.query_ctx);
+    ColumnIteratorOptions page_cache_probe_options = _opts;
+    page_cache_probe_options.type = DATA_PAGE;
+    _page_prefetcher = std::make_unique<PagePrefetcher>(PagePrefetcherContext {
+            .io_service = _opts.page_prefetch_io_service,
+            .reader = _cached_remote_file_reader,
+            .query_context = std::move(query_context),
+            .io_context =
+                    PagePrefetchSafeIOContext::from_query_thread(_opts.io_ctx, _opts.tablet_id),
+            .pages = std::move(pages),
+            .file_size = _cached_remote_file_reader->size(),
+            .options = snapshot_page_prefetch_options(),
+            .page_cache_probe =
+                    [reader = _reader, options = std::move(page_cache_probe_options),
+                     codec = _compress_codec](const PageCandidate& page) {
+                        return reader->lookup_page_cache_for_prefetch(
+                                options, PagePointer(page.offset, page.size), codec);
+                    },
+    });
+    return Status::OK();
+}
+
+Status FileColumnIterator::prepare_page_prefetch(const PagePrefetchRequest& request) {
+    if (!need_to_read() || !_enable_page_prefetch || !config::enable_query_page_prefetch ||
+        !config::enable_async_file_cache_write ||
+        (request.kind == PagePrefetchRequest::Kind::ORDINAL_RANGE && request.ordinal_count == 0) ||
+        (request.kind == PagePrefetchRequest::Kind::ROWIDS && request.rowid_count == 0)) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_init_page_prefetcher());
+    if (_page_prefetcher == nullptr) {
+        return Status::OK();
+    }
+    return _page_prefetcher->prepare(request);
+}
+
+#ifdef BE_TEST
+const PagePrefetcherStatistics* FileColumnIterator::page_prefetch_statistics_for_test() const {
+    return _page_prefetcher == nullptr ? nullptr : &_page_prefetcher->statistics();
+}
+#endif
 
 void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
     std::vector<BlockRange> ranges;
@@ -2568,6 +2785,16 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
     if (!_page || !_page.contains(ord) || !_page_iter.valid()) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter, _opts));
+        if (_enable_page_prefetch &&
+            (_page_prefetcher == nullptr ||
+             !_page_prefetcher->tracks(cast_set<uint32_t>(_page_iter.page_index())))) {
+            RETURN_IF_ERROR(prepare_page_prefetch(PagePrefetchRequest {
+                    .kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+                    .first_ordinal = ord,
+                    .ordinal_count = 1,
+                    .is_forward = true,
+            }));
+        }
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
     RETURN_IF_ERROR(_seek_to_pos_in_page(&_page, ord - _page.first_ordinal));
@@ -2736,6 +2963,11 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
     }
 
     _recovery_from_place_holder_column(dst);
+    RETURN_IF_ERROR(prepare_page_prefetch(PagePrefetchRequest {
+            .kind = PagePrefetchRequest::Kind::ROWIDS,
+            .rowids = rowids,
+            .rowid_count = count,
+    }));
 
     if (read_null_map_only()) {
         DLOG(INFO) << "File column iterator column " << _column_name
@@ -2893,6 +3125,12 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
         return Status::OK();
     }
 
+    RETURN_IF_ERROR(prepare_page_prefetch(PagePrefetchRequest {
+            .kind = PagePrefetchRequest::Kind::ORDINAL_RANGE,
+            .first_ordinal = _page_iter.first_ordinal(),
+            .ordinal_count = 1,
+            .is_forward = true,
+    }));
     RETURN_IF_ERROR(_read_data_page(_page_iter));
     RETURN_IF_ERROR(_seek_to_pos_in_page(&_page, 0));
     *eos = false;
@@ -2906,8 +3144,41 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     _opts.type = DATA_PAGE;
     PageDecoderOptions decoder_opts;
     decoder_opts.only_read_offsets = _opts.only_read_offsets;
-    RETURN_IF_ERROR(
-            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
+    bool decoded_prefetched_page = false;
+    if (_page_prefetcher != nullptr &&
+        _reader->lookup_page_cache_for_prefetch(_opts, iter.page(), _compress_codec)) {
+        _page_prefetcher->mark_page_cache_hit(cast_set<uint32_t>(iter.page_index()));
+    } else if (_page_prefetcher != nullptr) {
+        auto acquire_result = _page_prefetcher->acquire(cast_set<uint32_t>(iter.page_index()));
+        if (!acquire_result.has_value()) {
+            return std::move(acquire_result).error();
+        }
+        auto prefetched_page = std::move(acquire_result).value();
+        if (prefetched_page.has_value()) {
+            auto decode_status =
+                    _reader->decode_page_from_slice(_opts, iter.page(), prefetched_page->data,
+                                                    &handle, &page_body, &footer, _compress_codec);
+            if (decode_status.ok()) {
+                _page_prefetcher->mark_consumed(cast_set<uint32_t>(iter.page_index()));
+                decoded_prefetched_page = true;
+            } else {
+                LOG(WARNING)
+                        << "failed to decode prefetched page, falling back to normal read, file="
+                        << _opts.file_reader->path().native()
+                        << ", page_offset=" << iter.page().offset
+                        << ", page_size=" << iter.page().size
+                        << ", page_index=" << iter.page_index() << ", error=" << decode_status;
+                _page_prefetcher->mark_decode_failed(cast_set<uint32_t>(iter.page_index()));
+                handle = PageHandle {};
+                page_body = Slice {};
+                footer.Clear();
+            }
+        }
+    }
+    if (!decoded_prefetched_page) {
+        RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer,
+                                           _compress_codec));
+    }
     // parse data page
     auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                  _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
@@ -3000,6 +3271,9 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
 }
 
 Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    if (_enable_page_prefetch) {
+        return Status::OK();
+    }
     if (_cached_remote_file_reader =
                 std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
         !_cached_remote_file_reader) {

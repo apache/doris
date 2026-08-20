@@ -67,6 +67,7 @@ class ConditionCache;
 class AnnIndexResultCache;
 class TmpFileDirs;
 class EncodingInfoResolver;
+class PagePrefetchIOService;
 
 namespace inverted_index {
 class AnalysisFactoryMgr;
@@ -267,6 +268,9 @@ public:
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
     ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
+    segment_v2::PagePrefetchIOService* page_prefetch_io_service() {
+        return _page_prefetch_io_service.get();
+    }
     ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
@@ -509,6 +513,7 @@ private:
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
     // Threadpool used to prefetch segment file cache blocks
     std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
+    std::unique_ptr<segment_v2::PagePrefetchIOService> _page_prefetch_io_service;
     std::unique_ptr<ThreadPool> _peer_race_s3_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;

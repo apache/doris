@@ -1208,6 +1208,11 @@ DEFINE_Validator(variant_storage_parse_mode,
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
+// ATTENTION: For test only. Keep this enabled in production.
+// Whether S3 storage write paths populate file cache while writing data to object storage.
+// Disable this for tests that need load and compaction output to bypass file cache while keeping
+// query-side file cache writes enabled.
+DEFINE_mBool(enable_file_cache_write_from_s3_file_writer, "true");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
@@ -1283,6 +1288,22 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// async file cache write
+DEFINE_mBool(enable_async_file_cache_write, "false");
+DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
+// A positive value is the BE-wide queued+active task ownership limit. The successfully initialized
+// cache instances receive equal shares. -1 selects max(1 GiB, 1% of the BE memory limit) before
+// that split.
+DEFINE_mInt64(async_file_cache_write_max_pending_bytes, "-1");
+DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
+DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
+DEFINE_Validator(async_file_cache_write_workers_per_disk,
+                 [](int32_t value) { return value > 0 && value <= 128; });
+DEFINE_Validator(async_file_cache_write_max_pending_bytes,
+                 [](int64_t value) { return value == -1 || value > 0; });
+DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
+                 [](int32_t value) { return value > 0; });
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1423,6 +1444,8 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+// When file cache is enabled, the configured bytes must be divisible by
+// file_cache_each_block_size so every non-EOF HDFS cache block is canonical.
 DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
@@ -1747,6 +1770,71 @@ DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
 DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
 
 DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
+// Enable exact page prefetch and coalesced range reads for eligible queries.
+DEFINE_mBool(enable_query_page_prefetch, "false");
+DEFINE_mInt32(query_page_prefetch_window_pages, "16");
+DEFINE_mInt32(query_page_prefetch_min_window_pages, "1");
+DEFINE_mInt32(query_page_prefetch_max_window_pages, "64");
+DEFINE_mInt64(query_page_prefetch_max_gap_bytes, "65536");
+DEFINE_mInt64(query_page_prefetch_max_range_bytes, "4194304");
+DEFINE_mInt32(query_page_prefetch_max_pages_per_range, "32");
+DEFINE_mDouble(query_page_prefetch_max_read_amplification_ratio, "2.0");
+DEFINE_mInt32(query_page_prefetch_max_inflight_ranges_per_query, "16");
+DEFINE_mInt32(query_page_prefetch_max_inflight_ranges, "64");
+DEFINE_mInt64(query_page_prefetch_max_inflight_bytes_per_query, "67108864");
+DEFINE_mInt64(query_page_prefetch_max_inflight_bytes_per_be, "536870912");
+DEFINE_mDouble(query_page_prefetch_writeback_min_block_coverage, "0.5");
+DEFINE_mBool(enable_query_page_prefetch_adaptive_window, "false");
+
+DEFINE_Validator(query_page_prefetch_window_pages, [](int32_t value) {
+    return value > 0 &&
+           (query_page_prefetch_min_window_pages == 0 ||
+            query_page_prefetch_min_window_pages <= value) &&
+           (query_page_prefetch_max_window_pages == 0 ||
+            value <= query_page_prefetch_max_window_pages);
+});
+DEFINE_Validator(query_page_prefetch_min_window_pages, [](int32_t value) {
+    return value > 0 &&
+           (query_page_prefetch_window_pages == 0 || value <= query_page_prefetch_window_pages) &&
+           (query_page_prefetch_max_window_pages == 0 ||
+            value <= query_page_prefetch_max_window_pages);
+});
+DEFINE_Validator(query_page_prefetch_max_window_pages, [](int32_t value) {
+    return value > 0 &&
+           (query_page_prefetch_min_window_pages == 0 ||
+            query_page_prefetch_min_window_pages <= value) &&
+           (query_page_prefetch_window_pages == 0 || query_page_prefetch_window_pages <= value);
+});
+DEFINE_Validator(query_page_prefetch_max_gap_bytes, [](int64_t value) {
+    return value > 0 && (query_page_prefetch_max_range_bytes == 0 ||
+                         value < query_page_prefetch_max_range_bytes);
+});
+DEFINE_Validator(query_page_prefetch_max_range_bytes, [](int64_t value) {
+    return value > 0 && value >= file_cache_each_block_size &&
+           (query_page_prefetch_max_gap_bytes == 0 || query_page_prefetch_max_gap_bytes < value);
+});
+DEFINE_Validator(query_page_prefetch_max_pages_per_range, [](int32_t value) { return value > 0; });
+DEFINE_Validator(query_page_prefetch_max_read_amplification_ratio,
+                 [](double value) { return value >= 1.0; });
+DEFINE_Validator(query_page_prefetch_max_inflight_ranges_per_query, [](int32_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_ranges == 0 ||
+                         value <= query_page_prefetch_max_inflight_ranges);
+});
+DEFINE_Validator(query_page_prefetch_max_inflight_ranges, [](int32_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_ranges_per_query == 0 ||
+                         query_page_prefetch_max_inflight_ranges_per_query <= value);
+});
+DEFINE_Validator(query_page_prefetch_max_inflight_bytes_per_query, [](int64_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_bytes_per_be == 0 ||
+                         value <= query_page_prefetch_max_inflight_bytes_per_be);
+});
+DEFINE_Validator(query_page_prefetch_max_inflight_bytes_per_be, [](int64_t value) {
+    return value > 0 && (query_page_prefetch_max_inflight_bytes_per_query == 0 ||
+                         query_page_prefetch_max_inflight_bytes_per_query <= value);
+});
+DEFINE_Validator(query_page_prefetch_writeback_min_block_coverage,
+                 [](double value) { return value > 0.0 && value <= 1.0; });
+
 // Enable segment file cache block prefetch for query
 DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for query
@@ -2324,6 +2412,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
+        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2333,7 +2422,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
-        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \

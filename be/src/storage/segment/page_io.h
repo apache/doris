@@ -151,6 +151,16 @@ public:
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
                                            Slice* body, PageFooterPB* footer);
 
+    // Return whether the page is currently available in StoragePageCache. This probe does not
+    // count the page as consumed and does not update PageIO read statistics.
+    static bool lookup_page_cache_for_prefetch(const PageReadOptions& opts);
+
+    // Decode one complete on-disk page supplied by a prefetched range. The input includes the
+    // footer, footer size, and checksum. Returned page data is always owned by PageHandle or
+    // StoragePageCache and never borrows the caller's range buffer.
+    static Status decode_page_from_slice(const PageReadOptions& opts, Slice compressed_page,
+                                         PageHandle* handle, Slice* body, PageFooterPB* footer);
+
 private:
     static Status do_read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
                                               Slice* body, PageFooterPB* footer) {
@@ -160,6 +170,13 @@ private:
     // An internal method that not deal with exception.
     static Status read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
                                             Slice* body, PageFooterPB* footer);
+    static Status do_decode_page_from_slice(const PageReadOptions& opts, Slice compressed_page,
+                                            PageHandle* handle, Slice* body, PageFooterPB* footer) {
+        RETURN_IF_CATCH_EXCEPTION(
+                { return decode_page_from_slice_(opts, compressed_page, handle, body, footer); });
+    }
+    static Status decode_page_from_slice_(const PageReadOptions& opts, Slice compressed_page,
+                                          PageHandle* handle, Slice* body, PageFooterPB* footer);
 };
 
 } // namespace segment_v2

@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -41,6 +42,7 @@
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/mock/mock_segment.h"
+#include "storage/segment/page_prefetcher.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -106,15 +108,40 @@ std::shared_ptr<ColumnReader> create_test_reader(
     return reader;
 }
 
+struct RecordedPagePrefetchRequest {
+    PagePrefetchRequest::Kind kind = PagePrefetchRequest::Kind::ORDINAL_RANGE;
+    ordinal_t first_ordinal = 0;
+    size_t ordinal_count = 0;
+    std::vector<rowid_t> rowids;
+    bool is_forward = true;
+};
+
+RecordedPagePrefetchRequest record_page_prefetch_request(const PagePrefetchRequest& request) {
+    RecordedPagePrefetchRequest recorded {
+            .kind = request.kind,
+            .first_ordinal = request.first_ordinal,
+            .ordinal_count = request.ordinal_count,
+            .rowids = {},
+            .is_forward = request.is_forward,
+    };
+    if (request.kind == PagePrefetchRequest::Kind::ROWIDS && request.rowid_count > 0) {
+        DORIS_CHECK(request.rowids != nullptr);
+        recorded.rowids.assign(request.rowids, request.rowids + request.rowid_count);
+    }
+    return recorded;
+}
+
 class TrackingColumnIterator final : public ColumnIterator {
 public:
     Status seek_to_ordinal(ordinal_t ord) override {
+        events.emplace_back("seek");
         seek_ordinals.emplace_back(ord);
         _current_ordinal = ord;
         return Status::OK();
     }
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        events.emplace_back("next_batch");
         next_batch_sizes.emplace_back(*n);
         if (!need_to_read()) {
             _convert_to_place_holder_column(dst, *n);
@@ -135,6 +162,7 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override {
+        events.emplace_back("read_by_rowids");
         read_by_rowids_batches.emplace_back(rowids, rowids + count);
         if (!need_to_read()) {
             _convert_to_place_holder_column(dst, count);
@@ -147,6 +175,12 @@ public:
     }
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override {
+        events.emplace_back("prepare");
+        prefetch_requests.emplace_back(record_page_prefetch_request(request));
+        return Status::OK();
+    }
 
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
@@ -164,12 +198,16 @@ public:
         next_batch_sizes.clear();
         read_by_rowids_batches.clear();
         collect_methods.clear();
+        prefetch_requests.clear();
+        events.clear();
     }
 
     std::vector<ordinal_t> seek_ordinals;
     std::vector<size_t> next_batch_sizes;
     std::vector<std::vector<rowid_t>> read_by_rowids_batches;
     std::vector<PrefetcherInitMethod> collect_methods;
+    std::vector<RecordedPagePrefetchRequest> prefetch_requests;
+    std::vector<std::string> events;
 
 private:
     void record_collect_method(PrefetcherInitMethod init_method) {
@@ -185,14 +223,28 @@ public:
             : FileColumnIterator(std::move(reader)) {}
 
     Status seek_to_ordinal(ordinal_t ord) override {
+        events.emplace_back("seek");
         seek_ordinals.emplace_back(ord);
         _current_ordinal = ord;
         return Status::OK();
     }
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        events.emplace_back("next_batch");
         next_batch_sizes.emplace_back(*n);
-        dst->insert_many_defaults(*n);
+        if (offset_values.empty()) {
+            dst->insert_many_defaults(*n);
+        } else {
+            DORIS_CHECK(offset_value_position + *n <= offset_values.size());
+            auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
+            for (size_t index = 0; index < *n; ++index) {
+                offsets.insert_value(offset_values[offset_value_position + index]);
+            }
+            offset_value_position += *n;
+            if (page_tail_after_next_batch.has_value()) {
+                get_current_page()->next_array_item_ordinal = *page_tail_after_next_batch;
+            }
+        }
         _current_ordinal += *n;
         if (has_null != nullptr) {
             *has_null = false;
@@ -202,12 +254,19 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override {
+        events.emplace_back("read_by_rowids");
         read_by_rowids_batches.emplace_back(rowids, rowids + count);
         dst->insert_many_defaults(count);
         return Status::OK();
     }
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override {
+        events.emplace_back("prepare");
+        prefetch_requests.emplace_back(record_page_prefetch_request(request));
+        return Status::OK();
+    }
 
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
@@ -224,6 +283,11 @@ public:
     std::vector<size_t> next_batch_sizes;
     std::vector<std::vector<rowid_t>> read_by_rowids_batches;
     std::vector<PrefetcherInitMethod> collect_methods;
+    std::vector<RecordedPagePrefetchRequest> prefetch_requests;
+    std::vector<std::string> events;
+    std::vector<ordinal_t> offset_values;
+    size_t offset_value_position = 0;
+    std::optional<ordinal_t> page_tail_after_next_batch;
 
 private:
     void record_collect_method(PrefetcherInitMethod init_method) {
@@ -2321,6 +2385,167 @@ TEST_F(ColumnReaderTest, MapNullMapOnlyNextBatchAndReadByRowidsSkipKeysAndValues
     EXPECT_TRUE(key_iterator_ptr->next_batch_sizes.empty());
     EXPECT_TRUE(value_iterator_ptr->next_batch_sizes.empty());
     EXPECT_TRUE(offset_iterator.tracker->next_batch_sizes.empty());
+}
+
+TEST_F(ColumnReaderTest, PagePrefetchPreparationPreservesComplexColumnRowidSpaces) {
+    const rowid_t rowids[] = {2, 5, 9};
+    PagePrefetchRequest request {
+            .kind = PagePrefetchRequest::Kind::ROWIDS,
+            .rowids = rowids,
+            .rowid_count = std::size(rowids),
+    };
+
+    {
+        auto null_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* null_iterator_ptr = null_iterator.get();
+        std::vector<ColumnIteratorUPtr> sub_column_iterators;
+        auto predicate_child = std::make_unique<TrackingColumnIterator>();
+        auto* predicate_child_ptr = predicate_child.get();
+        auto lazy_child = std::make_unique<TrackingColumnIterator>();
+        auto* lazy_child_ptr = lazy_child.get();
+        sub_column_iterators.emplace_back(std::move(predicate_child));
+        sub_column_iterators.emplace_back(std::move(lazy_child));
+
+        StructFileColumnIterator struct_iterator(create_test_reader(true), std::move(null_iterator),
+                                                 std::move(sub_column_iterators));
+        struct_iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
+        predicate_child_ptr->set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+        lazy_child_ptr->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        struct_iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+        auto status = struct_iterator.prepare_page_prefetch(request);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(null_iterator_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(null_iterator_ptr->prefetch_requests[0].rowids,
+                    ::testing::ElementsAre(2, 5, 9));
+        ASSERT_EQ(predicate_child_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(predicate_child_ptr->prefetch_requests[0].rowids,
+                    ::testing::ElementsAre(2, 5, 9));
+        EXPECT_TRUE(lazy_child_ptr->prefetch_requests.empty());
+
+        null_iterator_ptr->clear_tracking();
+        predicate_child_ptr->clear_tracking();
+        lazy_child_ptr->clear_tracking();
+        struct_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+        status = struct_iterator.prepare_page_prefetch(request);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(null_iterator_ptr->prefetch_requests.empty());
+        EXPECT_TRUE(predicate_child_ptr->prefetch_requests.empty());
+        ASSERT_EQ(lazy_child_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(lazy_child_ptr->prefetch_requests[0].rowids, ::testing::ElementsAre(2, 5, 9));
+    }
+
+    {
+        auto null_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* null_iterator_ptr = null_iterator.get();
+        auto item_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* item_iterator_ptr = item_iterator.get();
+        auto offset_iterator = create_tracking_offset_iterator();
+        auto* offset_iterator_ptr = offset_iterator.tracker;
+        ArrayFileColumnIterator array_iterator(create_test_reader(true),
+                                               std::move(offset_iterator.iterator),
+                                               std::move(item_iterator), std::move(null_iterator));
+
+        auto status = array_iterator.prepare_page_prefetch(request);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(offset_iterator_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(offset_iterator_ptr->prefetch_requests[0].rowids,
+                    ::testing::ElementsAre(2, 5, 9));
+        ASSERT_EQ(null_iterator_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(null_iterator_ptr->prefetch_requests[0].rowids,
+                    ::testing::ElementsAre(2, 5, 9));
+        EXPECT_TRUE(item_iterator_ptr->prefetch_requests.empty());
+    }
+
+    {
+        auto null_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* null_iterator_ptr = null_iterator.get();
+        auto key_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* key_iterator_ptr = key_iterator.get();
+        auto value_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* value_iterator_ptr = value_iterator.get();
+        auto offset_iterator = create_tracking_offset_iterator();
+        auto* offset_iterator_ptr = offset_iterator.tracker;
+        MapFileColumnIterator map_iterator(create_test_reader(true), std::move(null_iterator),
+                                           std::move(offset_iterator.iterator),
+                                           std::move(key_iterator), std::move(value_iterator));
+
+        auto status = map_iterator.prepare_page_prefetch(request);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(offset_iterator_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(offset_iterator_ptr->prefetch_requests[0].rowids,
+                    ::testing::ElementsAre(2, 5, 9));
+        ASSERT_EQ(null_iterator_ptr->prefetch_requests.size(), 1);
+        EXPECT_THAT(null_iterator_ptr->prefetch_requests[0].rowids,
+                    ::testing::ElementsAre(2, 5, 9));
+        EXPECT_TRUE(key_iterator_ptr->prefetch_requests.empty());
+        EXPECT_TRUE(value_iterator_ptr->prefetch_requests.empty());
+    }
+}
+
+TEST_F(ColumnReaderTest, ArrayPreparesDecodedItemRangeBeforeConsumption) {
+    auto offset_iterator = create_tracking_offset_iterator();
+    offset_iterator.tracker->get_current_page()->next_array_item_ordinal = 10;
+    offset_iterator.tracker->offset_values = {10, 12};
+    offset_iterator.tracker->page_tail_after_next_batch = 14;
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_iterator_ptr = item_iterator.get();
+    ArrayFileColumnIterator array_iterator(create_test_reader(),
+                                           std::move(offset_iterator.iterator),
+                                           std::move(item_iterator), nullptr);
+
+    auto status = array_iterator.seek_to_ordinal(0);
+    ASSERT_TRUE(status.ok()) << status;
+    MutableColumnPtr destination =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    size_t rows = 2;
+    bool has_null = false;
+    status = array_iterator.next_batch(&rows, destination, &has_null);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(item_iterator_ptr->prefetch_requests.size(), 1);
+    const auto& item_request = item_iterator_ptr->prefetch_requests[0];
+    EXPECT_EQ(item_request.kind, PagePrefetchRequest::Kind::ORDINAL_RANGE);
+    EXPECT_EQ(item_request.first_ordinal, 10);
+    EXPECT_EQ(item_request.ordinal_count, 4);
+    EXPECT_THAT(item_iterator_ptr->events, ::testing::ElementsAre("seek", "prepare", "next_batch"));
+    EXPECT_EQ(destination->size(), 2);
+    const auto& array = assert_cast<const ColumnArray&>(*destination);
+    EXPECT_EQ(array.get_data().size(), 4);
+}
+
+TEST_F(ColumnReaderTest, MapPreparesAllDecodedItemRangesBeforeConsumption) {
+    auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<RowidOffsetFileColumnIterator>());
+    auto key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* key_iterator_ptr = key_iterator.get();
+    auto value_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* value_iterator_ptr = value_iterator.get();
+    MapFileColumnIterator map_iterator(create_test_reader(false, 10), nullptr,
+                                       std::move(offsets_iterator), std::move(key_iterator),
+                                       std::move(value_iterator));
+
+    MutableColumnPtr destination = ColumnMap::create(ColumnInt32::create(), ColumnInt32::create(),
+                                                     ColumnArray::ColumnOffsets::create());
+    const rowid_t rowids[] = {1, 3};
+    auto status = map_iterator.read_by_rowids(rowids, std::size(rowids), destination);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(key_iterator_ptr->prefetch_requests.size(), 2);
+    EXPECT_EQ(key_iterator_ptr->prefetch_requests[0].first_ordinal, 1);
+    EXPECT_EQ(key_iterator_ptr->prefetch_requests[0].ordinal_count, 1);
+    EXPECT_EQ(key_iterator_ptr->prefetch_requests[1].first_ordinal, 3);
+    EXPECT_EQ(key_iterator_ptr->prefetch_requests[1].ordinal_count, 1);
+    ASSERT_EQ(value_iterator_ptr->prefetch_requests.size(), 2);
+    EXPECT_EQ(value_iterator_ptr->prefetch_requests[0].first_ordinal, 1);
+    EXPECT_EQ(value_iterator_ptr->prefetch_requests[1].first_ordinal, 3);
+    EXPECT_THAT(key_iterator_ptr->events,
+                ::testing::ElementsAre("prepare", "prepare", "seek", "next_batch", "seek",
+                                       "next_batch"));
+    EXPECT_THAT(value_iterator_ptr->events,
+                ::testing::ElementsAre("prepare", "prepare", "seek", "next_batch", "seek",
+                                       "next_batch"));
+    EXPECT_EQ(destination->size(), 2);
 }
 
 TEST_F(ColumnReaderTest, CollectPrefetchersHonorsNestedReadRequirements) {

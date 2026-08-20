@@ -72,6 +72,7 @@
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -105,6 +106,7 @@
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/segment/count_on_index_fastpath.h"
+#include "storage/segment/page_prefetcher.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -120,6 +122,28 @@
 namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
+
+static ColumnIteratorOptions build_column_iterator_options(const StorageReadOptions& read_options,
+                                                           io::FileReader* file_reader,
+                                                           bool is_predicate_column = false) {
+    ColumnIteratorOptions iter_opts {
+            .use_page_cache = read_options.use_page_cache,
+            .is_predicate_column = is_predicate_column,
+            .file_reader = file_reader,
+            .stats = read_options.stats,
+            .io_ctx = read_options.io_ctx,
+            .tablet_id = read_options.tablet_id,
+    };
+    if (read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
+        read_options.runtime_state != nullptr &&
+        read_options.runtime_state->get_query_ctx() != nullptr) {
+        DORIS_CHECK(read_options.runtime_state->exec_env() != nullptr);
+        iter_opts.query_ctx = read_options.runtime_state->get_query_ctx_weak();
+        iter_opts.page_prefetch_io_service =
+                read_options.runtime_state->exec_env()->page_prefetch_io_service();
+    }
+    return iter_opts;
+}
 
 class ScopedColumnIteratorReadPhase {
 public:
@@ -357,6 +381,14 @@ private:
     uint32_t _rowid_left;
 };
 
+void SegmentIterator::_init_range_iterator() {
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter = std::make_unique<BackwardBitmapRangeIterator>(_row_bitmap);
+    } else {
+        _range_iter = std::make_unique<BitmapRangeIterator>(_row_bitmap);
+    }
+}
+
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema)
         : _segment(std::move(segment)),
           _schema(schema),
@@ -551,11 +583,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
-    if (_opts.read_orderby_key_reverse) {
-        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
-    } else {
-        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
-    }
+    _init_range_iterator();
 
     // Reserve columns for _initial_block_row_max (the original max before any adaptive
     // prediction) because the predictor may increase block_row_max on subsequent batches
@@ -811,12 +839,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[cid], &_opts,
                                                           &_variant_sparse_column_cache));
-            ColumnIteratorOptions iter_opts {
-                    .use_page_cache = _opts.use_page_cache,
-                    .file_reader = _file_reader.get(),
-                    .stats = _opts.stats,
-                    .io_ctx = _opts.io_ctx,
-            };
+            auto iter_opts = build_column_iterator_options(_opts, _file_reader.get());
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -1755,15 +1778,10 @@ Status SegmentIterator::_init_return_column_iterators() {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[cid], &_opts,
                                                           &_variant_sparse_column_cache));
-            ColumnIteratorOptions iter_opts {
-                    .use_page_cache = _opts.use_page_cache,
-                    // If the col is predicate column, then should read the last page to check
-                    // if the column is full dict encoding
-                    .is_predicate_column = tmp_is_pred_column[cid],
-                    .file_reader = _file_reader.get(),
-                    .stats = _opts.stats,
-                    .io_ctx = _opts.io_ctx,
-            };
+            // If the col is predicate column, then should read the last page to check
+            // if the column is full dict encoding.
+            auto iter_opts = build_column_iterator_options(_opts, _file_reader.get(),
+                                                           tmp_is_pred_column[cid]);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -2505,6 +2523,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             "rowids: [{}...{}]",
             nrows_read, is_continuous, nrows_read > 0 ? _block_rowids[0] : 0,
             nrows_read > 0 ? _block_rowids[nrows_read - 1] : 0);
+    std::vector<ColumnId> read_column_ids;
+    read_column_ids.reserve(_predicate_column_ids.size());
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
         VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
@@ -2534,6 +2554,35 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             })
         }
 
+        read_column_ids.emplace_back(cid);
+    }
+
+    if (nrows_read > 0) {
+        PagePrefetchRequest request;
+        if (is_continuous) {
+            request.kind = PagePrefetchRequest::Kind::ORDINAL_RANGE;
+            request.first_ordinal = _opts.read_orderby_key_reverse ? _block_rowids[nrows_read - 1]
+                                                                   : _block_rowids[0];
+            request.ordinal_count = nrows_read;
+            request.is_forward = !_opts.read_orderby_key_reverse;
+        } else {
+            request.kind = PagePrefetchRequest::Kind::ROWIDS;
+            request.rowids = _block_rowids.data();
+            request.rowid_count = nrows_read;
+            request.is_forward = !_opts.read_orderby_key_reverse;
+        }
+        for (auto cid : read_column_ids) {
+            auto* column_iter = _column_iterators[cid].get();
+            ScopedColumnIteratorReadPhase scoped_read_phase {
+                    column_iter, _support_lazy_read_pruned_columns.contains(cid)
+                                         ? ColumnIterator::ReadPhase::PREDICATE
+                                         : ColumnIterator::ReadPhase::NORMAL};
+            RETURN_IF_ERROR(column_iter->prepare_page_prefetch(request));
+        }
+    }
+
+    for (auto cid : read_column_ids) {
+        auto& column = _current_return_columns[cid];
         auto* column_iter = _column_iterators[cid].get();
         ScopedColumnIteratorReadPhase scoped_read_phase {
                 column_iter, _support_lazy_read_pruned_columns.contains(cid)
@@ -2846,6 +2895,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         }
     }
 
+    std::vector<ColumnId> actual_read_column_ids;
+    actual_read_column_ids.reserve(read_column_ids.size());
     for (auto cid : read_column_ids) {
         auto& colunm = (*mutable_columns)[cid];
         if (_no_need_read_key_data(cid, colunm, select_size)) {
@@ -2874,6 +2925,28 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
                     _current_return_columns.size(), cid);
         }
 
+        actual_read_column_ids.emplace_back(cid);
+    }
+
+    if (select_size > 0) {
+        PagePrefetchRequest request {
+                .kind = PagePrefetchRequest::Kind::ROWIDS,
+                .rowids = rowids.data(),
+                .rowid_count = select_size,
+                .is_forward = !_opts.read_orderby_key_reverse,
+        };
+        for (auto cid : actual_read_column_ids) {
+            auto* column_iter = _column_iterators[cid].get();
+            ScopedColumnIteratorReadPhase scoped_read_phase {
+                    column_iter,
+                    read_for_predicate && _support_lazy_read_pruned_columns.contains(cid)
+                            ? ColumnIterator::ReadPhase::PREDICATE
+                            : ColumnIterator::ReadPhase::NORMAL};
+            RETURN_IF_ERROR(column_iter->prepare_page_prefetch(request));
+        }
+    }
+
+    for (auto cid : actual_read_column_ids) {
         auto* column_iter = _column_iterators[cid].get();
         ScopedColumnIteratorReadPhase scoped_read_phase {
                 column_iter, read_for_predicate && _support_lazy_read_pruned_columns.contains(cid)
@@ -2896,6 +2969,21 @@ Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
     DorisVector<rowid_t> rowids(_selected_size);
     for (size_t i = 0; i < _selected_size; ++i) {
         rowids[i] = _block_rowids[_sel_rowid_idx[i]];
+    }
+
+    if (_selected_size > 0) {
+        PagePrefetchRequest request {
+                .kind = PagePrefetchRequest::Kind::ROWIDS,
+                .rowids = rowids.data(),
+                .rowid_count = _selected_size,
+                .is_forward = !_opts.read_orderby_key_reverse,
+        };
+        for (auto cid : _support_lazy_read_pruned_columns) {
+            auto* column_iter = _column_iterators[cid].get();
+            ScopedColumnIteratorReadPhase scoped_read_phase {column_iter,
+                                                             ColumnIterator::ReadPhase::LAZY};
+            RETURN_IF_ERROR(column_iter->prepare_page_prefetch(request));
+        }
     }
 
     for (auto cid : _support_lazy_read_pruned_columns) {

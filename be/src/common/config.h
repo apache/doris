@@ -1274,6 +1274,7 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
+DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
@@ -1346,6 +1347,13 @@ DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+// async file cache write
+DECLARE_mBool(enable_async_file_cache_write);
+DECLARE_mInt32(async_file_cache_write_workers_per_disk);
+DECLARE_mInt64(async_file_cache_write_max_pending_bytes);
+DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
+DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1795,6 +1803,20 @@ DECLARE_Int64(segment_prefetch_thread_pool_thread_num_min);
 DECLARE_Int64(segment_prefetch_thread_pool_thread_num_max);
 
 DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
+DECLARE_mBool(enable_query_page_prefetch);
+DECLARE_mInt32(query_page_prefetch_window_pages);
+DECLARE_mInt32(query_page_prefetch_min_window_pages);
+DECLARE_mInt32(query_page_prefetch_max_window_pages);
+DECLARE_mInt64(query_page_prefetch_max_gap_bytes);
+DECLARE_mInt64(query_page_prefetch_max_range_bytes);
+DECLARE_mInt32(query_page_prefetch_max_pages_per_range);
+DECLARE_mDouble(query_page_prefetch_max_read_amplification_ratio);
+DECLARE_mInt32(query_page_prefetch_max_inflight_ranges_per_query);
+DECLARE_mInt32(query_page_prefetch_max_inflight_ranges);
+DECLARE_mInt64(query_page_prefetch_max_inflight_bytes_per_query);
+DECLARE_mInt64(query_page_prefetch_max_inflight_bytes_per_be);
+DECLARE_mDouble(query_page_prefetch_writeback_min_block_coverage);
+DECLARE_mBool(enable_query_page_prefetch_adaptive_window);
 // Enable segment file cache block prefetch for query
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query

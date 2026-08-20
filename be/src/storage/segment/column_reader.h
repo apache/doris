@@ -63,6 +63,7 @@ namespace doris {
 class BlockCompressionCodec;
 class AndBlockColumnPredicate;
 class ColumnPredicate;
+class QueryContext;
 class TabletIndex;
 class StorageReadOptions;
 
@@ -86,6 +87,11 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
+class PagePrefetchIOService;
+class PagePrefetcher;
+struct PagePrefetcherStatistics;
+struct PagePrefetchRequest;
+struct PageReadOptions;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -116,6 +122,9 @@ struct ColumnIteratorOptions {
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
     bool only_read_offsets = false;
+    std::weak_ptr<QueryContext> query_ctx {};
+    PagePrefetchIOService* page_prefetch_io_service = nullptr;
+    int64_t tablet_id = 0;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -188,6 +197,11 @@ public:
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                      BlockCompressionCodec* codec) const;
+    bool lookup_page_cache_for_prefetch(const ColumnIteratorOptions& iter_opts,
+                                        const PagePointer& pp, BlockCompressionCodec* codec) const;
+    Status decode_page_from_slice(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
+                                  Slice compressed_page, PageHandle* handle, Slice* page_body,
+                                  PageFooterPB* footer, BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -273,6 +287,8 @@ private:
                                      uint32_t segment_id, size_t rows_of_segment);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
+    PageReadOptions _page_read_options(const ColumnIteratorOptions& iter_opts,
+                                       const PagePointer& pp, BlockCompressionCodec* codec) const;
 
     bool _zone_map_match_condition(const segment_v2::ZoneMap& zone_map,
                                    const AndBlockColumnPredicate* col_predicates) const;
@@ -418,6 +434,10 @@ public:
     virtual void remove_pruned_sub_iterators() {};
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
+
+    virtual Status prepare_page_prefetch(const PagePrefetchRequest& request) {
+        return Status::OK();
+    }
 
     virtual void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
@@ -565,9 +585,14 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
+
+#ifdef BE_TEST
+    const PagePrefetcherStatistics* page_prefetch_statistics_for_test() const;
+#endif
 
 protected:
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
@@ -579,6 +604,7 @@ private:
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
+    Status _init_page_prefetcher();
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
@@ -610,6 +636,8 @@ private:
     bool _enable_prefetch {false};
     std::unique_ptr<SegmentPrefetcher> _prefetcher;
     std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
+    bool _enable_page_prefetch {false};
+    std::unique_ptr<PagePrefetcher> _page_prefetcher;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -674,6 +702,7 @@ public:
     }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -711,6 +740,7 @@ public:
         return _offsets_iterator->get_current_ordinal();
     }
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -790,6 +820,7 @@ public:
     void remove_pruned_sub_iterators() override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -858,6 +889,7 @@ public:
     void remove_pruned_sub_iterators() override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_page_prefetch(const PagePrefetchRequest& request) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;

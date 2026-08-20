@@ -176,6 +176,7 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    void _init_range_iterator();
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
 

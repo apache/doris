@@ -62,6 +62,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
@@ -109,6 +110,7 @@
 #include "storage/options.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/segment/page_prefetch_io_service.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
@@ -184,6 +186,28 @@ static std::pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num)
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
     return {min_num, max_num};
+}
+
+static Status load_page_prefetch_io_service_options_from_config(
+        segment_v2::PagePrefetchIOServiceOptions* options) {
+    DORIS_CHECK(options != nullptr);
+    if (config::query_page_prefetch_max_inflight_ranges_per_query <= 0 ||
+        config::query_page_prefetch_max_inflight_ranges <= 0 ||
+        config::query_page_prefetch_max_inflight_bytes_per_query <= 0 ||
+        config::query_page_prefetch_max_inflight_bytes_per_be <= 0) {
+        return Status::InvalidArgument("page prefetch inflight limits must be positive");
+    }
+    options->query_limits = {
+            .max_ranges =
+                    static_cast<size_t>(config::query_page_prefetch_max_inflight_ranges_per_query),
+            .max_bytes =
+                    static_cast<size_t>(config::query_page_prefetch_max_inflight_bytes_per_query),
+    };
+    options->global_limits = {
+            .max_ranges = static_cast<size_t>(config::query_page_prefetch_max_inflight_ranges),
+            .max_bytes = static_cast<size_t>(config::query_page_prefetch_max_inflight_bytes_per_be),
+    };
+    return segment_v2::validate_page_prefetch_io_service_options(*options);
 }
 
 ThreadPool* ExecEnv::non_block_close_thread_pool() {
@@ -270,12 +294,17 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
-                              .set_min_threads(cast_set<int>(
-                                      config::segment_prefetch_thread_pool_thread_num_min))
-                              .set_max_threads(cast_set<int>(
-                                      config::segment_prefetch_thread_pool_thread_num_max))
-                              .build(&_segment_prefetch_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("SegmentPrefetchThreadPool")
+                            .set_min_threads(cast_set<int>(
+                                    config::segment_prefetch_thread_pool_thread_num_min))
+                            .set_max_threads(cast_set<int>(
+                                    config::segment_prefetch_thread_pool_thread_num_max))
+                            .build(&_segment_prefetch_thread_pool));
+    segment_v2::PagePrefetchIOServiceOptions page_prefetch_io_service_options;
+    RETURN_IF_ERROR(
+            load_page_prefetch_io_service_options_from_config(&page_prefetch_io_service_options));
+    _page_prefetch_io_service = std::make_unique<segment_v2::PagePrefetchIOService>(
+            _segment_prefetch_thread_pool.get(), page_prefetch_io_service_options);
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
@@ -516,6 +545,12 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 "s3_write_buffer_size {} and config::s3_write_buffer_size % "
                 "config::file_cache_each_block_size must be zero",
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
+        exit(-1);
+    }
+    auto hdfs_batch_status = io::validate_hdfs_write_batch_buffer_size(
+            config::hdfs_write_batch_buffer_size_mb, config::file_cache_each_block_size);
+    if (!hdfs_batch_status.ok()) {
+        LOG_FATAL("{}", hdfs_batch_status.to_string());
         exit(-1);
     }
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
@@ -903,6 +938,9 @@ void ExecEnv::destroy() {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    if (_page_prefetch_io_service != nullptr) {
+        _page_prefetch_io_service->shutdown();
+    }
     SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
@@ -957,6 +995,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
+    _page_prefetch_io_service.reset(nullptr);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     SAFE_DELETE(_dict_factory);
@@ -1055,6 +1094,26 @@ void refresh_ms_backpressure_coordinator_params() {
     }
 }
 
+template <typename T>
+void update_page_prefetch_io_service_options(const char* config_name, T old_value, T new_value) {
+    if (old_value == new_value) {
+        return;
+    }
+    auto* service = ExecEnv::GetInstance()->page_prefetch_io_service();
+    if (service == nullptr) {
+        return;
+    }
+    segment_v2::PagePrefetchIOServiceOptions options;
+    Status status = load_page_prefetch_io_service_options_from_config(&options);
+    if (status.ok()) {
+        status = service->update_options(options);
+    }
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to apply page prefetch IO service option " << config_name
+                     << " from " << old_value << " to " << new_value << ": " << status.to_string();
+    }
+}
+
 } // namespace
 
 // Callback to update warmup download rate limiter when config changes is registered
@@ -1073,6 +1132,26 @@ DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
                              LOG(INFO) << "Warmup download rate limiter disabled";
                          }
                      }
+                 });
+
+DEFINE_ON_UPDATE(query_page_prefetch_max_inflight_ranges_per_query, [](int32_t old_value,
+                                                                       int32_t new_value) {
+    update_page_prefetch_io_service_options("query_page_prefetch_max_inflight_ranges_per_query",
+                                            old_value, new_value);
+});
+DEFINE_ON_UPDATE(query_page_prefetch_max_inflight_ranges, [](int32_t old_value, int32_t new_value) {
+    update_page_prefetch_io_service_options("query_page_prefetch_max_inflight_ranges", old_value,
+                                            new_value);
+});
+DEFINE_ON_UPDATE(query_page_prefetch_max_inflight_bytes_per_query, [](int64_t old_value,
+                                                                      int64_t new_value) {
+    update_page_prefetch_io_service_options("query_page_prefetch_max_inflight_bytes_per_query",
+                                            old_value, new_value);
+});
+DEFINE_ON_UPDATE(query_page_prefetch_max_inflight_bytes_per_be,
+                 [](int64_t old_value, int64_t new_value) {
+                     update_page_prefetch_io_service_options(
+                             "query_page_prefetch_max_inflight_bytes_per_be", old_value, new_value);
                  });
 
 DEFINE_ON_UPDATE(ms_rpc_qps_default, [](int32_t old_val, int32_t new_val) {
