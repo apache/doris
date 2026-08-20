@@ -36,6 +36,7 @@ import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 
 import com.google.common.collect.Lists;
@@ -363,5 +364,12 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void replacePartitionField(TableIf table, ReplacePartitionFieldOp op) throws UserException {
         throw new UserException("Not support replace partition field operation");
+    }
+
+    // ALTER TABLE ... DROP PARTITION on an external table: a DATA operation (clear the rows of the named
+    // partition), distinct from the partition-SPEC evolution above. Only connectors that can honor it
+    // (e.g. paimon, which truncates the partition) override this; the default rejects it.
+    default void dropPartition(TableIf table, DropPartitionOp op) throws UserException {
+        throw new UserException("Not support drop partition operation");
     }
 }

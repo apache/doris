@@ -82,4 +82,27 @@ public interface ConnectorTableDdlOps {
         throw new DorisConnectorException(
                 "TRUNCATE TABLE not supported");
     }
+
+    /**
+     * Clears the DATA of the named partitions ({@code ALTER TABLE ... DROP PARTITION}). Each entry of
+     * {@code partitionNames} is a partition DISPLAY name in the connector's own {@code listPartitions}
+     * form (e.g. paimon's {@code k1=v1/k2=v2}); the connector resolves each back to its native partition
+     * spec, so fe-core never re-parses values out of the name.
+     *
+     * <p>{@code ifExists} follows the Doris {@code DROP PARTITION IF EXISTS} contract: a name absent from
+     * the table is a silent no-op when {@code true} and an error when {@code false}. Distinct from
+     * {@link ConnectorSnapshotRefOps#dropPartitionField}, which drops a partition COLUMN from the SPEC — this
+     * only removes rows and leaves the schema untouched.</p>
+     *
+     * <p>Connectors that support it override this; the default throws, so a connector that cannot drop
+     * partitions rejects the clause with a clear message rather than silently ignoring it.</p>
+     *
+     * @throws DorisConnectorException if the connector does not support dropping partitions, or a named
+     *     partition does not exist and {@code ifExists} is false
+     */
+    default void dropPartitions(ConnectorSession session,
+            ConnectorTableHandle handle, List<String> partitionNames, boolean ifExists) {
+        throw new DorisConnectorException(
+                "DROP PARTITION not supported");
+    }
 }
