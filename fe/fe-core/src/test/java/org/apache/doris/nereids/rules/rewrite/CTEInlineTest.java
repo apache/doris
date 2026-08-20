@@ -23,7 +23,9 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -45,6 +47,13 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
         createTable("CREATE TABLE cte_inline_tbl (\n"
                 + "  id int NULL,\n"
                 + "  val int NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"1\")");
+        createTable("CREATE TABLE T1 (\n"
+                + "  id bigint NULL,\n"
+                + "  score bigint NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
@@ -118,5 +127,70 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCteReferencedThreshold;
             connectContext.getSessionVariable().setDisableNereidsRules("");
         }
+    }
+
+    @Test
+    public void testConstantOneRowCteAlwaysInlined() {
+        String sql = "WITH c AS (SELECT 1 AS a, 'x' AS b) "
+                + "SELECT * FROM c c1 JOIN c c2 ON c1.a = c2.a";
+
+        LogicalPlan analyzed = (LogicalPlan) PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .getPlan();
+
+        assertNoCteNodes(analyzed);
+    }
+
+    @Test
+    public void testConstantOneRowCteWithManyConsumersInlined() {
+        String sql = "WITH consts AS ("
+                + "  SELECT '2026-01-01' AS day_start, '2026-08-17' AS day_end, "
+                + "         '2025-01-01' AS tq_start,  '2025-08-17' AS tq_end)"
+                + "SELECT * FROM consts c1, consts c2, consts c3, consts c4, "
+                + "              consts c5, consts c6, consts c7, consts c8";
+
+        LogicalPlan analyzed = (LogicalPlan) PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .getPlan();
+
+        assertNoCteNodes(analyzed);
+    }
+
+    @Test
+    public void testTableBackedCteNotForcedInline() {
+        String sql = "WITH t AS (SELECT id, score FROM T1) "
+                + "SELECT * FROM t x JOIN t y ON x.id = y.id";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .matches(logicalCTEAnchor());
+    }
+
+    @Test
+    public void testNonDeterministicOneRowCteNotForcedInline() {
+        String sql = "WITH r AS (SELECT RANDOM() AS x) "
+                + "SELECT * FROM r r1 JOIN r r2 ON r1.x = r2.x";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .matches(logicalCTEAnchor());
+    }
+
+    private static void assertNoCteNodes(LogicalPlan plan) {
+        plan.foreach(p -> {
+            if (p instanceof LogicalCTEAnchor || p instanceof LogicalCTEProducer) {
+                throw new AssertionError(
+                        "Expected all CTE nodes to be inlined, but found: " + p.getClass().getSimpleName()
+                        + "\nplan:\n" + plan.treeString());
+            }
+        });
     }
 }
