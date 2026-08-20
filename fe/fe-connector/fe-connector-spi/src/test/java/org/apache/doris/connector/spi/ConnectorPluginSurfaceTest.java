@@ -82,6 +82,7 @@ public class ConnectorPluginSurfaceTest {
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
