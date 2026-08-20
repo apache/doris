@@ -1786,11 +1786,17 @@ Status SegmentIterator::_init_index_iterators() {
     _index_query_context->io_ctx = &_opts.io_ctx;
     _index_query_context->stats = _opts.stats;
     _index_query_context->runtime_state = _opts.runtime_state;
+    if (auto it = _opts.delete_bitmap.find(segment_id()); it != _opts.delete_bitmap.end()) {
+        _index_query_context->delete_bitmap = it->second;
+    }
 
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
         _index_query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
-        _index_query_context->query_limit = _score_runtime->get_limit();
+        _index_query_context->query_limit =
+                _opts.delete_condition_predicates->num_of_column_predicate() == 0
+                        ? _score_runtime->get_limit()
+                        : 0;
         _index_query_context->is_asc = _score_runtime->is_asc();
     }
 
@@ -3806,7 +3812,8 @@ void SegmentIterator::_prepare_score_column_materialization() {
 
     IColumn::MutablePtr result_column;
     auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
-    if (_score_runtime->get_limit() > 0 && _col_predicates.empty() &&
+    if (_opts.delete_condition_predicates->num_of_column_predicate() == 0 &&
+        _score_runtime->get_limit() > 0 && _col_predicates.empty() &&
         _common_expr_ctxs_push_down.empty()) {
         OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
         _index_query_context->collection_similarity->get_topn_bm25_scores(
