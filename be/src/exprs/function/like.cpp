@@ -19,7 +19,6 @@
 
 #include <fmt/format.h>
 #include <hs/hs_compile.h>
-#include <re2/stringpiece.h>
 
 #include <cstddef>
 #include <ostream>
@@ -34,8 +33,10 @@
 #include "core/column/column_vector.h"
 #include "core/string_ref.h"
 #include "exprs/function/simple_function_factory.h"
+#include "util/hyperscan_util.h"
 
 namespace doris {
+
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
@@ -183,8 +184,9 @@ struct VectorEndsWithSearchState : public VectorPatternSearchState {
     }
 };
 
-Status LikeSearchState::clone(LikeSearchState& cloned) {
+Status LikeSearchState::clone(LikeSearchState& cloned) const {
     cloned.set_search_string(search_string);
+    cloned.enable_hyperscan_fallback = enable_hyperscan_fallback;
 
     std::string re_pattern;
     FunctionLike::convert_like_pattern(this, pattern_str, &re_pattern);
@@ -452,7 +454,8 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    if (hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch).ok()) { // use hyperscan
+    auto hs_status = hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch);
+    if (hs_status.ok()) { // use hyperscan
         auto sz = val.size();
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
@@ -467,6 +470,9 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
         hs_free_scratch(scratch);
         hs_free_database(database);
     } else { // fallback to re2
+        if (!state->enable_hyperscan_fallback) {
+            return hs_status;
+        }
         RE2::Options opts;
         opts.set_never_nl(false);
         opts.set_dot_nl(true);
@@ -487,8 +493,19 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
 }
 
 // hyperscan compile expression to database and allocate scratch space
+bool FunctionLikeBase::should_fallback_to_re2(std::string_view regexp) {
+    return is_hyperscan_regexp_expensive(regexp);
+}
+
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
+    if (should_fallback_to_re2(expression)) {
+        *database = nullptr;
+        *scratch = nullptr;
+        // Callers either fall back to RE2 or return this status based on the session variable.
+        return Status::RuntimeError<false>(HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
+
     hs_compile_error_t* compile_err;
     auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
                           HS_MODE_BLOCK, nullptr, database, &compile_err);
@@ -497,7 +514,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         *database = nullptr;
         std::string error_message = compile_err->message;
         hs_free_compile_error(compile_err);
-        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        // Callers either fall back to RE2 or return this status based on the session variable.
         return Status::RuntimeError<false>("hs_compile regex pattern error:" + error_message);
     }
     hs_free_compile_error(compile_err);
@@ -506,7 +523,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         hs_free_database(*database);
         *database = nullptr;
         *scratch = nullptr;
-        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        // Callers either fall back to RE2 or return this status based on the session variable.
         return Status::RuntimeError<false>("hs_alloc_scratch allocate scratch space error");
     }
 
@@ -942,12 +959,19 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
 
         hs_database_t* database = nullptr;
         hs_scratch_t* scratch = nullptr;
-        if (try_hyperscan && hs_prepare(context, re_pattern.c_str(), &database, &scratch).ok()) {
+        Status hs_status;
+        if (try_hyperscan) {
+            hs_status = hs_prepare(context, re_pattern.c_str(), &database, &scratch);
+        }
+        if (try_hyperscan && hs_status.ok()) {
             // use hyperscan
             state->search_state.hs_database.reset(database);
             state->search_state.hs_scratch.reset(scratch);
         } else {
             // fallback to re2
+            if (try_hyperscan && !state->search_state.enable_hyperscan_fallback) {
+                return hs_status;
+            }
             // reset hs_database to nullptr to indicate not use hyperscan
             state->search_state.hs_database.reset();
             state->search_state.hs_scratch.reset();
@@ -974,6 +998,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     state->is_like_pattern = true;
+    state->search_state.enable_hyperscan_fallback =
+            context->state()->query_options().enable_hyperscan_fallback;
     state->function = like_fn;
     state->scalar_function = like_fn_scalar;
     if (context->is_col_constant(2)) {
@@ -1004,6 +1030,8 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->is_like_pattern = false;
+    state->search_state.enable_hyperscan_fallback =
+            context->state()->query_options().enable_hyperscan_fallback;
     state->function = regexp_fn;
     state->scalar_function = regexp_fn_scalar;
     if (context->is_col_constant(1)) {
@@ -1035,12 +1063,16 @@ Status FunctionRegexpLike::open(FunctionContext* context,
         } else {
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;
-            if (hs_prepare(context, pattern_str.c_str(), &database, &scratch).ok()) {
+            auto hs_status = hs_prepare(context, pattern_str.c_str(), &database, &scratch);
+            if (hs_status.ok()) {
                 // use hyperscan
                 state->search_state.hs_database.reset(database);
                 state->search_state.hs_scratch.reset(scratch);
             } else {
                 // fallback to re2
+                if (!state->search_state.enable_hyperscan_fallback) {
+                    return hs_status;
+                }
                 // reset hs_database to nullptr to indicate not use hyperscan
                 state->search_state.hs_database.reset();
                 state->search_state.hs_scratch.reset();
