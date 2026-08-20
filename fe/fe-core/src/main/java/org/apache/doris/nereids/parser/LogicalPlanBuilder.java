@@ -572,6 +572,7 @@ import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -3793,12 +3794,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public ArrayLiteral visitArrayLiteral(ArrayLiteralContext ctx) {
-        List<Literal> items = ctx.items.stream().<Literal>map(this::typedVisit).collect(Collectors.toList());
+    public Expression visitArrayLiteral(ArrayLiteralContext ctx) {
+        List<Expression> items = ctx.items.stream().<Expression>map(this::typedVisit).collect(Collectors.toList());
         if (items.isEmpty()) {
-            return new ArrayLiteral(items);
+            return new ArrayLiteral(ImmutableList.of());
         }
-        return new ArrayLiteral(typeCoercionItems(items));
+        for (Expression item : items) {
+            if (!item.isConstant()) {
+                throw new ParseException("Array literal '[...]' only supports constant expressions, "
+                        + "but got non-constant expression: " + displaySql(item), ctx);
+            }
+        }
+        if (items.stream().allMatch(Literal.class::isInstance)) {
+            List<Literal> literals = items.stream().map(Literal.class::cast).collect(Collectors.toList());
+            return new ArrayLiteral(typeCoercionItems(literals));
+        }
+        // array literal contains constant but non-literal expressions (e.g. cast), build array function instead
+        return new Array(items);
+    }
+
+    private String displaySql(Expression item) {
+        if (item instanceof SubqueryExpr) {
+            return "subquery";
+        }
+        return item.toSql();
     }
 
     @Override

@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
@@ -247,5 +253,54 @@ public class LogicalPlanBuilderTest {
         Assertions.assertInstanceOf(UnboundSlot.class, sort.getOrderKeys().get(0).getExpr());
         // Second key: column name remains as UnboundSlot
         Assertions.assertInstanceOf(UnboundSlot.class, sort.getOrderKeys().get(1).getExpr());
+    }
+
+    @Test
+    public void testArrayLiteralWithCastExpression() {
+        // bracket array literal should accept valid expressions (e.g. TIMESTAMPTZ cast),
+        // consistent with ARRAY(...) and other element types
+        String sql = "SELECT CAST(["
+                + "CAST('2026-08-18 12:34:56 +08:00' AS TIMESTAMPTZ(6)),"
+                + "CAST('2026-08-18 04:34:56 +00:00' AS TIMESTAMPTZ(6))"
+                + "] AS ARRAY<TIMESTAMPTZ>)";
+        LogicalPlan plan = parser.parseSingle(sql);
+        UnboundOneRowRelation one = (UnboundOneRowRelation) plan.child(0);
+        Expression expr = one.getProjects().get(0).child(0);
+        // outer cast: CAST(array_expr AS ARRAY<TIMESTAMPTZ>)
+        Assertions.assertInstanceOf(Cast.class, expr);
+        Expression child = ((Cast) expr).child();
+        // non-literal elements -> built as array() function instead of ArrayLiteral
+        Assertions.assertInstanceOf(Array.class, child);
+        Array array = (Array) child;
+        Assertions.assertEquals(2, array.arity());
+        array.getArguments().forEach(arg -> Assertions.assertInstanceOf(Cast.class, arg));
+    }
+
+    @Test
+    public void testArrayLiteralAllLiteralStillProducesArrayLiteral() {
+        String sql = "SELECT CAST([1, 2, 3] AS ARRAY<INT>)";
+        LogicalPlan plan = parser.parseSingle(sql);
+        UnboundOneRowRelation one = (UnboundOneRowRelation) plan.child(0);
+        Expression expr = one.getProjects().get(0).child(0);
+        Assertions.assertInstanceOf(Cast.class, expr);
+        // all-literal elements keep the ArrayLiteral node, no behavior regression
+        Assertions.assertInstanceOf(ArrayLiteral.class, ((Cast) expr).child());
+    }
+
+    @Test
+    public void testArrayLiteralWithColumnReferenceThrowsParseException() {
+        // bracket array literal only supports constant expressions, a column reference
+        // cannot be folded to a constant and should report a reasonable error
+        String sql = "SELECT [c1, c2]";
+        ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("constant"));
+    }
+
+    @Test
+    public void testArrayLiteralWithSubqueryThrowsParseException() {
+        // a subquery cannot be folded to a constant and should report a reasonable error
+        String sql = "SELECT [(SELECT 1)]";
+        ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("constant"));
     }
 }
