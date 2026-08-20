@@ -196,19 +196,25 @@ std::string SniiBlobStagingDirectory::toString() const {
                        staged_bytes());
 }
 
-std::vector<snii::writer::BlobFileSource> SniiBlobStagingDirectory::blob_sources() const {
+std::vector<snii::writer::BlobFileSource> SniiBlobStagingDirectory::take_blob_sources() {
+    // Moved out before anything is built from it: a source has to be the file's
+    // only owner, or the per-blob release in SniiCompoundWriter::finish() frees
+    // nothing and the staging survives until this directory does.
+    std::map<std::string, std::shared_ptr<snii::bkd::StagedBlobFile>> taken;
+    taken.swap(_files);
     std::vector<snii::writer::BlobFileSource> sources;
-    sources.reserve(_files.size());
+    sources.reserve(taken.size());
     // std::map iterates in name order, which is the order the filesystem harvest
     // produced by sorting list(). Two builds of one index therefore lay their
     // sub-files out identically in the container.
-    for (const auto& [name, file] : _files) {
+    for (auto& [name, staged] : taken) {
+        auto file = std::move(staged);
+        const uint64_t length = file->bytes_written();
         sources.push_back(snii::writer::BlobFileSource {
                 .name = name,
-                .length = file->bytes_written(),
-                .read_fn = [file](uint64_t offset, size_t len, uint8_t* out) -> Status {
-                    return file->read_at(offset, len, out);
-                }});
+                .length = length,
+                .read_fn = [file = std::move(file)](uint64_t offset, size_t len, uint8_t* out)
+                        -> Status { return file->read_at(offset, len, out); }});
     }
     return sources;
 }

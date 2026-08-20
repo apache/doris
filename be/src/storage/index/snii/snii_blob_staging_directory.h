@@ -79,12 +79,17 @@ public:
     // filesystem harvest produced by sorting list(), so the container lays two
     // builds of one index out identically.
     //
-    // Each source keeps its file alive on its own, so the sources stay valid
-    // after this directory is destroyed: SniiCompoundWriter::finish() pulls them
-    // long after the ANN writer is gone.
-    std::vector<snii::writer::BlobFileSource> blob_sources() const;
+    // TAKES the files. This directory holds nothing afterwards and the returned
+    // sources are their ONLY owners, which is what lets the container unlink each
+    // sub-file the moment it has copied its bytes (see the per-blob release in
+    // SniiCompoundWriter::finish()). Leaving a second owner here would defeat
+    // that: an ANN producer routinely outlives the seal -- IndexBuilder's SNII
+    // ADD INDEX path keeps every AnnIndexColumnWriter alive until the whole
+    // rowset has been closed -- so one rowset's staging would pile up at once.
+    std::vector<snii::writer::BlobFileSource> take_blob_sources();
 
-    // Logical bytes across every staged sub-file.
+    // Logical bytes across every staged sub-file. Zero once take_blob_sources()
+    // has handed them over.
     uint64_t staged_bytes() const;
 
 protected:

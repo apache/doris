@@ -609,6 +609,91 @@ TEST_F(SniiAnnContainerTest, AFailedSaveUnlinksItsStagingFile) {
     }
 }
 
+// Sealing hands the staged files to the container, so a producer that outlives
+// the seal must not keep them pinned. IndexBuilder's SNII ADD INDEX path
+// (_handle_single_rowset_snii) is exactly that shape: it builds every segment,
+// closes every IndexFileWriter, and only then clears _index_column_writers. If
+// the handover does not happen, one whole rowset's ANN staging sits on the temp
+// filesystem at once -- which is precisely what SniiCompoundWriter::finish()
+// releases per blob to avoid.
+TEST_F(SniiAnnContainerTest, SealingDrainsStagedFilesWhileProducersAreStillAlive) {
+    struct Segment {
+        std::unique_ptr<IndexFileWriter> file_writer;
+        std::unique_ptr<AnnIndexColumnWriter> producer;
+    };
+    constexpr int kSegments = 3;
+
+    const size_t before = staged_ann_file_count();
+    std::vector<Segment> segments;
+    for (int seg_id = 0; seg_id < kSegments; ++seg_id) {
+        const std::string prefix =
+                std::string(kTestDir) + "/held_producer_seg" + std::to_string(seg_id);
+        io::FileWriterPtr file_writer;
+        assert_ok(io::global_local_filesystem()->create_file(
+                InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+        Segment segment;
+        segment.file_writer = std::make_unique<IndexFileWriter>(
+                io::global_local_filesystem(), prefix, "snii_ann_held_producer_rowset", seg_id,
+                InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                /*can_use_ram_dir=*/false, /*tablet_id=*/9910);
+        segment.producer =
+                std::make_unique<AnnIndexColumnWriter>(segment.file_writer.get(), &_meta);
+        assert_ok(segment.producer->init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(segment.producer.get()); });
+        assert_ok(finish_status);
+        segments.push_back(std::move(segment));
+    }
+    // Sanity: their absence below must mean the seal drained them, not that they
+    // were never staged.
+    ASSERT_EQ(staged_ann_file_count(), before + kSegments);
+
+    for (auto& segment : segments) {
+        assert_ok(segment.file_writer->begin_close());
+    }
+    // Every producer is STILL alive here, exactly as it is in IndexBuilder when
+    // it runs its begin_close loop.
+    EXPECT_EQ(staged_ann_file_count(), before)
+            << "sealing left the staged files pinned by the producers";
+
+    for (auto& segment : segments) {
+        assert_ok(segment.file_writer->finish_close());
+    }
+}
+
+// The same handover inside ONE container: _indices_dirs holds every staging
+// directory for the whole of finish(), so the per-blob release in
+// SniiCompoundWriter::finish() can only free a sub-file that the directory has
+// already given up. Two ANN indexes, three sub-files (hnsw writes ann.faiss,
+// ivf_on_disk writes ann.faiss and ann.ivfdata).
+TEST_F(SniiAnnContainerTest, EveryAnnIndexInOneContainerIsDrainedBySealing) {
+    const size_t before = staged_ann_file_count();
+    const std::string prefix = std::string(kTestDir) + "/multi_ann_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_multi_ann_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9911);
+
+    std::vector<std::unique_ptr<AnnIndexColumnWriter>> producers;
+    for (const TabletIndex* meta : {&_meta, &_ivf_on_disk_meta}) {
+        auto producer = std::make_unique<AnnIndexColumnWriter>(&writer, meta);
+        assert_ok(producer->init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(producer.get()); });
+        assert_ok(finish_status);
+        producers.push_back(std::move(producer));
+    }
+    ASSERT_EQ(staged_ann_file_count(), before + 3);
+
+    assert_ok(writer.begin_close());
+    EXPECT_EQ(staged_ann_file_count(), before)
+            << "one container's seal did not drain every ANN index it sealed";
+    assert_ok(writer.finish_close());
+}
+
 // begin_close() returns Status. Nothing on its SNII path may throw across that
 // boundary -- the non-SNII branch of the same function wraps its directory
 // teardown in try/catch precisely because DorisFSDirectory::deleteDirectory()

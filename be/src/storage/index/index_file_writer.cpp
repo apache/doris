@@ -215,24 +215,26 @@ Status IndexFileWriter::_seal_snii_blob_directories() {
         DORIS_CHECK(std::strcmp(dir->getObjectName(),
                                 snii_doris::SniiBlobStagingDirectory::getClassName()) == 0);
 
-        // Each source keeps its staging file alive, so finish() may pull the
-        // bytes after this directory is gone.
+        // The sources TAKE the staged files, so they own them alone from here on:
+        // finish() may pull the bytes after this directory is gone, and it can
+        // unlink each sub-file as soon as it has copied it instead of waiting for
+        // whoever else happens to still hold the directory.
         auto* staging = static_cast<snii_doris::SniiBlobStagingDirectory*>(dir.get());
         // All cold: a faiss index is read at QUERY time, never at container open,
         // so nothing here belongs in the hot area the text metadata groups share.
         RETURN_IF_ERROR(add_snii_blob_index(meta_it->second.get(),
                                             doris::snii::format::LogicalIndexKind::kAnn,
-                                            staging->blob_sources(), {}));
+                                            staging->take_blob_sources(), {}));
     }
     return Status::OK();
 }
 
 void IndexFileWriter::_release_snii_blob_directories() {
-    // Dropping the map is the whole release: each staging file unlinks itself
-    // when its last owner dies, so -- unlike DorisFSDirectory::deleteDirectory()
-    // -- there is no throwing cleanup call on this Status-returning close path.
-    // Any source already registered with the compound writer keeps its file alive
-    // until finish() has pulled it.
+    // Dropping the map is all this has to do: sealing already handed the staged
+    // files to the blob sources, which unlink them as finish() copies them, and
+    // an unsealed directory unlinks its own on the way out. So -- unlike
+    // DorisFSDirectory::deleteDirectory() -- there is no throwing cleanup call to
+    // make from this Status-returning close path.
     _indices_dirs.clear();
     _snii_blob_dir_metas.clear();
 }
