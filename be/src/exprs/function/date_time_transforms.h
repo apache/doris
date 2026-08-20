@@ -529,12 +529,13 @@ struct FromUnixTimeDecimalImpl {
         auto epoch_second = static_cast<int64_t>(interger);
         int32_t nanosecond = get_nanosecond(fraction);
         if constexpr (WithNanosecond) {
-            constexpr int32_t NANOS_PER_MICROSECOND = 1000;
             constexpr int32_t MICROS_PER_SECOND = 1000000;
             const int32_t rounded_microseconds =
-                    (nanosecond + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
+                    (nanosecond + TimeStampNsValue::NANOS_PER_MICROSECOND / 2) /
+                    TimeStampNsValue::NANOS_PER_MICROSECOND;
             epoch_second += rounded_microseconds / MICROS_PER_SECOND;
-            nanosecond = rounded_microseconds % MICROS_PER_SECOND * NANOS_PER_MICROSECOND;
+            nanosecond = rounded_microseconds % MICROS_PER_SECOND *
+                         TimeStampNsValue::NANOS_PER_MICROSECOND;
         }
         DateV2Value<DateTimeV2ValueType> dt;
         dt.from_unixtime(epoch_second, nanosecond, time_zone, 6);
