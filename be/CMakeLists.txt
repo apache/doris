@@ -1074,6 +1074,7 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
+    add_subdirectory(${SRC_DIR}/io/cache/benchmark)
     install(FILES
         ${BASE_DIR}/../bin/start_file_cache_microbench.sh
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
