@@ -179,10 +179,119 @@ TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryCon
     auto query_ctx =
             QueryContext::create(query_id, exec_env, query_options, fe_addr,
                                  /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
-    exec_env->_fragment_mgr->_query_ctx_map_delay_delete.insert(query_id, query_ctx);
+    exec_env->_fragment_mgr->_retain_query_context_for_runtime_filter(query_id, query_ctx);
     query_ctx.reset();
 
     exec_env->_fragment_mgr->_query_ctx_map_delay_delete.clear();
+    exec_env->_fragment_mgr->stop();
+    delete exec_env->_fragment_mgr;
+    exec_env->_fragment_mgr = previous_fragment_mgr;
+}
+
+TEST(FragmentMgrDelayDeleteMapTest, ReleaseQueryContextAfterAllRuntimeFiltersPublished) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_fragment_mgr = exec_env->_fragment_mgr;
+    exec_env->_fragment_mgr = new FragmentMgr(exec_env);
+
+    TUniqueId query_id;
+    query_id.__set_hi(203);
+    query_id.__set_lo(304);
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_execution_timeout(60);
+    query_options.__set_mem_limit(64L * 1024 * 1024);
+
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+
+    auto query_ctx =
+            QueryContext::create(query_id, exec_env, query_options, fe_addr,
+                                 /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
+    auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>();
+    TRuntimeFilterParams runtime_filter_params;
+    ASSERT_TRUE(handler->init(query_ctx, runtime_filter_params).ok());
+    constexpr int filter_id = 1;
+    {
+        LockGuard guard(handler->_filter_map_mutex);
+        auto [filter, inserted] = handler->_filter_map.try_emplace(filter_id);
+        ASSERT_TRUE(inserted);
+    }
+    query_ctx->set_merge_controller_handler(handler);
+
+    std::shared_ptr<QueryContext> existing_query_ctx;
+    ASSERT_TRUE(exec_env->_fragment_mgr->_query_ctx_map
+                        .apply_if_not_exists(query_id, existing_query_ctx,
+                                             [&](auto& map) {
+                                                 map.insert({query_id, query_ctx});
+                                                 return Status::OK();
+                                             })
+                        .ok());
+    exec_env->_fragment_mgr->_retain_query_context_for_runtime_filter(query_id, query_ctx);
+
+    PMergeFilterRequest request;
+    request.mutable_query_id()->set_hi(query_id.hi);
+    request.mutable_query_id()->set_lo(query_id.lo);
+    request.set_filter_id(filter_id);
+    request.set_stage(1);
+
+    ASSERT_TRUE(exec_env->_fragment_mgr->merge_filter(&request, nullptr).ok());
+    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 1);
+
+    auto stats = exec_env->_fragment_mgr->get_query_ctx_map_delay_delete_stats();
+    ASSERT_EQ(stats.contexts.size(), 1);
+    EXPECT_EQ(stats.contexts[0].query_id, query_id);
+    auto dump = exec_env->_fragment_mgr->dump_query_ctx_map_delay_delete();
+    EXPECT_NE(dump.find(print_id(query_id)), std::string::npos);
+    EXPECT_NE(dump.find("state=waiting_runtime_filters"), std::string::npos);
+
+    {
+        LockGuard guard(handler->_filter_map_mutex);
+        handler->_filter_map.at(filter_id).done = true;
+    }
+    ASSERT_TRUE(exec_env->_fragment_mgr->merge_filter(&request, nullptr).ok());
+    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 0);
+
+    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
+    query_ctx.reset();
+    EXPECT_TRUE(weak_query_ctx.expired());
+
+    exec_env->_fragment_mgr->stop();
+    delete exec_env->_fragment_mgr;
+    exec_env->_fragment_mgr = previous_fragment_mgr;
+}
+
+TEST(FragmentMgrDelayDeleteMapTest, CancellationReleasesQueryContext) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_fragment_mgr = exec_env->_fragment_mgr;
+    exec_env->_fragment_mgr = new FragmentMgr(exec_env);
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_execution_timeout(60);
+    query_options.__set_mem_limit(64L * 1024 * 1024);
+
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+
+    TUniqueId cancelled_query_id;
+    cancelled_query_id.__set_hi(607);
+    cancelled_query_id.__set_lo(708);
+    auto cancelled_query_ctx =
+            QueryContext::create(cancelled_query_id, exec_env, query_options, fe_addr,
+                                 /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
+    exec_env->_fragment_mgr->_retain_query_context_for_runtime_filter(cancelled_query_id,
+                                                                      cancelled_query_ctx);
+    std::weak_ptr<QueryContext> weak_query_ctx = cancelled_query_ctx;
+    cancelled_query_ctx->cancel(Status::Cancelled("unit test"));
+    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 0);
+    EXPECT_TRUE(exec_env->_fragment_mgr->get_query_ctx_map_delay_delete_stats().contexts.empty());
+    EXPECT_FALSE(weak_query_ctx.expired());
+    cancelled_query_ctx.reset();
+    EXPECT_TRUE(weak_query_ctx.expired());
+
     exec_env->_fragment_mgr->stop();
     delete exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = previous_fragment_mgr;

@@ -229,6 +229,10 @@ public:
     std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
         return _merge_controller_handler;
     }
+    void set_runtime_filter_retained_at_millis(int64_t retained_at_millis) {
+        _runtime_filter_retained_at_millis = retained_at_millis;
+    }
+    int64_t runtime_filter_retained_at_millis() const { return _runtime_filter_retained_at_millis; }
 
     bool is_nereids() const { return _is_nereids; }
     std::shared_ptr<MemShareArbitrator> mem_arb() const { return _mem_arb; }
@@ -362,6 +366,7 @@ private:
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+    int64_t _runtime_filter_retained_at_millis = 0;
 
     std::map<int, std::weak_ptr<PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;

@@ -90,12 +90,15 @@
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_ctx_delay_delete_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_ctx_delay_delete_oldest_age_seconds, MetricUnit::SECONDS);
 
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 
@@ -322,6 +325,11 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
+    REGISTER_ENTITY_HOOK_METRIC(_entity, this, query_ctx_delay_delete_count,
+                                [this]() { return _query_ctx_map_delay_delete.num_items(); });
+    REGISTER_ENTITY_HOOK_METRIC(_entity, this, query_ctx_delay_delete_oldest_age_seconds, [this]() {
+        return get_query_ctx_map_delay_delete_stats().oldest_retained_millis / MILLIS_PER_SEC;
+    });
 
     auto s = Thread::create(
             "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
@@ -340,6 +348,8 @@ FragmentMgr::~FragmentMgr() = default;
 
 void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(fragment_instance_count);
+    DEREGISTER_ENTITY_HOOK_METRIC(_entity, query_ctx_delay_delete_count);
+    DEREGISTER_ENTITY_HOOK_METRIC(_entity, query_ctx_delay_delete_oldest_age_seconds);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();
@@ -456,6 +466,12 @@ void FragmentMgr::remove_query_context(const TUniqueId& key) {
 #endif
 }
 
+void FragmentMgr::_retain_query_context_for_runtime_filter(
+        const TUniqueId& query_id, std::shared_ptr<QueryContext> query_ctx) {
+    query_ctx->set_runtime_filter_retained_at_millis(MonotonicMillis());
+    _query_ctx_map_delay_delete.insert(query_id, std::move(query_ctx));
+}
+
 std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_id) {
     auto val = _query_ctx_map.find(query_id);
     if (auto q_ctx = val.lock()) {
@@ -557,7 +573,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
                                 if (!handler->empty()) {
-                                    _query_ctx_map_delay_delete.insert(query_id, query_ctx);
+                                    _retain_query_context_for_runtime_filter(query_id, query_ctx);
                                 }
                             }
                             if (info.__isset.topn_filter_descs) {
@@ -632,6 +648,39 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
                 "Dump pipeline tasks failed: Query context (query id = {}) not found. \n",
                 print_id(query_id));
     }
+}
+
+RuntimeFilterQueryContextStats FragmentMgr::get_query_ctx_map_delay_delete_stats() {
+    const int64_t now_millis = MonotonicMillis();
+    RuntimeFilterQueryContextStats stats;
+    _query_ctx_map_delay_delete.apply(
+            [&](const phmap::flat_hash_map<TUniqueId, std::shared_ptr<QueryContext>>& map) {
+                for (const auto& [query_id, query_ctx] : map) {
+                    const int64_t retained_millis = std::max<int64_t>(
+                            0, now_millis - query_ctx->runtime_filter_retained_at_millis());
+                    stats.oldest_retained_millis =
+                            std::max(stats.oldest_retained_millis, retained_millis);
+                    stats.contexts.push_back({.query_id = query_id,
+                                              .retained_millis = retained_millis,
+                                              .cancelled = query_ctx->is_cancelled()});
+                }
+                return Status::OK();
+            });
+    return stats;
+}
+
+std::string FragmentMgr::dump_query_ctx_map_delay_delete() {
+    const auto stats = get_query_ctx_map_delay_delete_stats();
+    fmt::memory_buffer buffer;
+    fmt::format_to(buffer, "query_ctx_delay_delete_size: {}\noldest_retained_seconds: {}\n",
+                   stats.contexts.size(), stats.oldest_retained_millis / MILLIS_PER_SEC);
+    for (size_t i = 0; i < stats.contexts.size(); ++i) {
+        const auto& context = stats.contexts[i];
+        fmt::format_to(buffer, "No.{} QueryId: {}, retained_seconds={}, state={}\n", i,
+                       print_id(context.query_id), context.retained_millis / MILLIS_PER_SEC,
+                       context.cancelled ? "cancelled" : "waiting_runtime_filters");
+    }
+    return fmt::to_string(buffer);
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
@@ -755,7 +804,6 @@ void FragmentMgr::cancel_worker() {
 
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
-
         if (config::enable_pipeline_task_leakage_detect &&
             now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
                     config::pipeline_task_leakage_detect_period_secs) {
@@ -1189,10 +1237,15 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
         SCOPED_ATTACH_TASK(q_ctx.get());
-        if (!q_ctx->get_merge_controller_handler()) {
+        auto handler = q_ctx->get_merge_controller_handler();
+        if (!handler) {
             return Status::InternalError("Merge filter failed: Merge controller handler is null");
         }
-        return q_ctx->get_merge_controller_handler()->merge(q_ctx, request, attach_data);
+        auto status = handler->merge(q_ctx, request, attach_data);
+        if (handler->all_filters_published()) {
+            _query_ctx_map_delay_delete.erase(query_id);
+        }
+        return status;
     } else {
         return Status::EndOfFile(
                 "Merge filter size failed: Query context (query-id: {}) already finished",

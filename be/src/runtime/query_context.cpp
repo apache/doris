@@ -344,6 +344,10 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
 
     set_ready_to_execute(new_status);
     cancel_all_pipeline_context(new_status, fragment_id);
+    // fragment_mgr is nullptr in unit tests that create QueryContext in isolation.
+    if (_exec_env->fragment_mgr()) {
+        _exec_env->fragment_mgr()->remove_query_context(_query_id);
+    }
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {

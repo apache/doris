@@ -109,6 +109,17 @@ private:
             _internal_map;
 };
 
+struct RuntimeFilterQueryContextInfo {
+    TUniqueId query_id;
+    int64_t retained_millis = 0;
+    bool cancelled = false;
+};
+
+struct RuntimeFilterQueryContextStats {
+    int64_t oldest_retained_millis = 0;
+    std::vector<RuntimeFilterQueryContextInfo> contexts;
+};
+
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
@@ -170,6 +181,8 @@ public:
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
+    RuntimeFilterQueryContextStats get_query_ctx_map_delay_delete_stats();
+    std::string dump_query_ctx_map_delay_delete();
 
     void get_runtime_query_info(std::vector<std::weak_ptr<ResourceContext>>* _resource_ctx_list);
 
@@ -202,6 +215,9 @@ private:
                                     const TPipelineFragmentParamsList& parent,
                                     QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
+
+    void _retain_query_context_for_runtime_filter(const TUniqueId& query_id,
+                                                  std::shared_ptr<QueryContext> query_ctx);
 
     void _collect_timeout_queries_and_brpc_items(
             std::vector<TUniqueId>& queries_timeout,
@@ -251,7 +267,8 @@ private:
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
-    // keep query ctx do not delete immediately to make rf coordinator merge filter work well after query eos
+    // Keep query ctx alive after query EOS until all remote runtime filters are published or the
+    // query is cancelled.
     ConcurrentContextMap<TUniqueId, std::shared_ptr<QueryContext>, QueryContext>
             _query_ctx_map_delay_delete;
 
@@ -262,6 +279,8 @@ private:
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
+    UIntGauge* query_ctx_delay_delete_count = nullptr;
+    UIntGauge* query_ctx_delay_delete_oldest_age_seconds = nullptr;
 };
 
 uint64_t get_fragment_executing_count();
