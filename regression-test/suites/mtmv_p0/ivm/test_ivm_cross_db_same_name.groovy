@@ -74,6 +74,16 @@ suite("test_ivm_cross_db_same_name") {
     assertEquals(1, mvRows.size())
     def mvId = mvRows[0][0].toString()
 
+    def ivmStreams = sql """
+        SELECT IvmBaseTableStreams
+        FROM mv_infos('database'='${context.dbName}')
+        WHERE Name = 'ivm_cross_db_same_name_mv'
+    """
+    logger.info("mv_infos ivm streams: " + ivmStreams.toString())
+    assertTrue(ivmStreams[0][0].contains("internal.ivm_same_name_left.same_name="))
+    assertTrue(ivmStreams[0][0].contains("internal.ivm_same_name_right.same_name="))
+    assertTrue(ivmStreams[0][0].contains("__doris_ivm_stream_${mvId}_"))
+
     qt_stream_identity """
         SELECT COUNT(*) AS stream_count,
                COUNT(DISTINCT STREAM_NAME) AS distinct_names,
