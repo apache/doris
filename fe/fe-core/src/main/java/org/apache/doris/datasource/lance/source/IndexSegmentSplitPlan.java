@@ -48,6 +48,10 @@ final class IndexSegmentSplitPlan {
         return splits.size();
     }
 
+    int indexSegmentFragmentCount() {
+        return indexSegmentFragmentIds.size();
+    }
+
     boolean isCoveredByIndexSegment(long fragmentId) {
         return indexSegmentFragmentIds.contains(fragmentId);
     }

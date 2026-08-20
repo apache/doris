@@ -36,7 +36,10 @@ row_id	bigint	No	false	\N
 4	odd	144.0
 6	odd	400.0
 
--- !post_search_filter --
+-- !post_search_filter_use_index_true --
+2	odd	16.0
+
+-- !post_search_filter_use_index_false --
 2	odd	16.0
 514	odd	4210704.0
 

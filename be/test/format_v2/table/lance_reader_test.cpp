@@ -396,6 +396,8 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_NE(profile.get_info_string("LanceUseIndex"), nullptr);
+    EXPECT_EQ(*profile.get_info_string("LanceUseIndex"), "false");
     std::vector<int64_t> row_ids;
     for (const auto fragment_id : fixture.fragment_ids) {
         ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, {fragment_id}).ok());
@@ -408,6 +410,9 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
     }
     std::ranges::sort(row_ids);
     EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
+    ASSERT_NE(profile.get_counter("LanceFragmentCount"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceFragmentCount")->value(),
+              static_cast<int64_t>(fixture.fragment_ids.size()));
     EXPECT_TRUE(reader.close().ok());
 }
 

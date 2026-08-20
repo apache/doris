@@ -72,7 +72,9 @@ public class LanceScanNode extends FileQueryScanNode {
     private String lancePushdownPredicate = "";
     private long plannedVersion = -1;
     private int plannedFragments;
+    private int plannedUnindexedFragments;
     private int plannedIndexSegments;
+    private int plannedIndexFragments;
 
     public LanceScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             SessionVariable sessionVariable, ScanContext scanContext) {
@@ -169,7 +171,9 @@ public class LanceScanNode extends FileQueryScanNode {
         LanceTableMetadata metadata = plannedMetadata;
         plannedVersion = metadata.getVersion();
         plannedFragments = metadata.getFragments().size();
+        plannedUnindexedFragments = isExternalSearch() ? plannedFragments : 0;
         plannedIndexSegments = 0;
+        plannedIndexFragments = 0;
         if (isExternalSearch() && plannedVersion <= 0) {
             throw new UserException(
                     "Lance vector search requires a fixed positive dataset version");
@@ -241,6 +245,8 @@ public class LanceScanNode extends FileQueryScanNode {
         }
         IndexSegmentSplitPlan plan = indexPlan.get();
         plannedIndexSegments = plan.splitCount();
+        plannedIndexFragments = plan.indexSegmentFragmentCount();
+        plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
         appendUnindexedFragmentSplits(plan, visibleFragments);
         return Optional.of(plan.buildSplits());
     }
@@ -422,8 +428,12 @@ public class LanceScanNode extends FileQueryScanNode {
                     .append(plannedMetadata.getVersion()).append("\n");
             result.append(prefix).append("lanceSearchFragments=")
                     .append(plannedFragments).append("\n");
+            result.append(prefix).append("lanceSearchUnindexedFragments=")
+                    .append(plannedUnindexedFragments).append("\n");
             result.append(prefix).append("lanceSearchIndexSegments=")
                     .append(plannedIndexSegments).append("\n");
+            result.append(prefix).append("lanceSearchIndexFragments=")
+                    .append(plannedIndexFragments).append("\n");
         } else {
             result.append(prefix).append("lanceCatalogType=")
                     .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");

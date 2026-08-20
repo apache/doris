@@ -106,6 +106,7 @@ private:
     std::optional<size_t> _global_rowid_output_idx;
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
+    RuntimeProfile::Counter* _fragment_count = nullptr;
     bool _vector_search = false;
     bool _eof = false;
 };

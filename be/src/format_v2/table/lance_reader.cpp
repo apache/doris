@@ -304,11 +304,17 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     _vector_search = _scan_params->__isset.external_search_request;
     if (_vector_search) {
         RETURN_IF_ERROR(_validate_external_search_request());
-        const auto& vector = _scan_params->external_search_request.search_query.vector_search;
+        const auto& request = _scan_params->external_search_request;
+        const auto& vector = request.search_query.vector_search;
+        const bool use_index = !request.__isset.vector_search_options ||
+                               !request.vector_search_options.__isset.use_index ||
+                               request.vector_search_options.use_index;
         _scanner_profile->add_info_string("LanceFragmentTopK", std::to_string(vector.top_k));
         _scanner_profile->add_info_string("LanceFragmentOffset", std::to_string(vector.offset));
         _scanner_profile->add_info_string("LanceVectorDimension",
                                           std::to_string(vector.query_vector.dimension));
+        _scanner_profile->add_info_string("LanceUseIndex", use_index ? "true" : "false");
+        _fragment_count = ADD_COUNTER(_scanner_profile, "LanceFragmentCount", TUnit::UNIT);
     }
     if (_scan_params->__isset.lance_substrait_filter) {
         _scanner_profile->add_info_string("LancePushdownFormat", "SUBSTRAIT");
@@ -761,6 +767,10 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
             return _lance_error("enable Lance vector prefilter");
         }
         RETURN_IF_ERROR(_configure_vector_search(scanner));
+        DORIS_CHECK(_fragment_count != nullptr);
+        if (lance_params.__isset.fragment_ids) {
+            COUNTER_UPDATE(_fragment_count, static_cast<int64_t>(lance_params.fragment_ids.size()));
+        }
     }
     _scanner = scanner_guard.release();
     _scanner_batch_size = batch_size;

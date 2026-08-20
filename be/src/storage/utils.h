@@ -23,7 +23,6 @@
 #include <stdint.h>
 #include <sys/time.h>
 
-#include <array>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -297,7 +296,7 @@ struct GlobalRowLoacationV2 {
               lance_row_id(rid) {}
 
     uint8_t version;
-    std::array<uint8_t, 3> reserved_before_file_id {};
+    uint8_t reserved_before_file_id[3] {};
     union {
         // version 0: offsets 4..7 remain reserved, preserving the original V2 layout.
         uint32_t reserved_for_file_local;
