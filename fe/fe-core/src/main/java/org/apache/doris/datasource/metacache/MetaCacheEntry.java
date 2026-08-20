@@ -22,7 +22,6 @@ import org.apache.doris.common.Config;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,7 +54,7 @@ public class MetaCacheEntry<K, V> {
     private final boolean effectiveEnabled;
     private final boolean autoRefresh;
     @Nullable
-    private final RemovalListener<K, V> removalListener;
+    private final BiConsumer<K, V> retirementListener;
     private final ExecutorService refreshExecutor;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
@@ -94,7 +93,7 @@ public class MetaCacheEntry<K, V> {
      */
     public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
-            @Nullable RemovalListener<K, V> removalListener) {
+            @Nullable BiConsumer<K, V> retirementListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -110,7 +109,7 @@ public class MetaCacheEntry<K, V> {
         this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
         this.autoRefresh = autoRefresh;
         this.refreshExecutor = Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
-        this.removalListener = removalListener;
+        this.retirementListener = retirementListener;
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
         OptionalLong expireAfterAccessSec =
@@ -126,9 +125,10 @@ public class MetaCacheEntry<K, V> {
                 maxSize,
                 true,
                 null);
-        if (removalListener != null) {
+        if (retirementListener != null) {
             this.loadingData = cacheFactory.buildCacheWithAsyncRemovalListener(
-                    this::loadFromDefaultLoader, removalListener, refreshExecutor);
+                    this::loadFromDefaultLoader,
+                    (key, value, cause) -> retirementListener.accept(key, value), refreshExecutor);
         } else {
             this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
         }
@@ -277,11 +277,10 @@ public class MetaCacheEntry<K, V> {
     }
 
     private void notifySuppressedRemoval(K key, V value) {
-        if (value != null && removalListener != null) {
+        if (value != null && retirementListener != null) {
             Runnable notifyRemoval = () -> {
                 try {
-                    removalListener.onRemoval(
-                            key, value, com.github.benmanes.caffeine.cache.RemovalCause.EXPLICIT);
+                    retirementListener.accept(key, value);
                 } catch (RuntimeException e) {
                     LOG.warn("Removal listener failed for suppressed value in cache entry {}", name, e);
                 }

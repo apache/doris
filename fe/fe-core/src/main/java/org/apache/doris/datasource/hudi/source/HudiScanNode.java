@@ -35,6 +35,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
@@ -48,6 +49,7 @@ import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -77,6 +79,7 @@ import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -89,9 +92,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Phaser;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -131,6 +134,7 @@ public class HudiScanNode extends HiveScanNode {
     private HoodieTableFileSystemView fsView;
     private HudiFsViewCacheValue.Lease fsViewLease;
     private final AtomicBoolean fsViewReleased = new AtomicBoolean(false);
+    private final Object batchFsViewResourceKey = new Object();
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -251,11 +255,6 @@ public class HudiScanNode extends HiveScanNode {
         // and `the file column name`.
         // Split planning and FE-BE schema transport must describe the same pinned Hudi instant.
         ExternalUtil.initSchemaInfo(params, -1L, table.getFullSchema(relationSnapshot));
-        fsViewLease = Env.getCurrentEnv()
-                .getExtMetaCacheMgr()
-                .hudi(hmsTable.getCatalog().getId())
-                .getFsView(hmsTable.getOrBuildNameMapping());
-        fsView = fsViewLease.get();
     }
 
     @Override
@@ -366,6 +365,20 @@ public class HudiScanNode extends HiveScanNode {
         if (fsViewReleased.compareAndSet(false, true) && fsViewLease != null) {
             fsViewLease.close();
         }
+    }
+
+    private synchronized void acquireFsView() {
+        if (fsViewLease != null) {
+            return;
+        }
+        if (fsViewReleased.get()) {
+            throw new IllegalStateException("Hudi filesystem-view lease has already been released");
+        }
+        fsViewLease = Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .hudi(hmsTable.getCatalog().getId())
+                .getFsView(hmsTable.getOrBuildNameMapping());
+        fsView = fsViewLease.get();
     }
 
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
@@ -505,30 +518,29 @@ public class HudiScanNode extends HiveScanNode {
 
     private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
-        Phaser tasks = new Phaser(1);
+        List<CompletableFuture<Void>> acceptedTasks = new ArrayList<>(partitions.size());
         AtomicReference<Throwable> throwable = new AtomicReference<>();
+        RuntimeException submissionFailure = null;
         long startTime = System.currentTimeMillis();
-        try {
-            for (HivePartition partition : partitions) {
-                tasks.register();
-                try {
-                    executor.execute(() -> {
-                        try {
-                            getPartitionSplits(partition, splits);
-                        } catch (Throwable t) {
-                            throwable.compareAndSet(null, t);
-                        } finally {
-                            tasks.arriveAndDeregister();
-                        }
-                    });
-                } catch (RuntimeException e) {
-                    tasks.arriveAndDeregister();
-                    throw e;
-                }
+        for (HivePartition partition : partitions) {
+            try {
+                acceptedTasks.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        getPartitionSplits(partition, splits);
+                    } catch (Throwable t) {
+                        throwable.compareAndSet(null, t);
+                    }
+                }, executor));
+            } catch (RuntimeException e) {
+                submissionFailure = e;
+                break;
             }
-        } finally {
-            // Phaser waiting is uninterruptible, so every accepted task is terminal before the fs-view lease is freed.
-            tasks.arriveAndAwaitAdvance();
+        }
+        // CompletableFuture.allOf has no Phaser party limit and join is uninterruptible: every accepted task is
+        // terminal before the caller releases the filesystem-view lease, including submission rejection.
+        CompletableFuture.allOf(acceptedTasks.toArray(new CompletableFuture[0])).join();
+        if (submissionFailure != null) {
+            throw submissionFailure;
         }
         if (throwable.get() != null) {
             throw new RuntimeException(throwable.get().getMessage(), throwable.get());
@@ -540,26 +552,23 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
-            try {
-                return getIncrementalSplits();
-            } finally {
-                releaseFsViewOnce();
-            }
-        }
-        List<Split> splits = Collections.synchronizedList(new ArrayList<>());
+        acquireFsView();
         try {
+            if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
+                return getIncrementalSplits();
+            }
+            List<Split> splits = Collections.synchronizedList(new ArrayList<>());
             initPrunedPartitions();
             hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 getPartitionsSplits(prunedPartitions, splits);
                 return null;
             });
+            return splits;
         } catch (Exception e) {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
         } finally {
             releaseFsViewOnce();
         }
-        return splits;
     }
 
     private void initPrunedPartitions() throws UserException {
@@ -586,61 +595,166 @@ public class HudiScanNode extends HiveScanNode {
             releaseFsViewOnce();
             return;
         }
+        acquireFsView();
         ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        Executor producerExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         long startTime = System.currentTimeMillis();
-        try {
-            CompletableFuture.runAsync(() -> {
-                List<CompletableFuture<Void>> submittedTasks = new ArrayList<>();
-                for (HivePartition partition : prunedPartitions) {
-                    if (batchException.get() != null || splitAssignment.isStop()) {
-                        break;
-                    }
-                    try {
-                        splittersOnFlight.acquire();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        batchException.set(new UserException(e.getMessage(), e));
-                        break;
-                    }
-                    try {
-                        submittedTasks.add(CompletableFuture.runAsync(() -> {
-                            try {
-                                List<Split> allFiles = Lists.newArrayList();
-                                getPartitionSplits(partition, allFiles, false);
-                                if (allFiles.size() > numSplitsPerPartition.get()) {
-                                    numSplitsPerPartition.set(allFiles.size());
-                                }
-                                if (splitAssignment.needMoreSplit()) {
-                                    splitAssignment.addToQueue(allFiles);
-                                }
-                            } catch (Exception e) {
-                                batchException.set(new UserException(e.getMessage(), e));
-                            } finally {
-                                splittersOnFlight.release();
-                            }
-                        }, scheduleExecutor));
-                    } catch (RuntimeException e) {
-                        splittersOnFlight.release();
-                        batchException.set(new UserException(e.getMessage(), e));
-                        break;
-                    }
+        BatchFsViewOwner createdOwner = new BatchFsViewOwner(splitAssignment, fsViewLease);
+        BatchFsViewOwner batchOwner = createdOwner;
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
+        if (statementContext != null) {
+            try {
+                batchOwner = statementContext.getOrRegisterStatementResource(
+                        batchFsViewResourceKey, () -> createdOwner);
+                if (batchOwner != createdOwner) {
+                    createdOwner.finish();
+                    throw new IllegalStateException("Hudi batch split owner was registered twice");
                 }
-                CompletableFuture.allOf(submittedTasks.toArray(new CompletableFuture[0])).whenComplete((ignored, t) -> {
-                    if (batchException.get() != null) {
-                        splitAssignment.setException(batchException.get());
+            } catch (RuntimeException e) {
+                createdOwner.finish();
+                throw e;
+            }
+        }
+
+        BatchFsViewOwner finalBatchOwner = batchOwner;
+        AtomicInteger pendingTasks = new AtomicInteger(1); // producer reference
+        Runnable taskFinished = () -> {
+            if (pendingTasks.decrementAndGet() == 0) {
+                finishBatchSplit(finalBatchOwner, startTime);
+            }
+        };
+        try {
+            producerExecutor.execute(() -> {
+                try {
+                    for (HivePartition partition : prunedPartitions) {
+                        if (batchException.get() != null || splitAssignment.isStop()) {
+                            break;
+                        }
+                        try {
+                            splittersOnFlight.acquire();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            recordBatchException(e);
+                            break;
+                        }
+                        if (batchException.get() != null || splitAssignment.isStop()) {
+                            splittersOnFlight.release();
+                            break;
+                        }
+                        pendingTasks.incrementAndGet();
+                        try {
+                            scheduleExecutor.execute(() -> {
+                                try {
+                                    List<Split> allFiles = Lists.newArrayList();
+                                    getPartitionSplits(partition, allFiles, false);
+                                    if (allFiles.size() > numSplitsPerPartition.get()) {
+                                        numSplitsPerPartition.set(allFiles.size());
+                                    }
+                                    if (splitAssignment.needMoreSplit()) {
+                                        splitAssignment.addToQueue(allFiles);
+                                    }
+                                } catch (Throwable t) {
+                                    recordBatchException(t);
+                                } finally {
+                                    splittersOnFlight.release();
+                                    taskFinished.run();
+                                }
+                            });
+                        } catch (RuntimeException e) {
+                            splittersOnFlight.release();
+                            recordBatchException(e);
+                            taskFinished.run();
+                            break;
+                        }
                     }
-                    if (getSummaryProfile() != null) {
-                        getSummaryProfile().addExternalTableGetFileScanTasksTime(
-                                System.currentTimeMillis() - startTime);
-                    }
-                    splitAssignment.finishSchedule();
-                    releaseFsViewOnce();
-                });
-            }, scheduleExecutor);
+                } catch (Throwable t) {
+                    recordBatchException(t);
+                } finally {
+                    taskFinished.run();
+                }
+            });
         } catch (RuntimeException e) {
-            batchException.set(new UserException(e.getMessage(), e));
-            splitAssignment.setException(batchException.get());
-            releaseFsViewOnce();
+            recordBatchException(e);
+            taskFinished.run();
+        }
+    }
+
+    private void recordBatchException(Throwable t) {
+        batchException.compareAndSet(null, new UserException(t.getMessage(), t));
+    }
+
+    private void finishBatchSplit(BatchFsViewOwner batchOwner, long startTime) {
+        try {
+            if (batchException.get() != null) {
+                splitAssignment.setException(batchException.get());
+            }
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
+            splitAssignment.finishSchedule();
+        } finally {
+            batchOwner.finish();
+        }
+    }
+
+    @VisibleForTesting
+    static class BatchFsViewOwner implements Closeable {
+        private final SplitAssignment splitAssignment;
+        private final HudiFsViewCacheValue.Lease lease;
+        private final AtomicBoolean finished = new AtomicBoolean();
+        private final AtomicReference<RuntimeException> finishFailure = new AtomicReference<>();
+        private final CountDownLatch terminal = new CountDownLatch(1);
+
+        BatchFsViewOwner(SplitAssignment splitAssignment, HudiFsViewCacheValue.Lease lease) {
+            this.splitAssignment = splitAssignment;
+            this.lease = lease;
+        }
+
+        void finish() {
+            if (finished.compareAndSet(false, true)) {
+                try {
+                    lease.close();
+                } catch (RuntimeException e) {
+                    finishFailure.set(e);
+                    throw e;
+                } finally {
+                    terminal.countDown();
+                }
+            }
+        }
+
+        @Override
+        public void close() {
+            RuntimeException stopFailure = null;
+            if (!finished.get()) {
+                try {
+                    splitAssignment.stop();
+                } catch (RuntimeException e) {
+                    stopFailure = e;
+                }
+            }
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    terminal.await();
+                    break;
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            if (stopFailure != null) {
+                if (finishFailure.get() != null) {
+                    stopFailure.addSuppressed(finishFailure.get());
+                }
+                throw stopFailure;
+            }
+            if (finishFailure.get() != null) {
+                throw finishFailure.get();
+            }
         }
     }
 

@@ -17,9 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
-import com.github.benmanes.caffeine.cache.RemovalListener;
-
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -104,11 +103,11 @@ public final class MetaCacheEntryDef<K, V> {
     private final boolean contextualOnly;
     private final MetaCacheEntryInvalidation<K> invalidation;
     @Nullable
-    private final RemovalListener<K, V> removalListener;
+    private final BiConsumer<K, V> retirementListener;
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
-            MetaCacheEntryInvalidation<K> invalidation, @Nullable RemovalListener<K, V> removalListener) {
+            MetaCacheEntryInvalidation<K> invalidation, @Nullable BiConsumer<K, V> retirementListener) {
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -127,7 +126,7 @@ public final class MetaCacheEntryDef<K, V> {
         this.autoRefresh = autoRefresh;
         this.contextualOnly = contextualOnly;
         this.invalidation = Objects.requireNonNull(invalidation, "entry invalidation is required");
-        this.removalListener = removalListener;
+        this.retirementListener = retirementListener;
     }
 
     /**
@@ -151,21 +150,22 @@ public final class MetaCacheEntryDef<K, V> {
     }
 
     /**
-     * Create an entry definition with a removal listener. The listener is invoked when a cached value is
-     * evicted or invalidated, allowing the cache to release resources owned by the value (e.g. Iceberg FileIO).
+     * Create an entry definition with a retirement callback. The callback is invoked when a cached value is
+     * evicted or invalidated, and also when a loaded value is not published because caching is disabled or an
+     * invalidation wins the load race. This lets the entry retire resources owned by every loaded generation.
      */
     public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
             Function<K, V> loader, CacheSpec defaultCacheSpec, MetaCacheEntryInvalidation<K> invalidation,
-            RemovalListener<K, V> removalListener) {
+            BiConsumer<K, V> retirementListener) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, true, false,
-                invalidation, removalListener);
+                invalidation, retirementListener);
     }
 
     public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
             Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh,
-            MetaCacheEntryInvalidation<K> invalidation, RemovalListener<K, V> removalListener) {
+            MetaCacheEntryInvalidation<K> invalidation, BiConsumer<K, V> retirementListener) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, false,
-                invalidation, removalListener);
+                invalidation, retirementListener);
     }
 
     /**
@@ -257,7 +257,7 @@ public final class MetaCacheEntryDef<K, V> {
     }
 
     @Nullable
-    public RemovalListener<K, V> getRemovalListener() {
-        return removalListener;
+    public BiConsumer<K, V> getRetirementListener() {
+        return retirementListener;
     }
 }

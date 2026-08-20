@@ -382,7 +382,7 @@ public class MetaCacheEntryTest {
             AtomicInteger removed = new AtomicInteger();
             MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
                     "test", key -> 7, CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
-                    false, false, (key, value, cause) -> removed.set(value));
+                    false, false, (key, value) -> removed.set(value));
 
             Assert.assertEquals(Integer.valueOf(7), entry.get("k"));
             refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
@@ -402,7 +402,7 @@ public class MetaCacheEntryTest {
             AtomicInteger removed = new AtomicInteger();
             MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
                     "test", key -> 11, CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
-                    false, false, (key, value, cause) -> removed.set(value));
+                    false, false, (key, value) -> removed.set(value));
             refreshExecutor.shutdownNow();
 
             Assert.assertEquals(Integer.valueOf(11), entry.get("k"));
@@ -429,7 +429,7 @@ public class MetaCacheEntryTest {
                         awaitLatch(releaseLoader);
                         return 9;
                     }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
-                    false, false, (key, value, cause) -> removed.set(value));
+                    false, false, (key, value) -> removed.set(value));
 
             Future<Integer> loaded = queryExecutor.submit(() -> entry.get("k"));
             Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));

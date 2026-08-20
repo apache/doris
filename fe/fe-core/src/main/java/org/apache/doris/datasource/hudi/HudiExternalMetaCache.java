@@ -154,8 +154,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 FileSystemViewManager.createInMemoryFileSystemView(ctx, tableMetaClient, metadataConfig));
     }
 
-    private void evictFsView(HudiFsViewCacheKey key, HudiFsViewCacheValue value,
-            com.github.benmanes.caffeine.cache.RemovalCause cause) {
+    private void evictFsView(HudiFsViewCacheKey key, HudiFsViewCacheValue value) {
         if (value != null) {
             value.evict();
         }

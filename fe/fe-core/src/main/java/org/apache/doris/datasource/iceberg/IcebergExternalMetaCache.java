@@ -33,6 +33,8 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManifestContent;
@@ -40,11 +42,13 @@ import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -92,7 +96,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         super(ENGINE, refreshExecutor);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
-                MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
+                false, MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping),
+                (key, value) -> value.releaseCacheReference()));
         viewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_VIEW, NameMapping.class, View.class, this::loadView,
                 defaultEntryCacheSpec(), MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
         manifestEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_MANIFEST, IcebergManifestEntryKey.class,
@@ -105,12 +110,24 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     public Table getIcebergTable(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getIcebergTable();
+        IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
+        if (lease != null) {
+            return lease.getIcebergTable();
+        }
+        // Background/bootstrap callers without a StatementContext have no deterministic release boundary.
+        // Load directly instead of borrowing a cache generation that could be evicted while they use it.
+        return loadTable(nameMapping);
     }
 
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getLatestSnapshotCacheValue();
+        IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
+        if (lease != null) {
+            return lease.getLatestSnapshotCacheValue();
+        }
+        Table table = loadTable(nameMapping);
+        ExternalTable tableForProjection = findExternalTable(nameMapping, ENGINE);
+        return loadSnapshotProjection(tableForProjection, table);
     }
 
     public List<Snapshot> getSnapshotList(ExternalTable dorisTable) {
@@ -159,6 +176,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private IcebergTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
+        Table table = loadTable(nameMapping);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(nameMapping.getCtlId());
+        IcebergMetadataOps ops = resolveMetadataOps(catalog);
+        ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
+        return new IcebergTableCacheValue(table, () -> loadSnapshotProjection(dorisTable, table),
+                tableCleanup(catalog, ops, table));
+    }
+
+    private Table loadTable(NameMapping nameMapping) {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(nameMapping.getCtlId());
         if (catalog == null) {
             throw new RuntimeException(String.format("Cannot find catalog %d when loading table %s/%s.",
@@ -167,13 +193,84 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
         IcebergMetadataOps ops = resolveMetadataOps(catalog);
         try {
-            Table table = ((ExternalCatalog) catalog).getExecutionAuthenticator()
+            return ((ExternalCatalog) catalog).getExecutionAuthenticator()
                     .execute(() -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
-            ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
-            return new IcebergTableCacheValue(table, () -> loadSnapshotProjection(dorisTable, table));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    private IcebergTableCacheValue.Lease statementLease(NameMapping nameMapping) {
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
+        if (statementContext == null) {
+            return null;
+        }
+        String resourceKey = "iceberg-table:" + nameMapping.getCtlId() + "\u0000"
+                + nameMapping.getRemoteDbName() + "\u0000" + nameMapping.getRemoteTblName();
+        return statementContext.getOrRegisterStatementResource(resourceKey, () -> borrow(nameMapping));
+    }
+
+    private IcebergTableCacheValue.Lease borrow(NameMapping nameMapping) {
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> entry = tableEntry.get(nameMapping.getCtlId());
+        while (true) {
+            IcebergTableCacheValue value = entry.get(nameMapping);
+            IcebergTableCacheValue.Lease lease = value.tryAcquire();
+            value.releaseLoaderReference();
+            if (lease != null) {
+                return lease;
+            }
+            // Eviction won between lookup and retain. Retry against the current exact generation.
+        }
+    }
+
+    private Runnable tableCleanup(CatalogIf catalog, IcebergMetadataOps ops, Table table) {
+        if (!(catalog instanceof IcebergExternalCatalog)) {
+            return () -> { };
+        }
+        String type = ((IcebergExternalCatalog) catalog).getIcebergCatalogType();
+        FileIO catalogFileIO = IcebergExternalCatalog.ICEBERG_REST.equals(type) ? catalogFileIO(ops) : null;
+        boolean tableOwned = shouldCloseTableFileIO(type, table.io(), catalogFileIO);
+        if (!tableOwned) {
+            return () -> { };
+        }
+        FileIO tableFileIO = table.io();
+        return () -> {
+            try {
+                tableFileIO.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close Iceberg table FileIO", e);
+            }
+        };
+    }
+
+    static boolean shouldCloseTableFileIO(String catalogType, FileIO tableFileIO, FileIO catalogFileIO) {
+        if (IcebergExternalCatalog.ICEBERG_GLUE.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_S3_TABLES.equals(catalogType)) {
+            return true;
+        }
+        return IcebergExternalCatalog.ICEBERG_REST.equals(catalogType)
+                && catalogFileIO != null && tableFileIO != catalogFileIO;
+    }
+
+    private FileIO catalogFileIO(IcebergMetadataOps ops) {
+        Object catalog = ops.getCatalog();
+        try {
+            if (catalog instanceof org.apache.iceberg.rest.RESTCatalog) {
+                Field sessionCatalogField = org.apache.iceberg.rest.RESTCatalog.class
+                        .getDeclaredField("sessionCatalog");
+                sessionCatalogField.setAccessible(true);
+                catalog = sessionCatalogField.get(catalog);
+            }
+            if (catalog instanceof org.apache.iceberg.rest.RESTSessionCatalog) {
+                Field ioField = org.apache.iceberg.rest.RESTSessionCatalog.class.getDeclaredField("io");
+                ioField.setAccessible(true);
+                return (FileIO) ioField.get(catalog);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to identify REST catalog FileIO; skip per-table close to protect shared IO", e);
+        }
+        return null;
     }
 
     private View loadView(NameMapping nameMapping) {
