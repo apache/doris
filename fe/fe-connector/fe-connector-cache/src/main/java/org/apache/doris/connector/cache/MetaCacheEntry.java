@@ -56,7 +56,7 @@ public class MetaCacheEntry<K, V> {
     private final long refreshAfterWriteSeconds;
     private final boolean manualMissLoadEnabled;
     // Connector-owned cleanup hook. Keep the public API free of Caffeine types.
-    private final BiConsumer<K, V> removalListener;
+    private final BiConsumer<K, V> retirementListener;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
@@ -91,7 +91,7 @@ public class MetaCacheEntry<K, V> {
     }
 
     /**
-     * Creates an entry with a synchronous removal listener. The listener is invoked whenever a loaded value
+     * Creates an entry with a synchronous retirement callback. The callback is invoked whenever a loaded value
      * stops being owned by this cache: eviction/invalidation, a disabled cache, or an invalidation racing a
      * manual miss load before publication. The callback deliberately uses only JDK types; Caffeine remains an
      * implementation detail of this module.
@@ -99,7 +99,7 @@ public class MetaCacheEntry<K, V> {
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             long refreshAfterWriteSeconds, boolean manualMissLoadEnabled,
-            BiConsumer<K, V> removalListener) {
+            BiConsumer<K, V> retirementListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -116,7 +116,7 @@ public class MetaCacheEntry<K, V> {
         this.autoRefresh = autoRefresh;
         this.refreshAfterWriteSeconds = refreshAfterWriteSeconds;
         this.manualMissLoadEnabled = manualMissLoadEnabled;
-        this.removalListener = removalListener;
+        this.retirementListener = retirementListener;
         Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
@@ -133,10 +133,10 @@ public class MetaCacheEntry<K, V> {
                 maxSize,
                 true,
                 null);
-        if (removalListener != null) {
+        if (retirementListener != null) {
             this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(
                     this::loadFromDefaultLoader,
-                    (key, value, cause) -> removalListener.accept(key, value));
+                    (key, value, cause) -> retirementListener.accept(key, value));
         } else {
             this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
         }
@@ -286,7 +286,7 @@ public class MetaCacheEntry<K, V> {
         if (!effectiveEnabled) {
             // Bypass cache entirely when the entry is disabled so manual miss load does not relax disable semantics.
             V loaded = loadAndTrack(key, loadFunction);
-            notifyRemoval(key, loaded);
+            notifyRetirement(key, loaded);
             return loaded;
         }
 
@@ -304,7 +304,7 @@ public class MetaCacheEntry<K, V> {
             long generation = invalidateGeneration.get();
             V loaded = loadAndTrack(key, loadFunction);
             if (generation != invalidateGeneration.get()) {
-                notifyRemoval(key, loaded);
+                notifyRetirement(key, loaded);
                 return loaded;
             }
 
@@ -328,9 +328,9 @@ public class MetaCacheEntry<K, V> {
         data.asMap().computeIfPresent(key, (ignored, currentValue) -> currentValue == loaded ? null : currentValue);
     }
 
-    private void notifyRemoval(K key, V value) {
-        if (removalListener != null && value != null) {
-            removalListener.accept(key, value);
+    private void notifyRetirement(K key, V value) {
+        if (retirementListener != null && value != null) {
+            retirementListener.accept(key, value);
         }
     }
 

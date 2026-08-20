@@ -304,20 +304,17 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
-    public void restCleanupCapturesTableOwnershipBeforeDeferredRelease() {
-        RecordingFileIO catalogFileIO = new RecordingFileIO();
+    public void directTableCleanupOnlyClosesTableOwnedFileIO() {
         RecordingFileIO tableFileIO = new RecordingFileIO();
         FakeIcebergTable table = (FakeIcebergTable) fakeTable("rest.table");
         table.setIo(tableFileIO);
 
-        Runnable cleanup = IcebergConnector.cachedTableCleanup(
-                table, IcebergCatalogProperties.TYPE_REST, catalogFileIO);
-        // The cleanup action may run after connector teardown has cleared the REST catalog. It must retain the
-        // ownership decision and the exact per-table FileIO captured while the table owner was created.
-        cleanup.run();
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_REST).run();
+        Assertions.assertEquals(0, tableFileIO.closeCalls,
+                "REST FileIO is owned by the retained REST catalog generation and its FileIOTracker");
 
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_GLUE).run();
         Assertions.assertEquals(1, tableFileIO.closeCalls);
-        Assertions.assertEquals(0, catalogFileIO.closeCalls);
     }
 
     private static final class RecordingFileIO implements FileIO {

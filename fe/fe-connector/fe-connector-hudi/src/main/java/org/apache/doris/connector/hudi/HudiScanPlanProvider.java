@@ -292,9 +292,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
                 .build();
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
-        HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
-                engineCtx, metaClient, metadataConfig);
-        try {
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
             // Resolve partitions
             List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
 
@@ -318,8 +317,6 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
 
             return ranges;
-        } finally {
-            fsView.close();
         }
     }
 
@@ -802,14 +799,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
                 .build();
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
-        return listAllPartitionPaths(HoodieTableMetadata.create(
+        HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
                 engineCtx, metaClient.getStorage(), metadataConfig,
-                metaClient.getBasePath().toString(), true));
+                metaClient.getBasePath().toString(), true);
+        return listAllPartitionPaths(tableMetadata::getAllPartitionPaths, tableMetadata);
     }
 
-    static List<String> listAllPartitionPaths(HoodieTableMetadata tableMetadata) throws Exception {
-        try (HoodieTableMetadata owned = tableMetadata) {
-            return owned.getAllPartitionPaths();
+    static List<String> listAllPartitionPaths(
+            java.util.concurrent.Callable<List<String>> loader, AutoCloseable resource) throws Exception {
+        try (AutoCloseable owned = resource) {
+            return loader.call();
         }
     }
 

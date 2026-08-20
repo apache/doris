@@ -63,13 +63,20 @@ final class IcebergTableCache {
 
     private final MetaCacheEntry<TableIdentifier, TableOwner> entry;
     private final Function<Table, Runnable> cleanupFactory;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
-        this(ttlSeconds, maxSize, table -> () -> { });
+        this(ttlSeconds, maxSize, table -> () -> { }, null);
     }
 
     IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory) {
+        this(ttlSeconds, maxSize, cleanupFactory, null);
+    }
+
+    IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory,
+            IcebergCatalogResourceTracker resourceTracker) {
         this.cleanupFactory = cleanupFactory;
+        this.resourceTracker = resourceTracker;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
@@ -93,10 +100,30 @@ final class IcebergTableCache {
         while (true) {
             TableOwner[] loadedHere = {null};
             TableOwner owner = entry.get(identifier, ignored -> {
-                Table table = loader.get();
-                TableOwner loaded = new TableOwner(table, cleanupFactory.apply(table), true);
-                loadedHere[0] = loaded;
-                return loaded;
+                IcebergCatalogResourceTracker.LoadGuard guard =
+                        resourceTracker == null ? null : resourceTracker.beginLoad();
+                try {
+                    Table table = loader.get();
+                    Runnable tableCleanup = cleanupFactory.apply(table);
+                    IcebergCatalogResourceTracker.ResourceLease catalogLease =
+                            guard == null ? null : guard.promote();
+                    Runnable cleanup = () -> {
+                        try {
+                            tableCleanup.run();
+                        } finally {
+                            if (catalogLease != null) {
+                                catalogLease.close();
+                            }
+                        }
+                    };
+                    TableOwner loaded = new TableOwner(table, cleanup, true);
+                    loadedHere[0] = loaded;
+                    return loaded;
+                } finally {
+                    if (guard != null) {
+                        guard.close();
+                    }
+                }
             });
             try {
                 TableLease lease = owner.tryBorrow();

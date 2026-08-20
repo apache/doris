@@ -77,12 +77,22 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
     private static final Logger LOG = LogManager.getLogger(ReauthenticatingRestSessionCatalog.class);
 
     private final Supplier<RESTSessionCatalog> delegateBuilder;
+    private final IcebergCatalogResourceTracker resourceTracker;
+    private final Runnable invalidateTables;
     private volatile RESTSessionCatalog delegate;
 
     public ReauthenticatingRestSessionCatalog(RESTSessionCatalog initialDelegate,
             Supplier<RESTSessionCatalog> delegateBuilder) {
+        this(initialDelegate, delegateBuilder, null, () -> { });
+    }
+
+    ReauthenticatingRestSessionCatalog(RESTSessionCatalog initialDelegate,
+            Supplier<RESTSessionCatalog> delegateBuilder, IcebergCatalogResourceTracker resourceTracker,
+            Runnable invalidateTables) {
         this.delegate = initialDelegate;
         this.delegateBuilder = delegateBuilder;
+        this.resourceTracker = resourceTracker;
+        this.invalidateTables = invalidateTables;
     }
 
     @VisibleForTesting
@@ -124,9 +134,22 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
                 + "then retrying the request once.", name(), cause);
         RESTSessionCatalog replacement = delegateBuilder.get();
         RESTSessionCatalog wedged = delegate;
-        delegate = replacement;
+        if (resourceTracker == null) {
+            delegate = replacement;
+            closeReplacedDelegate(wedged);
+            return;
+        }
         try {
-            wedged.close();
+            invalidateTables.run();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire Iceberg table cache before replacing REST client of catalog {}", name(), e);
+        }
+        resourceTracker.rotate(() -> closeReplacedDelegate(wedged), () -> delegate = replacement);
+    }
+
+    private void closeReplacedDelegate(RESTSessionCatalog replaced) {
+        try {
+            replaced.close();
         } catch (IOException | RuntimeException e) {
             LOG.warn("Failed to close the replaced Iceberg REST client of catalog {}", name(), e);
         }

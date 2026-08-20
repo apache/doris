@@ -153,6 +153,29 @@ public class IcebergTableCacheTest {
     }
 
     @Test
+    public void connectorCloseWaitsForActiveBorrowerBeforeClosingCatalogResources() {
+        AtomicInteger tableCleanerCalls = new AtomicInteger();
+        AtomicInteger catalogCleanerCalls = new AtomicInteger();
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergTableCache c = new IcebergTableCache(
+                100, 1000, table -> tableCleanerCalls::incrementAndGet, tracker);
+
+        IcebergTableCache.TableLease lease = c.borrow(id(), () -> table("first"));
+        c.invalidateAll();
+        tracker.close(catalogCleanerCalls::incrementAndGet);
+
+        Assertions.assertEquals(0, tableCleanerCalls.get(),
+                "cache invalidation must not clean a table still borrowed by a statement");
+        Assertions.assertEquals(0, catalogCleanerCalls.get(),
+                "connector close must not close catalog resources used by that table");
+        Assertions.assertEquals("first", lease.table().name());
+
+        lease.close();
+        Assertions.assertEquals(1, tableCleanerCalls.get());
+        Assertions.assertEquals(1, catalogCleanerCalls.get());
+    }
+
+    @Test
     public void invalidateForcesReload() {
         AtomicInteger loads = new AtomicInteger();
         IcebergTableCache c = new IcebergTableCache(100, 1000);

@@ -157,9 +157,8 @@ final class MORIncrementalRelation implements IncrementalRelation {
                     .findInstantsInRange(startTimestamp, endTimestamp);
         }
         String latestCommit = includedCommits.get(includedCommits.size() - 1).requestedTime();
-        HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
-                affectedFilesInCommits);
-        try {
+        try (HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
+                affectedFilesInCommits)) {
             Stream<FileSlice> fileSlices = HoodieTableMetadataUtil.getWritePartitionPaths(commitsMetadata)
                     .stream().flatMap(relativePartitionPath ->
                             fsView.getLatestMergedFileSlicesBeforeOrOn(relativePartitionPath, latestCommit));
@@ -170,8 +169,6 @@ final class MORIncrementalRelation implements IncrementalRelation {
             return fileSlices.filter(fileSlice -> globMatcher.matches(fileSlice.getBaseFile().map(BaseFile::getPath)
                     .or(fileSlice.getLatestLogFile().map(f -> f.getPath().toString())).get()))
                     .collect(Collectors.toList());
-        } finally {
-            fsView.close();
         }
     }
 

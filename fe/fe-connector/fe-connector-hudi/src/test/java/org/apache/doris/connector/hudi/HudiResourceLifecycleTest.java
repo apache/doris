@@ -17,11 +17,10 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -29,11 +28,43 @@ public class HudiResourceLifecycleTest {
 
     @Test
     public void partitionMetadataReaderIsClosedAfterMaterializingPaths() throws Exception {
-        HoodieTableMetadata metadata = Mockito.mock(HoodieTableMetadata.class);
+        RecordingCloseable metadata = new RecordingCloseable(false);
         List<String> paths = Arrays.asList("p=1", "p=2");
-        Mockito.when(metadata.getAllPartitionPaths()).thenReturn(paths);
 
-        Assertions.assertSame(paths, HudiScanPlanProvider.listAllPartitionPaths(metadata));
-        Mockito.verify(metadata).close();
+        Assertions.assertSame(paths, HudiScanPlanProvider.listAllPartitionPaths(() -> paths, metadata));
+        Assertions.assertTrue(metadata.closed);
+    }
+
+    @Test
+    public void closeFailureIsSuppressedByPartitionListingFailure() {
+        RecordingCloseable metadata = new RecordingCloseable(true);
+        IllegalStateException listingFailure = new IllegalStateException("listing failed");
+
+        IllegalStateException thrown = Assertions.assertThrows(IllegalStateException.class,
+                () -> HudiScanPlanProvider.listAllPartitionPaths(() -> {
+                    throw listingFailure;
+                }, metadata));
+
+        Assertions.assertSame(listingFailure, thrown);
+        Assertions.assertTrue(metadata.closed);
+        Assertions.assertEquals(1, thrown.getSuppressed().length);
+        Assertions.assertEquals("close failed", thrown.getSuppressed()[0].getMessage());
+    }
+
+    private static final class RecordingCloseable implements AutoCloseable {
+        private final boolean failOnClose;
+        private boolean closed;
+
+        private RecordingCloseable(boolean failOnClose) {
+            this.failOnClose = failOnClose;
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            if (failOnClose) {
+                throw new IOException("close failed");
+            }
+        }
     }
 }
