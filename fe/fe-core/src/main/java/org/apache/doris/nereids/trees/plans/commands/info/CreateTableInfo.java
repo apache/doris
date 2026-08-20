@@ -723,6 +723,9 @@ public class CreateTableInfo {
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }
+                    if (isEnableSkipBitmapColumn && isEffectiveRowBinlogEnabled()) {
+                        throw new AnalysisException("Flexible partial update does not support row binlog table.");
+                    }
                 }
             }
 
