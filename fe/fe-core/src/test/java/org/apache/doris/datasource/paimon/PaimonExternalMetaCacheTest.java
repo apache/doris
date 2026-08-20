@@ -451,6 +451,26 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testTableEstimateReservesFileIoAllowancePerOwner() throws Exception {
+        // Each cached owner strongly retains the table's FileIO graph, including a REST vended
+        // token that materializes and rotates after admission; the per-owner allowance must be
+        // part of both the base-table and the snapshot estimates.
+        FileStoreTable table = newTableWithExtraFields("file_io_allowance", 0);
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        long tableEstimate = new PaimonTableCacheValue(table)
+                .prepareForCachePublication(mapping).getBytes();
+        PaimonSnapshotCacheValue snapshotValue = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, table.schema().id(), table));
+        long snapshotEstimate = snapshotValue.prepareForCachePublication(
+                new PaimonSnapshotEntryKey(mapping, 1L, table.schema().id(), 1L)).getBytes();
+        // TABLE_BASE (16KB) + FILE_IO allowance (16KB) both charged per owner.
+        Assert.assertTrue("base table estimate must reserve the FileIO allowance: " + tableEstimate,
+                tableEstimate >= 32L * 1024L);
+        Assert.assertTrue("snapshot estimate must reserve the FileIO allowance: " + snapshotEstimate,
+                snapshotEstimate >= 32L * 1024L);
+    }
+
+    @Test
     public void testSchemaEntryDoesNotAutoRefreshOutsideAuthenticatorScope() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);

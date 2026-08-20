@@ -71,6 +71,12 @@ final class PaimonCacheSizeEstimator {
     private static final long KEY_WEIGHT = 192L;
     // Wrapper tables (privileged, fallback-read) around the concrete FileStoreTable.
     private static final long WRAPPER_WEIGHT = 512L;
+    // Each concrete FileStoreTable strongly owns its FileIO graph (configuration, and for REST
+    // catalogs the lazily fetched, periodically rotated vended token). Paimon's FileIO exposes
+    // no IO-free way to read that state, so a generous fixed allowance is charged per owner:
+    // rotation replaces the retained token rather than growing it, and typical token/config
+    // payloads stay far below this bound.
+    private static final long FILE_IO_WEIGHT = 16L * 1024L;
     private static final long PARTITION_WEIGHT = 320L;
     private static final long PARTITION_ITEM_WEIGHT = 768L;
 
@@ -158,6 +164,7 @@ final class PaimonCacheSizeEstimator {
         FileStoreTable fileStoreTable = (FileStoreTable) current;
         TableSchema schema = fileStoreTable.schema();
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes, TABLE_BASE_WEIGHT);
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, FILE_IO_WEIGHT);
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.estimatedStringBytes(current.name()));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
