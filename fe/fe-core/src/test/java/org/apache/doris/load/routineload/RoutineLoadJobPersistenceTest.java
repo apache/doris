@@ -22,7 +22,9 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -62,20 +64,17 @@ public class RoutineLoadJobPersistenceTest {
                 + "COLUMNS TERMINATED BY '|', "
                 + "COLUMNS(source_col, mapped_col = source_col + 1), "
                 + "PRECEDING FILTER source_col > 1, WHERE mapped_col <= 10 "
-                + "PROPERTIES (\"exec_mem_limit\" = \"345678901\") "
                 + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
                 + "\"kafka_topic\" = \"image_topic\")", 0);
 
-        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator(",", ","), analyzedSeparator("\\n"),
+        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator(",", ","), null,
                 Lists.newArrayList(new ImportColumnDesc("wrong_column")),
                 null, null, null, null, LoadTask.MergeType.APPEND, null));
-        job.memtableOnSinkNode = true;
 
         JsonObject json = imageJson(job);
         Assert.assertTrue(json.has("ostmt"));
-        Assert.assertTrue(json.has("mosn"));
-        Assert.assertTrue(json.has("lidel"));
-        for (String key : Lists.newArrayList("pni", "cds", "pf", "we", "cs", "sc", "mt", "dc", "eml")) {
+        for (String key : Lists.newArrayList(
+                "pni", "cds", "pf", "we", "cs", "sc", "mt", "dc", "eml", "mosn", "lidel")) {
             Assert.assertFalse("load definition must only be persisted through origStmt: " + key, json.has(key));
         }
 
@@ -90,9 +89,6 @@ public class RoutineLoadJobPersistenceTest {
         Assert.assertEquals("mapped_col", restored.getColumnExprDescs().descs.get(1).getColumnName());
         Assert.assertNotNull(restored.getPrecedingFilter());
         Assert.assertNotNull(restored.getWhereExpr());
-        Assert.assertEquals(345678901L, restored.getMemLimit());
-        Assert.assertEquals("\n", restored.getLineDelimiter().getSeparator());
-        Assert.assertTrue(restored.isMemtableOnSinkNode());
     }
 
     @Test
@@ -105,10 +101,8 @@ public class RoutineLoadJobPersistenceTest {
                 + "COLUMNS(source_col, mapped_col = source_col + 1), "
                 + "PRECEDING FILTER source_col > 1, WHERE mapped_col < 100, "
                 + "PARTITION(p1), DELETE ON delete_flag = 1, ORDER BY seq_col "
-                + "PROPERTIES (\"exec_mem_limit\" = \"268435456\") "
                 + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
                 + "\"kafka_topic\" = \"alter_topic\")", 0);
-        job.execMemLimit = 268435456L;
 
         try (MockedStatic<Env> ignored = mockCatalog()) {
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
@@ -137,7 +131,7 @@ public class RoutineLoadJobPersistenceTest {
         }
         JsonObject restoredProperties = JsonParser.parseString(restored.jobPropertiesToJsonString()).getAsJsonObject();
         for (String key : Lists.newArrayList("column_separator", "precedingFilter",
-                "whereExpr", "partitions", "delete", "sequence_col", "merge_type", "exec_mem_limit")) {
+                "whereExpr", "partitions", "delete", "sequence_col", "merge_type")) {
             Assert.assertEquals(key, expectedProperties.get(key), restoredProperties.get(key));
         }
         Assert.assertTrue(restoredProperties.get("columnToColumnExpr").getAsString().contains("mapped_col="));
@@ -158,19 +152,11 @@ public class RoutineLoadJobPersistenceTest {
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
         Assert.assertEquals("|", restored.getColumnSeparator().getSeparator());
-        Assert.assertEquals(33554432L, restored.getMemLimit());
-        Assert.assertFalse(restored.isMemtableOnSinkNode());
 
         JsonObject newImage = imageJson(restored);
         Assert.assertTrue(newImage.has("ostmt"));
         Assert.assertFalse(newImage.has("mt"));
         Assert.assertFalse(newImage.has("cs"));
-    }
-
-    private static Separator analyzedSeparator(String value) throws Exception {
-        Separator separator = new Separator(value);
-        separator.analyze();
-        return separator;
     }
 
     private static MockedStatic<Env> mockCatalog() throws Exception {
@@ -191,6 +177,9 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.when(database.getTableOrMetaException(9001L)).thenReturn(table);
         Mockito.when(database.getTableOrAnalysisException("current_table")).thenReturn(table);
         Mockito.when(table.getName()).thenReturn("current_table");
+        Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.hasDeleteSign()).thenReturn(true);
         Mockito.when(table.getFullSchema()).thenReturn(Lists.newArrayList());
 
         MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);

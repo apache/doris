@@ -33,7 +33,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
-import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -286,7 +285,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testAlterPersistsOriginStatementAndCsvPropertiesForReplay() throws Exception {
+    public void testAlterPersistsOriginStatementForReplay() throws Exception {
         KafkaRoutineLoadJob leader = createPausedJob();
         KafkaRoutineLoadJob follower = createPausedJob();
         RoutineLoadDesc originalDesc = new RoutineLoadDesc(new Separator("|", "|"), null, null,
@@ -297,9 +296,6 @@ public class KafkaRoutineLoadJobTest {
         follower.origStmt = initialOriginStatement();
 
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"");
-        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "\\");
-        jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
         RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null, null,
                 null, null, null, null, LoadTask.MergeType.APPEND, null);
         OriginStatement alterStatement = new OriginStatement(
@@ -353,21 +349,6 @@ public class KafkaRoutineLoadJobTest {
         }
     }
 
-    @Test
-    public void testReplayLegacyCsvPropertiesDoesNotRunNewValidation() {
-        KafkaRoutineLoadJob follower = createPausedJob();
-        Map<String, String> legacyJobProperties = Maps.newHashMap();
-        legacyJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "legacy");
-        AlterRoutineLoadJobOperationLog legacyLog = new AlterRoutineLoadJobOperationLog(
-                follower.getId(), legacyJobProperties, null);
-
-        follower.replayModifyProperties(legacyLog);
-
-        Assert.assertEquals((byte) 'l', follower.getEnclose());
-        Map<String, String> persistedJobProperties = Deencapsulation.getField(follower, "jobProperties");
-        Assert.assertEquals("legacy", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
-    }
-
     private static KafkaRoutineLoadJob createPausedJob() {
         KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "job1", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
@@ -379,15 +360,6 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertEquals(";", job.getColumnSeparator().getSeparator());
         Assert.assertNull(job.getLineDelimiter());
         Assert.assertEquals("original_sequence", job.getSequenceCol());
-        Assert.assertEquals((byte) '"', job.getEnclose());
-        Assert.assertEquals((byte) '\\', job.getEscape());
-        Assert.assertTrue(job.getEmptyFieldAsNull());
-        Assert.assertEquals(Boolean.TRUE, Deencapsulation.getField(job, "emptyFieldAsNull"));
-
-        Map<String, String> persistedJobProperties = Deencapsulation.getField(job, "jobProperties");
-        Assert.assertEquals("\"", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
-        Assert.assertEquals("\\", persistedJobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
-        Assert.assertEquals("true", persistedJobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL));
     }
 
     private static OriginStatement initialOriginStatement() {

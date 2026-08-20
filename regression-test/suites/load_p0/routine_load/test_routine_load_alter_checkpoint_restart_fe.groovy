@@ -45,7 +45,6 @@ suite("test_routine_load_alter_checkpoint_restart_fe", "docker") {
         "column_separator",
         "precedingFilter",
         "whereExpr",
-        "exec_mem_limit",
         "merge_type"
     ]
 

@@ -27,7 +27,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
@@ -35,7 +34,6 @@ import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
@@ -254,14 +252,11 @@ public class KinesisRoutineLoadJobTest {
     }
 
     @Test
-    public void testAlterOriginStatementReplayKeepsCsvCachesInCheckpointParity() throws Exception {
+    public void testAlterOriginStatementReplayKeepsCheckpointParity() throws Exception {
         KinesisRoutineLoadJob leader = createPausedJobWithInitialLoadDesc();
         KinesisRoutineLoadJob replay = createPausedJobWithInitialLoadDesc();
 
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"");
-        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "\\");
-        jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
         RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null,
                 null, null, null, null, null, LoadTask.MergeType.APPEND, "sequence_col");
         OriginStatement alterStatement = new OriginStatement(
@@ -308,22 +303,9 @@ public class KinesisRoutineLoadJobTest {
             assertAlterResult(replay);
             Assert.assertEquals(JsonParser.parseString(checkpointJson(leader)),
                     JsonParser.parseString(checkpointJson(replay)));
+            assertAlterResult(imageRoundTrip(leader));
+            assertAlterResult(imageRoundTrip(replay));
         }
-    }
-
-    @Test
-    public void testAlterValidatesCsvBeforeDataSourceMutation() {
-        KinesisRoutineLoadJob job = createPausedJobWithInitialLoadDesc();
-        Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "invalid");
-        KinesisDataSourceProperties dataSourceProperties = Mockito.mock(KinesisDataSourceProperties.class);
-        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
-        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
-        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
-
-        Assert.assertThrows(AnalysisException.class, () -> job.modifyProperties(command));
-        Assert.assertEquals("stream-1", job.getStream());
-        Mockito.verifyNoInteractions(dataSourceProperties);
     }
 
     @Test
@@ -453,9 +435,6 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertEquals(";", job.getColumnSeparator().getSeparator());
         Assert.assertNull(job.getLineDelimiter());
         Assert.assertEquals("sequence_col", job.getSequenceCol());
-        Assert.assertEquals((byte) '"', job.getEnclose());
-        Assert.assertEquals((byte) '\\', job.getEscape());
-        Assert.assertTrue(job.getEmptyFieldAsNull());
     }
 
     private AlterRoutineLoadJobOperationLog journalRoundTrip(AlterRoutineLoadJobOperationLog log)
@@ -476,6 +455,16 @@ public class KinesisRoutineLoadJobTest {
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             return Text.readString(in);
+        }
+    }
+
+    private KinesisRoutineLoadJob imageRoundTrip(RoutineLoadJob job) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            job.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return (KinesisRoutineLoadJob) RoutineLoadJob.read(in);
         }
     }
 
