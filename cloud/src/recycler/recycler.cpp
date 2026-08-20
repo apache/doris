@@ -849,7 +849,7 @@ int InstanceRecycler::do_recycle() {
 /**
 * 1. delete all remote data
 * 2. delete all kv
-* 3. remove instance kv
+* 3. remove instance kv depend on config::retain_deleted_instance_tombstone
 */
 int InstanceRecycler::recycle_deleted_instance() {
     LOG_WARNING("begin to recycle deleted instance").tag("instance_id", instance_id_);
@@ -857,6 +857,11 @@ int InstanceRecycler::recycle_deleted_instance() {
     int ret = 0;
     auto start_time = steady_clock::now();
     const auto recycle_state = instance_info_.recycle_state();
+
+    if (config::retain_deleted_instance_tombstone &&
+        recycle_state == InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+        return 0;
+    }
 
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
@@ -998,13 +1003,26 @@ int InstanceRecycler::recycle_deleted_instance_metadata() {
             return -1;
         }
 
+        InstanceInfoPB successor_instance;
         std::string value;
         err = txn->get(key, &value);
         if (err == TxnErrorCode::TXN_OK) {
-            LOG(INFO) << "instance successor instance is still exist, skip deleting kv,"
-                      << " instance_id=" << instance_id_
-                      << " successor_instance_id=" << instance_info_.successor_instance_id();
-            return 0;
+            InstanceInfoPB successor_instance;
+            if (!successor_instance.ParseFromString(value)) {
+                LOG(WARNING) << "failed to parse successor instance, instance_id=" << instance_id_
+                             << " successor_instance_id=" << instance_info_.successor_instance_id();
+                return -1;
+            }
+            if (!successor_instance.has_recycle_state() ||
+                successor_instance.recycle_state() !=
+                        InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+                LOG(INFO) << "instance successor has not completed recycling, skip deleting kv,"
+                          << " instance_id=" << instance_id_
+                          << " successor_instance_id=" << instance_info_.successor_instance_id()
+                          << " successor_status=" << successor_instance.status()
+                          << " successor_recycled_state=" << successor_instance.recycle_state();
+                return 0;
+            }
         } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             LOG(WARNING) << "failed to get successor instance, instance_id=" << instance_id_
                          << " successor_instance_id=" << instance_info_.successor_instance_id()
