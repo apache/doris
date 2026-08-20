@@ -129,7 +129,11 @@ public:
     void set_state(State state) {
         switch (state) {
         case State::PENDING:
-            DCHECK(_state == State::PENDING || _state == State::IN_FLIGHT) << (int)_state;
+            // A task returns to PENDING after the operator consumes its non-EOS cached block.
+            // For example, one scanner may produce several blocks, so COMPLETED is not terminal.
+            DCHECK(_state == State::PENDING || _state == State::IN_FLIGHT ||
+                   _state == State::COMPLETED)
+                    << (int)_state;
             DCHECK(cached_block == nullptr);
             break;
         case State::IN_FLIGHT:
@@ -208,11 +212,17 @@ public:
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
     Status submit_scan_task(std::shared_ptr<ScanTask> scan_task, std::unique_lock<std::mutex>&);
 
-    // Push back a scan task.
-    void push_back_scan_task(std::shared_ptr<ScanTask> scan_task);
+    // Publish a task whose current scan attempt has completed. The operator consumes its cached
+    // block and returns a non-EOS task to PENDING for its next scan attempt.
+    void push_completed_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
+
+    // This is checked by ScannerScheduler::_scanner_scan(), rather than task admission, so an
+    // already queued scanner can finish as EOS and release its in-flight slot after shared LIMIT
+    // is reached. The limit is atomic and can therefore be read without _transfer_lock.
+    bool is_shared_scan_limit_exhausted() const;
 
     std::string debug_string();
 
@@ -254,6 +264,30 @@ public:
                               std::unique_lock<std::mutex>& transfer_lock,
                               std::unique_lock<std::shared_mutex>& scheduler_lock);
 
+    // Context scheduling and operator consumption share this lock so queue-state changes and task
+    // admission form one atomic decision. For example, two worker callbacks cannot both admit the
+    // last available concurrency slot.
+    std::mutex& transfer_lock() { return _transfer_lock; }
+
+    // One Context runnable represents many pending scanners in the ThreadPool scheduler. Keeping
+    // this separate from scanner execution prevents duplicate Context runnables from accumulating.
+    bool is_context_queued(const std::unique_lock<std::mutex>& transfer_lock) const;
+    // Transition the Context runnable's queue state and maintain its wait-time interval. Setting
+    // true records enqueue time; clearing false charges that interval to the Context profile.
+    // The scheduler sets true only after submit succeeds, so failed submissions have no interval.
+    // Example: a queue-full submit leaves the state false and contributes no worker-wait time.
+    void set_context_queued(bool queued, const std::unique_lock<std::mutex>& transfer_lock);
+
+    // Return a scanner to the admission queue after its block is consumed. It may not own a cached
+    // block and may not be EOS: EOS scanners are terminal and must not run again.
+    void push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
+                                const std::unique_lock<std::mutex>& transfer_lock);
+
+    // Atomically check whether this context can start another scan task, move one task from
+    // pending to in-flight, and return it. The caller must hold _transfer_lock.
+    std::shared_ptr<ScanTask> try_get_next_scan_task(
+            const std::unique_lock<std::mutex>& transfer_lock);
+
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners
     /// 1. It ran for at least `SCALE_UP_DURATION` ms after last scale up
@@ -261,7 +295,6 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
-    bool _is_shared_scan_limit_exhausted() const;
 
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
@@ -295,26 +328,37 @@ protected:
     //   current_concurrency = _completed_tasks.size() + _in_flight_tasks_num
     //
     // Lifecycle of a ScanTask:
-    //   _pending_tasks  --(submit_scan_task)--> [thread pool]  --(push_back_scan_task)-->
+    //   _pending_tasks  --(submit_scan_task)--> [thread pool]  --(push_completed_scan_task)-->
     //   _completed_tasks  --(get_block_from_queue)--> operator
     //   After consumption: non-EOS task goes back to _pending_tasks; EOS increments
     //   _num_finished_scanners.
 
     // Completed scan tasks whose cached_block is ready for the operator to consume.
-    // Protected by _transfer_lock.  Written by push_back_scan_task() (scanner thread),
+    // Protected by _transfer_lock.  Written by push_completed_scan_task() (scanner thread),
     // read/popped by get_block_from_queue() (operator thread).
     std::list<std::shared_ptr<ScanTask>> _completed_tasks;
 
-    // Scanners waiting to be submitted to the scheduler thread pool.  Stored as a stack
-    // (LIFO) so that recently-used scanners are re-scheduled first, which is more likely
-    // to be cache-friendly.  Protected by _transfer_lock.  Populated in the constructor
-    // and by schedule_scan_task() when the concurrency limit is reached; drained by
-    // _pull_next_scan_task() during scheduling.
+    // Scanners waiting to be admitted for execution. Stored as a stack (LIFO) so that
+    // recently-used scanners are re-scheduled first, which is more likely to be cache-friendly.
+    // Protected by _transfer_lock. Populated in the constructor and when an operator returns a
+    // non-EOS task; drained by try_get_next_scan_task() or the TaskExecutor scheduler.
     std::stack<std::shared_ptr<ScanTask>> _pending_tasks;
 
+    // True only while one runnable for this context is waiting in the thread pool. It does not
+    // describe scanners currently executing on worker threads. This deduplicates Context
+    // submission: N pending scanners still create exactly one runnable. Protected by _transfer_lock.
+    bool _is_context_queued = false;
+
+    // Start time for one queued Context runnable. This is accounted to the scan operator profile
+    // when the thread-pool worker dequeues the runnable, so the profile reports actual thread-pool
+    // queue latency even though a worker may select any pending scanner. Protected by _transfer_lock.
+    int64_t _context_wait_worker_start_ns = 0;
+    RuntimeProfile::Counter* _context_wait_worker_timer = nullptr;
+
     // Number of scan tasks currently submitted to the scanner scheduler thread pool
-    // (i.e. in-flight).  Incremented by submit_scan_task() before submission and
-    // decremented by push_back_scan_task() when the thread pool returns the task.
+    // (i.e. in-flight). Incremented before a task is submitted or directly admitted for
+    // thread-pool execution, and decremented by push_completed_scan_task() when the worker
+    // returns it.
     // Declared atomic so it can be read without _transfer_lock in non-critical paths,
     // but must be read under _transfer_lock whenever combined with _completed_tasks.size()
     // to form a consistent concurrency snapshot.
