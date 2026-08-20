@@ -288,4 +288,47 @@ public class ExternalMetaCacheBudgetManagerTest {
             throw new RuntimeException(e);
         }
     }
+
+    @Test
+    public void testCatalogBucketLifecycleTracksLiveEntriesWithoutScanning() throws Exception {
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(1L << 20));
+        java.util.List<ExternalMetaCacheBudgetManager.EntryBudget> budgets = new java.util.ArrayList<>();
+        for (long catalogId = 1L; catalogId <= 3L; catalogId++) {
+            for (String entry : new String[] {"table", "snapshot"}) {
+                budgets.add(manager.createEntryBudget(
+                        catalogId, "paimon", entry, OptionalLong.empty(), OptionalLong.empty()));
+            }
+        }
+        java.util.Map<?, ?> catalogBuckets = readCatalogBuckets(manager);
+        Assert.assertEquals(3, catalogBuckets.size());
+
+        // Closing one of a catalog's entries keeps its bucket; closing the last removes it, and
+        // unrelated catalogs keep reserving while the retirement is in progress.
+        budgets.get(0).close();
+        Assert.assertEquals(3, readCatalogBuckets(manager).size());
+        AdmissionReservation unrelated = budgets.get(2).tryReserve(64L).get();
+        budgets.get(1).close();
+        Assert.assertEquals(2, readCatalogBuckets(manager).size());
+        unrelated.release();
+
+        // A re-created catalog starts from a fresh bucket and can reserve again.
+        ExternalMetaCacheBudgetManager.EntryBudget recreated = manager.createEntryBudget(
+                1L, "paimon", "table", OptionalLong.empty(), OptionalLong.empty());
+        Assert.assertEquals(3, readCatalogBuckets(manager).size());
+        AdmissionReservation recreatedReservation = recreated.tryReserve(128L).get();
+        recreatedReservation.release();
+        recreated.close();
+        for (int i = 2; i < budgets.size(); i++) {
+            budgets.get(i).close();
+        }
+        Assert.assertEquals(0, readCatalogBuckets(manager).size());
+        Assert.assertEquals(0L, manager.getGlobalUsedWeight());
+    }
+
+    private static java.util.Map<?, ?> readCatalogBuckets(ExternalMetaCacheBudgetManager manager)
+            throws Exception {
+        java.lang.reflect.Field field = ExternalMetaCacheBudgetManager.class.getDeclaredField("catalogBuckets");
+        field.setAccessible(true);
+        return (java.util.Map<?, ?>) field.get(manager);
+    }
 }

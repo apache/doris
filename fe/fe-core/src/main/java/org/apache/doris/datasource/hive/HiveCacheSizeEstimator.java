@@ -28,6 +28,12 @@ final class HiveCacheSizeEstimator {
     // name plus derived value/literal strings and therefore remains skew-sensitive.
     private static final long ENTRY_BASE_BYTES = objectBytes(2L * 1024L);
     private static final long PARTITION_BASE_BYTES = objectBytes(896L);
+    // PartitionValueCacheKey retains an ImmutableList over the partition column types; the Type
+    // instances themselves are shared catalog singletons and are not charged. A single-element
+    // list is Guava's SingletonImmutableList (one reference, no array); wider lists add a
+    // backing array with one slot per column.
+    private static final long KEY_TYPE_LIST_BYTES =
+            MetaCacheWeightUtils.estimatedObjectLayoutBytes(1L, 0L);
     private static final long PARTITION_COLUMN_BYTES = objectBytes(256L);
     // One copy is retained as the partition name and another in the decoded partition values.
     private static final long PARTITION_NAME_PAYLOAD_COPIES = 2L;
@@ -52,11 +58,27 @@ final class HiveCacheSizeEstimator {
                         value.getPartitionColumnCount(), PARTITION_COLUMN_BYTES));
         long bytes = MetaCacheWeightUtils.saturatedAdd(
                 ENTRY_BASE_BYTES, MetaCacheWeightUtils.estimatedNameMappingBytes(key.getNameMapping()));
+        // The retained key width does not depend on how many partitions the table has today;
+        // an empty partitioned table still retains one type list slot per partition column.
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, keyTypeListBytes(key.retainedTypeCount()));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.saturatedMultiply(partitionCount, perPartitionBytes));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.saturatedMultiply(
                         value.getPartitionNamePayloadBytes(), PARTITION_NAME_PAYLOAD_COPIES));
         return MetaCacheSizeEstimate.complete(bytes);
+    }
+
+    private static long keyTypeListBytes(int typeCount) {
+        if (typeCount <= 0) {
+            // ImmutableList.of() is a shared singleton.
+            return 0L;
+        }
+        long bytes = KEY_TYPE_LIST_BYTES;
+        if (typeCount > 1) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(
+                    bytes, MetaCacheWeightUtils.estimatedObjectArrayBytes(typeCount));
+        }
+        return bytes;
     }
 }

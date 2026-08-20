@@ -311,6 +311,36 @@ public class HiveMetaStoreCacheTest {
                 "hive long-tail partition", shortTailEstimate, longTailEstimate, shortTail, longTail);
     }
 
+    @Test
+    public void testEmptyTableKeyWidthFormulaAgainstJolOwnedGraph() throws Exception {
+        // An empty partitioned table still retains the key's immutable type list; the estimate
+        // must scale with the partition column width even when partitionCount is zero. Type
+        // instances are shared catalog singletons, present on both sides of the delta.
+        NameMapping mapping = NameMapping.createForTest("db", "tbl");
+        List<Type> narrowTypes = Collections.singletonList(Type.STRING);
+        List<Type> wideTypes = new java.util.ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            wideTypes.add(Type.STRING);
+        }
+        HiveExternalMetaCache.PartitionValueCacheKey narrowKey =
+                new HiveExternalMetaCache.PartitionValueCacheKey(mapping, narrowTypes);
+        HiveExternalMetaCache.PartitionValueCacheKey wideKey =
+                new HiveExternalMetaCache.PartitionValueCacheKey(mapping, wideTypes);
+        HiveExternalMetaCache.HivePartitionValues narrowValues = new HiveExternalMetaCache.HivePartitionValues(
+                new HashMap<>(), HashBiMap.create(), new HashMap<>(), 0L, narrowTypes.size());
+        HiveExternalMetaCache.HivePartitionValues wideValues = new HiveExternalMetaCache.HivePartitionValues(
+                new HashMap<>(), HashBiMap.create(), new HashMap<>(), 0L, wideTypes.size());
+
+        long narrowEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(
+                narrowKey, narrowValues).getBytes();
+        long wideEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(
+                wideKey, wideValues).getBytes();
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "hive empty table key width", narrowEstimate, wideEstimate,
+                java.util.Arrays.asList(narrowKey, narrowValues),
+                java.util.Arrays.asList(wideKey, wideValues));
+    }
+
     private void putCache(
             MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache,
             MetaCacheEntry<HiveExternalMetaCache.PartitionCacheKey, HivePartition> partitionCache,

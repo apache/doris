@@ -974,6 +974,10 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             this.types = types == null ? null : ImmutableList.copyOf(types);
         }
 
+        int retainedTypeCount() {
+            return types == null ? 0 : types.size();
+        }
+
         @Override
         public boolean equals(Object obj) {
             if (this == obj) {

@@ -136,6 +136,7 @@ public final class ExternalMetaCacheBudgetManager {
                     this, scope, catalogBucket, entryBucket, effectiveMax.getAsLong());
             entryBuckets.put(scope, entryBucket);
             entryBudgets.put(scope, entryBudget);
+            catalogBucket.liveEntries++;
             return entryBudget;
         }
     }
@@ -270,9 +271,8 @@ public final class ExternalMetaCacheBudgetManager {
             entryBuckets.remove(entryBudget.scope, entryBudget.entryBucket);
             entryBudgets.remove(entryBudget.scope, entryBudget);
             Bucket catalogBucket = entryBudget.catalogBucket;
-            boolean catalogStillReferenced = entryBuckets.keySet().stream()
-                    .anyMatch(scope -> scope.catalogId == entryBudget.scope.catalogId);
-            if (!catalogStillReferenced && catalogBucket.usedWeight == 0L) {
+            catalogBucket.liveEntries--;
+            if (catalogBucket.liveEntries == 0 && catalogBucket.usedWeight == 0L) {
                 catalogBuckets.remove(entryBudget.scope.catalogId, catalogBucket);
             }
         }
@@ -441,6 +441,9 @@ public final class ExternalMetaCacheBudgetManager {
     private static final class Bucket {
         private final long maxWeight;
         private long usedWeight;
+        // Live entry budgets charging into this catalog bucket; maintained under the manager
+        // lock so catalog retirement can decide teardown in O(1) instead of scanning all scopes.
+        private int liveEntries;
 
         private Bucket(long maxWeight) {
             this.maxWeight = maxWeight;
