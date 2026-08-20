@@ -161,10 +161,11 @@ private:
 
     friend class RowIdStorageReaderTest;
 
-    static Status submit_external_scan_tasks(
-            ScannerScheduler* scheduler, std::counting_semaphore<>& semaphore, size_t task_count,
-            const std::function<std::string(size_t)>& make_task_id,
-            const std::function<Status(size_t)>& run_task);
+    static Status submit_external_scan_tasks(ScannerScheduler* scheduler,
+                                             std::counting_semaphore<>& semaphore,
+                                             size_t task_count,
+                                             const std::function<std::string(size_t)>& make_task_id,
+                                             const std::function<Status(size_t)>& run_task);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;

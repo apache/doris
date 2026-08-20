@@ -933,19 +933,19 @@ Status RowIdStorageReader::submit_external_scan_tasks(
     size_t submitted_count = 0;
     for (size_t idx = 0; idx < task_count; ++idx) {
         semaphore.acquire();
-        Status submit_st = scheduler->submit_scan_task(
-                SimplifiedScanTask(
-                        [&, idx]() -> bool {
-                            Defer complete([&] {
-                                std::lock_guard<std::mutex> lock(mtx);
-                                ++completed_count;
-                                cv.notify_one();
-                            });
-                            scan_status.update(run_task(idx));
-                            return true;
-                        },
-                        nullptr, nullptr),
-                make_task_id(idx));
+        Status submit_st =
+                scheduler->submit_scan_task(SimplifiedScanTask(
+                                                    [&, idx]() -> bool {
+                                                        Defer complete([&] {
+                                                            std::lock_guard<std::mutex> lock(mtx);
+                                                            ++completed_count;
+                                                            cv.notify_one();
+                                                        });
+                                                        scan_status.update(run_task(idx));
+                                                        return true;
+                                                    },
+                                                    nullptr, nullptr),
+                                            make_task_id(idx));
         if (!submit_st.ok()) {
             scan_status.update(submit_st);
             semaphore.release();
@@ -1123,7 +1123,7 @@ Status RowIdStorageReader::read_batch_external_row(
                 std::counting_semaphore semaphore {max_file_scanners};
 
                 std::vector<std::pair<std::multimap<segment_v2::rowid_t, size_t>,
-                                       std::shared_ptr<FileMapping>>>
+                                      std::shared_ptr<FileMapping>>>
                         scan_info_list;
                 scan_info_list.reserve(scan_rows.size());
                 for (const auto& [_, scan_info] : scan_rows) {
@@ -1133,16 +1133,15 @@ Status RowIdStorageReader::read_batch_external_row(
                 return submit_external_scan_tasks(
                         remote_scan_sched, semaphore, scan_rows.size(),
                         [&](size_t idx) {
-                            return fmt::format("{}-read_batch_external_row-{}",
-                                                print_id(query_id), idx);
+                            return fmt::format("{}-read_batch_external_row-{}", print_id(query_id),
+                                               idx);
                         },
                         [&](size_t idx) -> Status {
                             const auto& [row_ids, file_mapping] = scan_info_list[idx];
                             return read_external_row_from_file_mapping(
-                                    idx, row_ids, file_mapping, scan_slots, query_id,
-                                    runtime_state, scan_blocks, row_id_block_idx,
-                                    fetch_statistics, rpc_scan_params, colname_to_slot_id,
-                                    semaphore, tuple_desc);
+                                    idx, row_ids, file_mapping, scan_slots, query_id, runtime_state,
+                                    scan_blocks, row_id_block_idx, fetch_statistics,
+                                    rpc_scan_params, colname_to_slot_id, semaphore, tuple_desc);
                         });
             },
             &scan_running_time));
