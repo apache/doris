@@ -38,6 +38,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -123,10 +124,15 @@ public class IcebergScanPlanProviderTest {
     }
 
     private static Table createTable(String name, Schema schema, PartitionSpec spec, Map<String, String> props) {
+        return createTable(name, schema, spec, null, props);
+    }
+
+    private static Table createTable(String name, Schema schema, PartitionSpec spec, String location,
+            Map<String, String> props) {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
-        return catalog.createTable(TableIdentifier.of("db1", name), schema, spec, null, props);
+        return catalog.createTable(TableIdentifier.of("db1", name), schema, spec, location, props);
     }
 
     private static DataFile dataFile(PartitionSpec spec, String path, long sizeBytes, List<Long> splitOffsets,
@@ -1518,8 +1524,17 @@ public class IcebergScanPlanProviderTest {
         return tableWithPositionDelete(deleteFile, Collections.singletonMap("format-version", "3"));
     }
 
+    private static Table tableWithPositionDeleteV3AtLocation(DeleteFile deleteFile, String location) {
+        return tableWithPositionDelete(deleteFile, Collections.singletonMap("format-version", "3"), location);
+    }
+
     private static Table tableWithPositionDelete(DeleteFile deleteFile, Map<String, String> props) {
-        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), props);
+        return tableWithPositionDelete(deleteFile, props, null);
+    }
+
+    private static Table tableWithPositionDelete(DeleteFile deleteFile, Map<String, String> props,
+            String location) {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), location, props);
         table.newAppend()
                 .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
                 .commit();
@@ -1622,6 +1637,33 @@ public class IcebergScanPlanProviderTest {
                 "BE reports file_path from the referenced data file for DV rows");
         Assertions.assertEquals(4L, deleteDesc.getContentOffset());
         Assertions.assertEquals(40L, deleteDesc.getContentSizeInBytes());
+    }
+
+    @Test
+    public void planScanPositionDeletesCarriesAzureBackendFileType() {
+        // Native $position_deletes ranges are opened directly by BE. For Azure paths, including vended
+        // credentials, the abfss path must carry FILE_HDFS explicitly; LocationPath cannot infer the
+        // connector-owned Azure storage adapter from the bare range path. MUTATION: omitting the range file
+        // type routes abfss to FILE_S3 and BE rejects the path as an invalid S3 URI.
+        Table table = tableWithPositionDeleteV3AtLocation(
+                deletionVectorFile("abfss://container@account.dfs.core.windows.net/db/t1/dv.puffin", 4L, 40L),
+                "abfss://container@account.dfs.core.windows.net/db/t1");
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.backendFileType = TFileType.FILE_HDFS;
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                        Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        IcebergScanRange range = (IcebergScanRange) ranges.get(0);
+        Assertions.assertEquals(Optional.of(TFileType.FILE_HDFS.name()),
+                range.getBackendFileType());
+        Assertions.assertTrue(context.lastFileTypeVendedToken.isEmpty());
     }
 
     @Test

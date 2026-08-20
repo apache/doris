@@ -1037,12 +1037,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        String backendFileType = context != null
+                ? storage().getBackendFileType(metadataTable.location(), vendedToken) : null;
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PositionDeletesScanTask task : tasks) {
             for (PositionDeletesScanTask splitTask : splitPositionDeleteScanTask(task, targetSplitSize)) {
                 ranges.add(buildPositionDeleteRange(splitTask, metadataTable, outputPartitionFields,
-                        enableMappingVarbinary, zone, uriNormalizer));
+                        enableMappingVarbinary, zone, uriNormalizer, backendFileType));
             }
         }
         LOG.debug("Iceberg planScan produced {} position_deletes splits for {}.{}", ranges.size(),
@@ -1062,7 +1064,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildPositionDeleteRange(PositionDeletesScanTask task, Table metadataTable,
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
-            UnaryOperator<String> uriNormalizer) {
+            UnaryOperator<String> uriNormalizer, String backendFileType) {
         DeleteFile deleteFile = task.file();
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
@@ -1070,6 +1072,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .start(task.start())
                 .length(task.length())
                 .fileSize(deleteFile.fileSizeInBytes())
+                .backendFileType(backendFileType)
                 // The split's own scheduling weight, mirroring legacy newPositionDeleteSysTableSplit
                 // (selfSplitWeight = max(length, 1)).
                 .selfSplitWeight(Math.max(task.length(), 1L))

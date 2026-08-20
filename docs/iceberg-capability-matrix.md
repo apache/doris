@@ -46,12 +46,12 @@
 | MVCC / snapshot time travel | E2E / CODE / REG | `SUPPORTS_MVCC_SNAPSHOT`；当前表的 `$snapshots` 返回 snapshot `7725652772105110574`，`FOR VERSION AS OF` 返回历史三行；`test_iceberg_time_travel.groovy` | 增加多 snapshot、schema evolution 后的历史读 |
 | Branch / Tag 查询 | CODE / REG / TODO | branch/tag regression suite | 验证 REST Catalog 对 branch/tag 的可见性和权限 |
 | Partition pruning | E2E / REG | 隔离表 `matrix_partition_prune_2304` 有 `p=1/2/3` 三个分区；`WHERE p=2` 的 `EXPLAIN VERBOSE` 显示 `inputSplitNum=1`、`partition=1/3`，`WHERE p IN (1,3)` 显示两个 split、`partition=2/3`，结果分别返回对应行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition 和分区演进后的裁剪证据 |
-| Runtime filter | REG / TODO | `test_iceberg_runtime_filter_partition_pruning*.groovy` | 当前只验证了静态分区谓词；单独验证 join/subquery runtime filter |
-| Nested column pruning | CODE / REG / TODO | `SUPPORTS_NESTED_COLUMN_PRUNE`；nested schema suites | 使用 STRUCT/ARRAY/MAP 表，检查子字段结果和扫描行为 |
-| Position delete | REG / TODO | `test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 先验证读取，再验证 Azure 上写入产生的删除文件 |
+| Runtime filter | E2E / REG | `matrix_partition_prune_2304` 与单行 key 表 join 时，静态计划包含 3 个 range，执行 profile 显示 `RuntimeFilterPartitionPrunedRangeNum=2`、RF input rows 5/filtered rows 2，最终只返回 `p=2` 的两行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition、分区演进和 delete-aware 场景 |
+| Nested column pruning | E2E / CODE / REG | `info.label`、`events.*.score` 和 `attrs.*.code` 分别把 STRUCT、ARRAY<STRUCT>、MAP<STRING,STRUCT> 裁成只含目标子字段的类型，结果正确；证据表为 `matrix_nested_*_prune_2304`；`SUPPORTS_NESTED_COLUMN_PRUNE` 和 nested schema suites | 补充 schema evolution 后的裁剪 |
+| Position delete | E2E / REG / TODO | Azure v3 表的 `$position_deletes` 返回 3 条 Puffin deletion-vector 位置记录，`file_path`/`delete_file_path` 均为 `abfss://`；`test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 传统 v2 Parquet position-delete 文件仍需在兼容的远端表上验证 |
 | Equality delete | REG / TODO | `test_iceberg_equality_delete*.groovy` | 验证 schema evolution 后 equality delete 仍正确 |
-| Deletion vector / row lineage | E2E / REG | format v3 表先执行 `DELETE` 产生 DV，再执行 `UPDATE` 和 `MERGE INTO`，均正确读取并合并已有 DV；deletion-vector 和 v3 row-lineage suites | 增加多 DV、并发提交和大批量删除场景 |
-| Iceberg system tables | E2E / REG / TODO | `$snapshots`、`$refs` 可读；`$files` 在 Azure 表上因缺少 `org.apache.iceberg.azure.adlsv2.ADLSFileIO` 失败；`test_iceberg_sys_table*.groovy` | 补齐 Azure Iceberg system-table 插件依赖后验证 files、manifests、partitions |
+| Deletion vector / row lineage | E2E / REG | format v3 表先执行 `DELETE` 产生 DV，再执行 `UPDATE`、`MERGE INTO` 和 `$position_deletes` 读取，均正确处理已有 DV；deletion-vector 和 v3 row-lineage suites | 增加多 DV、并发提交和大批量删除场景 |
+| Iceberg system tables | E2E / REG / TODO | `$snapshots`、`$refs`、`$position_deletes` 可读；`$files` 在 Azure 表上因缺少 `org.apache.iceberg.azure.adlsv2.ADLSFileIO` 失败；`test_iceberg_sys_table*.groovy` | 补齐 Azure Iceberg system-table 插件依赖后验证 files、manifests、partitions |
 | `SHOW CREATE TABLE/DATABASE` | E2E / CODE / REG | `SUPPORTS_SHOW_CREATE_DDL`；当前 `SHOW CREATE TABLE` 返回 Iceberg LOCATION/PROPERTIES，未出现 OAuth token 或 SAS；`test_iceberg_show_create.groovy` | 单独验证 `SHOW CREATE DATABASE` 和敏感属性过滤 |
 | View | CODE / REG / TODO | `SUPPORTS_VIEW` | Databricks REST Catalog 是否暴露 view，需要单独确认 |
 | Metadata preload | CODE | `SUPPORTS_METADATA_PRELOAD` | 这是并发/锁延迟优化，不作为第一批功能 E2E |
@@ -65,7 +65,7 @@
 
 | 操作 | 当前状态 | 证据 |
 | --- | --- | --- |
-| `INSERT` | E2E / REG | 在 `matrix_write_20260820` 通过 `VALUES` 写入 `id=13`，再通过 `INSERT ... SELECT` 写入 `id=22`，查询均得到完整行。 |
+| `INSERT` | E2E / REG | `matrix_write_20260820` 通过 `VALUES` 写入 `id=13`、通过 `INSERT ... SELECT` 写入 `id=22`；保留的 v3 Azure 表 `matrix_dml_v3_20260820` 再写入 `(9001, 'insert_e2e_2304', 2304)`，按主键查询均得到完整行。 |
 | `INSERT OVERWRITE` | E2E / REG | 同一隔离表 overwrite 后仅保留 `id=20/21`，结果符合替换语义。 |
 | `DELETE` | E2E / REG | format v3 表删除 `id=2` 后仅剩 `id=1/3`；format v2 被远端按“delete files 需要 v3”拒绝，属于表格式前置条件。 |
 | `UPDATE` | E2E / UT / REG | 新表 UPDATE 通过；已有 DELETE DV 的 `matrix_dml_v3_20260820` 更新 `id=1` 后得到 `alice_after_fix/28`。 |
@@ -73,6 +73,8 @@
 | `rewrite_data_files` | CODE / REG / TODO | 分布式 rewrite 路径；对应 action regression 已存在。 |
 
 第一次在已有 v3 DV 上执行 `UPDATE`/`MERGE INTO` 时，BE 的 DV reader 退化为打开空 authority 的 `hdfs://`。普通 scan range 会单独携带 `fs_name`，但 sink 侧 DV helper 只能从 Hadoop 配置读取 `fs.defaultFS`；Databricks vended SAS 配置只包含 account，不包含 container，因此此前没有该键。本 PR 从实际数据位置提取 `abfss://container@account.dfs.core.windows.net` 写入 `fs.defaultFS`，新增 FE 单元测试，并用上述 DELETE -> UPDATE -> MERGE E2E 顺序验证修复。
+
+`$position_deletes` 的 native range 还需要显式携带 BE file type。此前 FE 没有把 Azure `abfss` 的 `FILE_HDFS` 传给 BE，`LocationPath` 默认按 S3 路由，导致 Puffin 文件报 `Invalid S3 URI`。现在 FE 按表位置和本次 vended token 解析 backend file type 写入每个 range；同一 Azure 表的 `$position_deletes` 已返回 3 条 DV 位置记录。
 
 本轮保留了 `matrix_write_20260820`、`matrix_dml_v3_20260820`、`matrix_update_fresh_20260820` 和 `matrix_merge_fresh_20260820` 供复查，没有修改或清理现有 `managed_iceberg`。
 
@@ -122,7 +124,7 @@ remove_orphan_files
 
 为了不污染现有 Catalog，下一轮按下面顺序执行：
 
-1. 只读：nested column、position/equality delete，以及修复 Azure 依赖后的 system tables；静态 identity partition pruning 已有 E2E 证据。
+1. 只读：position/equality delete，以及修复 Azure 依赖后的 system tables；静态/运行时 identity partition pruning 和 STRUCT/ARRAY/MAP nested pruning 已有 E2E 证据。
 2. DDL：在独立 namespace 验证 schema evolution、partition evolution、branch/tag。
 3. 写入扩展：验证分区表、多 DV、并发提交和失败重试。
 4. 管理：最后验证 `EXECUTE` 操作，并在每一步保存 snapshot/metadata 结果。
