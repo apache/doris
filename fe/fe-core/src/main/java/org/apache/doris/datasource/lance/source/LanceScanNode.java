@@ -65,6 +65,11 @@ import java.util.UUID;
  * requested snapshot-wide result.
  */
 public class LanceScanNode extends FileQueryScanNode {
+    // A metadata COUNT(*) whose result is at least this large is sharded across several
+    // whole-dataset carriers, because BE materializes one synthetic row per counted row and one
+    // carrier would serialize that O(rowCount) work on a single scanner. Matches IcebergScanNode.
+    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
+
     private LanceExternalTable lanceTable;
     private LanceTableMetadata plannedMetadata;
     private int vectorFieldId = -1;
@@ -151,6 +156,14 @@ public class LanceScanNode extends FileQueryScanNode {
         return hasLimit() && conjuncts.isEmpty();
     }
 
+    // COUNT(*)/COUNT(1) can be answered from Lance metadata only when nothing narrows the row set:
+    // no residual Doris conjunct and no predicate pushed into Lance. Any filter would make the
+    // dataset-wide logical row count larger than the real result, so this is stricter than
+    // canPushDownLimit(), which still allows predicates already pushed into Lance.
+    private boolean canPushDownCountStar() {
+        return isTableLevelCountStarPushdown() && conjuncts.isEmpty() && lanceSubstraitFilter.length == 0;
+    }
+
     @Override
     protected void convertPredicate() {
         if (isExternalSearch()) {
@@ -194,6 +207,10 @@ public class LanceScanNode extends FileQueryScanNode {
                     "Lance vector search requires a fixed positive dataset version");
         }
 
+        if (canPushDownCountStar()) {
+            return buildCountSplits(metadata, numBackends);
+        }
+
         Map<Long, LanceFragmentInfo> visibleFragments = getVisibleFragments(metadata);
         if (isExternalSearch() && shouldUseIndex()) {
             Optional<List<Split>> indexSplits = createIndexSegmentSplits(metadata, visibleFragments);
@@ -202,6 +219,36 @@ public class LanceScanNode extends FileQueryScanNode {
             }
         }
         return createFragmentSplits(metadata, visibleFragments);
+    }
+
+    // COUNT(*)/COUNT(1) with no filter is answered from Lance metadata: emit whole-dataset carriers
+    // holding the logical (post-deletion) row count so BE synthesizes that many rows instead of
+    // opening any fragment scanner. Each carrier is pinned to the planned MVCC version (not latest)
+    // so a fallback scan reads the same snapshot the count came from. BE materializes one row per
+    // counted row, so a large count is spread over parallelExecInstanceNum * numBackends carriers to
+    // keep the former fragment parallelism; a small count stays on one carrier.
+    private List<Split> buildCountSplits(LanceTableMetadata metadata, int numBackends) {
+        long rowCount = metadata.getRowCount();
+        setPushDownCount(rowCount);
+        int carrierCount = 1;
+        if (rowCount >= COUNT_WITH_PARALLEL_SPLITS) {
+            int parallelism = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                    * Math.max(numBackends, 1);
+            carrierCount = Math.max(1, parallelism);
+        }
+        List<Split> splits = new ArrayList<>(carrierCount);
+        long assigned = 0;
+        for (int i = 0; i < carrierCount; i++) {
+            // Give every carrier an even share and fold the remainder into the last one, so the
+            // per-carrier counts sum back to exactly rowCount.
+            long carriedRows = (rowCount - assigned) / (carrierCount - i);
+            assigned += carriedRows;
+            LanceSplit countSplit = LanceSplit.wholeDatasetCountAtVersion(
+                    metadata.getDatasetUri(), metadata.getVersion(), carriedRows);
+            countSplit.setTableLevelRowCount(carriedRows);
+            splits.add(countSplit);
+        }
+        return splits;
     }
 
     private Map<Long, LanceFragmentInfo> getVisibleFragments(LanceTableMetadata metadata)
@@ -369,25 +416,28 @@ public class LanceScanNode extends FileQueryScanNode {
         TLanceFileDesc lanceParams = new TLanceFileDesc();
         lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
         lanceParams.setVersion(lanceSplit.getVersion());
-        if (lanceSplit.getFragmentIds().isEmpty()) {
-            throw new IllegalArgumentException("Lance scan split must contain fragments");
-        }
-        if (!isExternalSearch() && (lanceSplit.getFragmentIds().size() != 1
-                || lanceSplit.hasIndexSegmentUuids())) {
-            throw new IllegalArgumentException(
-                    "Ordinary Lance scan split must contain one fragment and no index segment");
-        }
-        lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
-        if (lanceSplit.hasIndexSegmentUuids()) {
-            List<ByteBuffer> uuids = new ArrayList<>(lanceSplit.getIndexSegmentUuids().size());
-            for (UUID uuid : lanceSplit.getIndexSegmentUuids()) {
-                ByteBuffer uuidBytes = ByteBuffer.allocate(16);
-                uuidBytes.putLong(uuid.getMostSignificantBits());
-                uuidBytes.putLong(uuid.getLeastSignificantBits());
-                uuidBytes.flip();
-                uuids.add(uuidBytes);
+        if (lanceSplit.hasFragmentIds()) {
+            if (!isExternalSearch() && (lanceSplit.getFragmentIds().size() != 1
+                    || lanceSplit.hasIndexSegmentUuids())) {
+                throw new IllegalArgumentException(
+                        "Ordinary Lance scan split must contain one fragment and no index segment");
             }
-            lanceParams.setIndexSegmentUuids(uuids);
+            lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
+            if (lanceSplit.hasIndexSegmentUuids()) {
+                List<ByteBuffer> uuids = new ArrayList<>(lanceSplit.getIndexSegmentUuids().size());
+                for (UUID uuid : lanceSplit.getIndexSegmentUuids()) {
+                    ByteBuffer uuidBytes = ByteBuffer.allocate(16);
+                    uuidBytes.putLong(uuid.getMostSignificantBits());
+                    uuidBytes.putLong(uuid.getLeastSignificantBits());
+                    uuidBytes.flip();
+                    uuids.add(uuidBytes);
+                }
+                lanceParams.setIndexSegmentUuids(uuids);
+            }
+        } else if (lanceSplit.getTableLevelRowCount() < 0) {
+            // Only the metadata COUNT(*) split may omit fragment ids; it opens no BE scanner and
+            // BE serves the row count from table_level_row_count below, leaving fragment_ids unset.
+            throw new IllegalArgumentException("Lance scan split must contain fragments");
         }
         // Push LIMIT into each ordinary fragment scanner only when it is safe to truncate that
         // fragment early. Vector search uses its own per-split candidate bound.
@@ -397,6 +447,9 @@ public class LanceScanNode extends FileQueryScanNode {
 
         TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
         tableFormatParams.setTableFormatType(TableFormatType.LANCE.value());
+        // Match the Iceberg convention: always set explicitly, -1 for ordinary and search scans
+        // so BE never mistakes a stale value for a metadata count.
+        tableFormatParams.setTableLevelRowCount(lanceSplit.getTableLevelRowCount());
         tableFormatParams.setLanceParams(lanceParams);
         rangeDesc.setTableFormatParams(tableFormatParams);
     }
