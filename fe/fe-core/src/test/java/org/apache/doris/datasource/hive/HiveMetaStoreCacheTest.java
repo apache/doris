@@ -312,6 +312,30 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
+    public void testFileGenerationsStayMonotonicAcrossPolicyRebuild() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            cache.initCatalog(0, new HashMap<>());
+            cache.invalidateTable(0L, "db", "table");
+            long beforeRebuild = cache.getFileCacheInvalidationGeneration(0L);
+            Assertions.assertTrue(beforeRebuild >= 1L);
+
+            // A cache-policy ALTER rebuilds the cache group under the same catalog id; statement
+            // keys embed the generation, so it must never restart from zero.
+            cache.invalidateCatalog(0L);
+            cache.initCatalog(0, new HashMap<>());
+            Assertions.assertTrue(cache.getFileCacheInvalidationGeneration(0L) > beforeRebuild);
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testReplacementSizingWithAliasKeyPreservesRetainedKeyWidth() {
         // Drop/add partition events replace through an alias key whose type list is null but
         // that compares equal to the retained wide key; the estimate must keep charging the

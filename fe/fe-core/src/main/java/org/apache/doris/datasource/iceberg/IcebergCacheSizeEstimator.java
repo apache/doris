@@ -236,7 +236,38 @@ final class IcebergCacheSizeEstimator {
         if (metadata.currentSnapshot() != null) {
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, CURRENT_SNAPSHOT_WEIGHT);
         }
+        return MetaCacheWeightUtils.saturatedAdd(bytes, fileIoBytes(table));
+    }
+
+    /**
+     * The retained operations strongly own the handle's FileIO with its configuration and any
+     * vended storage credentials; those maps grow independently of table metadata, so their
+     * payload is charged per owner. A FileIO that cannot expose its configuration makes the
+     * estimate fail closed via {@code estimateSafely}.
+     */
+    private static long fileIoBytes(Table table) {
+        org.apache.iceberg.io.FileIO fileIo = table.io();
+        if (fileIo == null) {
+            return 0L;
+        }
+        long bytes = addStringMapWithEntries(0L, fileIo.properties());
+        if (fileIo instanceof org.apache.iceberg.io.SupportsStorageCredentials) {
+            for (org.apache.iceberg.io.StorageCredential credential
+                    : ((org.apache.iceberg.io.SupportsStorageCredentials) fileIo).credentials()) {
+                bytes = MetaCacheWeightUtils.saturatedAdd(bytes, METADATA_ENTRY_WEIGHT);
+                bytes = addString(bytes, credential.prefix());
+                bytes = addStringMapWithEntries(bytes, credential.config());
+            }
+        }
         return bytes;
+    }
+
+    private static long addStringMapWithEntries(long bytes, Map<String, String> values) {
+        if (values == null) {
+            return bytes;
+        }
+        bytes = addCount(bytes, values.size(), METADATA_ENTRY_WEIGHT);
+        return addStringMap(bytes, values);
     }
 
     /**
@@ -267,6 +298,9 @@ final class IcebergCacheSizeEstimator {
                     1L, sortOrder.fields().size()));
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, SORT_ORDER_WEIGHT);
             bytes = addCount(bytes, sortOrder.fields().size(), SORT_FIELD_WEIGHT);
+            for (org.apache.iceberg.SortField field : sortOrder.fields()) {
+                bytes = addTransformPayload(bytes, field.transform(), budget);
+            }
         }
         for (Schema schema : metadata.schemas()) {
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, schemaBytes(schema, budget));
@@ -340,6 +374,7 @@ final class IcebergCacheSizeEstimator {
             // The name is retained by the field and again by the partition-type name indexes.
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, MetaCacheWeightUtils.saturatedMultiply(
                     MetaCacheWeightUtils.estimatedStringBytes(field.name()), NAME_INDEX_COPIES));
+            bytes = addTransformPayload(bytes, field.transform(), budget);
         }
         // Reserve the O(distinctSources * fields) growth of the lazy fieldsBySourceId index.
         bytes = addCount(bytes,
@@ -397,6 +432,22 @@ final class IcebergCacheSizeEstimator {
             }
         }
         return bytes;
+    }
+
+    /**
+     * Unrecognized metadata transform tokens are preserved verbatim in retained
+     * UnknownTransform objects, so the transform string payload can grow independently of the
+     * field count and must be charged against the character budget.
+     */
+    private static long addTransformPayload(
+            long bytes, org.apache.iceberg.transforms.Transform<?, ?> transform,
+            AccountingBudget budget) {
+        if (transform == null) {
+            return bytes;
+        }
+        String token = String.valueOf(transform);
+        budget.chargeCharacters(token.length());
+        return addString(bytes, token);
     }
 
     private static long snapshotBytes(Snapshot snapshot, AccountingBudget budget) {

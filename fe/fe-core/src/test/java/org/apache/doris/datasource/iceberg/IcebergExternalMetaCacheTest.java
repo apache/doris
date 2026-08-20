@@ -488,6 +488,51 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testFileIoCredentialPayloadScalesWithConfiguration() {
+        // The frozen operations strongly own the handle's FileIO configuration; with fixed
+        // metadata the estimate must grow with the credential/property payload.
+        TableMetadata metadata = metadataWithLocation("/metadata/file-io-payload.json");
+        NameMapping mapping = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergTableCacheValue smallIo = new IcebergTableCacheValue(
+                tableWithMetadata(metadata, new PropertiesFileIO("token", "short")));
+        IcebergTableCacheValue largeIo = new IcebergTableCacheValue(
+                tableWithMetadata(metadata, new PropertiesFileIO(
+                        "token", repeatedCharacter('c', 64 * 1024))));
+        long smallEstimate = smallIo.prepareForCachePublication(mapping).getBytes();
+        long largeEstimate = largeIo.prepareForCachePublication(mapping).getBytes();
+        Assert.assertTrue("credential payload must be charged: small=" + smallEstimate
+                + ", large=" + largeEstimate, largeEstimate - smallEstimate >= 64 * 1024 - 16);
+    }
+
+    @Test
+    public void testUnknownTransformPayloadScalesWithTokenLength() {
+        // Unrecognized transform tokens are preserved verbatim; with a fixed field count the
+        // estimate must grow with the token length and stay inside the character budget.
+        long shortEstimate = unknownTransformEstimate(64);
+        long longEstimate = unknownTransformEstimate(64 * 1024);
+        Assert.assertTrue("transform payload must be charged: short=" + shortEstimate
+                + ", long=" + longEstimate, longEstimate - shortEstimate >= 60 * 1024);
+    }
+
+    private long unknownTransformEstimate(int tokenLength) {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        TableMetadata metadata = TableMetadata.newTableMetadata(schema,
+                PartitionSpec.builderFor(schema).identity("id").build(),
+                "file:/warehouse/db/tbl", Collections.emptyMap());
+        String token = repeatedCharacter('u', tokenLength);
+        String json = TableMetadataParser.toJson(metadata)
+                .replace("\"transform\" : \"identity\"", "\"transform\" : \"" + token + "\"")
+                .replace("\"transform\":\"identity\"", "\"transform\":\"" + token + "\"");
+        Assert.assertTrue("fixture must replace the transform token", json.contains(token));
+        TableMetadata parsed = TableMetadataParser.fromJson("/metadata/unknown-transform.json", json);
+        MetaCacheSizeEstimate estimate = new IcebergTableCacheValue(
+                new BaseTable(new StaticTableOperations(parsed, null), "db.tbl"))
+                .prepareForCachePublication(NameMapping.createForTest(1L, "db", "tbl"));
+        Assert.assertTrue(estimate.getIncompleteReason(), estimate.isComplete());
+        return estimate.getBytes();
+    }
+
+    @Test
     public void testSchemaEntryDoesNotAutoRefreshOutsideAuthenticatorScope() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
