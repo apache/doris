@@ -251,9 +251,10 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
                 "Paimon JNI writer cannot allocate native memory without QueryContext");
     }
 
-    // A query can create multiple local sink instances. Divide its budget before applying the
-    // configured cap so one writer cannot consume the entire query allowance.
-    const int64_t writer_count = std::max<int64_t>(1, state->num_local_sink());
+    // Each task in this sink pipeline owns one Paimon writer. Use the task count produced by the
+    // BE pipeline builder rather than num_local_sink, which is an FE-provided field currently set
+    // only for OLAP sinks. This also reflects any local-exchange parallelism chosen by the BE.
+    const int64_t writer_count = std::max<int64_t>(1, state->task_num());
     const int64_t query_limit = state->query_mem_tracker()->limit();
     const int64_t query_share = query_limit > 0 ? query_limit / writer_count : query_limit;
     // Paimon requests pages lazily, can flush/preempt owners inside its MemoryPoolFactory, and may
@@ -266,7 +267,7 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
     if (memory_limit <= 0) {
         return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
                 "Paimon JNI writer has insufficient memory budget: query_limit={}, "
-                "local_sink_count={}, write_buffer_limit={}",
+                "sink_pipeline_task_count={}, write_buffer_limit={}",
                 PrettyPrinter::print_bytes(query_limit), writer_count,
                 PrettyPrinter::print_bytes(memory_limit));
     }

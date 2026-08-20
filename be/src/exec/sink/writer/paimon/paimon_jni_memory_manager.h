@@ -38,9 +38,10 @@ class RuntimeState;
 /// manager alive for at least as long as the Java writer can access its
 /// callback handle.
 ///
-/// The limit is a per-writer budget derived from the query limit and local sink
-/// count. The manager accounts only for pages allocated by this callback; Java
-/// heap and other Paimon-managed memory remain under their respective runtimes.
+/// The limit is a per-writer budget derived from the query limit and the sink
+/// pipeline's task count. The manager accounts only for pages allocated by
+/// this callback; Java heap and other Paimon-managed memory remain under their
+/// respective runtimes.
 class PaimonJniMemoryManager {
 public:
     ~PaimonJniMemoryManager();

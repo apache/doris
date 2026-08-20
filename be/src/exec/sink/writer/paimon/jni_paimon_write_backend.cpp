@@ -327,7 +327,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
         _refresh_memory_profile();
         LOG(INFO) << "Paimon JNI writer memory limit: "
                   << PrettyPrinter::print_bytes(_memory_manager->memory_limit())
-                  << ", local_sink_count=" << std::max(1, state->num_local_sink());
+                  << ", sink_pipeline_task_count=" << std::max(1, state->task_num());
     }
     return st;
 }
