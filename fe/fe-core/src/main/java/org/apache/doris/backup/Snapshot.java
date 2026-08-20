@@ -22,17 +22,28 @@ import org.apache.doris.common.Pair;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 
+/**
+ * Materialized local backup snapshot for getSnapshot RPC.
+ *
+ * <p>meta/jobInfo hold the response payload (raw or already gzip-compressed).
+ * metaSize/jobInfoSize are the original on-disk sizes used by the 2GB RPC guard
+ * and logging. After construction, callers must not access the original files.
+ */
 public class Snapshot {
     @SerializedName(value = "label")
     private String label = null;
 
-    private File meta = null;
+    private byte[] meta = null;
 
-    private File jobInfo = null;
+    private byte[] jobInfo = null;
+
+    private long metaSize = 0;
+
+    private long jobInfoSize = 0;
+
+    private boolean compressed = false;
 
     @SerializedName(value = "expired_at")
     private long expiredAt = 0;
@@ -43,10 +54,14 @@ public class Snapshot {
     public Snapshot() {
     }
 
-    public Snapshot(String label, File meta, File jobInfo, long expiredAt, long commitSeq) {
+    public Snapshot(String label, byte[] meta, byte[] jobInfo, long metaSize, long jobInfoSize,
+            boolean compressed, long expiredAt, long commitSeq) {
         this.label = label;
         this.meta = meta;
         this.jobInfo = jobInfo;
+        this.metaSize = metaSize;
+        this.jobInfoSize = jobInfoSize;
+        this.compressed = compressed;
         this.expiredAt = expiredAt;
         this.commitSeq = commitSeq;
     }
@@ -68,28 +83,32 @@ public class Snapshot {
         return GZIPUtils.isGZIPCompressed(jobInfo) || GZIPUtils.isGZIPCompressed(meta);
     }
 
+    /**
+     * Original on-disk meta size, not necessarily {@code meta.length}.
+     * Used by the uncompressed 2GB RPC guard before any content is returned.
+     */
     public long getMetaSize() {
-        return meta != null ? meta.length() : 0;
+        return metaSize;
     }
 
+    /**
+     * Original on-disk job info size, not necessarily {@code jobInfo.length}.
+     * Used by the uncompressed 2GB RPC guard before any content is returned.
+     */
     public long getJobInfoSize() {
-        return jobInfo != null ? jobInfo.length() : 0;
+        return jobInfoSize;
     }
 
-    public byte[] getCompressedMeta() throws IOException {
-        return GZIPUtils.compress(meta);
+    public byte[] getMeta() {
+        return meta;
     }
 
-    public byte[] getCompressedJobInfo() throws IOException {
-        return GZIPUtils.compress(jobInfo);
+    public byte[] getJobInfo() {
+        return jobInfo;
     }
 
-    public byte[] getMeta() throws IOException {
-        return Files.readAllBytes(meta.toPath());
-    }
-
-    public byte[] getJobInfo() throws IOException {
-        return Files.readAllBytes(jobInfo.toPath());
+    public boolean isCompressed() {
+        return compressed;
     }
 
     public long getExpiredAt() {
@@ -97,7 +116,7 @@ public class Snapshot {
     }
 
     public boolean isExpired() {
-        return System.currentTimeMillis() > expiredAt;
+        return System.currentTimeMillis() >= expiredAt;
     }
 
     public long getCommitSeq() {
@@ -108,6 +127,9 @@ public class Snapshot {
     public String toString() {
         return "Snapshot{"
                 + "label='" + label + '\''
+                + ", metaSize=" + metaSize
+                + ", jobInfoSize=" + jobInfoSize
+                + ", compressed=" + compressed
                 + ", expiredAt=" + expiredAt
                 + ", commitSeq=" + commitSeq
                 + '}';
