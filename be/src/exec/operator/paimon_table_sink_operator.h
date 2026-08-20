@@ -37,6 +37,10 @@ namespace doris {
 /// Paimon writes are synchronous: sink_impl() returns only after the SDK has
 /// consumed the input Block. The LocalState is therefore always blockable so
 /// that open, write, and close run on the pipeline blocking scheduler.
+/// Doris-owned Arrow buffers remain under the query MemTracker, while Paimon
+/// pages are allocated lazily under DorisMemorySegmentPool's fixed cap. The
+/// sink uses the generic pipeline minimum reservation only as an admission
+/// guard; it does not try to predict Paimon's future page demand.
 ///
 /// The upstream sink Exchange may reproduce Paimon's stateless HASH_FIXED
 /// selector to establish unique writer ownership. The writer still passes
@@ -86,12 +90,6 @@ public:
     }
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
-
-    // Arrow C Data exposes Doris-owned RecordBatch buffers to Java without another batch body.
-    // Those buffers are already covered by the query MemTracker, while Paimon pages are allocated
-    // lazily under the DorisMemorySegmentPool cap and may outlive this call. A generic whole-sink
-    // reservation cannot predict the latter and would only double-account the former.
-    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState*, bool) override { return 0; }
 
 private:
     friend class PaimonTableSinkLocalState;

@@ -32,6 +32,8 @@ public class PaimonJniWriterTest {
                 IllegalArgumentException.class,
                 () -> new DorisMemorySegmentPool(32 * 1024, 64 * 1024, 1L));
         Assertions.assertTrue(exception.getMessage().contains("at least one page"));
+        Assertions.assertDoesNotThrow(
+                () -> new DorisMemorySegmentPool(64 * 1024, 64 * 1024, 1L));
     }
 
     @Test

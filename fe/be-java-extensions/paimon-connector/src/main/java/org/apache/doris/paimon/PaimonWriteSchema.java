@@ -20,7 +20,6 @@ package org.apache.doris.paimon;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.types.DataField;
-import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowKind;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TinyIntType;
@@ -52,12 +51,14 @@ final class PaimonWriteSchema {
     private final Object[] omittedDefaultValues;
     private final int tableFieldCount;
 
-    private PaimonWriteSchema(DataType[] targetTypes, int[] tableFieldIndexes,
-            int[] omittedDefaultFieldIndexes, Object[] omittedDefaultValues, int tableFieldCount,
-            RowType inputType) {
-        this.fieldGetters = new InternalRow.FieldGetter[targetTypes.length];
-        for (int i = 0; i < targetTypes.length; i++) {
-            this.fieldGetters[i] = InternalRow.createFieldGetter(targetTypes[i], i);
+    private PaimonWriteSchema(int[] tableFieldIndexes, int[] omittedDefaultFieldIndexes,
+            Object[] omittedDefaultValues, int tableFieldCount, RowType inputType) {
+        this.fieldGetters = new InternalRow.FieldGetter[inputType.getFieldCount()];
+        for (int i = 0; i < fieldGetters.length; i++) {
+            // Getters describe the transport row, not the target table. Transport fields are
+            // nullable so an invalid Doris NULL survives projection and reaches Paimon's
+            // authoritative table-schema validation.
+            this.fieldGetters[i] = InternalRow.createFieldGetter(inputType.getTypeAt(i), i);
         }
         this.inputType = inputType;
         this.tableFieldIndexes = tableFieldIndexes;
@@ -86,7 +87,6 @@ final class PaimonWriteSchema {
                     "PaimonJniWriter requires explicit column names");
         }
 
-        DataType[] targetTypes = new DataType[columnNames.length];
         int[] tableFieldIndexes = new int[columnNames.length];
         List<DataField> inputFields = new ArrayList<>(columnNames.length);
         boolean[] specifiedFields = new boolean[tableType.getFieldCount()];
@@ -96,10 +96,9 @@ final class PaimonWriteSchema {
                     throw new IllegalArgumentException(
                             "Paimon changelog write requires row kind as the first column");
                 }
-                targetTypes[i] = new TinyIntType(false);
                 tableFieldIndexes[i] = -1;
                 inputFields.add(new DataField(
-                        Integer.MIN_VALUE, ROW_KIND_COLUMN, targetTypes[i]));
+                        Integer.MIN_VALUE, ROW_KIND_COLUMN, new TinyIntType(true)));
                 continue;
             }
             int tableIndex = tableType.getFieldIndex(columnNames[i]);
@@ -113,9 +112,12 @@ final class PaimonWriteSchema {
             }
             specifiedFields[tableIndex] = true;
             DataField field = tableType.getFields().get(tableIndex);
-            targetTypes[i] = field.type();
             tableFieldIndexes[i] = tableIndex;
-            inputFields.add(field);
+            // Input nullability is independent from the target table constraint. Doris can still
+            // produce an explicit NULL for a NOT NULL target; carrying it through Arrow lets the
+            // Paimon writer return its normal constraint diagnostic instead of reading a default
+            // primitive value from a non-null getter.
+            inputFields.add(field.newType(field.type().nullable()));
         }
 
         int[] omittedDefaultFieldIndexes = new int[tableType.getFieldCount()];
@@ -133,7 +135,6 @@ final class PaimonWriteSchema {
         }
 
         return new PaimonWriteSchema(
-                targetTypes,
                 tableFieldIndexes,
                 Arrays.copyOf(omittedDefaultFieldIndexes, omittedDefaultCount),
                 Arrays.copyOf(omittedDefaultValues, omittedDefaultCount),

@@ -75,8 +75,6 @@ public:
     Status close(Status status);
 
 private:
-    Status _projection_block(Block& input_block, Block* output_block);
-
     TDataSink _t_sink;
     const VExprContextSPtrs& _output_expr_ctxs;
     RuntimeState* _state = nullptr;

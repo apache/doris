@@ -175,6 +175,21 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
+    public void testExplicitNullForRequiredFieldReachesWriterValidation() {
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "payload", DataTypes.VARIANT().notNull())));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(
+                tableType, new String[] {"id", "payload"});
+
+        Assertions.assertTrue(schema.inputType().getTypeAt(1).isNullable());
+        InternalRow tableRow = tableRow(schema, 9, null);
+
+        Assertions.assertEquals(9, tableRow.getInt(0));
+        Assertions.assertTrue(tableRow.isNullAt(1));
+    }
+
+    @Test
     public void testPaimonWriterDefaultsExplicitNullRouteFields() {
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "bucket_key", new IntType(), null, "1"),

@@ -20,8 +20,6 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <jni.h>
 
-#include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -97,17 +95,13 @@ private:
 class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
-                    jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    std::shared_ptr<arrow::Schema> arrow_schema);
+                    jmethodID abort_id, std::shared_ptr<arrow::Schema> arrow_schema);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
     Status abort() override;
 
 private:
-    /// Convert Block to an Arrow RecordBatch, then pass it to Java through Arrow C Data.
-    Status _write_projected_block(RuntimeState* state, Block& block);
-
     // Shared JNI state (owned by JniPaimonWriteBackend, not this adapter).
     jobject _jni_writer_obj;
     jmethodID _write_id;
@@ -115,7 +109,7 @@ private:
     jmethodID _abort_id;
 
     // Arrow resources owned by this writer adapter.
-    std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
+    ArrowMemoryPool<> _arrow_pool;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 

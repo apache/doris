@@ -49,7 +49,7 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.time.ZoneId;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -242,20 +242,43 @@ public class PaimonArrowBatchAdapterTest {
     }
 
     @Test
-    public void testUnexpectedArrowSchemaIsRejectedBeforeRowsAreWritten() throws Exception {
+    public void testRequiredVariantKeepsInputValidityForSdkValidation() throws Exception {
+        RowType tableType = DataTypes.ROW(
+                DataTypes.FIELD(0, "payload", DataTypes.VARIANT().notNull()));
+        PaimonWriteSchema writeSchema = PaimonWriteSchema.create(
+                tableType, new String[] {"payload"});
+
+        try (RootAllocator allocator = new RootAllocator()) {
+            PaimonArrowBatchAdapter adapter = new PaimonArrowBatchAdapter(
+                    writeSchema.inputType(), ZoneId.of("UTC"), allocator);
+            try (ArrowStreamReader reader = schemaReader(adapter, allocator)) {
+                VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                Assertions.assertTrue(root.getSchema().findField("payload").isNullable());
+                root.allocateNew();
+                ((StructVector) root.getVector("payload")).setNull(0);
+                root.setRowCount(1);
+                Assertions.assertTrue(adapter.rows(root).row(0).isNullAt(0));
+            }
+        }
+    }
+
+    @Test
+    public void testUnexpectedArrowColumnCountIsRejectedBeforeRowsAreWritten() throws Exception {
         RowType inputType = DataTypes.ROW(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
         Field legacyVariant = new Field(
                 "payload", FieldType.nullable(new ArrowType.Utf8()), null);
+        Field unexpected = new Field(
+                "unexpected", FieldType.nullable(new ArrowType.Utf8()), null);
 
         try (RootAllocator allocator = new RootAllocator();
                 VectorSchemaRoot root = VectorSchemaRoot.create(
-                        new Schema(Collections.singletonList(legacyVariant)), allocator)) {
+                        new Schema(Arrays.asList(legacyVariant, unexpected)), allocator)) {
             PaimonArrowBatchAdapter adapter = new PaimonArrowBatchAdapter(
                     inputType, ZoneId.of("UTC"), allocator);
             IllegalArgumentException exception = Assertions.assertThrows(
                     IllegalArgumentException.class, () -> adapter.rows(root));
-            Assertions.assertTrue(exception.getMessage().contains("schema mismatch"));
+            Assertions.assertTrue(exception.getMessage().contains("column count mismatch"));
         }
     }
 

@@ -163,7 +163,6 @@ private:
             for (const auto& [address, bytes] : allocations) {
                 _allocator.free(address, bytes);
             }
-            std::vector<std::pair<void*, size_t>>().swap(allocations);
         });
     }
 

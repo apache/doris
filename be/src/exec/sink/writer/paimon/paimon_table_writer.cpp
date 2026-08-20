@@ -31,13 +31,6 @@ PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& 
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
 
-Status PaimonTableWriter::_projection_block(Block& input_block, Block* output_block) {
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_expr_ctxs,
-                                                                       input_block, output_block));
-    materialize_block_inplace(*output_block);
-    return Status::OK();
-}
-
 Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
@@ -80,7 +73,9 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     Block output_block;
     {
         SCOPED_TIMER(_project_timer);
-        RETURN_IF_ERROR(_projection_block(block, &output_block));
+        RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_expr_ctxs, block,
+                                                                           &output_block));
+        materialize_block_inplace(output_block);
     }
 
     COUNTER_UPDATE(_written_rows_counter, block.rows());

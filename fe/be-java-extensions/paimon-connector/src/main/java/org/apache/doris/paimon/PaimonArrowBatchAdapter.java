@@ -25,7 +25,6 @@ import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.FieldType;
-import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.paimon.arrow.ArrowFieldTypeConversion;
 import org.apache.paimon.arrow.ArrowUtils;
 import org.apache.paimon.arrow.converter.Arrow2PaimonVectorConverter;
@@ -53,7 +52,6 @@ final class PaimonArrowBatchAdapter {
 
     private final RowType inputType;
     private final Arrow2PaimonVectorConverter[] vectorAdapters;
-    private final Schema arrowSchema;
     private final byte[] serializedArrowSchema;
 
     PaimonArrowBatchAdapter(RowType inputType, ZoneId sessionTimeZone, BufferAllocator allocator)
@@ -69,7 +67,6 @@ final class PaimonArrowBatchAdapter {
                      inputType, allocator, true, new WriteFieldVisitor(sessionTimeZone));
                 ByteArrayOutputStream output = new ByteArrayOutputStream();
                 ArrowStreamWriter writer = new ArrowStreamWriter(root, null, output)) {
-            this.arrowSchema = root.getSchema();
             writer.start();
             writer.end();
             this.serializedArrowSchema = output.toByteArray();
@@ -81,13 +78,13 @@ final class PaimonArrowBatchAdapter {
     }
 
     Rows rows(VectorSchemaRoot root) {
-        if (!arrowSchema.equals(root.getSchema())) {
+        List<FieldVector> fieldVectors = root.getFieldVectors();
+        if (fieldVectors.size() != vectorAdapters.length) {
             throw new IllegalArgumentException(
-                    "Paimon Arrow schema mismatch: expected " + arrowSchema
-                            + ", actual " + root.getSchema());
+                    "Paimon Arrow column count mismatch: expected " + vectorAdapters.length
+                            + ", actual " + fieldVectors.size());
         }
 
-        List<FieldVector> fieldVectors = root.getFieldVectors();
         ColumnVector[] columns = new ColumnVector[fieldVectors.size()];
         for (int i = 0; i < columns.length; i++) {
             try {

@@ -143,17 +143,17 @@ public class PaimonJniWriter {
      * @param changelogWrite whether the first input column contains a row change operation
      * @param timeZone       normalized Doris session timezone used for Paimon LTZ values
      * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
-     * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
+     * @param nativePageMemoryLimitBytes maximum Doris-managed Paimon page memory
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
                      boolean overwrite, boolean changelogWrite, String timeZone, String spillDirectories,
-                     long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
+                     long nativePageMemoryLimitBytes, long nativeMemoryManager) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            if (memoryPoolLimitBytes <= 0) {
+            if (nativePageMemoryLimitBytes <= 0) {
                 throw new IllegalArgumentException(
-                        "PaimonJniWriter requires a positive memory pool limit");
+                        "PaimonJniWriter requires a positive native page memory limit");
             }
             if (nativeMemoryManager == 0) {
                 throw new IllegalArgumentException(
@@ -187,7 +187,7 @@ public class PaimonJniWriter {
                             overwrite,
                             spillDirectories,
                             coreOptions,
-                            memoryPoolLimitBytes,
+                            nativePageMemoryLimitBytes,
                             nativeMemoryManager);
                     return null;
                 } catch (Throwable t) {
@@ -214,8 +214,8 @@ public class PaimonJniWriter {
      * Import and synchronously consume one C++ Arrow RecordBatch through the C Data Interface.
      *
      * <p>The native structs are valid only for this call. Import transfers the ArrowArray release
-     * callback into the Java vectors, so closing the root releases the exported C++ buffers after
-     * Paimon has consumed every row. ArrowSchema remains owned and released by the C++ caller.
+     * callbacks into Java. Closing the imported root releases the exported C++ buffers after Paimon
+     * has consumed every row; the native caller releases only callbacks left by a partial import.
      */
     public void writeArrow(long arrayAddress, long schemaAddress) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
@@ -310,14 +310,14 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void openFileStoreWriter(FileStoreTable table, String commitUser, boolean overwrite,
-            String spillDirectories, CoreOptions coreOptions, long memoryPoolLimitBytes,
+            String spillDirectories, CoreOptions coreOptions, long nativePageMemoryLimitBytes,
             long nativeMemoryManager) throws Exception {
         writer = table.newWrite(commitUser);
         if (overwrite) {
             writer.withIgnorePreviousFiles(true);
         }
         openMemoryResources(
-                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager);
+                coreOptions, spillDirectories, nativePageMemoryLimitBytes, nativeMemoryManager);
         openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
@@ -338,10 +338,11 @@ public class PaimonJniWriter {
     private void openMemoryResources(
             CoreOptions coreOptions,
             String spillDirectories,
-            long memoryPoolLimitBytes,
+            long nativePageMemoryLimitBytes,
             long nativeMemoryManager) throws Exception {
         int pageSize = coreOptions.pageSize();
-        long effectivePoolLimit = Math.min(coreOptions.writeBufferSize(), memoryPoolLimitBytes);
+        long effectivePoolLimit =
+                Math.min(coreOptions.writeBufferSize(), nativePageMemoryLimitBytes);
         DorisMemorySegmentPool memorySegmentPool =
                 new DorisMemorySegmentPool(effectivePoolLimit, pageSize, nativeMemoryManager);
         MemoryPoolFactory memoryPoolFactory = new MemoryPoolFactory(memorySegmentPool);

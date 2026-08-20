@@ -24,7 +24,6 @@
 #include <arrow/record_batch.h>
 
 #include <algorithm>
-#include <atomic>
 #include <map>
 #include <mutex>
 #include <string_view>
@@ -46,11 +45,6 @@ namespace doris {
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
 
-std::atomic<bool>& paimon_jni_close_failed() {
-    static auto* failed = new std::atomic<bool>(false);
-    return *failed;
-}
-
 std::mutex& retained_memory_managers_mutex() {
     static auto* mutex = new std::mutex();
     return *mutex;
@@ -62,7 +56,6 @@ std::vector<std::unique_ptr<PaimonJniMemoryManager>>& retained_memory_managers()
 }
 
 void retain_memory_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> manager) {
-    paimon_jni_close_failed().store(true, std::memory_order_release);
     if (manager == nullptr) {
         return;
     }
@@ -149,10 +142,9 @@ Status JniPaimonWriteBackend::close() {
                     << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
                     << PrettyPrinter::print_bytes(_memory_manager->native_peak_allocated_bytes());
         }
-        // Paimon may still have asynchronous flush or compaction tasks using
-        // MemorySegments backed by these pages. Retain ownership until process
-        // exit and reject new writers below. Retention is therefore limited to
-        // writers which were already open when the first close failure occurred.
+        // Paimon may still have asynchronous flush or compaction tasks using MemorySegments backed
+        // by these pages. Retain this failed writer's ownership until process exit to prevent UAF,
+        // but keep unrelated Paimon writers available on this BE.
         retain_memory_after_failed_close(std::move(_memory_manager));
     }
     _arrow_schema.reset();
@@ -244,11 +236,6 @@ static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID ge
 
 Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
-    if (paimon_jni_close_failed().load(std::memory_order_acquire)) {
-        return Status::InternalError(
-                "Paimon JNI writes are disabled on this BE because a previous Java writer close "
-                "failed; restart the BE to reclaim retained native memory safely");
-    }
     _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
@@ -352,23 +339,20 @@ Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-f
     DORIS_CHECK(_opened);
     DORIS_CHECK(_arrow_schema != nullptr);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
-                                                _abort_id, std::make_unique<ArrowMemoryPool<>>(),
-                                                _arrow_schema);
+                                                _abort_id, _arrow_schema);
     return Status::OK();
 }
 
 JniPaimonWriter::JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id,
                                  jmethodID prepare_commit_id, jmethodID abort_id,
-                                 std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
                                  std::shared_ptr<arrow::Schema> arrow_schema)
         : _jni_writer_obj(jni_writer_obj),
           _write_id(write_id),
           _prepare_commit_id(prepare_commit_id),
           _abort_id(abort_id),
-          _arrow_pool(std::move(arrow_pool)),
           _arrow_schema(std::move(arrow_schema)) {}
 
-Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block) {
+Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -378,16 +362,13 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
                 "Paimon Arrow schema column count does not match Doris Block: schema={}, block={}",
                 _arrow_schema == nullptr ? 0 : _arrow_schema->num_fields(), block.columns());
     }
-    for (size_t i = 0; i < block.columns(); ++i) {
-        block.get_by_position(i).name = _arrow_schema->field(static_cast<int>(i))->name();
-    }
 
     // The schema comes from the pinned Paimon table, so timestamp timezone, nested nullability and
     // Variant layout are fixed before the first write. Arrow builders remain on the Doris side and
     // are charged to the current query's MemTracker through ArrowMemoryPool.
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, _arrow_pool.get(), &record_batch,
-                                           state->timezone_obj(), 0, block.rows()));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, &_arrow_pool, &record_batch,
+                                           state->timezone_obj()));
 
     ArrowArray c_array {};
     ArrowSchema c_schema {};
@@ -396,8 +377,9 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
         return Status::InternalError("Failed to export Paimon Arrow RecordBatch: {}",
                                      arrow_status.ToString());
     }
-    // Java consumes ArrowArray ownership on a successful import. On every exit, release whichever
-    // struct still retains its callback: this handles JNI/import failures without double release.
+    // Java consumes both C Data release callbacks on a successful import. On every exit, release
+    // whichever struct still retains its callback; this covers partial imports and JNI failures
+    // without double release.
     Defer release_c_data {[&] {
         if (c_array.release != nullptr) {
             c_array.release(&c_array);
@@ -406,7 +388,6 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
             c_schema.release(&c_schema);
         }
     }};
-
     // writeArrow is synchronous and this operator runs on the blocking scheduler. The exported
     // RecordBatch therefore stays alive until Paimon has consumed all rows; Java never owns an IPC
     // copy, and any synchronous SDK flush or memory wait occupies only a blocking-scheduler worker.
@@ -416,10 +397,6 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
                         reinterpret_cast<jlong>(&c_schema));
     return Jni::Env::GetJniExceptionMsg(env, false,
                                         "JNI exception in JniPaimonWriter::writeArrow: ");
-}
-
-Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
-    return _write_projected_block(state, block);
 }
 
 Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messages) {
