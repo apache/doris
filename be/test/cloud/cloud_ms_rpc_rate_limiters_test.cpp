@@ -111,9 +111,22 @@ TEST_F(HostLevelMSRpcRateLimitersTest, DryRunObservesWithoutThrottling) {
         auto limiter = limiters._limiters[idx].load();
         ASSERT_NE(limiter, nullptr);
         EXPECT_EQ(limiter->latency_recorder->count(), 4);
-        EXPECT_GT(limiter->dry_run_limiter->add(1).sleep_duration, 0);
         EXPECT_LT(elapsed, std::chrono::seconds(2));
     }
+}
+
+TEST_F(HostLevelMSRpcRateLimitersTest, DryRunReservationIsSharedWithEnforcement) {
+    config::enable_ms_rpc_host_level_rate_limit = false;
+    config::enable_ms_rpc_host_level_rate_limit_dry_run = true;
+    HostLevelMSRpcRateLimiters limiters(10);
+
+    for (int i = 0; i < 11; ++i) {
+        EXPECT_EQ(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+    }
+
+    config::enable_ms_rpc_host_level_rate_limit = true;
+    config::enable_ms_rpc_host_level_rate_limit_dry_run = false;
+    EXPECT_GT(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
 }
 
 TEST_F(HostLevelMSRpcRateLimitersTest, RateLimitLogIsRateLimitedPerRpc) {

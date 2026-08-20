@@ -137,6 +137,7 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
                     .rpc_type = rpc_type,
                     .table_id = table_id,
                     .qps_limit = old_limit,
+                    .reset_reservation = true,
             };
 
             actions.push_back(action);

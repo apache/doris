@@ -76,6 +76,7 @@ TEST_F(RpcThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
     auto a1 = sm.on_upgrade({{LoadRelatedRpc::COMMIT_ROWSET, 100, 80.0}});
     ASSERT_EQ(a1.size(), 1);
     EXPECT_DOUBLE_EQ(a1[0].qps_limit, 40.0); // 80 * 0.5
+    EXPECT_FALSE(a1[0].reset_reservation);
 
     // Second upgrade, same table, current limit is 40
     auto a2 = sm.on_upgrade({{LoadRelatedRpc::COMMIT_ROWSET, 100, 40.0}});
@@ -89,6 +90,7 @@ TEST_F(RpcThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
     ASSERT_EQ(d1.size(), 1);
     EXPECT_EQ(d1[0].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_DOUBLE_EQ(d1[0].qps_limit, 40.0);
+    EXPECT_TRUE(d1[0].reset_reservation);
 
     // Second downgrade: undo first upgrade, remove limit
     auto d2 = sm.on_downgrade();

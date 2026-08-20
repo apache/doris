@@ -75,25 +75,6 @@ static int get_rpc_qps_from_config(MetaServiceRPC rpc) {
     return std::max(1, qps_per_core * num_cores);
 }
 
-DryRunTokenBucketRateLimiter::DryRunTokenBucketRateLimiter(int qps) {
-    reset(qps);
-}
-
-TokenBucketRateLimiterResult DryRunTokenBucketRateLimiter::add(size_t amount) {
-    auto limiter = _limiter.load();
-    DCHECK(limiter);
-    return {
-            .sleep_duration = limiter->reserve(amount),
-            .max_speed = limiter->get_max_speed(),
-            .max_burst = limiter->get_max_burst(),
-            .limit = limiter->get_limit(),
-    };
-}
-
-void DryRunTokenBucketRateLimiter::reset(int qps) {
-    _limiter.store(std::make_shared<TokenBucketRateLimiter>(qps, qps, 0));
-}
-
 RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
     latency_recorder = std::make_unique<bvar::LatencyRecorder>("host_level_ms_rpc_rate_limit_sleep",
                                                                std::string(op_name));
@@ -104,15 +85,6 @@ RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
                     *latency_recorder << (sleep_ns / 1000);
                 }
             });
-    dry_run_limiter = std::make_unique<DryRunTokenBucketRateLimiter>(qps);
-}
-
-TokenBucketRateLimiterResult RpcRateLimiter::add_dry_run(size_t amount) {
-    auto result = dry_run_limiter->add(amount);
-    if (result.sleep_duration > 0) {
-        *latency_recorder << (result.sleep_duration / 1000);
-    }
-    return result;
 }
 
 bool RpcRateLimiter::should_log(int64_t now_us) {
@@ -124,7 +96,6 @@ bool RpcRateLimiter::should_log(int64_t now_us) {
 
 void RpcRateLimiter::reset(int qps) {
     limiter->reset(qps, qps, 0);
-    dry_run_limiter->reset(qps);
 }
 
 HostLevelMSRpcRateLimiters::HostLevelMSRpcRateLimiters() {
@@ -193,7 +164,7 @@ int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
         return result.sleep_duration;
     }
 
-    auto result = limiter->add_dry_run(1);
+    auto result = limiter->limiter->reserve_with_config(1);
     if (result.sleep_duration > 0 && limiter->should_log(MonotonicMicros())) {
         LOG(INFO) << "[ms-throttle] host-level rate limiter dry run would throttle MS RPC request"
                   << ", rpc=" << meta_service_rpc_display_name(rpc)

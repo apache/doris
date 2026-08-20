@@ -58,6 +58,8 @@ struct RpcThrottleAction {
     LoadRelatedRpc rpc_type;
     int64_t table_id;
     double qps_limit {0}; // only meaningful for SET_LIMIT
+    // Discard queued reservations when applying a downgraded SET_LIMIT action.
+    bool reset_reservation {false};
 };
 
 // ============== ThrottleStateMachine ==============

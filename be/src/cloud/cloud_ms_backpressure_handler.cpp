@@ -89,12 +89,15 @@ StrictQpsLimiter::Clock::time_point StrictQpsLimiter::reserve() {
     return result;
 }
 
-void StrictQpsLimiter::update_qps(double new_qps) {
+void StrictQpsLimiter::update_qps(double new_qps, bool reset_reservation) {
     if (new_qps <= 0) {
         new_qps = 1.0;
     }
     std::lock_guard lock(_mtx);
     _interval_ns = static_cast<int64_t>(1e9 / new_qps);
+    if (reset_reservation) {
+        _next_allowed_time = Clock::now();
+    }
 }
 
 double StrictQpsLimiter::get_qps() const {
@@ -235,15 +238,6 @@ void TableRpcQpsRegistry::cleanup_inactive_tables() {
 
 // ============== TableRpcThrottler ==============
 
-struct TableRpcThrottler::Limiters {
-    explicit Limiters(double qps) : limiter(qps), dry_run_limiter(qps) {}
-
-    StrictQpsLimiter limiter;
-    StrictQpsLimiter dry_run_limiter;
-};
-
-TableRpcThrottler::~TableRpcThrottler() = default;
-
 TableRpcThrottler::TableRpcThrottler() {
     for (auto& next_log_time_us : _next_log_time_us) {
         next_log_time_us.store(0, std::memory_order_relaxed);
@@ -269,10 +263,9 @@ TableRpcThrottleDecision TableRpcThrottler::throttle(LoadRelatedRpc rpc_type, in
     if (it == _limiters.end()) {
         return {.wait_until = std::chrono::steady_clock::now(), .dry_run = dry_run};
     }
-    auto& limiter = dry_run ? it->second->dry_run_limiter : it->second->limiter;
     return {
-            .wait_until = limiter.reserve(),
-            .qps_limit = limiter.get_qps(),
+            .wait_until = it->second->reserve(),
+            .qps_limit = it->second->get_qps(),
             .dry_run = dry_run,
     };
 }
@@ -287,7 +280,8 @@ bool TableRpcThrottler::should_log(LoadRelatedRpc rpc_type, int64_t now_us) {
                                                     std::memory_order_relaxed);
 }
 
-void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit) {
+void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit,
+                                      bool reset_reservation) {
     if (qps_limit <= 0) {
         return;
     }
@@ -296,10 +290,9 @@ void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id,
     auto key = std::make_pair(rpc_type, table_id);
     auto it = _limiters.find(key);
     if (it != _limiters.end()) {
-        it->second->limiter.update_qps(qps_limit);
-        it->second->dry_run_limiter.update_qps(qps_limit);
+        it->second->update_qps(qps_limit, reset_reservation);
     } else {
-        _limiters[key] = std::make_unique<Limiters>(qps_limit);
+        _limiters[key] = std::make_unique<StrictQpsLimiter>(qps_limit);
         // Update bvar count
         size_t idx = static_cast<size_t>(rpc_type);
         if (idx < static_cast<size_t>(LoadRelatedRpc::COUNT)) {
@@ -344,7 +337,7 @@ double TableRpcThrottler::get_qps_limit(LoadRelatedRpc rpc_type, int64_t table_i
     std::shared_lock lock(_mutex);
     auto it = _limiters.find({rpc_type, table_id});
     if (it != _limiters.end()) {
-        return it->second->limiter.get_qps();
+        return it->second->get_qps();
     }
     return 0;
 }
@@ -367,7 +360,7 @@ std::vector<TableRpcThrottler::ThrottleEntry> TableRpcThrottler::get_all_throttl
     std::vector<ThrottleEntry> entries;
     entries.reserve(_limiters.size());
     for (const auto& [key, limiter] : _limiters) {
-        entries.push_back({key.first, key.second, limiter->limiter.get_qps()});
+        entries.push_back({key.first, key.second, limiter->get_qps()});
     }
     return entries;
 }
@@ -538,7 +531,8 @@ void MSBackpressureHandler::_apply_actions(const std::vector<RpcThrottleAction>&
     for (const auto& action : actions) {
         switch (action.type) {
         case RpcThrottleAction::Type::SET_LIMIT:
-            _throttler->set_qps_limit(action.rpc_type, action.table_id, action.qps_limit);
+            _throttler->set_qps_limit(action.rpc_type, action.table_id, action.qps_limit,
+                                      action.reset_reservation);
             break;
         case RpcThrottleAction::Type::REMOVE_LIMIT:
             _throttler->remove_qps_limit(action.rpc_type, action.table_id);

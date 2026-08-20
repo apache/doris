@@ -159,15 +159,25 @@ int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
 }
 
 TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::add_with_config(size_t amount) {
-    // Snapshot the current limiter and call add() outside the read lock: add() may
-    // sleep for a long time when throttled, and holding the read lock across the
-    // sleep would block reset() (dynamic config update) for the whole duration.
+    return _consume_with_config(amount, true);
+}
+
+TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::reserve_with_config(size_t amount) {
+    return _consume_with_config(amount, false);
+}
+
+TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::_consume_with_config(size_t amount,
+                                                                                bool wait) {
+    // Snapshot the current limiter and consume outside the read lock. The waiting
+    // path may sleep for a long time when throttled, and holding the read lock across
+    // the sleep would block reset() (dynamic config update) for the whole duration.
     std::shared_ptr<TokenBucketRateLimiter> limiter;
     {
         std::shared_lock read {rate_limiter_rw_lock};
         limiter = rate_limiter;
     }
-    TokenBucketRateLimiterResult result = {.sleep_duration = limiter->add(amount),
+    TokenBucketRateLimiterResult result = {.sleep_duration = wait ? limiter->add(amount)
+                                                                  : limiter->reserve(amount),
                                            .max_speed = limiter->get_max_speed(),
                                            .max_burst = limiter->get_max_burst(),
                                            .limit = limiter->get_limit()};

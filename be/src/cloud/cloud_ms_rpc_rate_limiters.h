@@ -72,27 +72,13 @@ enum class MetaServiceRPC : size_t {
 // Get the display name for a MetaServiceRPC enum value
 std::string_view meta_service_rpc_display_name(MetaServiceRPC rpc);
 
-// Token bucket used only to observe would-throttle decisions without delaying RPCs.
-class DryRunTokenBucketRateLimiter {
-public:
-    explicit DryRunTokenBucketRateLimiter(int qps);
-
-    TokenBucketRateLimiterResult add(size_t amount);
-    void reset(int qps);
-
-private:
-    doris::atomic_shared_ptr<TokenBucketRateLimiter> _limiter;
-};
-
 // Rate limiter with associated metrics for a single RPC method
 struct RpcRateLimiter {
     std::unique_ptr<TokenBucketRateLimiterHolder> limiter;
-    std::unique_ptr<DryRunTokenBucketRateLimiter> dry_run_limiter;
     std::unique_ptr<bvar::LatencyRecorder> latency_recorder;
 
     RpcRateLimiter(int qps, std::string_view op_name);
 
-    TokenBucketRateLimiterResult add_dry_run(size_t amount);
     // Each RPC type owns one RpcRateLimiter, so log suppression is independent per RPC type.
     bool should_log(int64_t now_us);
 

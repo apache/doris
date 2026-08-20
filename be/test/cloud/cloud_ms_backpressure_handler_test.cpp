@@ -59,6 +59,28 @@ TEST_F(StrictQpsLimiterTest, UpdateQps) {
     EXPECT_DOUBLE_EQ(limiter.get_qps(), 100.0);
 }
 
+TEST_F(StrictQpsLimiterTest, UpdateQpsCanResetReservations) {
+    StrictQpsLimiter limiter(1.0);
+
+    limiter.reserve();
+    auto queued = limiter.reserve();
+    EXPECT_GT(queued, std::chrono::steady_clock::now());
+
+    limiter.update_qps(2.0, true);
+    auto now = std::chrono::steady_clock::now();
+    auto first_after_reset = limiter.reserve();
+    auto reset_delay_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(first_after_reset - now).count();
+    EXPECT_LE(reset_delay_ms, 10);
+
+    auto second_after_reset = limiter.reserve();
+    auto interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(second_after_reset -
+                                                                             first_after_reset)
+                               .count();
+    EXPECT_GE(interval_ms, 490);
+    EXPECT_LE(interval_ms, 510);
+}
+
 TEST_F(StrictQpsLimiterTest, ZeroQpsDefaultsToOne) {
     StrictQpsLimiter limiter(0.0);
     EXPECT_DOUBLE_EQ(limiter.get_qps(), 1.0);
@@ -325,7 +347,7 @@ TEST_F(TableRpcThrottlerTest, ThrottleWithLimit) {
     EXPECT_LE(diff_ms, 1100);
 }
 
-TEST_F(TableRpcThrottlerTest, DryRunReservationIsIndependentFromActualLimiter) {
+TEST_F(TableRpcThrottlerTest, DryRunReservationIsSharedWithActualLimiter) {
     TableRpcThrottler throttler;
     throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, 1.0);
 
@@ -337,19 +359,29 @@ TEST_F(TableRpcThrottlerTest, DryRunReservationIsIndependentFromActualLimiter) {
     EXPECT_GE(dry_run_diff_ms, 900);
     EXPECT_LE(dry_run_diff_ms, 1100);
 
-    auto now = std::chrono::steady_clock::now();
     auto actual_t1 = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, false);
-    auto actual_delay_ms =
-            std::chrono::duration_cast<std::chrono::milliseconds>(actual_t1.wait_until - now)
-                    .count();
-    EXPECT_LE(actual_delay_ms, 10);
-
-    auto actual_t2 = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, false);
-    auto actual_diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  actual_t2.wait_until - actual_t1.wait_until)
+    auto shared_diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  actual_t1.wait_until - dry_run_t2.wait_until)
                                   .count();
-    EXPECT_GE(actual_diff_ms, 900);
-    EXPECT_LE(actual_diff_ms, 1100);
+    EXPECT_GE(shared_diff_ms, 900);
+    EXPECT_LE(shared_diff_ms, 1100);
+}
+
+TEST_F(TableRpcThrottlerTest, DowngradeResetsReservations) {
+    TableRpcThrottler throttler;
+    throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, 1.0);
+
+    throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, true);
+    auto queued = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, true);
+    EXPECT_GT(queued.wait_until, std::chrono::steady_clock::now());
+
+    throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, 2.0, true);
+    auto now = std::chrono::steady_clock::now();
+    auto after_downgrade = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, false);
+    auto reset_delay_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(after_downgrade.wait_until - now)
+                    .count();
+    EXPECT_LE(reset_delay_ms, 10);
 }
 
 TEST_F(TableRpcThrottlerTest, ThrottleLogIsRateLimitedPerRpc) {

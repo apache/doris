@@ -49,8 +49,8 @@ public:
     // Caller should sleep until this time point
     Clock::time_point reserve();
 
-    // Dynamically update the QPS limit
-    void update_qps(double new_qps);
+    // Dynamically update the QPS limit, optionally discarding queued reservations.
+    void update_qps(double new_qps, bool reset_reservation = false);
 
     // Get current QPS limit
     double get_qps() const;
@@ -126,7 +126,7 @@ struct TableRpcThrottleDecision {
 class TableRpcThrottler {
 public:
     TableRpcThrottler();
-    ~TableRpcThrottler();
+    ~TableRpcThrottler() = default;
 
     // Called before RPC execution, returns the time point when execution is allowed
     // Returns now if no limit is set
@@ -137,7 +137,8 @@ public:
     bool should_log(LoadRelatedRpc rpc_type, int64_t now_us);
 
     // Set or update the QPS limit for a table
-    void set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit);
+    void set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit,
+                       bool reset_reservation = false);
 
     // Remove the QPS limit for a table
     void remove_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id);
@@ -160,11 +161,8 @@ public:
     std::vector<ThrottleEntry> get_all_throttled_entries() const;
 
 private:
-    struct Limiters;
-
     mutable std::shared_mutex _mutex;
-    // Actual and dry-run limiters have independent reservation state.
-    std::map<std::pair<LoadRelatedRpc, int64_t>, std::unique_ptr<Limiters>> _limiters;
+    std::map<std::pair<LoadRelatedRpc, int64_t>, std::unique_ptr<StrictQpsLimiter>> _limiters;
 
     std::array<std::atomic<int64_t>, static_cast<size_t>(LoadRelatedRpc::COUNT)> _next_log_time_us;
 

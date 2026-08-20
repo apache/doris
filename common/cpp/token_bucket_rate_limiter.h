@@ -102,6 +102,8 @@ public:
 
     int64_t add(size_t amount);
     TokenBucketRateLimiterResult add_with_config(size_t amount);
+    // Reserve on the same limiter state as add_with_config(), but do not sleep.
+    TokenBucketRateLimiterResult reserve_with_config(size_t amount);
 
     // Charge `amount` like add(), but return the limiter generation the tokens were
     // taken from, or nullptr when the count limit rejects the charge. Callers that later
@@ -121,6 +123,8 @@ public:
     size_t get_limit() const;
 
 private:
+    TokenBucketRateLimiterResult _consume_with_config(size_t amount, bool wait);
+
     mutable std::shared_mutex rate_limiter_rw_lock;
     std::shared_ptr<TokenBucketRateLimiter> rate_limiter;
     std::atomic<bool> _enabled;
