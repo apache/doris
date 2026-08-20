@@ -30,11 +30,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -95,6 +98,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 LogicalCTEProducer<?> cteProducer = (LogicalCTEProducer<?>) cteAnchor.left();
                 if (connectContext.getSessionVariable().enableCTEMaterialize
                         && (consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold
+                        && !isConstantOneRowProducer(cteProducer)
                                 || containsNondeterministicFunction(cteProducer))) {
                     // not inline
                     Plan right = cteAnchor.right().accept(this, null);
@@ -134,5 +138,37 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         producer.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return !nondeterministicFunctions.isEmpty();
+    }
+
+    /**
+     * Return true if the CTE producer's subtree is a LogicalOneRowRelation and its 
+     * final output slots are all compile-time constants.
+     */
+    private static boolean isConstantOneRowProducer(Plan producerRoot) {
+        if (!(producerRoot instanceof LogicalCTEProducer)) {
+            return false;
+        }
+        Plan node = ((LogicalCTEProducer<?>) producerRoot).child();
+        while (node instanceof LogicalSubQueryAlias) {
+            if (node.arity() != 1) {
+                return false;
+            }
+            node = node.child(0);
+        }
+        if (node instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) node;
+            if (project.arity() != 1) {
+                return false;
+            }
+            if (!ExpressionUtils.allMatch(project.getProjects(), Expression::isConstant)) {
+                return false;
+            }
+            return project.child(0) instanceof LogicalOneRowRelation;
+        }
+        if (!(node instanceof LogicalOneRowRelation)) {
+            return false;
+        }
+        return ExpressionUtils.allMatch(
+                ((LogicalOneRowRelation) node).getProjects(), Expression::isConstant);
     }
 }
