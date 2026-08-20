@@ -30,9 +30,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
@@ -76,7 +75,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 public class KafkaRoutineLoadJobTest {
@@ -104,7 +102,6 @@ public class KafkaRoutineLoadJobTest {
     @Before
     public void init() {
         connectContextStatic = MockedAuth.mockedConnectContext(connectContext, "root", "192.168.1.1");
-        Mockito.when(connectContext.getDatabase()).thenReturn("db1");
 
         List<String> partitionNameList = Lists.newArrayList();
         partitionNameList.add("p1");
@@ -285,18 +282,19 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testAlterPersistsRoutineLoadDescForReplay() throws Exception {
+    public void testAlterPersistsLoadDescAndCsvPropertiesForReplay() throws Exception {
         KafkaRoutineLoadJob leader = createPausedJob();
         KafkaRoutineLoadJob follower = createPausedJob();
         RoutineLoadDesc originalDesc = new RoutineLoadDesc(new Separator("|", "|"), null, null,
                 null, null, null, null, LoadTask.MergeType.APPEND, "original_sequence");
         leader.setRoutineLoadDesc(originalDesc);
         follower.setRoutineLoadDesc(originalDesc);
-        leader.origStmt = initialOriginStatement();
-        follower.origStmt = initialOriginStatement();
 
         Map<String, String> jobProperties = Maps.newHashMap();
-        RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null, null,
+        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"");
+        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "\\");
+        jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
+        RoutineLoadDesc delta = new RoutineLoadDesc(null, new Separator("\n", "\\n"), null,
                 null, null, null, null, LoadTask.MergeType.APPEND, null);
         AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
         Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
@@ -304,28 +302,10 @@ public class KafkaRoutineLoadJobTest {
         Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
 
         Env env = Mockito.mock(Env.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
-        Database database = Mockito.mock(Database.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
         EditLog editLog = Mockito.mock(EditLog.class);
-        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
-        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
-        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
-        Mockito.when(catalog.getDb("db1")).thenReturn(Optional.of(database));
-        Mockito.when(catalog.getDbOrMetaException(1L)).thenReturn(database);
-        Mockito.when(catalog.getDbOrAnalysisException("db1")).thenReturn(database);
-        Mockito.when(database.getName()).thenReturn("db1");
-        Mockito.when(database.getFullName()).thenReturn("db1");
-        Mockito.when(database.getTableOrMetaException(1L)).thenReturn(table);
-        Mockito.when(database.getTableOrAnalysisException("table1")).thenReturn(table);
-        Mockito.when(table.getName()).thenReturn("table1");
-        Mockito.when(table.getFullSchema()).thenReturn(Lists.newArrayList());
         AlterRoutineLoadJobOperationLog alterLog;
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
             Mockito.when(env.getEditLog()).thenReturn(editLog);
 
             leader.modifyProperties(command);
@@ -334,16 +314,32 @@ public class KafkaRoutineLoadJobTest {
                     ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
             Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
             alterLog = logCaptor.getValue();
-            Assert.assertEquals(";", alterLog.getRoutineLoadDesc().getColumnSeparator().getSeparator());
-            Assert.assertEquals(jobProperties, alterLog.getJobProperties());
-            assertAlterState(leader);
-
-            follower.replayModifyProperties(alterLog);
-            assertAlterState(follower);
-
-            assertAlterState(imageRoundTrip(leader));
-            assertAlterState(imageRoundTrip(follower));
         }
+
+        Assert.assertSame(delta, alterLog.getRoutineLoadDesc());
+        Assert.assertEquals(jobProperties, alterLog.getJobProperties());
+        assertAlterState(leader);
+
+        follower.replayModifyProperties(alterLog);
+        assertAlterState(follower);
+
+        assertAlterState(imageRoundTrip(leader));
+        assertAlterState(imageRoundTrip(follower));
+    }
+
+    @Test
+    public void testReplayLegacyCsvPropertiesDoesNotRunNewValidation() {
+        KafkaRoutineLoadJob follower = createPausedJob();
+        Map<String, String> legacyJobProperties = Maps.newHashMap();
+        legacyJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "legacy");
+        AlterRoutineLoadJobOperationLog legacyLog = new AlterRoutineLoadJobOperationLog(
+                follower.getId(), legacyJobProperties, null);
+
+        follower.replayModifyProperties(legacyLog);
+
+        Assert.assertEquals((byte) 'l', follower.getEnclose());
+        Map<String, String> persistedJobProperties = Deencapsulation.getField(follower, "jobProperties");
+        Assert.assertEquals("legacy", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
     }
 
     private static KafkaRoutineLoadJob createPausedJob() {
@@ -354,16 +350,18 @@ public class KafkaRoutineLoadJobTest {
     }
 
     private static void assertAlterState(RoutineLoadJob job) {
-        Assert.assertEquals(";", job.getColumnSeparator().getSeparator());
-        Assert.assertNull(job.getLineDelimiter());
+        Assert.assertEquals("|", job.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\n", job.getLineDelimiter().getSeparator());
         Assert.assertEquals("original_sequence", job.getSequenceCol());
-    }
+        Assert.assertEquals((byte) '"', job.getEnclose());
+        Assert.assertEquals((byte) '\\', job.getEscape());
+        Assert.assertTrue(job.getEmptyFieldAsNull());
+        Assert.assertEquals(Boolean.TRUE, Deencapsulation.getField(job, "emptyFieldAsNull"));
 
-    private static OriginStatement initialOriginStatement() {
-        return new OriginStatement("CREATE ROUTINE LOAD db1.job1 ON table1 "
-                + "COLUMNS TERMINATED BY '|', ORDER BY original_sequence "
-                + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9020\", "
-                + "\"kafka_topic\" = \"topic1\")", 0);
+        Map<String, String> persistedJobProperties = Deencapsulation.getField(job, "jobProperties");
+        Assert.assertEquals("\"", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+        Assert.assertEquals("\\", persistedJobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+        Assert.assertEquals("true", persistedJobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL));
     }
 
     private static RoutineLoadJob imageRoundTrip(RoutineLoadJob routineLoadJob) throws Exception {

@@ -19,4 +19,4 @@ definition.
 
 alter-routine-load-log.b64 contains job ID 7001, an empty job-properties map,
 and a null datasource-properties object. That serializer predates the
-routineLoadDesc field in AlterRoutineLoadJobOperationLog.
+RoutineLoadDesc field in AlterRoutineLoadJobOperationLog.
