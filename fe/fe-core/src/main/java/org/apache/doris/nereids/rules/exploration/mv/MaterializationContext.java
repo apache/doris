@@ -30,6 +30,7 @@ import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -109,6 +111,11 @@ public abstract class MaterializationContext {
     protected List<String> identifier;
     // The common table id set which is used in materialization, added for performance consideration
     private BitSet commonTableIdSet;
+    // The column classification of materialized view scan output columns, the key of pair is the set
+    // of group-by key slots in mv scan output, the value of pair is the set of aggregate function
+    // output slots in mv scan output. This is used to calibrate the estimated stats of materialized
+    // view by its actual row count.
+    private Pair<Set<Expression>, Set<Expression>> columnClassification;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
@@ -194,6 +201,7 @@ public abstract class MaterializationContext {
         this.scanPlan = null;
         this.shuttledExprToScanExprMapping = null;
         this.exprToScanExprMapping = null;
+        this.columnClassification = null;
     }
 
     public void addSlotMappingToCache(RelationMapping relationMapping, SlotMapping slotMapping) {
@@ -256,6 +264,58 @@ public abstract class MaterializationContext {
      * Which should be the materialization origin plan statistics
      */
     abstract Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext);
+
+    /**
+     * Get the column classification of materialized view scan output columns,
+     * the key of pair is the set of group-by key slots in mv scan output, the value of pair is the
+     * set of aggregate function output slots in mv scan output.
+     * This is used to calibrate the estimated stats of materialized view by its actual row count,
+     * and should be called after the scan plan is generated because the mapping from mv def plan
+     * output slot to mv scan output slot is built in {@link #tryGenerateScanPlan(CascadesContext)}.
+     */
+    public Pair<Set<Expression>, Set<Expression>> getColumnClassification(CascadesContext cascadesContext) {
+        if (columnClassification == null) {
+            columnClassification = computeColumnClassification(cascadesContext);
+        }
+        return columnClassification;
+    }
+
+    // classify the mv scan output columns by the mv def plan structure:
+    // group-by key slot: the ndv is structurally tied to the output row count in single group by key case
+    // aggregate function output slot: the ndv has no row scaling semantics, should never be scaled
+    // others (passthrough column): the ndv scales with row count only when it is high cardinality
+    private Pair<Set<Expression>, Set<Expression>> computeColumnClassification(CascadesContext cascadesContext) {
+        Set<Expression> groupByKeySlots = new HashSet<>();
+        Set<Expression> aggFunctionOutputSlots = new HashSet<>();
+        if (this.exprToScanExprMapping == null || this.exprToScanExprMapping.isEmpty()) {
+            return Pair.of(groupByKeySlots, aggFunctionOutputSlots);
+        }
+        Optional<LogicalAggregate<Plan>> aggregateOptional = this.originalPlan
+                .collectFirst(LogicalAggregate.class::isInstance);
+        if (!aggregateOptional.isPresent()) {
+            return Pair.of(groupByKeySlots, aggFunctionOutputSlots);
+        }
+        LogicalAggregate<Plan> aggregate = aggregateOptional.get();
+        Set<Expression> groupByExpressionSet = new HashSet<>(aggregate.getGroupByExpressions());
+        Set<ExprId> aggFunctionExprIdSet = aggregate.getOutput().stream()
+                .filter(expression -> !groupByExpressionSet.contains(expression))
+                .map(NamedExpression::getExprId)
+                .collect(Collectors.toSet());
+        List<Slot> originalPlanOutput = this.originalPlan.getOutput();
+        for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
+            Slot originalOutputSlot = originalPlanOutput.get(slotIndex);
+            Expression scanOutputSlot = this.exprToScanExprMapping.get(originalOutputSlot);
+            if (scanOutputSlot == null) {
+                continue;
+            }
+            if (groupByExpressionSet.contains(originalOutputSlot)) {
+                groupByKeySlots.add(scanOutputSlot);
+            } else if (aggFunctionExprIdSet.contains(originalOutputSlot.getExprId())) {
+                aggFunctionOutputSlots.add(scanOutputSlot);
+            }
+        }
+        return Pair.of(groupByKeySlots, aggFunctionOutputSlots);
+    }
 
     // original plan statistics is generated by origin plan, and the column expression in statistics
     // should be keep consistent to mv scan plan

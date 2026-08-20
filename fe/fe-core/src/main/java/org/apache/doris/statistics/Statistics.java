@@ -49,6 +49,11 @@ public class Statistics {
 
     private long actualRowCount = -1L;
     private boolean isFromHbo = false;
+    // Whether this statistics is calibrated by the actual row count of a materialized view.
+    // The mv scan stats calibrated by the actual row count is more accurate than the estimated
+    // stats derived from the base table, so the stats of the operators above the mv should be
+    // based on it.
+    private boolean isFromMvCalibrated = false;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -57,6 +62,7 @@ public class Statistics {
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
         this.isFromHbo = another.isFromHbo;
+        this.isFromMvCalibrated = another.isFromMvCalibrated;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
@@ -333,6 +339,14 @@ public class Statistics {
 
     public boolean isFromHbo() {
         return this.isFromHbo;
+    }
+
+    public void setFromMvCalibrated(boolean fromMvCalibrated) {
+        this.isFromMvCalibrated = fromMvCalibrated;
+    }
+
+    public boolean isFromMvCalibrated() {
+        return this.isFromMvCalibrated;
     }
 
     public StatisticsBuilder cleanHotValues() {

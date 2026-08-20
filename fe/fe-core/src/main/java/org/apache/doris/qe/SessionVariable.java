@@ -771,6 +771,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_UNION_REWRITE
             = "enable_materialized_view_union_rewrite";
 
+    public static final String ENABLE_MATERIALIZED_VIEW_STATS_CALIBRATION
+            = "enable_materialized_view_stats_calibration";
+
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
 
@@ -2862,6 +2865,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
             description = "The max candidate num which participate in CBO when using asynchronous materialized views")
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MATERIALIZED_VIEW_STATS_CALIBRATION, needForward = true,
+            description = "Whether to calibrate the estimated stats of materialized view by its actual row count")
+    public boolean enableMaterializedViewStatsCalibration = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = "Whether to enable materialized view rewriting based on struct info")
@@ -6317,6 +6324,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+    public boolean isEnableMaterializedViewStatsCalibration() {
+        return enableMaterializedViewStatsCalibration;
+    }
+
+    public void setEnableMaterializedViewStatsCalibration(boolean enableMaterializedViewStatsCalibration) {
+        this.enableMaterializedViewStatsCalibration = enableMaterializedViewStatsCalibration;
     }
 
     public String getPreMaterializedViewRewriteStrategy() {

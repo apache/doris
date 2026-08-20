@@ -67,6 +67,10 @@ public class Group {
     private final Map<DistributionSpec, GroupExpression> enforcerSpecs = Maps.newHashMap();
     private final GroupPlan groupPlan;
     private boolean isStatsReliable = true;
+    // Whether the statistics of this group is derived from a materialized view scan. The stats
+    // derived from the mv is more accurate because the mv scan stats is calibrated by the actual
+    // row count of the mv, so the stats of the operators above the group should be based on it.
+    private boolean isFromMvStats = false;
     private LogicalProperties logicalProperties;
 
     // Map of cost lower bounds
@@ -139,6 +143,14 @@ public class Group {
 
     public boolean isStatsReliable() {
         return isStatsReliable;
+    }
+
+    public void setFromMvStats(boolean fromMvStats) {
+        this.isFromMvStats = fromMvStats;
+    }
+
+    public boolean isFromMvStats() {
+        return isFromMvStats;
     }
 
     public void addLogicalExpression(GroupExpression groupExpression) {
@@ -457,6 +469,10 @@ public class Group {
         // If statistics is null, use other statistics
         if (target.statistics == null) {
             target.statistics = this.statistics;
+        }
+        // the group is merged into target, the mv stats mark should be merged too
+        if (this.isFromMvStats) {
+            target.setFromMvStats(true);
         }
     }
 
