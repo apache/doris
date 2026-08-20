@@ -91,6 +91,7 @@ protected:
         _request.tablet_schema.columns[1].__set_visible(false);
         _request.tablet_schema.columns[2].__set_visible(false);
         _request.tablet_schema.columns[5].__set_visible(false);
+        _request.tablet_schema.columns[5].__set_default_value("0");
         _request.tablet_schema.columns[2].__set_is_allow_null(true);
         _request.tablet_schema.columns[3].__set_default_value("7");
         _request.tablet_schema.columns[4].__set_is_allow_null(true);
