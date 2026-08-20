@@ -235,9 +235,8 @@ public class CollectRelation implements AnalysisRuleFactory {
         if (table instanceof View) {
             parseAndCollectFromView(tableQualifier, (View) table, cascadesContext);
         }
-        // we need to collect stream table's base table as well
         if (table instanceof BaseTableStream) {
-            collectFromTableStream((BaseTableStream) table, cascadesContext, tableFrom, unboundRelation);
+            collectFromTableStream((BaseTableStream) table, cascadesContext.getStatementContext());
         }
     }
 
@@ -313,10 +312,13 @@ public class CollectRelation implements AnalysisRuleFactory {
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
     }
 
-    private void collectFromTableStream(BaseTableStream tableStream, CascadesContext cascadesContext,
-                                        TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
-        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
-        List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
-        statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+    private void collectFromTableStream(BaseTableStream tableStream, StatementContext statementContext) {
+        // Capture the stable-ID result once so preload, locking, and dependency tracking use the same table object.
+        TableIf baseTable = tableStream.getBaseTableNullable();
+        if (baseTable == null) {
+            throw new AnalysisException("Table ["
+                    + tableStream.getBaseTableFullQualifiers().get(2) + "] does not exist");
+        }
+        statementContext.addImplicitTableDependency(baseTable);
     }
 }

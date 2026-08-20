@@ -176,6 +176,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         isDropped = false;
     }
 
+    public boolean isDropped() {
+        return isDropped;
+    }
+
     public void readLock() {
         this.rwLock.readLock().lock();
     }

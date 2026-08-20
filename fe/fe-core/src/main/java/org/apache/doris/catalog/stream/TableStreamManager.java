@@ -350,32 +350,22 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                             // STREAM_COMMENT
                             trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
                             TableIf baseTable = stream.getBaseTableNullable();
-                            if (baseTable == null) {
-                                // BASE_TABLE_NAME
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                                // BASE_TABLE_DB
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                                // BASE_TABLE_CTL
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                                // BASE_TABLE_TYPE
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                            } else {
-                                List<String> baseTableQualifiers = baseTable.getFullQualifiers();
-                                // BASE_TABLE_NAME
-                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
-                                // BASE_TABLE_DB
-                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
-                                // BASE_TABLE_CTL
-                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
-                                // BASE_TABLE_TYPE
-                                trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
-                            }
+                            List<String> baseTableQualifiers = stream.getBaseTableFullQualifiers(baseTable);
+                            // BASE_TABLE_NAME
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
+                            // BASE_TABLE_DB
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
+                            // BASE_TABLE_CTL
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
+                            // BASE_TABLE_TYPE
+                            trow.addToColumnValue(new TCell().setStringVal(
+                                    baseTable == null ? "N/A" : baseTable.getType().name()));
                             // ENABLED
-                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
+                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled(baseTable)));
                             // IS_STALE
-                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
+                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale(baseTable)));
                             // STALE_REASON
-                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason(baseTable)));
                             dataBatch.add(trow);
                         } finally {
                             stream.readUnlock();
