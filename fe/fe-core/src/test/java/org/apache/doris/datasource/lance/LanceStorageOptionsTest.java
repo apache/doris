@@ -21,12 +21,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeSet;
 
 public class LanceStorageOptionsTest {
+
+    private static final String S3_URI = "s3://warehouse/table.lance";
 
     private static Map<String, String> minioCatalogProperties() {
         Map<String, String> backendProperties = new HashMap<>();
@@ -39,7 +40,7 @@ public class LanceStorageOptionsTest {
     }
 
     @Test
-    public void testMinioStorageOptionMapping() {
+    public void testCatalogPropertiesMapToTheCanonicalS3Spelling() {
         Map<String, String> backendProperties = minioCatalogProperties();
         backendProperties.put("AWS_TOKEN", "token");
 
@@ -76,74 +77,117 @@ public class LanceStorageOptionsTest {
         Assertions.assertNull(options.get("allow_http"));
     }
 
+    /**
+     * The case this exists for: a catalog with static credentials whose namespace also vends them,
+     * spelled the way real servers spell them. Both must land on one key with the namespace's
+     * value, or object_store folds them onto one config key and keeps whichever its HashMap yields
+     * last - independently in the FE and in the BE.
+     */
     @Test
-    public void testVendedOptionReplacesTheCatalogEntryUnderTheSameKey() {
+    public void testVendedCredentialsSupersedeTheCatalogsOnS3() {
         Map<String, String> vended = new HashMap<>();
-        vended.put("aws_access_key_id", "vended-ak");
-        vended.put("aws_endpoint", "http://127.0.0.1:9000");
+        vended.put("access_key_id", "vended-ak");
+        vended.put("secret_access_key", "vended-sk");
+        vended.put("session_token", "vended-token");
+        vended.put("region", "eu-west-1");
+        vended.put("virtual_hosted_style_request", "true");
 
-        Map<String, String> merged = LanceStorageOptions.mergeVended(
-                LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
+        Map<String, String> merged =
+                LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), vended);
+
         Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
-        Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"));
-        // Untouched catalog options stay.
-        Assertions.assertEquals("sk", merged.get("aws_secret_access_key"));
-        Assertions.assertEquals("us-east-1", merged.get("aws_region"));
+        Assertions.assertEquals("vended-sk", merged.get("aws_secret_access_key"));
+        Assertions.assertEquals("vended-token", merged.get("aws_session_token"));
+        Assertions.assertEquals("eu-west-1", merged.get("aws_region"));
+        Assertions.assertEquals("true", merged.get("aws_virtual_hosted_style_request"));
+        // The catalog's endpoint is untouched, and no unprefixed twin survives anywhere.
+        Assertions.assertEquals("http://minio:9000", merged.get("aws_endpoint"));
+        for (String alias : vended.keySet()) {
+            Assertions.assertNull(merged.get(alias), alias + " must not survive beside its twin");
+        }
+    }
+
+    /** Every accepted spelling has to collapse, or the race just moves to the ones missed. */
+    @Test
+    public void testEveryS3AliasCollapsesOntoOneEntry() {
+        for (String alias : new String[] {"endpoint", "endpoint_url", "aws_endpoint",
+                "aws_endpoint_url", "ENDPOINT", "AWS_Endpoint_Url"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put(alias, "http://127.0.0.1:9000");
+
+            Map<String, String> merged =
+                    LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), vended);
+            long endpoints = merged.keySet().stream().filter(k -> k.contains("endpoint")).count();
+            Assertions.assertEquals(1, endpoints, alias + " left a competing entry");
+            Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"),
+                    alias + " did not win");
+        }
     }
 
     /**
-     * The accepted spellings differ per provider - object_store's Azure parser reads
-     * {@code endpoint} but not {@code aws_endpoint}, and Lance's OSS provider requires
-     * {@code endpoint} and reads {@code access_key_id}. This class cannot tell which provider a
-     * dataset uses, so renaming a vended key onto the S3 spelling would destroy a working
-     * configuration for every non-S3 backend. Vended keys must arrive verbatim.
+     * {@code token} means an S3 session token to object_store's S3 parser and a bearer token to
+     * its Azure one. Knowing the provider is what makes it resolvable at all.
      */
     @Test
-    public void testVendedKeysAreNeverRenamed() {
+    public void testAmbiguousTokenResolvesOnceTheProviderIsKnown() {
+        Map<String, String> catalogProperties = minioCatalogProperties();
+        catalogProperties.put("AWS_TOKEN", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("token", "vended-token");
+
+        Map<String, String> onS3 =
+                LanceStorageOptions.forDataset(S3_URI, catalogProperties, vended);
+        Assertions.assertEquals("vended-token", onS3.get("aws_session_token"));
+        Assertions.assertNull(onS3.get("token"));
+
+        Map<String, String> onAzure = LanceStorageOptions.forDataset(
+                "az://container/table.lance", catalogProperties, vended);
+        Assertions.assertEquals("vended-token", onAzure.get("token"));
+        Assertions.assertNull(onAzure.get("aws_session_token"));
+    }
+
+    /**
+     * The regression that motivated all of this: object_store's Azure parser reads
+     * {@code endpoint} but not {@code aws_endpoint}, and Lance's OSS provider requires
+     * {@code endpoint} and reads {@code access_key_id}. Rewriting those onto the S3 spellings
+     * leaves the dataset unreachable, so a non-S3 dataset must come through untouched.
+     */
+    @Test
+    public void testNonS3DatasetsAreNeverRewritten() {
         Map<String, String> vended = new HashMap<>();
         vended.put("endpoint", "http://azurite:10000");
         vended.put("access_key_id", "vended-ak");
         vended.put("secret_access_key", "vended-sk");
-        vended.put("token", "vended-token");
-        vended.put("virtual_hosted_style_request", "true");
 
-        Map<String, String> merged = LanceStorageOptions.mergeVended(
-                LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
-        for (Map.Entry<String, String> entry : vended.entrySet()) {
-            Assertions.assertEquals(entry.getValue(), merged.get(entry.getKey()),
-                    entry.getKey() + " must reach Lance as the namespace wrote it");
+        for (String uri : new String[] {"az://container/table.lance", "abfss://fs@acct/table",
+                "oss://bucket/table.lance", "gs://bucket/table.lance", "cos://bucket/table",
+                "file:///tmp/table.lance"}) {
+            Map<String, String> merged =
+                    LanceStorageOptions.forDataset(uri, minioCatalogProperties(), vended);
+            Assertions.assertEquals(vended, merged,
+                    uri + " must reach Lance exactly as the namespace wrote it");
         }
     }
 
-    /** Options for other providers must survive too, or the catalog only ever works on S3. */
+    /** Doris cannot spell static credentials for a non-S3 provider, so it contributes none. */
     @Test
-    public void testUnknownAndNonS3VendedOptionsArePassedThrough() {
+    public void testCatalogPropertiesAreNotAppliedToANonS3Dataset() {
+        Map<String, String> merged = LanceStorageOptions.forDataset(
+                "oss://bucket/table.lance", minioCatalogProperties(), null);
+        Assertions.assertTrue(merged.isEmpty(), "S3 credentials must not leak onto another provider");
+    }
+
+    @Test
+    public void testUnknownVendedOptionsArePassedThroughOnS3Too() {
         Map<String, String> vended = new HashMap<>();
-        vended.put("azure_storage_sas_token", "sas");
-        vended.put("google_storage_token", "gcp-token");
-        vended.put("oss_endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
         // Lance reads this on its namespace-backed refresh path; Doris assigns it no meaning.
         vended.put("expires_at_millis", "1760000000000");
+        vended.put("azure_storage_sas_token", "sas");
         // Empty is expressible as a C string, so it is carried rather than second-guessed.
         vended.put("deliberately_empty", "");
 
-        Map<String, String> merged = LanceStorageOptions.mergeVended(Collections.emptyMap(), vended);
+        Map<String, String> merged = LanceStorageOptions.forDataset(S3_URI, null, vended);
         Assertions.assertEquals(vended, merged);
-    }
-
-    /**
-     * Options that would change which data is read are not filtered here. The namespace already
-     * decides the dataset URI, so this was never a boundary, and Lance protects what it needs to.
-     */
-    @Test
-    public void testVendedOptionsAreNotFiltered() {
-        Map<String, String> vended = new HashMap<>();
-        vended.put("bucket", "other-bucket");
-        vended.put("root", "/elsewhere");
-
-        Map<String, String> merged = LanceStorageOptions.mergeVended(Collections.emptyMap(), vended);
-        Assertions.assertEquals("other-bucket", merged.get("bucket"));
-        Assertions.assertEquals("/elsewhere", merged.get("root"));
     }
 
     @Test
@@ -151,36 +195,52 @@ public class LanceStorageOptionsTest {
         Map<String, String> catalogOptions =
                 LanceStorageOptions.toLanceOptions(minioCatalogProperties());
         Assertions.assertEquals(catalogOptions,
-                LanceStorageOptions.mergeVended(catalogOptions, null));
+                LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), null));
         Assertions.assertEquals(catalogOptions,
-                LanceStorageOptions.mergeVended(catalogOptions, new HashMap<>()));
+                LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), new HashMap<>()));
+    }
+
+    /** A namespace contradicting itself is not something to resolve by coin toss. */
+    @Test
+    public void testConflictingSpellingsOfOneOptionAreRejected() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "one");
+        vended.put("aws_access_key_id", "another");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceStorageOptions.forDataset(S3_URI, minioCatalogProperties(), vended));
+
+        // Agreeing on the value is not a conflict.
+        Map<String, String> agreeing = new HashMap<>();
+        agreeing.put("access_key_id", "same");
+        agreeing.put("aws_access_key_id", "same");
+        Assertions.assertEquals("same", LanceStorageOptions
+                .forDataset(S3_URI, minioCatalogProperties(), agreeing).get("aws_access_key_id"));
     }
 
     /**
      * lance-c reads these as C strings, so a NUL truncates the option there while the FE keeps
-     * reading the whole key. Dropping it would only move the divergence - an FE that drops it and
-     * a BE that does not disagree the same way - so it has to fail.
+     * reading the whole key. Dropping it would only move the divergence, so it has to fail.
      */
     @Test
     public void testOptionsThatCannotReachTheBackendAreRejected() {
         Map<String, String> withNulKey = new HashMap<>();
         withNulKey.put("bucket\0ignored", "other-bucket");
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.mergeVended(Collections.emptyMap(), withNulKey));
+                () -> LanceStorageOptions.forDataset(S3_URI, null, withNulKey));
 
         Map<String, String> withNulValue = new HashMap<>();
         withNulValue.put("aws_region", "us-east-1\0ignored");
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.mergeVended(Collections.emptyMap(), withNulValue));
+                () -> LanceStorageOptions.forDataset(S3_URI, null, withNulValue));
 
         Map<String, String> withNullValue = new HashMap<>();
         withNullValue.put("aws_region", null);
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.mergeVended(Collections.emptyMap(), withNullValue));
+                () -> LanceStorageOptions.forDataset(S3_URI, null, withNullValue));
 
         Map<String, String> withNullKey = new HashMap<>();
         withNullKey.put(null, "value");
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.mergeVended(Collections.emptyMap(), withNullKey));
+                () -> LanceStorageOptions.forDataset(S3_URI, null, withNullKey));
     }
 }

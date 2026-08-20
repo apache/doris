@@ -284,9 +284,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
-        // and the BE through lance-c, so neither can end up with credentials the other lacks.
-        Map<String, String> storageOptions = LanceStorageOptions.mergeVended(
-                lanceStorageOptions, table.getStorageOptions());
+        // and the BE through lance-c, so neither can end up with credentials the other lacks. The
+        // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
+        Map<String, String> storageOptions = LanceStorageOptions.forDataset(datasetUri,
+                catalogProperty.getBackendStorageProperties(), table.getStorageOptions());
         try {
             if (tableSnapshot.isPresent()) {
                 TableSnapshot snapshot = tableSnapshot.get();
