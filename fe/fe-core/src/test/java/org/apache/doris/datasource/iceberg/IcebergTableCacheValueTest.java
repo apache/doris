@@ -17,14 +17,23 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.nereids.StatementContext;
 
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.FileIO;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class IcebergTableCacheValueTest {
@@ -103,12 +112,55 @@ class IcebergTableCacheValueTest {
         AtomicInteger cleanupCount = new AtomicInteger();
         IcebergTableCacheValue value = newValue(cleanupCount);
 
-        value.releaseCacheReference();
-        value.releaseLoaderReference();
-        value.releaseCacheReference();
-        value.releaseLoaderReference();
+        value.retire();
+        value.retire();
 
         Assertions.assertEquals(1, cleanupCount.get());
+    }
+
+    @Test
+    void refreshedValueCanRetireBeforeItsFirstBorrow() {
+        AtomicInteger cleanupCount = new AtomicInteger();
+        IcebergTableCacheValue refreshedValue = newValue(cleanupCount);
+
+        refreshedValue.retire();
+
+        Assertions.assertEquals(1, cleanupCount.get());
+        Assertions.assertNull(refreshedValue.tryAcquire());
+    }
+
+    @Test
+    void refreshPublishesNewGenerationWithoutClosingActiveOldBorrower() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        List<AtomicInteger> cleanupCounts = new ArrayList<>();
+        try {
+            MetaCacheEntry<String, IcebergTableCacheValue> entry = new MetaCacheEntry<>("iceberg-table", key -> {
+                AtomicInteger cleanupCount = new AtomicInteger();
+                cleanupCounts.add(cleanupCount);
+                return newValue(cleanupCount);
+            }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor, true, false,
+                    (key, value) -> value.retire());
+            IcebergTableCacheValue first = entry.get("table");
+            IcebergTableCacheValue.Lease oldBorrower = first.tryAcquire();
+            Assertions.assertNotNull(oldBorrower);
+            first.releaseLoaderReference();
+
+            extractLoadingCache(entry).refresh("table");
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            Assertions.assertEquals(2, cleanupCounts.size());
+            IcebergTableCacheValue second = entry.getIfPresent("table");
+            Assertions.assertNotSame(first, second);
+            Assertions.assertEquals(0, cleanupCounts.get(0).get());
+
+            oldBorrower.close();
+            Assertions.assertEquals(1, cleanupCounts.get(0).get());
+            entry.invalidateKey("table");
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            Assertions.assertEquals(1, cleanupCounts.get(1).get());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -135,6 +187,14 @@ class IcebergTableCacheValueTest {
     private IcebergTableCacheValue newValue(AtomicInteger cleanupCount) {
         Table table = newProxy(Table.class);
         return new IcebergTableCacheValue(table, () -> null, cleanupCount::incrementAndGet);
+    }
+
+    @SuppressWarnings("unchecked")
+    private LoadingCache<String, IcebergTableCacheValue> extractLoadingCache(
+            MetaCacheEntry<String, IcebergTableCacheValue> entry) throws Exception {
+        Field field = MetaCacheEntry.class.getDeclaredField("loadingData");
+        field.setAccessible(true);
+        return (LoadingCache<String, IcebergTableCacheValue>) field.get(entry);
     }
 
     @SuppressWarnings("unchecked")
