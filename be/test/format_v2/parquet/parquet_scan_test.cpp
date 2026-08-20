@@ -48,6 +48,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
@@ -82,6 +83,24 @@
 
 namespace doris {
 namespace {
+
+TEST(ParquetScanTypeCompatibilityTest, IgnoresOnlyNestedNullability) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto reader_type = std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(int_type), make_nullable(string_type)},
+            Strings {"field", "another_field"});
+    const auto block_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, string_type}, Strings {"field", "another_field"}));
+
+    EXPECT_TRUE(format::parquet::detail::types_equal_ignoring_nested_nullability(reader_type,
+                                                                                 block_type));
+
+    const auto incompatible_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, int_type}, Strings {"field", "another_field"}));
+    EXPECT_FALSE(format::parquet::detail::types_equal_ignoring_nested_nullability(
+            reader_type, incompatible_type));
+}
 
 format::LocalColumnIndex field_projection(int32_t column_id) {
     return format::LocalColumnIndex {.index = column_id};
@@ -2500,8 +2519,8 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
             const auto location = decode_rowid(rowid_column, row);
             EXPECT_EQ(location.version, context.version);
             EXPECT_EQ(location.backend_id, context.backend_id);
-            EXPECT_EQ(location.file_id, context.file_id);
-            row_ids.push_back(location.row_id);
+            EXPECT_EQ(location.file_local.file_id, context.file_id);
+            row_ids.push_back(location.file_local.row_id);
         }
     }
 

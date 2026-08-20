@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
@@ -238,15 +239,89 @@ struct GlobalRowLoacation {
     }
 };
 
-struct GlobalRowLoacationV2 {
-    GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)
-            : version(ver), backend_id(bid), file_id(fid), row_id(rid) {}
-    uint8_t version;
-    int64_t backend_id;
-    uint32_t file_id;
-    uint32_t row_id;
-
-    auto operator<=>(const GlobalRowLoacationV2&) const = default;
+// Wire-protocol values: never reorder or reuse an existing value. A new value may use a new
+// encoded structure and size, provided its decoder keeps supporting all older values.
+enum class ROW_VERSION : uint8_t {
+    // The row ID is a uint32 ordinal local to the FileMapping identified by file_id.
+    FILE_LOCAL_ROW_ID = 0,
+    // The row ID is an opaque uint64 ID in a fixed Lance dataset snapshot.
+    LANCE_DATASET_ROW_ID = 1,
 };
+
+/*
+ * A serialized global row location has a fixed size of 24 bytes. The version determines how the
+ * bytes at offsets 4..7 and 16..23 must be interpreted:
+ *
+ * FILE_LOCAL_ROW_ID (version = 0), used by Doris, Parquet, and ORC:
+ *
+ *   byte offset   0        1..7             8..15          16..19      20..23
+ *               +--------+----------------+---------------+-----------+-----------+
+ *               | ver=0  | reserved       | backend_id    | file_id   | row_id    |
+ *               +--------+----------------+---------------+-----------+-----------+
+ *                 uint8      7 bytes          int64          uint32      uint32
+ *
+ *   row_id is an ordinal local to the FileMapping selected by file_id.
+ *
+ * LANCE_DATASET_ROW_ID (version = 1), used by Lance:
+ *
+ *   byte offset   0        1..3       4..7          8..15          16..23
+ *               +--------+----------+-------------+---------------+----------------+
+ *               | ver=1  | reserved | file_id     | backend_id    | lance_row_id   |
+ *               +--------+----------+-------------+---------------+----------------+
+ *                 uint8     3 bytes     uint32        int64           uint64
+ *
+ *   lance_row_id is an opaque row ID in the fixed dataset snapshot recorded by the FileMapping.
+ *
+ * The first union reuses four bytes that are padding in version 0 as Lance's file_id in version 1.
+ * The second union reuses the original {uint32 file_id, uint32 row_id} payload as one uint64 Lance
+ * row ID. Therefore, always check version before reading either union.
+ */
+struct GlobalRowLoacationV2 {
+    static constexpr uint8_t VERSION = static_cast<uint8_t>(ROW_VERSION::FILE_LOCAL_ROW_ID);
+
+    struct FileLocalRowId {
+        uint32_t file_id;
+        uint32_t row_id;
+    };
+
+    GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)
+            : version(ver),
+              reserved_for_file_local(0),
+              backend_id(bid),
+              file_local {.file_id = fid, .row_id = rid} {}
+    GlobalRowLoacationV2(ROW_VERSION ver, uint64_t bid, uint32_t fid, uint64_t rid)
+            : version(static_cast<uint8_t>(ver)),
+              lance_file_id(fid),
+              backend_id(bid),
+              lance_row_id(rid) {}
+
+    uint8_t version;
+    uint8_t reserved_before_file_id[3] {};
+    union {
+        // version 0: offsets 4..7 remain reserved, preserving the original V2 layout.
+        uint32_t reserved_for_file_local;
+        // version 1: offsets 4..7 identify the FileMapping for lance_row_id.
+        uint32_t lance_file_id;
+    };
+    int64_t backend_id;
+    union {
+        // version 0: file_id is at offset 16 and its uint32 row ordinal is at offset 20.
+        FileLocalRowId file_local;
+        // version 1: offsets 16..23 are one opaque uint64 Lance row ID.
+        uint64_t lance_row_id;
+    };
+};
+
+static_assert(sizeof(GlobalRowLoacationV2) == 24);
+static_assert(sizeof(GlobalRowLoacationV2::FileLocalRowId) == 8);
+static_assert(offsetof(GlobalRowLoacationV2, version) == 0);
+static_assert(offsetof(GlobalRowLoacationV2, reserved_before_file_id) == 1);
+static_assert(offsetof(GlobalRowLoacationV2, reserved_for_file_local) == 4);
+static_assert(offsetof(GlobalRowLoacationV2, lance_file_id) == 4);
+static_assert(offsetof(GlobalRowLoacationV2, backend_id) == 8);
+static_assert(offsetof(GlobalRowLoacationV2, file_local) == 16);
+static_assert(offsetof(GlobalRowLoacationV2::FileLocalRowId, file_id) == 0);
+static_assert(offsetof(GlobalRowLoacationV2::FileLocalRowId, row_id) == 4);
+static_assert(offsetof(GlobalRowLoacationV2, lance_row_id) == 16);
 
 } // namespace doris

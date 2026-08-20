@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSl
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysShortCircuit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
@@ -44,6 +45,11 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
 
     @Override
     public Integer visit(Expression expr, Boolean inLambda) {
+        // Branch expressions must remain below their short-circuit execution boundary.
+        // Extracting one into an eager projection can evaluate an inactive branch.
+        if (expr instanceof AlwaysShortCircuit) {
+            return 0;
+        }
         return processExpressionWithChildren(expr.children(), expr, inLambda);
     }
 

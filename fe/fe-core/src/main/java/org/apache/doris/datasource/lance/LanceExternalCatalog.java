@@ -267,11 +267,20 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
-        return loadTableMetadata(dbName, tableName, Optional.empty());
+        return loadTableMetadata(dbName, tableName, Optional.empty(), false);
+    }
+
+    public LanceTableMetadata loadTableMetadataForVectorSearch(String dbName, String tableName) {
+        return loadTableMetadata(dbName, tableName, Optional.empty(), true);
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName,
             Optional<TableSnapshot> tableSnapshot) {
+        return loadTableMetadata(dbName, tableName, tableSnapshot, false);
+    }
+
+    private LanceTableMetadata loadTableMetadata(String dbName, String tableName,
+            Optional<TableSnapshot> tableSnapshot, boolean loadIndexSegments) {
         makeSureInitialized();
         DescribeTableResponse table = describeTable(dbName, tableName);
         if (Boolean.TRUE.equals(table.getManagedVersioning())) {
@@ -305,7 +314,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
                 }
                 return LanceMetadataLoader.loadVersion(datasetUri, storageOptions, version, allocator);
             }
-            return LanceMetadataLoader.loadLatest(datasetUri, storageOptions, allocator);
+            return loadIndexSegments
+                    ? LanceMetadataLoader.loadLatestWithIndexSegments(
+                            datasetUri, storageOptions, allocator)
+                    : LanceMetadataLoader.loadLatest(datasetUri, storageOptions, allocator);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
                     + ": " + sanitizedRootCauseMessage(e), safeCause(e));

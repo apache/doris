@@ -36,10 +36,10 @@ namespace doris {
 /// turn owns one IPaimonWriteBackend + IPaimonWriter. Pipeline parallelism
 /// determines the number of concurrent Paimon writer sessions per table.
 ///
-/// Partition and bucket routing is performed internally by the Paimon SDK
-/// (Java via JNI, or Rust via FFI). Doris does not compute partition values
-/// or bucket ids; it passes complete Blocks through the backend to the SDK,
-/// where each row is routed via getPartition(row) + getBucket(row).
+/// The upstream sink Exchange may reproduce Paimon's stateless HASH_FIXED
+/// selector to establish unique writer ownership. The writer still passes
+/// complete Blocks to the SDK, which independently computes partition and
+/// bucket values for file writing; no routing column is appended to the row.
 ///
 /// This mirrors Iceberg's approach: IcebergTableSinkOperatorX delegates to
 /// AsyncWriterSink<VIcebergTableWriter>, with partition routing inside

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
@@ -172,6 +173,66 @@ public class ExecuteCommandTest {
         Assertions.assertSame(second,
                 statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
         Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    @Test
+    public void testExternalScanTasksUseANewGenerationForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+        ExternalScanTaskCacheKey<String> key = new PreparedScanTaskCacheKey("same-scan");
+        AtomicInteger loadCount = new AtomicInteger();
+
+        StatementContext.ExternalScanTaskCache preparedGeneration =
+                statementContext.getExternalScanTaskCache();
+        preparedGeneration.getOrLoad(key,
+                () -> Collections.singletonList("prepared-" + loadCount.incrementAndGet()));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        StatementContext.ExternalScanTaskCache firstExecuteGeneration =
+                statementContext.getExternalScanTaskCache();
+        Assertions.assertNotSame(preparedGeneration, firstExecuteGeneration);
+        Assertions.assertEquals(Collections.singletonList("execute-2"),
+                firstExecuteGeneration.getOrLoad(key,
+                        () -> Collections.singletonList("execute-" + loadCount.incrementAndGet())));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        StatementContext.ExternalScanTaskCache secondExecuteGeneration =
+                statementContext.getExternalScanTaskCache();
+        Assertions.assertNotSame(firstExecuteGeneration, secondExecuteGeneration);
+        Assertions.assertEquals(Collections.singletonList("execute-3"),
+                secondExecuteGeneration.getOrLoad(key,
+                        () -> Collections.singletonList("execute-" + loadCount.incrementAndGet())));
+        Assertions.assertEquals(3, loadCount.get());
+    }
+
+    private static final class PreparedScanTaskCacheKey implements ExternalScanTaskCacheKey<String> {
+        private final String value;
+
+        private PreparedScanTaskCacheKey(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            return object instanceof PreparedScanTaskCacheKey
+                    && value.equals(((PreparedScanTaskCacheKey) object).value);
+        }
+
+        @Override
+        public int hashCode() {
+            return value.hashCode();
+        }
     }
 
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {

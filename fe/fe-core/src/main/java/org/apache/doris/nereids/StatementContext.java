@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -99,7 +100,12 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.ToLongFunction;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -322,6 +328,7 @@ public class StatementContext implements Closeable {
     // IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    private volatile ExternalScanTaskCache externalScanTaskCache = new ExternalScanTaskCache();
     // For Iceberg rewrite operations: control whether to use GATHER distribution
     // When true, data will be collected to a single node to avoid generating too many small files
     private boolean useGatherForIcebergRewrite = false;
@@ -910,6 +917,7 @@ public class StatementContext implements Closeable {
 
     @Override
     public void close() {
+        clearExternalScanTasks();
         releasePlannerResources();
     }
 
@@ -1013,6 +1021,9 @@ public class StatementContext implements Closeable {
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
         tableMetadataSnapshots.clear();
+        ExternalScanTaskCache oldCache = externalScanTaskCache;
+        externalScanTaskCache = new ExternalScanTaskCache();
+        oldCache.invalidate();
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1364,6 +1375,261 @@ public class StatementContext implements Closeable {
         List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
         this.icebergRewriteFileScanTasks = null;
         return tasks;
+    }
+
+    public ExternalScanTaskCache getExternalScanTaskCache() {
+        return externalScanTaskCache;
+    }
+
+    /**
+     * Release scan tasks at the end of one execution without closing reusable prepared-statement
+     * state. Delayed scan work retains only the invalidated generation and cannot repopulate this
+     * StatementContext.
+     */
+    public void clearExternalScanTasks() {
+        externalScanTaskCache.invalidate();
+    }
+
+    /**
+     * One execution generation of statement-scoped external scan tasks.
+     *
+     * <p>Scan nodes capture this object when they are constructed. Resetting a prepared statement
+     * swaps the generation before invalidating the old one, so a delayed asynchronous scan from
+     * the previous execution cannot insert tasks into the next execution's cache.
+     */
+    public static final class ExternalScanTaskCache {
+        /** Maximum number of connector tasks retained by one statement cache generation. */
+        public static final long MAX_RETAINED_TASK_COUNT = 10_000;
+
+        /** Loads a value using the weight atomically reserved for this cache entry. */
+        @FunctionalInterface
+        public interface WeightedLoader<T> {
+            List<T> load(long reservedWeight) throws Exception;
+        }
+
+        /** Independent cumulative budgets used by task-count and serialized-byte retention. */
+        public enum WeightBudget {
+            TASK_COUNT,
+            ICEBERG_SERIALIZED_BYTES,
+            PAIMON_SERIALIZED_BYTES
+        }
+
+        private final Map<ExternalScanTaskCacheKey<?>, CompletableFuture<List<?>>> tasks =
+                new ConcurrentHashMap<>();
+        private long retainedTaskCount;
+        private long retainedIcebergBytes;
+        private long retainedPaimonBytes;
+        private long reservedIcebergBytes;
+        private long reservedPaimonBytes;
+        private boolean invalidated;
+
+        /**
+         * Return the tasks for {@code key}, loading and publishing an immutable result once per
+         * cache generation.
+         */
+        @SuppressWarnings("unchecked")
+        public <T> List<T> getOrLoad(
+                ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
+            return getOrLoad(key, ignored -> loader.call(), tasks -> Math.max(1, tasks.size()),
+                    WeightBudget.TASK_COUNT, MAX_RETAINED_TASK_COUNT,
+                    MAX_RETAINED_TASK_COUNT, false);
+        }
+
+        /**
+         * Return the tasks for {@code key}, retaining the loaded result only when its weight fits
+         * within the cache generation's cumulative limit.
+         */
+        @SuppressWarnings("unchecked")
+        public <T> List<T> getOrLoad(
+                ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
+                ToLongFunction<List<T>> weigher, long maxRetainedWeight) throws Exception {
+            return getOrLoad(key, ignored -> loader.call(), weigher,
+                    WeightBudget.TASK_COUNT, maxRetainedWeight, maxRetainedWeight, false);
+        }
+
+        /**
+         * Return the tasks for {@code key}, optionally reserving an entry allowance before running
+         * the loader. A reserving loader receives the remaining allowance so it can stop producing
+         * a cache value early; other loaders are admitted atomically by their actual weight.
+         */
+        @SuppressWarnings("unchecked")
+        public <T> List<T> getOrLoad(
+                ExternalScanTaskCacheKey<T> key, WeightedLoader<T> loader,
+                ToLongFunction<List<T>> weigher, WeightBudget weightBudget,
+                long maxEntryWeight, long maxRetainedWeight,
+                boolean reserveBeforeLoad) throws Exception {
+            CompletableFuture<List<?>> newLoad = new CompletableFuture<>();
+            CompletableFuture<List<?>> load;
+            boolean cacheable;
+            long reservedWeight = 0;
+            synchronized (this) {
+                cacheable = !invalidated;
+                if (cacheable) {
+                    load = tasks.putIfAbsent(key, newLoad);
+                    if (load == null && reserveBeforeLoad) {
+                        long retainedWeight = retainedWeight(weightBudget);
+                        long alreadyReservedWeight = reservedWeight(weightBudget);
+                        long availableWeight = Math.max(
+                                0, maxRetainedWeight - retainedWeight - alreadyReservedWeight);
+                        reservedWeight = Math.min(maxEntryWeight, availableWeight);
+                        addReservedWeight(weightBudget, reservedWeight);
+                    }
+                } else {
+                    load = null;
+                }
+            }
+            if (!cacheable) {
+                return immutableCopy(loader.load(0));
+            }
+            if (load == null) {
+                List<T> loadedTasks;
+                long weight;
+                try {
+                    loadedTasks = loader.load(reserveBeforeLoad ? reservedWeight : maxEntryWeight);
+                    weight = weigher.applyAsLong(loadedTasks);
+                } catch (Exception | Error throwable) {
+                    synchronized (this) {
+                        if (reserveBeforeLoad) {
+                            releaseReservation(weightBudget, reservedWeight);
+                        }
+                        tasks.remove(key, newLoad);
+                    }
+                    newLoad.completeExceptionally(throwable);
+                    throw throwable;
+                }
+                boolean mayRetain;
+                synchronized (this) {
+                    long availableWeight = Math.max(
+                            0, maxRetainedWeight - retainedWeight(weightBudget));
+                    mayRetain = !invalidated && weight <= availableWeight
+                            && (!reserveBeforeLoad || weight <= reservedWeight);
+                }
+                List<T> retainedCopy = null;
+                boolean reservationReleased = false;
+                boolean retainedCommitted = false;
+                try {
+                    if (mayRetain) {
+                        retainedCopy = immutableCopy(loadedTasks);
+                    }
+                    synchronized (this) {
+                        if (reserveBeforeLoad) {
+                            releaseReservation(weightBudget, reservedWeight);
+                            reservationReleased = true;
+                        }
+                        long availableWeight = Math.max(
+                                0, maxRetainedWeight - retainedWeight(weightBudget));
+                        retainedCommitted = mayRetain && !invalidated && weight <= availableWeight;
+                        if (retainedCommitted) {
+                            addRetainedWeight(weightBudget, weight);
+                        } else {
+                            tasks.remove(key, newLoad);
+                        }
+                    }
+                    List<T> result = retainedCommitted ? retainedCopy : loadedTasks;
+                    newLoad.complete(result);
+                    return result;
+                } catch (Exception | Error throwable) {
+                    synchronized (this) {
+                        if (retainedCommitted) {
+                            addRetainedWeight(weightBudget, -weight);
+                        }
+                        if (reserveBeforeLoad && !reservationReleased) {
+                            releaseReservation(weightBudget, reservedWeight);
+                        }
+                        tasks.remove(key, newLoad);
+                    }
+                    newLoad.completeExceptionally(throwable);
+                    throw throwable;
+                }
+            }
+            try {
+                return (List<T>) load.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception) {
+                    throw (Exception) cause;
+                }
+                throw (Error) cause;
+            }
+        }
+
+        private synchronized void invalidate() {
+            invalidated = true;
+            tasks.clear();
+            retainedTaskCount = 0;
+            retainedIcebergBytes = 0;
+            retainedPaimonBytes = 0;
+            reservedIcebergBytes = 0;
+            reservedPaimonBytes = 0;
+        }
+
+        private void releaseReservation(WeightBudget weightBudget, long reservedWeight) {
+            addReservedWeight(weightBudget, -reservedWeight);
+        }
+
+        private long retainedWeight(WeightBudget weightBudget) {
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    return retainedTaskCount;
+                case ICEBERG_SERIALIZED_BYTES:
+                    return retainedIcebergBytes;
+                case PAIMON_SERIALIZED_BYTES:
+                    return retainedPaimonBytes;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
+            }
+        }
+
+        private long reservedWeight(WeightBudget weightBudget) {
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    return 0;
+                case ICEBERG_SERIALIZED_BYTES:
+                    return reservedIcebergBytes;
+                case PAIMON_SERIALIZED_BYTES:
+                    return reservedPaimonBytes;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
+            }
+        }
+
+        private void addRetainedWeight(WeightBudget weightBudget, long weight) {
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    retainedTaskCount += weight;
+                    break;
+                case ICEBERG_SERIALIZED_BYTES:
+                    retainedIcebergBytes += weight;
+                    break;
+                case PAIMON_SERIALIZED_BYTES:
+                    retainedPaimonBytes += weight;
+                    break;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
+            }
+        }
+
+        private void addReservedWeight(WeightBudget weightBudget, long weight) {
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    break;
+                case ICEBERG_SERIALIZED_BYTES:
+                    reservedIcebergBytes += weight;
+                    break;
+                case PAIMON_SERIALIZED_BYTES:
+                    reservedPaimonBytes += weight;
+                    break;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
+            }
+        }
+
+        private static <T> List<T> immutableCopy(List<T> loadedTasks) {
+            return Collections.unmodifiableList(new ArrayList<>(loadedTasks));
+        }
     }
 
     /**

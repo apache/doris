@@ -174,8 +174,8 @@ suite("test_paimon_write_pk", "p0,external,paimon") {
             FROM t_pk_string_bucket ORDER BY event_id"""
         assertTableEquals("t_pk_string_bucket", "ORDER BY event_id")
 
-        // FT-045: A fixed-bucket PK table uses one writer until Doris has a
-        // bucket-aware exchange, so all versions owned by one bucket stay together.
+        // FT-045: The bucket-aware Exchange may use multiple writers, but every
+        // (partition, bucket) remains owned by exactly one writer.
         sql """SET parallel_pipeline_task_num = 4"""
         sql """SET enable_strict_consistency_dml = false"""
         qt_pk_writer_scaling_plan """EXPLAIN SHAPE PLAN
