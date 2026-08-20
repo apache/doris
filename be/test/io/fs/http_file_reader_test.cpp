@@ -24,12 +24,13 @@
 namespace doris::io {
 
 TEST(HttpFileReaderTest, ChunkResponseDisablesFileCache) {
-    FileSystemProperties properties {
-            .system_type = TFileType::FILE_HTTP,
-            .properties = {{"http.enable.chunk.response", "true"}},
-    };
-    FileDescription file_description {.path = "http://127.0.0.1/stream"};
-    FileReaderOptions opts {.cache_type = FileCachePolicy::FILE_BLOCK_CACHE};
+    FileSystemProperties properties;
+    properties.system_type = TFileType::FILE_HTTP;
+    properties.properties = {{"http.enable.chunk.response", "true"}};
+    FileDescription file_description;
+    file_description.path = "http://127.0.0.1/stream";
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
 
     auto reader = FileFactory::create_file_reader(properties, file_description, opts);
 
