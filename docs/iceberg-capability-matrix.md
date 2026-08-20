@@ -45,8 +45,8 @@
 | 基本投影、过滤、排序、聚合 | E2E | 当前环境 `COUNT(*)` 与 `WHERE id >= 2 ORDER BY id` | 增加结果快照和查询计划记录 |
 | MVCC / snapshot time travel | E2E / CODE / REG | `SUPPORTS_MVCC_SNAPSHOT`；当前表的 `$snapshots` 返回 snapshot `7725652772105110574`，`FOR VERSION AS OF` 返回历史三行；`test_iceberg_time_travel.groovy` | 增加多 snapshot、schema evolution 后的历史读 |
 | Branch / Tag 查询 | CODE / REG / TODO | branch/tag regression suite | 验证 REST Catalog 对 branch/tag 的可见性和权限 |
-| Partition pruning | CODE / REG / TODO | `test_iceberg_runtime_filter_partition_pruning*.groovy` | 建立分区表并检查扫描范围和结果 |
-| Runtime filter | REG / TODO | `test_iceberg_runtime_filter_partition_pruning*.groovy` | 与分区裁剪组合验证，避免只验证单表结果 |
+| Partition pruning | E2E / REG | 隔离表 `matrix_partition_prune_2304` 有 `p=1/2/3` 三个分区；`WHERE p=2` 的 `EXPLAIN VERBOSE` 显示 `inputSplitNum=1`、`partition=1/3`，`WHERE p IN (1,3)` 显示两个 split、`partition=2/3`，结果分别返回对应行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition 和分区演进后的裁剪证据 |
+| Runtime filter | REG / TODO | `test_iceberg_runtime_filter_partition_pruning*.groovy` | 当前只验证了静态分区谓词；单独验证 join/subquery runtime filter |
 | Nested column pruning | CODE / REG / TODO | `SUPPORTS_NESTED_COLUMN_PRUNE`；nested schema suites | 使用 STRUCT/ARRAY/MAP 表，检查子字段结果和扫描行为 |
 | Position delete | REG / TODO | `test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 先验证读取，再验证 Azure 上写入产生的删除文件 |
 | Equality delete | REG / TODO | `test_iceberg_equality_delete*.groovy` | 验证 schema evolution 后 equality delete 仍正确 |
@@ -122,7 +122,7 @@ remove_orphan_files
 
 为了不污染现有 Catalog，下一轮按下面顺序执行：
 
-1. 只读：partition pruning、nested column、position/equality delete，以及修复 Azure 依赖后的 system tables。
+1. 只读：nested column、position/equality delete，以及修复 Azure 依赖后的 system tables；静态 identity partition pruning 已有 E2E 证据。
 2. DDL：在独立 namespace 验证 schema evolution、partition evolution、branch/tag。
 3. 写入扩展：验证分区表、多 DV、并发提交和失败重试。
 4. 管理：最后验证 `EXECUTE` 操作，并在每一步保存 snapshot/metadata 结果。
