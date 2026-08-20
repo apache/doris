@@ -27,6 +27,7 @@
 
 #include "common/cast_set.h"
 #include "common/metrics/doris_metrics.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
 #include "util/bvar_helper.h"
@@ -38,7 +39,8 @@ HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
         VLOG_FILE << "hdfsCloseFile() fid=" << _hdfs_file;
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
-        hdfsCloseFile(_fs, _hdfs_file); // TODO: check return code
+        SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_fs, _hdfs_file),
+                                     "HdfsFileHandle::close::hdfsCloseFile");
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
     }
     _fs = nullptr;
@@ -48,13 +50,16 @@ HdfsFileHandle::~HdfsFileHandle() {
 Status HdfsFileHandle::init(int64_t file_size) {
     _file_size = file_size;
     if (_file_size <= 0) {
-        // file_size unknown, fetch via hdfsGetPathInfo (no need to hdfsOpenFile)
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
-        hdfsFileInfo* file_info = hdfsGetPathInfo(_fs, _fname.c_str());
+        auto* file_info = SYNC_POINT_HOOK_RETURN_VALUE(
+                hdfsGetPathInfo(_fs, _fname.c_str()),
+                "HdfsFileHandle::init::hdfsGetPathInfo");
         if (file_info == nullptr) {
             return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
         }
         _file_size = file_info->mSize;
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("HdfsFileHandle::init::hdfsFreeFileInfo",
+                                          Status::OK());
         hdfsFreeFileInfo(file_info, 1);
     }
     return Status::OK();
@@ -64,14 +69,17 @@ Status HdfsFileHandle::ensure_open() {
     std::call_once(_open_once, [this]() {
         VLOG_DEBUG << "lazy open hdfs file: " << _fname;
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
-        _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
+        _hdfs_file = SYNC_POINT_HOOK_RETURN_VALUE(
+                hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0),
+                "HdfsFileHandle::ensure_open::hdfsOpenFile");
         if (_hdfs_file != nullptr) {
             DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
             DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
         }
     });
     if (_hdfs_file == nullptr) {
-        std::string _err_msg = hdfs_error();
+        std::string _err_msg = SYNC_POINT_HOOK_RETURN_VALUE(
+                hdfs_error(), "HdfsFileHandle::ensure_open::hdfs_error");
         if (_err_msg.find("No such file or directory") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
