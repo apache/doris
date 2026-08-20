@@ -32,6 +32,7 @@ public class HudiFsViewCacheValueTest {
 
         Assert.assertNotNull(lease);
         Assert.assertSame(view, lease.get());
+        Mockito.verify(view).sync();
         value.evict();
         Mockito.verify(view, Mockito.never()).close();
         Assert.assertNull(value.tryAcquire());
@@ -39,7 +40,7 @@ public class HudiFsViewCacheValueTest {
         lease.close();
         Mockito.verify(view).close();
         lease.close();
-        Mockito.verifyNoMoreInteractions(view);
+        Mockito.verify(view, Mockito.times(1)).close();
     }
 
     @Test
@@ -52,8 +53,24 @@ public class HudiFsViewCacheValueTest {
         Mockito.verify(view, Mockito.never()).close();
         HudiFsViewCacheValue.Lease lease = value.tryAcquire();
         Assert.assertNotNull(lease);
+        Mockito.verify(view).sync();
         lease.close();
         Mockito.verify(view).close();
         Assert.assertNull(value.tryAcquire());
+    }
+
+    @Test
+    public void testLeaseSynchronizesHotCachedView() {
+        HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
+        HudiFsViewCacheValue value = new HudiFsViewCacheValue(view);
+        HudiFsViewCacheValue.Lease firstLease = value.tryAcquire();
+
+        Assert.assertNotNull(firstLease);
+        firstLease.close();
+        HudiFsViewCacheValue.Lease secondLease = value.tryAcquire();
+        Assert.assertNotNull(secondLease);
+        secondLease.close();
+
+        Mockito.verify(view, Mockito.times(2)).sync();
     }
 }
