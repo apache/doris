@@ -53,13 +53,21 @@
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/format/core_metadata.h"
+#include "storage/index/snii/format/dict_block.h"
+#include "storage/index/snii/format/dict_block_directory.h"
 #include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/format/sampled_term_index.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/phrase_verify_timer.h"
 #include "storage/index/snii/query/query_profile.h"
+#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/snii_prx_profile.h"
 // Exercise the reader router without acquiring process-global query-cache ownership.
@@ -533,6 +541,102 @@ uint32_t lookup_df(const doris::snii::reader::LogicalIndexReader& index, const s
     assert_ok(index.lookup(term, &found, &entry, &frq_base, &prx_base));
     EXPECT_TRUE(found);
     return entry.df;
+}
+
+struct CorruptDfLogicalIndex {
+    std::unique_ptr<MemoryFile> file;
+    doris::snii::reader::LogicalIndexReader reader;
+};
+
+// Keep the CRC-valid Core/STI/DICT/DBD corruption fixture visible as one end-to-end image builder.
+// NOLINTNEXTLINE(readability-function-size)
+Status build_corrupt_df_logical_index(bool nullable, CorruptDfLogicalIndex* out) {
+    constexpr uint32_t kDocCount = 10;
+    constexpr uint32_t kCorruptDf = 100;
+
+    doris::snii::writer::SniiIndexInput input;
+    input.index_id = kIndexId;
+    input.index_suffix = "";
+    input.config = doris::snii::format::IndexConfig::kDocsPositions;
+    input.doc_count = kDocCount;
+    input.terms = {
+            make_term("alpha", {{.docid = 2, .positions = {0}}, {.docid = 7, .positions = {0}}})};
+    if (nullable) {
+        input.null_docids = {1, 3};
+    }
+
+    MemoryFile source_file;
+    doris::snii::writer::SniiCompoundWriter compound(&source_file);
+    RETURN_IF_ERROR(compound.add_logical_index(input));
+    RETURN_IF_ERROR(compound.finish());
+    doris::snii::reader::SniiSegmentReader source_segment;
+    RETURN_IF_ERROR(doris::snii::reader::SniiSegmentReader::open(&source_file, &source_segment));
+    doris::snii::reader::LogicalIndexReader source_reader;
+    RETURN_IF_ERROR(source_segment.open_index(kIndexId, "", &source_reader));
+
+    std::vector<uint32_t> real_docids;
+    RETURN_IF_ERROR(doris::snii::query::term_query(source_reader, "alpha", &real_docids));
+    DORIS_CHECK(real_docids == (std::vector<uint32_t> {2, 7}));
+
+    std::vector<doris::snii::format::DictEntry> entries;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    RETURN_IF_ERROR(source_reader.decode_dict_block(0, &entries, &frq_base, &prx_base));
+    DORIS_CHECK_EQ(entries.size(), 1);
+    DORIS_CHECK(entries.front().kind == doris::snii::format::DictEntryKind::kInline);
+    entries.front().df = kCorruptDf;
+
+    doris::snii::format::DictBlockBuilder dict_builder(
+            source_reader.tier(), source_reader.has_positions(), frq_base, prx_base);
+    dict_builder.add_entry(std::move(entries.front()));
+    std::vector<uint8_t> dict_block = dict_builder.finish_owned();
+
+    doris::snii::format::SampledTermIndexBuilder sampled_builder;
+    sampled_builder.add_block_first_term("alpha");
+    doris::snii::ByteSink sampled_frame;
+    sampled_builder.finish(&sampled_frame);
+
+    doris::snii::format::BlockRef block_ref;
+    block_ref.offset = 0;
+    block_ref.length = dict_block.size();
+    block_ref.n_entries = 1;
+    block_ref.checksum = doris::snii::crc32c(doris::snii::Slice(dict_block));
+    doris::snii::format::DictBlockDirectoryBuilder directory_builder;
+    directory_builder.add(block_ref);
+    doris::snii::ByteSink directory_frame;
+    directory_builder.finish(&directory_frame);
+
+    doris::snii::ByteSink null_frame;
+    if (nullable) {
+        doris::snii::format::NullBitmapWriter null_writer;
+        null_writer.add_null(1);
+        null_writer.add_null(3);
+        RETURN_IF_ERROR(null_writer.finish(kDocCount, &null_frame));
+    }
+
+    doris::snii::format::CoreMetadata core;
+    core.index_config = doris::snii::format::IndexConfig::kDocsPositions;
+    core.stats.doc_count = kDocCount;
+    core.stats.indexed_doc_count = kDocCount - (nullable ? 2 : 0);
+    core.stats.term_count = 1;
+    core.stats.sum_total_term_freq = 2;
+    core.stats.null_count = nullable ? 2 : 0;
+    core.section_refs.dict_region = {0, dict_block.size()};
+    if (nullable) {
+        core.section_refs.null_bitmap = {dict_block.size(), null_frame.size()};
+    }
+    doris::snii::ByteSink core_frame;
+    RETURN_IF_ERROR(doris::snii::format::encode_core_metadata(core, &core_frame));
+
+    out->file = std::make_unique<MemoryFile>();
+    RETURN_IF_ERROR(out->file->append(doris::snii::Slice(dict_block)));
+    if (nullable) {
+        RETURN_IF_ERROR(out->file->append(null_frame.view()));
+    }
+    RETURN_IF_ERROR(out->file->finalize());
+    return doris::snii::reader::LogicalIndexReader::open(out->file.get(), core_frame.view(),
+                                                         sampled_frame.view(),
+                                                         directory_frame.view(), &out->reader);
 }
 
 class SniiIndexReaderCountFallback : public testing::Test {
@@ -1422,6 +1526,46 @@ TEST_F(SniiIndexReaderCountFallback, PublicSingleTermCountFastPathLeavesPrxStats
 
     verify_query("failed");
     verify_query("failed ~1");
+}
+
+TEST_F(SniiIndexReaderCountFallback, CountFastPathRejectsDfBeyondDocumentDomain) {
+    CorruptDfLogicalIndex corrupt;
+    assert_ok(build_corrupt_df_logical_index(/*nullable=*/false, &corrupt));
+    QueryExecutionContext execution(/*enable_query_cache=*/false,
+                                    /*count_on_index_fastpath=*/true);
+    InvertedIndexQueryInfo query_info;
+    query_info.term_infos.emplace_back("alpha", 0);
+    const std::vector<std::string> terms {"alpha"};
+    bool handled = false;
+    std::shared_ptr<roaring::Roaring> bitmap;
+
+    const Status status = _index_reader->_try_count_only_fastpath(
+            execution.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_info, terms,
+            &handled, &bitmap, &corrupt.reader);
+
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    EXPECT_FALSE(handled);
+    EXPECT_EQ(bitmap, nullptr);
+}
+
+TEST_F(SniiIndexReaderCountFallback, CountFastPathRejectsDfBeyondNonNullDomain) {
+    CorruptDfLogicalIndex corrupt;
+    assert_ok(build_corrupt_df_logical_index(/*nullable=*/true, &corrupt));
+    QueryExecutionContext execution(/*enable_query_cache=*/false,
+                                    /*count_on_index_fastpath=*/true);
+    InvertedIndexQueryInfo query_info;
+    query_info.term_infos.emplace_back("alpha", 0);
+    const std::vector<std::string> terms {"alpha"};
+    bool handled = false;
+    std::shared_ptr<roaring::Roaring> bitmap;
+
+    const Status status = _index_reader->_try_count_only_fastpath(
+            execution.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_info, terms,
+            &handled, &bitmap, &corrupt.reader);
+
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    EXPECT_FALSE(handled);
+    EXPECT_EQ(bitmap, nullptr);
 }
 
 TEST_F(SniiIndexReaderCountFallback, CountFastPathPublishesHitAfterRequestedNullBitmap) {

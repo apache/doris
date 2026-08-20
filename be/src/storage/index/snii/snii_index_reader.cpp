@@ -1048,6 +1048,8 @@ Status SniiIndexReader::_compute_query_bitmap(const IndexQueryContextPtr& contex
 }
 #endif
 
+// Keep the complete count-only eligibility and null-safe fabrication contract in one linear path.
+// NOLINTNEXTLINE(readability-function-size)
 Status SniiIndexReader::_try_count_only_fastpath(
         const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
         const InvertedIndexQueryInfo& query_info, const std::vector<std::string>& terms,
@@ -1093,6 +1095,13 @@ Status SniiIndexReader::_try_count_only_fastpath(
     if (representable) {
         RETURN_IF_ERROR(
                 ::doris::snii::query::count_only_term_df(*logical_reader, physical_term, &count));
+    }
+    const auto& stats = logical_reader->stats();
+    if (count > stats.doc_count || count > stats.indexed_doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "SNII count fast path: term df {} exceeds document domain (doc count {}, "
+                "indexed doc count {})",
+                count, stats.doc_count, stats.indexed_doc_count);
     }
 
     // Null handling. df is the exact match count REGARDLESS of nulls: the
