@@ -43,6 +43,35 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace doris {
+
+namespace {
+
+class EmptyValueSectionDecoder final : public Decoder {
+public:
+    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr&,
+                         ColumnSelectVector& select_vector, bool) override {
+        const size_t physical_values = select_vector.num_values() - select_vector.num_nulls();
+        if (UNLIKELY(physical_values != 0)) {
+            return Status::Corruption(
+                    "Parquet definition levels require {} values from an empty value section",
+                    physical_values);
+        }
+        doris_column->insert_many_defaults(select_vector.num_values() -
+                                           select_vector.num_filtered());
+        return Status::OK();
+    }
+
+    Status skip_values(size_t num_values) override {
+        if (UNLIKELY(num_values != 0)) {
+            return Status::Corruption(
+                    "Parquet definition levels require {} values from an empty value section",
+                    num_values);
+        }
+        return Status::OK();
+    }
+};
+
+} // namespace
 namespace io {
 class BufferedStreamReader;
 struct IOContext;
@@ -358,17 +387,30 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
     }
 
     // Reuse page decoder
+    Decoder* encoding_decoder = nullptr;
     if (_decoders.find(static_cast<int>(encoding)) != _decoders.end()) {
-        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+        encoding_decoder = _decoders[static_cast<int>(encoding)].get();
     } else {
         std::unique_ptr<Decoder> page_decoder;
         RETURN_IF_ERROR(Decoder::get_decoder(_metadata.type, encoding, page_decoder));
         // Set type length
         page_decoder->set_type_length(_get_type_length());
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
-        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+        encoding_decoder = _decoders[static_cast<int>(encoding)].get();
     }
-    RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
+    _empty_value_section = _page_data.empty();
+    if (_empty_value_section) {
+        // Nullable all-NULL pages legally contain only definition levels, while required pages
+        // with logical values and no physical values are corrupt. Use a dedicated decoder so both
+        // cases avoid encoding-specific decoders that require a non-null input buffer.
+        if (_empty_value_decoder == nullptr) {
+            _empty_value_decoder = std::make_unique<EmptyValueSectionDecoder>();
+        }
+        _page_decoder = _empty_value_decoder.get();
+    } else {
+        _page_decoder = encoding_decoder;
+        RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
+    }
 
     _state = DATA_LOADED;
     return Status::OK();
@@ -546,13 +588,13 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_va
         return Status::IOError("Skip too many values in current page. {} vs. {}",
                                _remaining_num_values, num_values);
     }
-    _remaining_num_values -= num_values;
     if (skip_data) {
         SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
-        return _page_decoder->skip_values(num_values);
-    } else {
-        return Status::OK();
+        RETURN_IF_ERROR(_page_decoder->skip_values(num_values));
     }
+    // Commit logical page progress only after the physical decoder accepted the whole request.
+    _remaining_num_values -= num_values;
+    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -569,8 +611,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_values(
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
         return Status::IOError("Decode too many values in current page");
     }
+    RETURN_IF_ERROR(
+            _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter));
     _remaining_num_values -= select_vector.num_values();
-    return _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter);
+    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

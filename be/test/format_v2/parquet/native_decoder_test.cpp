@@ -739,6 +739,60 @@ Status materialize_level_only_page(bool data_page_v2, tparquet::Type::type physi
     return status;
 }
 
+Status materialize_compressed_required_bool_without_values() {
+    BlockCompressionCodec* codec = nullptr;
+    RETURN_IF_ERROR(get_block_compression_codec(tparquet::CompressionCodec::SNAPPY, &codec));
+    const uint8_t empty_input = 0;
+    faststring compressed;
+    RETURN_IF_ERROR(codec->compress(Slice(&empty_input, 0), &compressed));
+    std::vector<uint8_t> payload(compressed.data(), compressed.data() + compressed.size());
+
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(payload.size());
+    header.__set_uncompressed_page_size(0);
+    header.__isset.data_page_header_v2 = true;
+    header.data_page_header_v2.__set_num_values(1);
+    header.data_page_header_v2.__set_num_nulls(0);
+    header.data_page_header_v2.__set_num_rows(1);
+    header.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header_v2.__set_definition_levels_byte_length(0);
+    header.data_page_header_v2.__set_repetition_levels_byte_length(0);
+    header.data_page_header_v2.__set_is_compressed(true);
+
+    auto bytes = serialize_page(header, payload);
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::BOOLEAN);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::SNAPPY);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::BOOLEAN;
+    field.data_type = std::make_shared<DataTypeUInt8>();
+    field.parquet_schema.__set_type(tparquet::Type::BOOLEAN);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    ParquetPageReadContext page_context(false, "");
+    ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
+                                                 page_context);
+    RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
+    RETURN_IF_ERROR(chunk_reader.load_page_data());
+
+    FilterMap filter;
+    RETURN_IF_ERROR(filter.init(nullptr, 1, false));
+    ColumnSelectVector select_vector;
+    RETURN_IF_ERROR(select_vector.init({1, 0}, 1, nullptr, &filter, 0));
+    auto column = field.data_type->create_column();
+    ParquetDecodeContext decode_context;
+    static const auto utc = cctz::utc_time_zone();
+    RETURN_IF_ERROR(init_decode_context_for_test(field, &utc, &decode_context));
+    ParquetMaterializationState state;
+    return chunk_reader.materialize_values(column, *field.data_type->get_serde(), decode_context,
+                                           state, select_vector);
+}
+
 Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t>& payload,
                           tparquet::CompressionCodec::type codec, bool preload_page_cache = false,
                           tparquet::Type::type physical_type = tparquet::Type::INT32) {
@@ -3696,6 +3750,11 @@ TEST(ParquetV2NativeDecoderTest, LevelOnlyPagesRejectDefinitionLevelsThatRequire
                     << ": " << status;
         }
     }
+}
+
+TEST(ParquetV2NativeDecoderTest, CompressedRequiredBoolWithoutValuesReturnsCorruption) {
+    const auto status = materialize_compressed_required_bool_without_values();
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 
 TEST(ParquetV2NativeDecoderTest, LevelOnlyReaderSkipsLeadingZeroValuePages) {
