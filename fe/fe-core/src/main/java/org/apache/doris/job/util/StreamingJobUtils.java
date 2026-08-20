@@ -420,9 +420,9 @@ public class StreamingJobUtils {
                 Set<String> excludeColumns = parseExcludeColumns(properties, table);
                 if (targetDatabase.isTableExist(targetTableName)) {
                     if (!excludeColumns.isEmpty()) {
-                        Set<String> columnNames = jdbcClient.getJdbcColumnsInfo(database, table).stream()
+                        List<String> columnNames = jdbcClient.getJdbcColumnsInfo(database, table).stream()
                                 .map(field -> field.getColumnName())
-                                .collect(Collectors.toSet());
+                                .collect(Collectors.toList());
                         validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
                     }
                     createtblCmds.put(table, Optional.empty());
@@ -431,7 +431,7 @@ public class StreamingJobUtils {
 
                 List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
                 if (!excludeColumns.isEmpty()) {
-                    Set<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+                    List<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toList());
                     validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
                     columns = columns.stream()
                             .filter(col -> !excludeColumns.contains(col.getName()))
@@ -637,15 +637,13 @@ public class StreamingJobUtils {
     }
 
     private static void validateExcludeColumns(Set<String> excludeColumns, String tableName,
-            Set<String> columnNames, List<String> primaryKeys) throws JobException {
+            List<String> columnNames, List<String> primaryKeys) throws JobException {
         for (String col : excludeColumns) {
             if (!columnNames.contains(col)) {
                 throw new JobException(String.format(
                         "exclude_columns validation failed: column '%s' does not exist in table '%s'",
                         col, tableName));
             }
-        }
-        for (String col : excludeColumns) {
             if (primaryKeys.contains(col)) {
                 throw new JobException(String.format(
                         "exclude_columns validation failed: column '%s' in table '%s'"
