@@ -182,6 +182,7 @@ protected:
         row_binlog_context.write_binlog_opt().enable = true;
         auto& cfg = row_binlog_context.write_binlog_opt().write_binlog_config();
         cfg.source.tablet_schema = _tablet->tablet_schema();
+        cfg.source.base_tablet = _tablet;
         cfg.source.is_transient_rowset_writer = true;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
@@ -319,6 +320,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     row_binlog_context.write_binlog_opt().enable = true;
     auto& binlog_options = row_binlog_context.write_binlog_opt().write_binlog_config();
     binlog_options.source.tablet_schema = _tablet->tablet_schema();
+    binlog_options.source.base_tablet = _tablet;
     binlog_options.source.partial_update_info = partial_update_info;
     binlog_options.source.mow_context = row_binlog_context.mow_context;
     binlog_options.source.source_write_type = DataWriteType::TYPE_DIRECT;

@@ -366,6 +366,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         try {
             Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
+            // System wrappers hide the fallback pair from instanceof checks. Retain the exact source
+            // resolved here so split-limit safety applies after transient handles are reloaded too.
+            handle.setSystemTableSource(dataTable);
             return PaimonReaderOptions.runtimeSafeSystemTable(
                     handle.getSysTableName(), systemTable, dataTable, scanOptions);
         } catch (IllegalArgumentException e) {
@@ -484,14 +487,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * The scan entry. Of everything on the request, paimon consumes the handle, the columns, the filter and
-     * the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN, which lets a split answer from its
-     * precomputed merged row count); the row limit and the pruned partition set are not consumed by the
-     * paimon read path — it is predicate-driven and re-plans through the SDK from the filter.
+     * the row limit, and the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN, which lets a split
+     * answer from its precomputed merged row count); the pruned partition set is not consumed by the paimon
+     * read path — it is predicate-driven and re-plans through the SDK from the filter.
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                request.getFilter(), request.isCountPushdown());
+                request.getFilter(), request.getLimit(), request.isCountPushdown());
     }
 
     /**
@@ -602,6 +605,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter,
+            long limit,
             boolean countPushdown) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
@@ -619,6 +623,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
         Table table = resolveScanTable(paimonHandle);
+        Optional<Long> fileCreationTime = optionsPin
+                ? PaimonScanParams.getPinnedFileCreationTime(pinnedOptions)
+                : Optional.empty();
 
         // Build predicates from filter expression
         RowType rowType = table.rowType();
@@ -672,6 +679,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (projected.length > 0) {
             readBuilder.withProjection(projected);
         }
+        if (limit > 0 && limit <= Integer.MAX_VALUE
+                && filter.isEmpty()
+                && fileCreationTime.isEmpty()
+                && hasTrustworthyLimitAccounting(table)
+                && !usesFallbackRead(table, paimonHandle)
+                && !ignoreJni
+                && !ignoreNative) {
+            // Only append-only FileStore manifests count final output rows: format tables count
+            // files, while primary-key metadata may count deletes that its reader later removes.
+            // Ignore routing happens after planning, so pruning first could discard every retained
+            // split and hide rows from the non-ignored reader path.
+            readBuilder.withLimit((int) limit);
+        }
         TableScan scan = readBuilder.newScan();
         // FIX-SCAN-METRICS: attach a metric registry so scan.plan() records its ScanMetrics (manifest cache
         // hit/miss, scan durations, table files skipped/resulted), then harvest them below — restores the
@@ -681,9 +701,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (scan instanceof InnerTableScan) {
             scan = ((InnerTableScan) scan).withMetricRegistry(metricRegistry);
         }
-        Optional<Long> fileCreationTime = optionsPin
-                ? PaimonScanParams.getPinnedFileCreationTime(pinnedOptions)
-                : Optional.empty();
         List<Split> paimonSplits = fileCreationTime.isPresent()
                 ? planFileCreationTimeSplits(table, pinnedOptions, predicates, fileCreationTime.get())
                 : planSplits(scan);
@@ -825,6 +842,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return ranges;
+    }
+
+    private static boolean usesFallbackRead(Table scanTable, PaimonTableHandle handle) {
+        return isFallbackFileStoreTable(scanTable)
+                || isFallbackFileStoreTable(handle.getSystemTableSource())
+                || isFallbackFileStoreTable(handle.getSysBaseTable());
+    }
+
+    private static boolean hasTrustworthyLimitAccounting(Table table) {
+        return table instanceof FileStoreTable && table.primaryKeys().isEmpty();
+    }
+
+    private static boolean isFallbackFileStoreTable(Table table) {
+        return table instanceof FileStoreTable
+                && PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table)
+                        instanceof FallbackReadFileStoreTable;
     }
 
     /**

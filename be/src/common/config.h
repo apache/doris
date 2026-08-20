@@ -460,6 +460,7 @@ DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
+// Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
@@ -1274,6 +1275,7 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
+DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
@@ -1346,6 +1348,13 @@ DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+// async file cache write
+DECLARE_mBool(enable_async_file_cache_write);
+DECLARE_mInt32(async_file_cache_write_workers_per_disk);
+DECLARE_mInt64(async_file_cache_write_max_pending_bytes);
+DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
+DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

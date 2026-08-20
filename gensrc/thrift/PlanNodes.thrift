@@ -996,7 +996,7 @@ struct TSortInfo {
   // Expressions evaluated over the input row that materialize the tuple to be sorted.
   // Contains one expr per slot in the materialized tuple.
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
-  // Indicates whether topn query using two phase read
+  // [deprecated] Two-phase read is replaced by TopN lazy materialization.
   6: optional bool use_two_phase_read
 }
 

@@ -394,8 +394,12 @@ Status append_v1_storage_cell(StringRef cell, VariantBatchBuilder::Row& output, 
 
 namespace {
 
-void publish_encoded(VariantBatchBuilder* builder, ColumnUInt8::MutablePtr outer_nulls,
-                     ColumnNullable::MutablePtr* output) {
+// Same shape as variant_assembler.cpp's helper, kept separate on purpose: both
+// files sit in one anonymous namespace once the unity build merges them, so the
+// two names have to differ.
+void publish_encoded_storage_cells(VariantBatchBuilder* builder,
+                                   ColumnUInt8::MutablePtr outer_nulls,
+                                   ColumnNullable::MutablePtr* output) {
     VariantBatchBuilder block = builder->finish_batch();
     auto values = ColumnVariantV2::create();
     values->insert_encoded_batch(block);
@@ -535,7 +539,7 @@ Status decode_v1_storage_cells(std::span<const StringRef> cells,
                 }
                 row.finish();
             }
-            publish_encoded(&builder, std::move(result_outer), &result);
+            publish_encoded_storage_cells(&builder, std::move(result_outer), &result);
         }
         *output = std::move(result);
         return Status::OK();
