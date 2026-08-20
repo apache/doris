@@ -69,4 +69,18 @@ class CurrentTimestampDefaultValueTest {
                 () -> org.apache.doris.nereids.trees.plans.commands.info.DefaultValue
                         .currentTimeStampDefaultValueWithPrecision(10L, TimeStampNsType.INSTANCE));
     }
+
+    @Test
+    void testTimestampNsBareCurrentTimestampBackfillUsesScaleZero() {
+        org.apache.doris.nereids.trees.plans.commands.info.DefaultValue bareCurrentTimestamp
+                = org.apache.doris.nereids.trees.plans.commands.info.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
+        Assertions.assertTrue(bareCurrentTimestamp.getRawValue(TimeStampNsType.INSTANCE)
+                .matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
+
+        org.apache.doris.nereids.trees.plans.commands.info.DefaultValue precisionNine
+                = org.apache.doris.nereids.trees.plans.commands.info.DefaultValue
+                        .currentTimeStampDefaultValueWithPrecision(9L, TimeStampNsType.INSTANCE);
+        Assertions.assertTrue(precisionNine.getRawValue(TimeStampNsType.INSTANCE)
+                .matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{9}"));
+    }
 }

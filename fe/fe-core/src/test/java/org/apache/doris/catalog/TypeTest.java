@@ -26,6 +26,18 @@ import java.util.ArrayList;
 
 public class TypeTest {
 
+    @Test
+    public void testTimestampNsJavaUdfType() {
+        Assert.assertEquals(1,
+                Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());
+        Assert.assertTrue(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(java.time.LocalDateTime.class));
+        Assert.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.LocalDateTime.class));
+        Assert.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.DateTime.class));
+    }
+
     // ===================== ArrayType =====================
     @Test
     public void testArrayOfArrayExactMatch() {

@@ -306,6 +306,7 @@ public abstract class Type {
             org.joda.time.LocalDate.class);
     public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
             org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
+    public static final Set<Class> TIMESTAMP_NS_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class);
     public static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
             new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
                     .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
@@ -323,7 +324,7 @@ public abstract class Type {
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.TIMESTAMP_NS, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.TIMESTAMP_NS, TIMESTAMP_NS_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))

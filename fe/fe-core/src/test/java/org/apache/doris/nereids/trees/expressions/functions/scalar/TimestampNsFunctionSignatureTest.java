@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -30,7 +31,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -134,25 +137,22 @@ class TimestampNsFunctionSignatureTest {
     }
 
     @Test
-    void testMixedDateTimeV2DiffPromotesToTimestampNsSignature() {
+    void testMixedDateLikeColumnsRequireExplicitCast() {
         Expression datetime = SlotReference.of("datetime", DateTimeV2Type.MAX);
-        assertSignature(new DateDiff(timestampNs, datetime), IntegerType.INSTANCE,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-        assertSignature(new TimeDiff(timestampNs, datetime), TimeV2Type.MAX,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-    }
-
-    @Test
-    void testMixedTimestampTzFunctionsPromoteToTimestampNsSignature() {
         Expression timestampTz = SlotReference.of("timestamp_tz", TimeStampTzType.MAX);
-        assertSignature(new DateDiff(timestampNs, timestampTz), IntegerType.INSTANCE,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-        assertSignature(new TimeDiff(timestampTz, timestampNs), TimeV2Type.MAX,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-        assertSignature(new SecondsDiff(timestampNs, timestampTz), BigIntType.INSTANCE,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-        assertSignature(new Field(timestampTz, timestampNs), IntegerType.INSTANCE,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new DateDiff(timestampNs, datetime).getSignature());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new TimeDiff(timestampNs, datetime).getSignature());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new DateDiff(timestampNs, timestampTz).getSignature());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new TimeDiff(timestampTz, timestampNs).getSignature());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new SecondsDiff(timestampNs, timestampTz).getSignature());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new Field(timestampTz,
+                        new TimeStampNsLiteral("2024-01-02 03:04:05.123456789")).getSignature());
     }
 
     @Test
@@ -168,13 +168,31 @@ class TimestampNsFunctionSignatureTest {
     }
 
     @Test
-    void testMixedDatetimeArgumentsNeverDemoteTimestampNs() {
+    void testMixedDateTimeV2LiteralUsesTimestampNsOnlyWhenRepresentable() {
+        DateTimeV2Literal insideRange = new DateTimeV2Literal(DateTimeV2Type.MAX,
+                2024, 1, 2, 3, 4, 5, 123456);
+        DateTimeV2Literal outsideRange = new DateTimeV2Literal(DateTimeV2Type.MAX,
+                2500, 1, 2, 3, 4, 5, 123456);
+
+        assertSignature(new DateDiff(timestampNs, insideRange), IntegerType.INSTANCE,
+                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new DateDiff(timestampNs, outsideRange).getSignature());
+
         Expression datetime = SlotReference.of("datetime", DateTimeV2Type.MAX);
-        assertSignature(new SecondFloor(timestampNs, datetime), TimeStampNsType.INSTANCE,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-        assertSignature(new ArrayRange(timestampNs, datetime),
-                ArrayType.of(TimeStampNsType.INSTANCE),
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
+        TimeStampNsLiteral exactTimestampNs = new TimeStampNsLiteral(
+                "2024-01-02 03:04:05.123456000");
+        TimeStampNsLiteral inexactTimestampNs = new TimeStampNsLiteral(
+                "2024-01-02 03:04:05.123456001");
+        assertSignature(new DateDiff(datetime, exactTimestampNs), IntegerType.INSTANCE,
+                DateTimeV2Type.MAX, DateTimeV2Type.MAX);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new DateDiff(datetime, inexactTimestampNs).getSignature());
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new SecondFloor(timestampNs, datetime).getSignature());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new ArrayRange(timestampNs, datetime).getSignature());
     }
 
     @Test

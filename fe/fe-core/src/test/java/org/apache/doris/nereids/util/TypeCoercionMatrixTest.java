@@ -702,13 +702,13 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateTimeV2Type.of(4), StringType.INSTANCE, DateTimeV2Type.of(6));
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
                 TimeStampNsType.INSTANCE);
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, null);
         Expression timestampNsDateTime = TypeCoercionUtils.processComparisonPredicate(
                 new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
                         new SlotReference("right", DateTimeV2Type.MAX)));
         Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(0).getDataType());
         Assertions.assertEquals(DateTimeV2Type.MAX, timestampNsDateTime.child(1).getDataType());
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeStampTzType.MAX, TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeStampTzType.MAX, null);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), ArrayType.of(StringType.INSTANCE), null);

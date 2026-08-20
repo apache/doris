@@ -138,6 +138,15 @@ public class DefaultValue {
         return value;
     }
 
+    /** Get a schema-change backfill value using the target type's default precision. */
+    public String getRawValue(DataType targetType) {
+        if (targetType.isTimeStampNsType() && isCurrentTimeStamp()) {
+            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        return getRawValue();
+    }
+
     /**
      * get string value of a default value expression.
      */

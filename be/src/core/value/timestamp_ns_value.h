@@ -219,58 +219,71 @@ static_assert(std::is_trivially_copyable_v<TimeStampNsValue>);
 // elapsed units use the exact signed epoch-nanosecond difference and truncate toward zero.
 template <TimeUnit UNIT>
 int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue& ts_value2) {
-    const auto time_key = [](const TimeStampNsValue& value, bool include_month) {
-        int64_t result = include_month ? value.month() : 0;
-        result = result * 32 + value.day();
-        result = result * 24 + value.hour();
-        result = result * 60 + value.minute();
-        result = result * 60 + value.second();
-        return result * TimeStampNsValue::NANOS_PER_SECOND + value.nanosecond();
-    };
-    if constexpr (UNIT == YEAR) {
-        int year = ts_value2.year() - ts_value1.year();
-        const int64_t remainder1 = time_key(ts_value1, true);
-        const int64_t remainder2 = time_key(ts_value2, true);
-        if (year > 0) {
-            year -= remainder2 < remainder1;
-        } else if (year < 0) {
-            year += remainder2 > remainder1;
+    if constexpr (UNIT == YEAR || UNIT == QUARTER || UNIT == MONTH || UNIT == WEEK || UNIT == DAY) {
+        const auto datetime1 = ts_value1.to_datetime();
+        const auto datetime2 = ts_value2.to_datetime();
+        const auto time_key = [](const DateV2Value<DateTimeV2ValueType>& value, uint32_t nanosecond,
+                                 bool include_month) {
+            int64_t result = include_month ? value.month() : 0;
+            result = result * 32 + value.day();
+            result = result * 24 + value.hour();
+            result = result * 60 + value.minute();
+            result = result * 60 + value.second();
+            return result * TimeStampNsValue::NANOS_PER_SECOND + nanosecond;
+        };
+        if constexpr (UNIT == YEAR) {
+            int year = datetime2.year() - datetime1.year();
+            const int64_t remainder1 = time_key(datetime1, ts_value1.nanosecond(), true);
+            const int64_t remainder2 = time_key(datetime2, ts_value2.nanosecond(), true);
+            if (year > 0) {
+                year -= remainder2 < remainder1;
+            } else if (year < 0) {
+                year += remainder2 > remainder1;
+            }
+            return year;
+        } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
+            int month = (datetime2.year() - datetime1.year()) * 12 +
+                        (datetime2.month() - datetime1.month());
+            const int64_t remainder1 = time_key(datetime1, ts_value1.nanosecond(), false);
+            const int64_t remainder2 = time_key(datetime2, ts_value2.nanosecond(), false);
+            if (month > 0) {
+                month -= remainder2 < remainder1;
+            } else if (month < 0) {
+                month += remainder2 > remainder1;
+            }
+            return UNIT == QUARTER ? month / 3 : month;
+        } else {
+            int64_t day = datetime2.daynr() - datetime1.daynr();
+            const int64_t time1 =
+                    datetime1.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
+                    ts_value1.nanosecond();
+            const int64_t time2 =
+                    datetime2.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
+                    ts_value2.nanosecond();
+            if (day > 0) {
+                day -= time2 < time1;
+            } else if (day < 0) {
+                day += time2 > time1;
+            }
+            return UNIT == WEEK ? day / 7 : day;
         }
-        return year;
-    } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
-        int month = (ts_value2.year() - ts_value1.year()) * 12 +
-                    (ts_value2.month() - ts_value1.month());
-        const int64_t remainder1 = time_key(ts_value1, false);
-        const int64_t remainder2 = time_key(ts_value2, false);
-        if (month > 0) {
-            month -= remainder2 < remainder1;
-        } else if (month < 0) {
-            month += remainder2 > remainder1;
-        }
-        return UNIT == QUARTER ? month / 3 : month;
-    } else if constexpr (UNIT == WEEK || UNIT == DAY) {
-        int64_t day = ts_value2.daynr() - ts_value1.daynr();
-        const int64_t time1 =
-                ts_value1.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
-                ts_value1.nanosecond();
-        const int64_t time2 =
-                ts_value2.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
-                ts_value2.nanosecond();
-        if (day > 0) {
-            day -= time2 < time1;
-        } else if (day < 0) {
-            day += time2 > time1;
-        }
-        return UNIT == WEEK ? day / 7 : day;
     } else {
-        constexpr int64_t divisor = UNIT == HOUR     ? 3600 * TimeStampNsValue::NANOS_PER_SECOND
-                                    : UNIT == MINUTE ? 60 * TimeStampNsValue::NANOS_PER_SECOND
-                                    : UNIT == SECOND ? TimeStampNsValue::NANOS_PER_SECOND
-                                    : UNIT == MILLISECOND ? TimeStampNsValue::NANOS_PER_MILLISECOND
-                                                          : TimeStampNsValue::NANOS_PER_MICROSECOND;
         static_assert(UNIT == HOUR || UNIT == MINUTE || UNIT == SECOND || UNIT == MILLISECOND ||
                               UNIT == MICROSECOND,
                       "Unsupported TimeUnit for TIMESTAMP_NS datetime_diff");
+        constexpr int64_t divisor = [] {
+            if constexpr (UNIT == HOUR) {
+                return 3600 * TimeStampNsValue::NANOS_PER_SECOND;
+            } else if constexpr (UNIT == MINUTE) {
+                return 60 * TimeStampNsValue::NANOS_PER_SECOND;
+            } else if constexpr (UNIT == SECOND) {
+                return TimeStampNsValue::NANOS_PER_SECOND;
+            } else if constexpr (UNIT == MILLISECOND) {
+                return TimeStampNsValue::NANOS_PER_MILLISECOND;
+            } else {
+                return TimeStampNsValue::NANOS_PER_MICROSECOND;
+            }
+        }();
         return static_cast<int64_t>(
                 (static_cast<__int128>(ts_value2.epoch_nanos()) - ts_value1.epoch_nanos()) /
                 divisor);

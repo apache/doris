@@ -1086,17 +1086,17 @@ public class TypeCoercionUtils {
         return Optional.empty();
     }
 
-    /**
-     * Choose TIMESTAMP_NS only when the other operand has a total conversion. DATETIMEV2 has a
-     * wider calendar range, so value-producing expressions must require an explicit cast instead
-     * of silently producing NULL for valid values outside the signed-nanos range.
-     */
+    /** Choose TIMESTAMP_NS only when the other operand has a total conversion. */
     private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
-        if (otherType instanceof DateTimeV2Type) {
+        if (otherType instanceof TimeStampNsType) {
+            return Optional.of(TimeStampNsType.INSTANCE);
+        }
+        // Every other date-like type has a wider calendar domain. Value-producing expressions
+        // must require an explicit cast instead of producing NULL for a valid source value.
+        if (otherType.isDateLikeType()) {
             return Optional.empty();
         }
-        if (otherType instanceof TimeStampNsType || otherType.isNumericType()
-                || otherType.isDateLikeType() || otherType instanceof TimeV2Type
+        if (otherType.isNumericType() || otherType instanceof TimeV2Type
                 || otherType.isStringLikeType()) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
@@ -1431,12 +1431,13 @@ public class TypeCoercionUtils {
         right = comparisonPredicate.right();
 
         Optional<DataType> commonType;
-        if (isTimeStampNsAndDateTimeV2Pair(left.getDataType(), right.getDataType())) {
-            commonType = findExactCommonTypeForTimeStampNsAndDateTimeV2(
+        if (isTimeStampNsAndDateLikePair(left.getDataType(), right.getDataType())) {
+            commonType = findExactCommonTypeForTimeStampNsAndDateLike(
                     ImmutableList.of(left, right));
             // The BE comparison kernel compares the two physical types exactly. Keep a mixed
-            // comparison only when neither operand is a literal that can be converted losslessly.
-            if (!commonType.isPresent()) {
+            // TIMESTAMP_NS/DATETIMEV2 comparison only when no exact literal conversion exists.
+            if (!commonType.isPresent()
+                    && isTimeStampNsAndDateTimeV2Pair(left.getDataType(), right.getDataType())) {
                 return comparisonPredicate;
             }
         } else if (GlobalVariable.enableNewTypeCoercionBehavior) {
@@ -1711,11 +1712,11 @@ public class TypeCoercionUtils {
                 ImmutableList.of(left, right), overflowToDouble, stringIsHighPriority, false);
     }
 
-    /** Find a common type using literal values when TIMESTAMP_NS and DATETIMEV2 are mixed. */
+    /** Find a common type using literal values when TIMESTAMP_NS and another date-like type mix. */
     public static Optional<DataType> findWiderCommonTypeForExpressionsByVariable(
             List<? extends Expression> expressions, boolean overflowToDouble,
             boolean stringIsHighPriority, boolean comparison) {
-        Optional<List<DataType>> exactTypes = replaceExactTimeStampNsAndDateTimeV2Types(expressions);
+        Optional<List<DataType>> exactTypes = replaceExactTimeStampNsAndDateLikeTypes(expressions);
         if (!exactTypes.isPresent()) {
             return Optional.empty();
         }
@@ -1733,9 +1734,16 @@ public class TypeCoercionUtils {
                 || left instanceof DateTimeV2Type && right instanceof TimeStampNsType;
     }
 
-    private static Optional<DataType> findExactCommonTypeForTimeStampNsAndDateTimeV2(
+    private static boolean isTimeStampNsAndDateLikePair(DataType left, DataType right) {
+        return (left instanceof TimeStampNsType && right.isDateLikeType()
+                && !(right instanceof TimeStampNsType))
+                || (right instanceof TimeStampNsType && left.isDateLikeType()
+                && !(left instanceof TimeStampNsType));
+    }
+
+    private static Optional<DataType> findExactCommonTypeForTimeStampNsAndDateLike(
             List<? extends Expression> expressions) {
-        Optional<List<DataType>> exactTypes = replaceExactTimeStampNsAndDateTimeV2Types(expressions);
+        Optional<List<DataType>> exactTypes = replaceExactTimeStampNsAndDateLikeTypes(expressions);
         if (!exactTypes.isPresent()) {
             return Optional.empty();
         }
@@ -1743,57 +1751,91 @@ public class TypeCoercionUtils {
         return exactTypes.get().stream().allMatch(first::equals) ? Optional.of(first) : Optional.empty();
     }
 
-    private static Optional<List<DataType>> replaceExactTimeStampNsAndDateTimeV2Types(
+    private static Optional<List<DataType>> replaceExactTimeStampNsAndDateLikeTypes(
             List<? extends Expression> expressions) {
         boolean containsTimeStampNs = expressions.stream()
                 .anyMatch(expression -> expression.getDataType() instanceof TimeStampNsType);
-        boolean containsDateTimeV2 = expressions.stream()
-                .anyMatch(expression -> expression.getDataType() instanceof DateTimeV2Type);
-        if (!containsTimeStampNs || !containsDateTimeV2) {
+        boolean containsOtherDateLike = expressions.stream()
+                .anyMatch(expression -> expression.getDataType().isDateLikeType()
+                        && !(expression.getDataType() instanceof TimeStampNsType));
+        if (!containsTimeStampNs || !containsOtherDateLike) {
             return Optional.of(expressions.stream().map(Expression::getDataType).collect(Collectors.toList()));
         }
 
-        boolean allDateTimeV2ValuesFitTimeStampNs = expressions.stream()
-                .filter(expression -> expression.getDataType() instanceof DateTimeV2Type)
-                .allMatch(expression -> getDateTimeV2Literal(expression)
-                        .map(literal -> TimeStampNsLiteral.isInRange(literal.toJavaDateType()))
-                        .orElse(false));
-        if (allDateTimeV2ValuesFitTimeStampNs) {
+        boolean allOtherDateLikeValuesFitTimeStampNs = expressions.stream()
+                .filter(expression -> expression.getDataType().isDateLikeType()
+                        && !(expression.getDataType() instanceof TimeStampNsType))
+                .allMatch(TypeCoercionUtils::canExactlyCastToTimeStampNs);
+        if (allOtherDateLikeValuesFitTimeStampNs) {
             return Optional.of(expressions.stream()
-                    .map(expression -> expression.getDataType() instanceof DateTimeV2Type
+                    .map(expression -> expression.getDataType().isDateLikeType()
+                            && !(expression.getDataType() instanceof TimeStampNsType)
                             ? TimeStampNsType.INSTANCE : expression.getDataType())
                     .collect(Collectors.toList()));
         }
 
-        boolean allTimeStampNsValuesFitDateTimeV2 = expressions.stream()
-                .filter(expression -> expression.getDataType() instanceof TimeStampNsType)
-                .allMatch(expression -> getTimeStampNsLiteral(expression)
-                        .map(literal -> literal.getNanoSecond() % 1000 == 0)
-                        .orElse(false));
-        if (allTimeStampNsValuesFitDateTimeV2) {
+        List<DataType> otherDateLikeTypes = expressions.stream()
+                .map(Expression::getDataType)
+                .filter(type -> type.isDateLikeType() && !(type instanceof TimeStampNsType))
+                .collect(Collectors.toList());
+        Optional<DataType> otherCommonType = findWiderCommonTypeByVariable(
+                otherDateLikeTypes, false, false);
+        if (otherCommonType.isPresent() && !otherCommonType.get().isTimeStampTzType()
+                && expressions.stream()
+                        .filter(expression -> expression.getDataType() instanceof TimeStampNsType)
+                        .allMatch(expression -> canExactlyCastTimeStampNsTo(
+                                expression, otherCommonType.get()))) {
             return Optional.of(expressions.stream()
                     .map(expression -> expression.getDataType() instanceof TimeStampNsType
-                            ? DateTimeV2Type.MAX : expression.getDataType())
+                            ? otherCommonType.get() : expression.getDataType())
                     .collect(Collectors.toList()));
         }
         return Optional.empty();
     }
 
-    private static Optional<DateTimeV2Literal> getDateTimeV2Literal(Expression expression) {
-        if (expression instanceof DateTimeV2Literal) {
-            return Optional.of((DateTimeV2Literal) expression);
-        }
-        if (expression instanceof Cast && expression.getDataType() instanceof DateTimeV2Type
-                && expression.child(0) instanceof Literal) {
+    /** Whether an expression is a date-like literal exactly representable as TIMESTAMP_NS. */
+    public static boolean canExactlyCastToTimeStampNs(Expression expression) {
+        Optional<Literal> literal = ExpressionUtils.getLiteralAfterUnwrapNullable(expression);
+        if (!literal.isPresent() && expression instanceof Cast && expression.child(0) instanceof Literal) {
             try {
-                Expression value = ((Literal) expression.child(0)).checkedCastTo(expression.getDataType());
-                return value instanceof DateTimeV2Literal
-                        ? Optional.of((DateTimeV2Literal) value) : Optional.empty();
+                Expression castLiteral = ((Literal) expression.child(0)).checkedCastTo(expression.getDataType());
+                literal = castLiteral instanceof Literal
+                        ? Optional.of((Literal) castLiteral) : Optional.empty();
             } catch (AnalysisException e) {
-                return Optional.empty();
+                return false;
             }
         }
-        return Optional.empty();
+        if (!literal.isPresent() || literal.get().getDataType() instanceof TimeStampTzType) {
+            return false;
+        }
+        try {
+            return literal.get().checkedCastTo(TimeStampNsType.INSTANCE) instanceof TimeStampNsLiteral;
+        } catch (AnalysisException e) {
+            return false;
+        }
+    }
+
+    /** Whether a TIMESTAMP_NS literal is exactly representable by another date-like type. */
+    public static boolean canExactlyCastTimeStampNsTo(Expression expression, DataType targetType) {
+        Optional<TimeStampNsLiteral> literal = getTimeStampNsLiteral(expression);
+        if (!literal.isPresent()) {
+            return false;
+        }
+        if (targetType.isDateType() || targetType.isDateV2Type()) {
+            return literal.get().isMidnight();
+        }
+        if (targetType.isDateTimeType()) {
+            return literal.get().getNanoSecond() == 0;
+        }
+        if (targetType instanceof DateTimeV2Type) {
+            int scale = ((DateTimeV2Type) targetType).getScale();
+            if (scale < 0) {
+                scale = DateTimeV2Type.MAX_SCALE;
+            }
+            long factor = (long) Math.pow(10, TimeStampNsType.SCALE - scale);
+            return literal.get().getNanoSecond() % factor == 0;
+        }
+        return false;
     }
 
     private static Optional<TimeStampNsLiteral> getTimeStampNsLiteral(Expression expression) {
@@ -2122,10 +2164,9 @@ public class TypeCoercionUtils {
         for (DataType dataType : dataTypes) {
             if (dataType instanceof TimeStampNsType) {
                 containsTimeStampNs = true;
-            } else if (dataType instanceof DateTimeV2Type) {
+            } else if (dataType.isDateLikeType()) {
                 return false;
-            } else if (!dataType.isNullType() && !dataType.isDateLikeType()
-                    && !(dataType instanceof TimeV2Type)) {
+            } else if (!dataType.isNullType() && !(dataType instanceof TimeV2Type)) {
                 return false;
             }
         }
