@@ -1979,4 +1979,25 @@ TEST_F(ScanNormalizePredicate, TimestampNsInPredicateBuildsPointScanKeys) {
         EXPECT_EQ(key_range.end_scan_range.get_field(0).get<TYPE_TIMESTAMP_NS>(), values[row]);
     }
 }
+
+TEST_F(ScanNormalizePredicate, TimestampNsSlotInitializesValueRange) {
+    constexpr int kSlotId = 0;
+    SlotDescriptor slot_desc;
+    slot_desc._id = kSlotId;
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMP_NS, false);
+    slot_desc._col_name = "dt";
+
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+    local_state->_init_slot_value_range(local_state->_slot_id_to_value_range, &slot_desc,
+                                        slot_desc.type());
+
+    ASSERT_TRUE(local_state->_slot_id_to_value_range.contains(kSlotId));
+    auto* range = std::get_if<ColumnValueRange<TYPE_TIMESTAMP_NS>>(
+            &local_state->_slot_id_to_value_range[kSlotId]);
+    ASSERT_NE(range, nullptr);
+    EXPECT_EQ(range->column_name(), "dt");
+    EXPECT_TRUE(range->is_whole_value_range());
+    EXPECT_EQ(range->scale(), TimeStampNsValue::FRACTIONAL_DIGITS);
+}
 } // namespace doris

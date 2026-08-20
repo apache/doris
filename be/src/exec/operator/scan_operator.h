@@ -199,6 +199,10 @@ protected:
         return Status::OK();
     }
 
+    static void _init_slot_value_range(
+            phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
+            SlotDescriptor* slot, const DataTypePtr& type_desc);
+
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
     Status _normalize_bloom_filter(VExprContext* expr_ctx, const VExprSPtr& root,

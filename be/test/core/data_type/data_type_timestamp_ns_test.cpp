@@ -260,7 +260,6 @@ TEST(DataTypeTimeStampNsTest, SerDeRoundTripsTextProtobufAndBinary) {
     EXPECT_EQ(binary_data, source_data);
 }
 
-
 TEST(DataTypeTimeStampNsTest, DataTypeLiteralField) {
     const DataTypeTimeStampNs type;
     const DataTypeDateTimeV2 legacy6(6);
@@ -459,6 +458,5 @@ TEST(DataTypeTimeStampNsTest, SerDeBatchRejectsMultipleFractionalSeparators) {
             serde->from_string_strict_mode_batch(*invalid_string, *strict_result, options, nullptr)
                     .ok());
 }
-
 
 } // namespace doris
