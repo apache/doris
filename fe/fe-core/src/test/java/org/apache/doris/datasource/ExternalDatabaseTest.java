@@ -35,6 +35,7 @@ import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -515,6 +516,31 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Assertions.assertEquals(canonicalId, loadedTable.getId());
         Assertions.assertEquals("tbl_base", restored.getTableNameForReplay(canonicalId).orElse(null));
         Assertions.assertTrue(restored.getTableNameForReplay(legacyId).isEmpty());
+    }
+
+    @Test
+    public void testImageRestoreLazyLoadRebuildsTableOwnerReferences() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("catalog_provider.class", DatabaseCatalogProvider.class.getName());
+        TestExternalCatalog catalog = new TestExternalCatalog(303L, "image_owner_test", "", props, "");
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 304L, "db1", "db1");
+        db.setInitializedForTest(true);
+        catalog.addDatabaseForTest(db);
+        db.addTableForTest(new TestExternalTable(305L, "tbl_base", "tbl_base", catalog, db));
+
+        String json = GsonUtils.GSON.toJson(catalog, CatalogIf.class);
+        Assertions.assertFalse(json.contains("tbl_base"));
+        TestExternalCatalog restored =
+                (TestExternalCatalog) GsonUtils.GSON.fromJson(json, CatalogIf.class);
+        restored.setInitializedForTest(true);
+
+        ExternalDatabase<? extends ExternalTable> restoredDb = restored.getDbNullable("db1");
+        ExternalTable restoredTable = restoredDb.getTableNullable("tbl_base");
+
+        Assertions.assertSame(restored, restoredTable.getCatalog());
+        Assertions.assertSame(restoredDb, restoredTable.getDatabase());
+        Assertions.assertDoesNotThrow(() -> new BaseTableInfo(restoredTable));
     }
 
     @Test
