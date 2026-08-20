@@ -18,11 +18,17 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +50,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
         analyzeProperties();
+        validateIncrementalExcludedTriggerTablesCompat(ctx);
     }
 
     @Override
@@ -52,8 +59,33 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     }
 
     private void analyzeProperties() {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS)) {
+            throw new AnalysisException("Property '" + PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS
+                    + "' cannot be altered. It is fixed at creation time.");
+        }
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
+        }
+    }
+
+    private void validateIncrementalExcludedTriggerTablesCompat(ConnectContext ctx) {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
+            return;
+        }
+        try {
+            MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException(getMvName().getDb())
+                    .getTableOrMetaException(getMvName().getTbl(), TableIf.TableType.MATERIALIZED_VIEW);
+            if (!mtmv.isIvm()) {
+                return;
+            }
+            Map<String, String> mergedMvProps = Maps.newHashMap(mtmv.getMvProperties());
+            mergedMvProps.putAll(properties);
+            MTMVPlanUtil.validateAlterExcludedTriggerTables(mtmv, mergedMvProps, ctx);
+        } catch (AnalysisException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 

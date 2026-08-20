@@ -32,6 +32,7 @@ import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.InsertResult;
@@ -214,6 +215,7 @@ class OlapInsertExecutorTest {
         ctx.setThreadLocalInfo();
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQueryId(new TUniqueId(1, 2));
+        ctx.setStatementContext(new StatementContext(ctx, null));
         // Disable strict insert mode because this test intentionally keeps one filtered row.
         ctx.getSessionVariable().setEnableInsertStrict(false);
         ctx.getState().reset();

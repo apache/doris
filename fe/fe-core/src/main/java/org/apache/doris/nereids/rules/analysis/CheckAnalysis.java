@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -49,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -121,11 +124,13 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.CHECK_ANALYSIS.build(
-                any().then(plan -> {
+                any().thenApply(ctx -> {
+                    Plan plan = ctx.root;
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
+                    checkIvmExpression(plan, ctx.connectContext);
                     return null;
                 })
             ),
@@ -248,6 +253,22 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                                 + aggregateFunctions.get(0).toSql());
                     }
                 }
+            }
+        }
+    }
+
+    private void checkIvmExpression(Plan plan, ConnectContext connectContext) {
+        if (connectContext == null
+                || connectContext.getStatementContext() == null
+                || !connectContext.getStatementContext().isIvmMTMVRewrite()) {
+            return;
+        }
+        for (Expression expr : plan.getExpressions()) {
+            if (expr.containsType(WindowExpression.class)) {
+                WindowExpression windowExpr = (WindowExpression) ExpressionUtils.collect(
+                        ImmutableList.of(expr), WindowExpression.class::isInstance).iterator().next();
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                        "IVM does not support window functions: " + windowExpr.toSql());
             }
         }
     }

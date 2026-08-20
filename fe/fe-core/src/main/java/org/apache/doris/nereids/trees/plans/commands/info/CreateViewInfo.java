@@ -23,6 +23,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -33,6 +34,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 
 import java.util.List;
+import java.util.TreeMap;
 
 /**
  * CreateViewInfo
@@ -64,16 +66,24 @@ public class CreateViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
-        PlanUtils.OutermostPlanFinderContext outermostPlanFinderContext = new PlanUtils.OutermostPlanFinderContext();
-        analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
-        List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
-        createFinalCols(outputs);
-
-        // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
-        // rewrite project alias
-        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+        TreeMap<Pair<Integer, Integer>, String> rewriteMap = ctx.getStatementContext().getIndexInSqlToString();
+        TreeMap<Pair<Integer, Integer>, String> snapshot = new TreeMap<>(rewriteMap);
+        String rewrittenSql;
+        try {
+            rewriteMap.clear();
+            analyzeAndFillRewriteSqlMap(querySql, ctx);
+            PlanUtils.OutermostPlanFinderContext outermostPlanFinderContext =
+                    new PlanUtils.OutermostPlanFinderContext();
+            analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
+            List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
+            createFinalCols(outputs);
+            // expand star(*) in project list and replace table name with qualifier
+            rewrittenSql = rewriteSql(rewriteMap, querySql);
+            rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+        } finally {
+            rewriteMap.clear();
+            rewriteMap.putAll(snapshot);
+        }
         checkViewSql(rewrittenSql);
         this.inlineViewDef = rewrittenSql;
     }

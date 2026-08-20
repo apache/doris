@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
@@ -90,6 +91,8 @@ public class CascadesContext implements ScheduleContext {
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
+    // present when IVM rewrite is active; absent otherwise
+    private Optional<IvmRewriteResult> ivmRewriteResult = Optional.empty();
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -365,6 +368,30 @@ public class CascadesContext implements ScheduleContext {
 
     public Plan getRewritePlan() {
         return plan;
+    }
+
+    /**
+     * Returns the unified IVM rewrite result for the current statement.
+     */
+    public Optional<IvmRewriteResult> getIvmRewriteResult() {
+        return ivmRewriteResult;
+    }
+
+    /**
+     * Returns the unified IVM rewrite result, creating it when this statement first enters IVM rewrite.
+     */
+    public IvmRewriteResult getOrCreateIvmRewriteResult() {
+        if (!ivmRewriteResult.isPresent()) {
+            ivmRewriteResult = Optional.of(new IvmRewriteResult());
+        }
+        return ivmRewriteResult.get();
+    }
+
+    /**
+     * Sets the unified IVM rewrite result for the current statement.
+     */
+    public void setIvmRewriteResult(IvmRewriteResult ivmRewriteResult) {
+        this.ivmRewriteResult = Optional.ofNullable(ivmRewriteResult);
     }
 
     public void setRewritePlan(Plan plan) {
