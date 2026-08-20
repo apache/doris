@@ -616,6 +616,9 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
+                if (i > 1) {
+                    statementContext.resetMaterializedViewStateForPlanningAttempt();
+                }
                 if (disableCloudVersionCacheOnRetry) {
                     executeWithVersionCacheDisabled(queryId);
                 } else {
@@ -1047,7 +1050,9 @@ public class StmtExecutor {
         // Only do this when isProxy is true, because other code paths like
         // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
         if (isProxy) {
-            this.context.getStatementContext().setParsedStatement(parsedStmt);
+            StatementContext parsedStatementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
+            parsedStatementContext.setParsedStatement(parsedStmt);
+            setStatementContext(parsedStatementContext);
         }
     }
 

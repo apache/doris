@@ -20,18 +20,24 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -48,6 +54,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -406,8 +413,21 @@ public class StmtExecutorTest extends TestWithFeService {
         // "fragment has no children" error.
 
         // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
+        AtomicInteger attempts = new AtomicInteger();
+        BaseTableInfo mvInfo = new BaseTableInfo(new TableNameInfo("internal", "db", "mv"));
         StmtExecutor executor = new StmtExecutor(connectContext,
-                new OriginStatement("select 1", 0), true);
+                new OriginStatement("select 1", 0), true) {
+            @Override
+            public void execute(TUniqueId queryId) throws Exception {
+                if (attempts.getAndIncrement() == 0) {
+                    getContext().getStatementContext().getMvCanRewritePartitionsMap().put(
+                            mvInfo, Collections.singleton(Mockito.mock(Partition.class)));
+                    throw new UserException(SystemInfoService.ERROR_E230);
+                }
+                Assertions.assertTrue(getContext().getStatementContext()
+                        .getMvCanRewritePartitionsMap().isEmpty());
+            }
+        };
 
         // Before parsing, statementContext should exist but parsedStatement should be null
         Assertions.assertNotNull(connectContext.getStatementContext());
@@ -428,6 +448,19 @@ public class StmtExecutorTest extends TestWithFeService {
                 parsedStatement instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter,
                 "ParsedStatement should be a LogicalPlanAdapter after parseByNereids(), but was: "
                         + (parsedStatement == null ? "null" : parsedStatement.getClass().getName()));
+        Field statementContextField = StmtExecutor.class.getDeclaredField("statementContext");
+        statementContextField.setAccessible(true);
+        Assertions.assertSame(connectContext.getStatementContext(), statementContextField.get(executor),
+                "Proxy executor must use the context created by lazy parsing");
+
+        int originalRetryTime = Config.max_query_retry_time;
+        try {
+            Config.max_query_retry_time = 1;
+            executor.queryRetry(new TUniqueId(1, 2));
+            Assertions.assertEquals(2, attempts.get());
+        } finally {
+            Config.max_query_retry_time = originalRetryTime;
+        }
     }
 
     @Test
@@ -602,5 +635,39 @@ public class StmtExecutorTest extends TestWithFeService {
                 + "   \"ai.model_name\" = \"gpt-test\",\n"
                 + "   \"ai.api_key\" = \"" + apiKey + "\"\n"
                 + ");";
+    }
+
+    @Test
+    public void testQueryReplanResetsMaterializedViewPlanningState() throws Exception {
+        int originalRetryTime = Config.max_query_retry_time;
+        AtomicInteger attempts = new AtomicInteger();
+        BaseTableInfo mvInfo = new BaseTableInfo(new TableNameInfo("internal", "db", "mv"));
+        Partition firstPartition = Mockito.mock(Partition.class);
+        Partition secondPartition = Mockito.mock(Partition.class);
+        try {
+            Config.max_query_retry_time = 1;
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1") {
+                @Override
+                public void execute(TUniqueId queryId) throws Exception {
+                    StatementContext statementContext = getContext().getStatementContext();
+                    if (attempts.getAndIncrement() == 0) {
+                        statementContext.getMvCanRewritePartitionsMap().putIfAbsent(
+                                mvInfo, Lists.newArrayList(firstPartition, secondPartition));
+                        throw new UserException(SystemInfoService.ERROR_E230);
+                    }
+                    statementContext.getMvCanRewritePartitionsMap().putIfAbsent(
+                            mvInfo, Lists.newArrayList(firstPartition));
+                }
+            };
+
+            executor.queryRetry(new TUniqueId(1, 2));
+
+            Assertions.assertEquals(2, attempts.get());
+            Assertions.assertEquals(Lists.newArrayList(firstPartition),
+                    connectContext.getStatementContext().getMvCanRewritePartitionsMap().get(mvInfo));
+        } finally {
+            Config.max_query_retry_time = originalRetryTime;
+            connectContext.getStatementContext().getMvCanRewritePartitionsMap().clear();
+        }
     }
 }
