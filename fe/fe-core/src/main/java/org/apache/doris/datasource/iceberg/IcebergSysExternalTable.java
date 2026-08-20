@@ -121,7 +121,7 @@ public class IcebergSysExternalTable extends ExternalTable {
      */
     @VisibleForTesting
     Table resolveBaseTable() {
-        if (supportsSnapshotSelection()) {
+        if (bindsToStatementGeneration()) {
             Optional<Table> frozenTable = MvccUtil.getSnapshotFromContext(sourceTable)
                     .filter(IcebergMvccSnapshot.class::isInstance)
                     .map(IcebergMvccSnapshot.class::cast)
@@ -131,6 +131,25 @@ public class IcebergSysExternalTable extends ExternalTable {
             }
         }
         return IcebergUtils.getQueryScopedIcebergTable(sourceTable);
+    }
+
+    /**
+     * Snapshot selection and base-generation binding are separate concerns: ALL_* file/entry
+     * tables ignore a selected snapshot id, but Iceberg still derives their schemas from the
+     * current source schema and unified partition type, so analysis and the scan must read one
+     * statement-local generation or a concurrent schema/spec refresh could pair analyzed slots
+     * with a different scan table. Only static metadata tables whose schemas never depend on
+     * the source schema keep reading the latest generation.
+     */
+    private boolean bindsToStatementGeneration() {
+        if (supportsSnapshotSelection()) {
+            return true;
+        }
+        MetadataTableType tableType = MetadataTableType.from(sysTableType);
+        return tableType == MetadataTableType.ALL_DATA_FILES
+                || tableType == MetadataTableType.ALL_DELETE_FILES
+                || tableType == MetadataTableType.ALL_FILES
+                || tableType == MetadataTableType.ALL_ENTRIES;
     }
 
     @Override

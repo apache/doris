@@ -111,6 +111,18 @@ public class IcebergSysExternalTableTest {
                     sourceTable, MetadataTableType.SNAPSHOTS.name());
             Assertions.assertSame(latestGeneration, snapshots.resolveBaseTable());
 
+            // ALL_* file/entry tables ignore snapshot selection, but their schemas derive from
+            // the source schema and unified partition type: analysis and scan must bind to the
+            // same statement-local generation so a concurrent evolution cannot split them.
+            for (MetadataTableType boundType : new MetadataTableType[] {
+                    MetadataTableType.ALL_DATA_FILES, MetadataTableType.ALL_DELETE_FILES,
+                    MetadataTableType.ALL_FILES, MetadataTableType.ALL_ENTRIES}) {
+                IcebergSysExternalTable allTable = new IcebergSysExternalTable(
+                        sourceTable, boundType.name());
+                Assertions.assertFalse(allTable.supportsSnapshotSelection());
+                Assertions.assertSame(frozenGeneration, allTable.resolveBaseTable(), boundType.name());
+            }
+
             // Without a bound relation snapshot the latest generation is used.
             mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(sourceTable)).thenReturn(Optional.empty());
             Assertions.assertSame(latestGeneration, partitions.resolveBaseTable());
