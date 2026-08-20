@@ -243,14 +243,20 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * And the column couldn't change to another column during partition evolution.
      */
     @Override
-    public boolean isValidRelatedTable() {
+    public synchronized boolean isValidRelatedTable() {
         makeSureInitialized();
+        if (isValidRelatedTableCached) {
+            return isValidRelatedTable;
+        }
+        return IcebergUtils.withIcebergTable(this, this::isValidRelatedTable);
+    }
+
+    synchronized boolean isValidRelatedTable(Table table) {
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
         isValidRelatedTable = false;
         Set<String> allFields = Sets.newHashSet();
-        Table table = getIcebergTable();
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
                 isValidRelatedTableCached = true;
