@@ -448,6 +448,9 @@ BENCHMARK(BM_StringSet_LegacyMaterializeLong)
 // Typed range lookup benchmark
 // ============================================================
 
+enum class InZonemapRangeLookup { POINT_HIT, FULL_MISS };
+
+template <InZonemapRangeLookup lookup>
 static void BM_HybridSet_ContainsAnyInRangeInt32(benchmark::State& state) {
     const auto set_size = static_cast<size_t>(state.range(0));
     HybridSet<TYPE_INT> set(false);
@@ -456,23 +459,49 @@ static void BM_HybridSet_ContainsAnyInRangeInt32(benchmark::State& state) {
         set.insert(&value);
     }
 
-    const int32_t hit_value = values[set_size / 2];
-    const auto hit = Field::create_field<TYPE_INT>(hit_value);
-    const auto miss_min = Field::create_field<TYPE_INT>(hit_value + 1);
-    const auto miss_max = Field::create_field<TYPE_INT>(hit_value + 6);
-    DORIS_CHECK(set.contains_any_in_range(hit, hit));
-    DORIS_CHECK(!set.contains_any_in_range(miss_min, miss_max));
+    const int32_t middle_value = values[set_size / 2];
+    const auto min_value = Field::create_field<TYPE_INT>(
+            lookup == InZonemapRangeLookup::POINT_HIT ? middle_value : middle_value + 1);
+    const auto max_value = Field::create_field<TYPE_INT>(
+            lookup == InZonemapRangeLookup::POINT_HIT ? middle_value : middle_value + 6);
+    constexpr bool expected = lookup == InZonemapRangeLookup::POINT_HIT;
+    DORIS_CHECK_EQ(set.contains_any_in_range(min_value, max_value), expected);
 
     for (auto _ : state) {
-        bool hit_result = set.contains_any_in_range(hit, hit);
-        bool miss_result = set.contains_any_in_range(miss_min, miss_max);
-        benchmark::DoNotOptimize(hit_result);
-        benchmark::DoNotOptimize(miss_result);
+        bool result = set.contains_any_in_range(min_value, max_value);
+        benchmark::DoNotOptimize(result);
     }
-    state.SetItemsProcessed(state.iterations() * 2);
+    state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK(BM_HybridSet_ContainsAnyInRangeInt32)->Arg(8)->Arg(64)->Unit(benchmark::kNanosecond);
+static void BM_HybridSet_ContainsAnyInRangeInt32PointHit(benchmark::State& state) {
+    BM_HybridSet_ContainsAnyInRangeInt32<InZonemapRangeLookup::POINT_HIT>(state);
+}
+
+static void BM_HybridSet_ContainsAnyInRangeInt32FullMiss(benchmark::State& state) {
+    BM_HybridSet_ContainsAnyInRangeInt32<InZonemapRangeLookup::FULL_MISS>(state);
+}
+
+// kInZoneMapPointCheckThreshold gates on the total set size: a fixed 10,000-element set takes the
+// range-only path for every candidate below 10,000. Use each candidate as the set size to measure
+// the exact-lookup cost admitted at that boundary; 10,000 is an upper control rather than a
+// threshold candidate. FULL_MISS forces traversal of the whole set, while POINT_HIT measures the
+// early-exit case.
+#define REGISTER_IN_ZONEMAP_RANGE_LOOKUP(NAME) \
+    BENCHMARK(NAME)                            \
+            ->Arg(64)                          \
+            ->Arg(128)                         \
+            ->Arg(256)                         \
+            ->Arg(512)                         \
+            ->Arg(1024)                        \
+            ->Arg(2048)                        \
+            ->Arg(4096)                        \
+            ->Arg(8192)                        \
+            ->Arg(10000)                       \
+            ->Unit(benchmark::kNanosecond)
+
+REGISTER_IN_ZONEMAP_RANGE_LOOKUP(BM_HybridSet_ContainsAnyInRangeInt32PointHit);
+REGISTER_IN_ZONEMAP_RANGE_LOOKUP(BM_HybridSet_ContainsAnyInRangeInt32FullMiss);
 
 // Measure only the native HybridSet traversal used by Bloom pruning. The lightweight fingerprint
 // predicate keeps storage Bloom-filter implementation costs outside this microbenchmark; both the
@@ -581,6 +610,7 @@ REGISTER_RAW_BLOOM_PROBE(BM_StringSet_AnyMatchRawEmbeddedNulHit);
 #undef REGISTER_FIXED_INT64
 #undef REGISTER_FIXED_STRING
 #undef REGISTER_STRING_SET_LOOKUP
+#undef REGISTER_IN_ZONEMAP_RANGE_LOOKUP
 #undef REGISTER_RAW_BLOOM_PROBE
 
 } // namespace doris
