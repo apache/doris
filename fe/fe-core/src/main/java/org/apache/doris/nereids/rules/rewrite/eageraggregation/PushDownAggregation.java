@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.joinorder.JoinReorderRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -102,6 +103,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         } else {
             JoinReorderRule rule = new JoinReorderRule();
             plan = rule.rewrite(plan, null);
+            plan = new ColumnPruning().rewriteRoot(plan, jobContext);
             Plan result = plan.accept(this, jobContext);
             if (SessionVariable.isFeDebug()) {
                 result = new AdjustNullable(true).rewriteRoot(result, null);

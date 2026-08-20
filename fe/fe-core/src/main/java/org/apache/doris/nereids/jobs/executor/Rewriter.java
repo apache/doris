@@ -96,7 +96,6 @@ import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
@@ -678,7 +677,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
-                topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
                 topic("Eager aggregation",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
