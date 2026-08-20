@@ -178,7 +178,8 @@ private:
             return column->size() * padding_length != column->chars.size();
         }
 
-        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
+        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length,
+                                           const UInt8* null_map) {
             auto column = ColumnString::create();
 
             column->offsets.resize(input->size());
@@ -187,6 +188,10 @@ private:
 
             for (size_t i = 0; i < input->size(); i++) {
                 column->offsets[i] = cast_set<uint32_t, size_t, false>((i + 1) * padding_length);
+
+                if (null_map != nullptr && null_map[i]) {
+                    continue;
+                }
 
                 auto str = input->get_data_at(i);
 
