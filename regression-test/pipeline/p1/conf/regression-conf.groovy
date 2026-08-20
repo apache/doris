@@ -53,20 +53,13 @@ testGroups = ""
 testSuites = ""
 // this suites will not be executed
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_analyze_stats_p1," +
     "test_broker_load," +
-    "test_profile," +
-    "test_refresh_mtmv," +
     "test_spark_load," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this dir will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "fault_injection_p0," +
-    "workload_manager_p1," +
-    "tpcds_sf1_unique_p1/spill," + // in fixing, MEM_LIMIT_EXCEEDED
-    "tpcds_sf1_p1/spill_test," + // in fixing, MEM_LIMIT_EXCEEDED
-    "tpch_sf0.1_p1/spill," + // in fixing, MEM_LIMIT_EXCEEDED
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 cacheDataPath="/data/regression/"
