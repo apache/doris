@@ -19,11 +19,24 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.util.Progressable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.URI;
+import java.security.PrivilegedExceptionAction;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The lifecycle of the per-configuration {@code UserGroupInformation} that keeps two catalogs from
@@ -171,7 +184,168 @@ public class HudiConnectorFileSystemScopeTest {
         high.close();
     }
 
+    @Test
+    public void theLastReleaseClosesTheFilesystemsOffTheCallersThread() throws Exception {
+        // close() is reached from the FE's journal replay thread: ALTER CATALOG replays under
+        // CatalogMgr.writeLock() (one process-wide lock over EVERY catalog) inside the same
+        // synchronized(this) that makeSureInitialized() needs, and DROP CATALOG - which holds neither - is
+        // still that same thread, which a follower may never let fall behind. The teardown itself is
+        // unbounded: FileSystem.closeAll(UGI) holds the process-wide FileSystem.CACHE monitor throughout, and
+        // one S3AFileSystem.close() spends up to ~180s shutting three pools down. So the release must settle
+        // the count and hand the filesystems off, not close them inline.
+        // MUTATION: call FileSystem.closeAllForUGI(orphaned) on the calling thread -> assertNotSame red.
+        Map<String, String> props = propertiesFor("async-teardown");
+        String key = HudiConnector.fileSystemScopeKey(props);
+        HudiConnector connector = connector(props, 12L);
+
+        UserGroupInformation scope = connector.fileSystemScope();
+        Assertions.assertNotNull(scope, "a non-Kerberos catalog must get a scope of its own");
+        RecordingFileSystem cached = cacheFileSystemUnder(scope);
+
+        Thread caller = Thread.currentThread();
+        connector.close();
+
+        Assertions.assertEquals(0, HudiConnector.scopeOwners(key), "the last holder released the entry");
+        Assertions.assertTrue(cached.closed.await(60, TimeUnit.SECONDS),
+                "the orphaned UGI's filesystems must still be closed - asynchronously, but not never");
+        Assertions.assertNotSame(caller, cached.closingThread,
+                "the teardown must not run on the thread that called close() - on the ALTER path that is the "
+                        + "journal replay thread, holding the CatalogMgr write lock");
+        Assertions.assertEquals("hudi-fs-scope-closer", cached.closingThread.getName(),
+                "and it must be the dedicated closer, so a stuck teardown is identifiable in a thread dump");
+    }
+
+    @Test
+    public void releaseThatIsNotTheLastClosesNothing() throws Exception {
+        // The count is what decides. A catalog sharing a configuration with another one keeps its
+        // filesystems until both are gone - closing them on the first release would break the survivor.
+        Map<String, String> props = propertiesFor("shared-teardown");
+        HudiConnector first = connector(props, 13L);
+        HudiConnector second = connector(props, 14L);
+        UserGroupInformation scope = first.fileSystemScope();
+        Assertions.assertSame(scope, second.fileSystemScope(), "one configuration, one scope, two holders");
+        RecordingFileSystem cached = cacheFileSystemUnder(scope);
+
+        first.close();
+
+        Assertions.assertFalse(cached.closed.await(2, TimeUnit.SECONDS),
+                "the surviving catalog still reads through these filesystems");
+
+        second.close();
+        Assertions.assertTrue(cached.closed.await(60, TimeUnit.SECONDS),
+                "the last release hands them off");
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────────
+
+    /** The scheme the recording filesystem is bound to; disjoint from every real one. */
+    private static final String SCHEME = "hudi-fs-scope-test";
+
+    /**
+     * Puts one {@link RecordingFileSystem} into Hadoop's global {@code FileSystem.CACHE} keyed by
+     * {@code scope}, which is exactly what {@code FileSystem.closeAllForUGI(scope)} then acts on. The
+     * {@code doAs} matters: the cache key carries {@code UserGroupInformation.getCurrentUser()}.
+     */
+    private static RecordingFileSystem cacheFileSystemUnder(UserGroupInformation scope) throws Exception {
+        Configuration conf = new Configuration();
+        conf.setClass("fs." + SCHEME + ".impl", RecordingFileSystem.class, FileSystem.class);
+        URI uri = URI.create(SCHEME + "://scope/");
+        FileSystem fs = scope.doAs((PrivilegedExceptionAction<FileSystem>) () -> FileSystem.get(uri, conf));
+        Assertions.assertInstanceOf(RecordingFileSystem.class, fs,
+                "the fs.<scheme>.impl binding must win, or this case would be testing nothing");
+        return (RecordingFileSystem) fs;
+    }
+
+    /**
+     * A cacheable Hadoop {@code FileSystem} that records WHERE its {@code close()} ran. Everything else
+     * throws: nothing in these cases reads or writes through it, and a silent no-op would hide a case that
+     * accidentally started to.
+     */
+    public static final class RecordingFileSystem extends FileSystem {
+        final CountDownLatch closed = new CountDownLatch(1);
+        volatile Thread closingThread;
+        private URI uri;
+        private Path workingDirectory = new Path("/");
+
+        @Override
+        public void initialize(URI name, Configuration conf) throws IOException {
+            super.initialize(name, conf);
+            this.uri = name;
+        }
+
+        @Override
+        public void close() throws IOException {
+            closingThread = Thread.currentThread();
+            try {
+                super.close();
+            } finally {
+                // Last, so the awaiting test sees both fields published (the latch is the happens-before).
+                closed.countDown();
+            }
+        }
+
+        @Override
+        public String getScheme() {
+            return SCHEME;
+        }
+
+        @Override
+        public URI getUri() {
+            return uri;
+        }
+
+        @Override
+        public Path getWorkingDirectory() {
+            return workingDirectory;
+        }
+
+        @Override
+        public void setWorkingDirectory(Path dir) {
+            this.workingDirectory = dir;
+        }
+
+        @Override
+        public FSDataInputStream open(Path f, int bufferSize) {
+            throw new UnsupportedOperationException("no case reads through this filesystem");
+        }
+
+        @Override
+        public FSDataOutputStream create(Path f, FsPermission permission, boolean overwrite, int bufferSize,
+                short replication, long blockSize, Progressable progress) {
+            throw new UnsupportedOperationException("no case writes through this filesystem");
+        }
+
+        @Override
+        public FSDataOutputStream append(Path f, int bufferSize, Progressable progress) {
+            throw new UnsupportedOperationException("no case writes through this filesystem");
+        }
+
+        @Override
+        public boolean rename(Path src, Path dst) {
+            throw new UnsupportedOperationException("no case writes through this filesystem");
+        }
+
+        @Override
+        public boolean delete(Path f, boolean recursive) {
+            throw new UnsupportedOperationException("no case writes through this filesystem");
+        }
+
+        @Override
+        public FileStatus[] listStatus(Path f) {
+            throw new UnsupportedOperationException("no case lists through this filesystem");
+        }
+
+        @Override
+        public boolean mkdirs(Path f, FsPermission permission) {
+            throw new UnsupportedOperationException("no case writes through this filesystem");
+        }
+
+        @Override
+        public FileStatus getFileStatus(Path f) {
+            throw new UnsupportedOperationException("no case stats through this filesystem");
+        }
+    }
+
 
     /** The minimal catalog properties plus a marker, so each case owns a disjoint key. */
     private static Map<String, String> propertiesFor(String marker) {
