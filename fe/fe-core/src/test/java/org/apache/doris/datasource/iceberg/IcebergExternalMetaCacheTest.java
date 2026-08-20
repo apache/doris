@@ -1040,6 +1040,23 @@ public class IcebergExternalMetaCacheTest {
                     "nested mixed-case " + width, mapping,
                     tableValueWithNestedMixedCaseFields(width), width >= 1000);
         }
+        // The lazy name indexes retain fully qualified dotted paths: a deep chain of long
+        // names is dominated by the generated ancestor path copies.
+        assertAdmittedEstimateCoversRetainedGraph(
+                "deep long-name chain", mapping, tableValueWithDeepLongNameFields(24), false);
+    }
+
+    private IcebergTableCacheValue tableValueWithDeepLongNameFields(int depth) {
+        String longName = repeatedCharacter('n', 64);
+        Types.NestedField leaf = Types.NestedField.optional(
+                1000 + depth, longName + "_leaf", Types.StringType.get());
+        Type type = Types.StructType.of(leaf);
+        for (int level = depth - 1; level >= 1; level--) {
+            type = Types.StructType.of(Types.NestedField.optional(
+                    1000 + level, longName + "_" + level, type));
+        }
+        Schema schema = new Schema(Types.NestedField.optional(1, "root", type));
+        return tableValueWithSchemaAndSpec(schema, PartitionSpec.unpartitioned());
     }
 
     private void assertAdmittedEstimateCoversRetainedGraph(

@@ -74,8 +74,13 @@ final class IcebergCacheSizeEstimator {
     // of every eager and lazy schema index (idToName, nameToId, idToField, lowerCaseNameToId,
     // idToAccessor, struct field indexes and the secondary partition-type schema graph).
     private static final long FIELD_WEIGHT = 1408L;
-    // Retained copies of one field name across the case-sensitive and lower-cased name indexes.
-    private static final long NAME_INDEX_COPIES = 4L;
+    // Retained copies of one field path across the case-sensitive, lower-cased and alias
+    // name indexes.
+    private static final long NAME_INDEX_COPIES = 5L;
+    // Per nesting level of a field: accessor wrappers and the enclosing struct's index shares.
+    private static final long NESTED_LEVEL_WEIGHT = 128L;
+    // String object and array overhead per retained generated path copy.
+    private static final long STRING_OVERHEAD_WEIGHT = 48L;
     // One partition spec: the spec object, its field list, javaClasses and the partitionType()
     // graph with its own indexes.
     private static final long SPEC_WEIGHT = 2048L;
@@ -353,22 +358,32 @@ final class IcebergCacheSizeEstimator {
         bytes = addCount(bytes, schema.identifierFieldIds().size(), METADATA_ENTRY_WEIGHT);
         for (Types.NestedField field : schema.columns()) {
             bytes = MetaCacheWeightUtils.saturatedAdd(
-                    bytes, fieldBytes(field, budget, 0));
+                    bytes, fieldBytes(field, budget, 0, 0L));
         }
         return bytes;
     }
 
-    private static long fieldBytes(Types.NestedField field, AccountingBudget budget, int depth) {
+    private static long fieldBytes(
+            Types.NestedField field, AccountingBudget budget, int depth, long parentPathBytes) {
         if (depth > MAX_TYPE_ACCOUNTING_DEPTH) {
             throw new IllegalStateException("Iceberg schema type nesting is too deep");
         }
         budget.chargeElements(1L);
-        long bytes = FIELD_WEIGHT;
+        long bytes = MetaCacheWeightUtils.saturatedAdd(FIELD_WEIGHT,
+                MetaCacheWeightUtils.saturatedMultiply(depth, NESTED_LEVEL_WEIGHT));
         String name = field.name();
+        long pathBytes = parentPathBytes;
         if (name != null) {
-            budget.chargeCharacters(name.length());
+            // The lazy name indexes retain the fully qualified dotted path of every nested
+            // field, so both the payload and the character work bound follow the path length,
+            // not just the local name.
+            pathBytes = MetaCacheWeightUtils.saturatedAdd(pathBytes,
+                    MetaCacheWeightUtils.saturatedAdd(depth > 0 ? 1L : 0L,
+                            MetaCacheWeightUtils.estimatedStringPayloadBytes(name)));
+            budget.chargeCharacters(pathBytes);
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, MetaCacheWeightUtils.saturatedMultiply(
-                    MetaCacheWeightUtils.estimatedStringBytes(name), NAME_INDEX_COPIES));
+                    MetaCacheWeightUtils.saturatedAdd(STRING_OVERHEAD_WEIGHT, pathBytes),
+                    NAME_INDEX_COPIES));
         }
         if (field.doc() != null) {
             budget.chargeCharacters(field.doc().length());
@@ -378,7 +393,7 @@ final class IcebergCacheSizeEstimator {
         if (type != null && type.isNestedType()) {
             for (Types.NestedField nested : type.asNestedType().fields()) {
                 bytes = MetaCacheWeightUtils.saturatedAdd(
-                        bytes, fieldBytes(nested, budget, depth + 1));
+                        bytes, fieldBytes(nested, budget, depth + 1, pathBytes));
             }
         }
         return bytes;

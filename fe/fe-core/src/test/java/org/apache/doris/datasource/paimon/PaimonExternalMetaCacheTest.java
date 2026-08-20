@@ -451,6 +451,24 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testFieldDefaultValuePayloadScalesWithLength() throws Exception {
+        // Field defaults are retained by every DataField; with a fixed field count the estimate
+        // must grow with the default length.
+        assertTableDeltaAgainstJol("paimon field defaults",
+                newTableWithPayloadType("dflt", rowWithDefaults(8, 16)),
+                newTableWithPayloadType("dflt", rowWithDefaults(8, 4096)));
+    }
+
+    private RowType rowWithDefaults(int fieldCount, int defaultLength) {
+        List<DataField> fields = new ArrayList<>();
+        for (int index = 0; index < fieldCount; index++) {
+            fields.add(new DataField(200 + index, "dflt_" + index, new IntType())
+                    .newDefaultValue(repeatedCharacter('d', defaultLength)));
+        }
+        return new RowType(fields);
+    }
+
+    @Test
     public void testDeepAndBroadContainerTreesAreBoundedAtAdmission() {
         // A container-only chain deeper than the structural guard must reject weighted
         // admission (fail closed) without failing the load or overflowing the stack.

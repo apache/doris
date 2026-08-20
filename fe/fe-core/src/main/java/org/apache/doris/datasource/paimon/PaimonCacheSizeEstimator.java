@@ -287,6 +287,7 @@ final class PaimonCacheSizeEstimator {
         budget.charge(1L);
         bytes = addString(bytes, field.name());
         bytes = addString(bytes, field.description());
+        bytes = addString(bytes, field.defaultValue());
         DataType type = field.type();
         if (type instanceof RowType) {
             for (DataField nested : ((RowType) type).getFields()) {
