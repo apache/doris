@@ -966,7 +966,7 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueryCacheHitLeavesPrxStatsUnch
     EXPECT_EQ(prx_stats_snapshot(cache_hit.stats), before);
 }
 
-TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzedTermCache) {
+TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithoutImmutableIdentityBypassesRawQueryCache) {
     inverted_index::Settings tokenizer_settings;
     tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
     inverted_index::CustomAnalyzerConfig::Builder builder;
@@ -979,6 +979,7 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
     analyzer_ctx.analyzer_name = "test_custom_analyzer";
     analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     analyzer_ctx.analyzer_provider = std::move(provider);
+    ASSERT_FALSE(analyzer_ctx.can_share_raw_query_semantics());
     const Field query_value = Field::create_field<TYPE_STRING>(std::string("FAILED ORDER"));
 
     QueryExecutionContext first(/*enable_query_cache=*/true);
@@ -988,9 +989,9 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
                                    &analyzer_ctx));
     ASSERT_NE(first_bitmap, nullptr);
     EXPECT_EQ(bitmap_docids(*first_bitmap), (std::vector<uint32_t> {0, 3, 5}));
-    EXPECT_EQ(first.stats.inverted_index_query_cache_lookup, 1);
-    EXPECT_EQ(first.stats.inverted_index_query_cache_miss, 1);
-    EXPECT_EQ(first.stats.inverted_index_query_cache_insert, 1);
+    EXPECT_EQ(first.stats.inverted_index_query_cache_lookup, 0);
+    EXPECT_EQ(first.stats.inverted_index_query_cache_miss, 0);
+    EXPECT_EQ(first.stats.inverted_index_query_cache_insert, 0);
 
     QueryExecutionContext second(/*enable_query_cache=*/true);
     std::shared_ptr<roaring::Roaring> second_bitmap;
@@ -999,10 +1000,60 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
                                    &analyzer_ctx));
     ASSERT_NE(second_bitmap, nullptr);
     EXPECT_EQ(bitmap_docids(*second_bitmap), bitmap_docids(*first_bitmap));
-    EXPECT_EQ(second.stats.inverted_index_query_cache_lookup, 1);
-    EXPECT_EQ(second.stats.inverted_index_query_cache_hit, 1);
+    EXPECT_EQ(second.stats.inverted_index_query_cache_lookup, 0);
+    EXPECT_EQ(second.stats.inverted_index_query_cache_hit, 0);
     EXPECT_EQ(second.stats.inverted_index_query_cache_miss, 0);
     EXPECT_EQ(second.stats.inverted_index_query_cache_insert, 0);
+}
+
+TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerProviderGenerationsDoNotShareRawQueryCache) {
+    std::atomic<uint32_t> single_flight_leader_calls {0};
+    _index_reader->set_single_flight_leader_before_compute_observer_for_test(
+            record_single_flight_leader, &single_flight_leader_calls);
+    Defer clear_observer([this] {
+        _index_reader->set_single_flight_leader_before_compute_observer_for_test(nullptr, nullptr);
+    });
+
+    inverted_index::Settings tokenizer_settings;
+    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
+    inverted_index::CustomAnalyzerConfig::Builder whitespace_builder;
+    whitespace_builder.with_tokenizer_config("char_group", tokenizer_settings);
+    whitespace_builder.add_token_filter_config("lowercase", {});
+
+    InvertedIndexAnalyzerCtx old_analyzer_ctx;
+    old_analyzer_ctx.analyzer_name = "mutable_custom_analyzer";
+    old_analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    old_analyzer_ctx.analyzer_provider =
+            std::make_shared<inverted_index::CustomAnalyzerProvider>(whitespace_builder.build());
+
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("FAILED ORDER"));
+    QueryExecutionContext old_generation(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> old_bitmap;
+    assert_ok(_index_reader->query(old_generation.context, "provider_generation_content",
+                                   query_value, InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                   old_bitmap, &old_analyzer_ctx));
+    ASSERT_NE(old_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*old_bitmap), (std::vector<uint32_t> {0, 3, 5}));
+    EXPECT_EQ(old_generation.stats.inverted_index_query_cache_lookup, 0);
+    EXPECT_EQ(old_generation.stats.inverted_index_query_cache_insert, 0);
+
+    inverted_index::CustomAnalyzerConfig::Builder keyword_builder;
+    keyword_builder.with_tokenizer_config("keyword", {});
+    keyword_builder.add_token_filter_config("lowercase", {});
+    InvertedIndexAnalyzerCtx new_analyzer_ctx = old_analyzer_ctx;
+    new_analyzer_ctx.analyzer_provider =
+            std::make_shared<inverted_index::CustomAnalyzerProvider>(keyword_builder.build());
+
+    QueryExecutionContext new_generation(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> new_bitmap;
+    assert_ok(_index_reader->query(new_generation.context, "provider_generation_content",
+                                   query_value, InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                   new_bitmap, &new_analyzer_ctx));
+    ASSERT_NE(new_bitmap, nullptr);
+    EXPECT_TRUE(new_bitmap->isEmpty());
+    EXPECT_EQ(new_generation.stats.inverted_index_query_cache_lookup, 0);
+    EXPECT_EQ(new_generation.stats.inverted_index_query_cache_insert, 0);
+    EXPECT_EQ(single_flight_leader_calls.load(std::memory_order_relaxed), 0);
 }
 
 TEST_F(SniiIndexReaderCountFallback, CustomKeywordAnalyzerWithNoneParserNormalizesSingleTerm) {
