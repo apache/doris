@@ -51,15 +51,13 @@ Status HdfsFileHandle::init(int64_t file_size) {
     _file_size = file_size;
     if (_file_size <= 0) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
-        auto* file_info = SYNC_POINT_HOOK_RETURN_VALUE(
-                hdfsGetPathInfo(_fs, _fname.c_str()),
-                "HdfsFileHandle::init::hdfsGetPathInfo");
+        auto* file_info = SYNC_POINT_HOOK_RETURN_VALUE(hdfsGetPathInfo(_fs, _fname.c_str()),
+                                                       "HdfsFileHandle::init::hdfsGetPathInfo");
         if (file_info == nullptr) {
             return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
         }
         _file_size = file_info->mSize;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("HdfsFileHandle::init::hdfsFreeFileInfo",
-                                          Status::OK());
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("HdfsFileHandle::init::hdfsFreeFileInfo", Status::OK());
         hdfsFreeFileInfo(file_info, 1);
     }
     return Status::OK();
@@ -69,9 +67,9 @@ Status HdfsFileHandle::ensure_open() {
     std::call_once(_open_once, [this]() {
         VLOG_DEBUG << "lazy open hdfs file: " << _fname;
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
-        _hdfs_file = SYNC_POINT_HOOK_RETURN_VALUE(
-                hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0),
-                "HdfsFileHandle::ensure_open::hdfsOpenFile");
+        _hdfs_file =
+                SYNC_POINT_HOOK_RETURN_VALUE(hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0),
+                                             "HdfsFileHandle::ensure_open::hdfsOpenFile");
         if (_hdfs_file != nullptr) {
             DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
             DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
