@@ -133,15 +133,18 @@ public class CheckScoreUsage implements RewriteRuleFactory {
         if (selectedIndex == null) {
             return;
         }
+        boolean isSnii = scan.getTable().getInvertedIndexFileStorageFormat()
+                == TInvertedIndexFileStorageFormat.SNII;
         Map<String, String> properties = selectedIndex.getProperties();
-        if (properties == null
-                || !properties.containsKey(
-                        InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY)) {
+        String analyzerName = properties == null ? null : properties.get(
+                InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (analyzerName == null) {
+            if (isSnii) {
+                throw nonScoringSniiIndex(selectedIndex);
+            }
             return;
         }
 
-        String analyzerName = properties.get(
-                InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY);
         boolean usesCommonGrams;
         try {
             usesCommonGrams = indexPolicyMgr.validateAnalyzerUsesCommonGrams(analyzerName);
@@ -149,13 +152,21 @@ public class CheckScoreUsage implements RewriteRuleFactory {
             throw new AnalysisException("score() cannot use inverted index '"
                     + selectedIndex.getIndexName() + "': " + e.getMessage(), e);
         }
-        if (usesCommonGrams
-                && scan.getTable().getInvertedIndexFileStorageFormat()
-                        != TInvertedIndexFileStorageFormat.SNII) {
+        if (isSnii && !usesCommonGrams) {
+            throw nonScoringSniiIndex(selectedIndex);
+        }
+        if (usesCommonGrams && !isSnii) {
             throw new AnalysisException("score() cannot use CommonGrams analyzer '"
                     + analyzerName + "' on inverted index '" + selectedIndex.getIndexName()
                     + "': CommonGrams scoring is supported only by SNII");
         }
+    }
+
+    private static AnalysisException nonScoringSniiIndex(Index selectedIndex) {
+        return new AnalysisException("score() cannot use SNII inverted index '"
+                + selectedIndex.getIndexName()
+                + "': the index does not persist scoring data; SNII scoring requires"
+                + " an index created with a CommonGrams analyzer");
     }
 
     private boolean hasScoreFunction(LogicalProject<?> project) {
