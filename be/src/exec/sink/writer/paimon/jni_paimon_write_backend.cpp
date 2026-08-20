@@ -17,33 +17,24 @@
 
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 
-#include <arrow/buffer.h>
+#include <arrow/c/bridge.h>
 #include <arrow/io/memory.h>
-#include <arrow/ipc/writer.h>
+#include <arrow/ipc/reader.h>
 #include <arrow/record_batch.h>
-#include <arrow/type.h>
 
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <string_view>
 #include <vector>
 
 #include "common/check.h"
-#include "common/config.h"
 #include "common/logging.h"
-#include "core/data_type/data_type_agg_state.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_struct.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/block_budget.h"
 #include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
@@ -53,61 +44,6 @@ namespace doris {
 
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
-
-// Java Arrow's decoded working set includes vectors, validity/offset buffers, metadata, and
-// allocator overhead, so neither Doris Block bytes nor serialized IPC bytes are a safe reservation
-// size. The Java RootAllocator provides a stable per-writer hard upper bound; use that same value as
-// the weight of every JNI write against this BE-wide logical quota. This quota deliberately does
-// not reserve MemTracker bytes: C++ IPC and Paimon native pages are tracked separately by Doris.
-class PaimonArrowMemoryLimiter {
-public:
-    Status acquire(int64_t bytes, RuntimeState* state) {
-        DORIS_CHECK(state != nullptr);
-        DORIS_CHECK(bytes > 0);
-
-        const int64_t total_limit = config::paimon_jni_total_arrow_memory_limit_bytes;
-        if (bytes > total_limit) {
-            return Status::InvalidArgument(
-                    "Paimon JNI writer Arrow memory limit {} exceeds the process-wide limit {}",
-                    PrettyPrinter::print_bytes(bytes), PrettyPrinter::print_bytes(total_limit));
-        }
-
-        std::unique_lock<std::mutex> lock(_mutex);
-        // Acquire the whole weight atomically; a waiter owns no partial quota. This rules out the
-        // deadlock where writers each retain part of their allowance while waiting for the rest.
-        // For equal weights, the byte limit also implies floor(total / bytes) concurrent JNI calls.
-        _condition.wait(lock, [&] {
-            return state->is_cancelled() ||
-                   (_used_bytes <= total_limit && bytes <= total_limit - _used_bytes);
-        });
-        if (state->is_cancelled()) {
-            return Status::Cancelled(
-                    "Paimon JNI write stopped while waiting for Java Arrow memory");
-        }
-        _used_bytes += bytes;
-        return Status::OK();
-    }
-
-    void release(int64_t bytes) {
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            DORIS_CHECK(bytes > 0);
-            DORIS_CHECK_GE(_used_bytes, bytes);
-            _used_bytes -= bytes;
-        }
-        _condition.notify_all();
-    }
-
-private:
-    std::mutex _mutex;
-    std::condition_variable _condition;
-    int64_t _used_bytes = 0;
-};
-
-PaimonArrowMemoryLimiter& paimon_arrow_memory_limiter() {
-    static auto* limiter = new PaimonArrowMemoryLimiter();
-    return *limiter;
-}
 
 std::atomic<bool>& paimon_jni_close_failed() {
     static auto* failed = new std::atomic<bool>(false);
@@ -133,68 +69,6 @@ void retain_memory_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> ma
     retained_memory_managers().emplace_back(std::move(manager));
 }
 
-Status convert_to_paimon_arrow_type(const DataTypePtr& origin_type,
-                                    std::shared_ptr<arrow::DataType>* result,
-                                    const std::string& timezone) {
-    const DataTypePtr type = get_serialized_type(origin_type);
-    switch (type->get_primitive_type()) {
-    case TYPE_VARIANT:
-        // Paimon consumes the lossless Variant V2 representation. Keeping both children non-null
-        // distinguishes a SQL NULL struct from a non-null Variant value.
-        *result = arrow::struct_({arrow::field("value", arrow::binary(), false),
-                                  arrow::field("metadata", arrow::binary(), false)});
-        return Status::OK();
-    case TYPE_ARRAY: {
-        const auto& array_type = assert_cast<const DataTypeArray&>(*remove_nullable(type));
-        std::shared_ptr<arrow::DataType> element_type;
-        RETURN_IF_ERROR(convert_to_paimon_arrow_type(array_type.get_nested_type(), &element_type,
-                                                     timezone));
-        *result = std::make_shared<arrow::ListType>(element_type);
-        return Status::OK();
-    }
-    case TYPE_MAP: {
-        const auto& map_type = assert_cast<const DataTypeMap&>(*remove_nullable(type));
-        std::shared_ptr<arrow::DataType> key_type;
-        std::shared_ptr<arrow::DataType> value_type;
-        RETURN_IF_ERROR(convert_to_paimon_arrow_type(map_type.get_key_type(), &key_type, timezone));
-        RETURN_IF_ERROR(
-                convert_to_paimon_arrow_type(map_type.get_value_type(), &value_type, timezone));
-        *result = std::make_shared<arrow::MapType>(key_type, value_type);
-        return Status::OK();
-    }
-    case TYPE_STRUCT: {
-        const auto& struct_type = assert_cast<const DataTypeStruct&>(*remove_nullable(type));
-        std::vector<std::shared_ptr<arrow::Field>> fields;
-        fields.reserve(struct_type.get_elements().size());
-        for (size_t i = 0; i < struct_type.get_elements().size(); ++i) {
-            const DataTypePtr& element = struct_type.get_element(i);
-            std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(convert_to_paimon_arrow_type(element, &field_type, timezone));
-            fields.push_back(arrow::field(struct_type.get_element_name(i), field_type,
-                                          element->is_nullable()));
-        }
-        *result = arrow::struct_(std::move(fields));
-        return Status::OK();
-    }
-    default:
-        return convert_to_arrow_type(origin_type, result, timezone);
-    }
-}
-
-Status get_paimon_arrow_schema_from_block(const Block& block,
-                                          std::shared_ptr<arrow::Schema>* result) {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    fields.reserve(block.columns());
-    for (const auto& type_and_name : block) {
-        std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_paimon_arrow_type(type_and_name.type, &arrow_type, ""));
-        fields.push_back(create_arrow_field_with_metadata(
-                type_and_name.name, arrow_type, type_and_name.type->is_nullable(),
-                type_and_name.type->get_primitive_type()));
-    }
-    *result = arrow::schema(std::move(fields));
-    return Status::OK();
-}
 } // namespace
 
 // ────────────────────────────────────────────────────────────
@@ -207,7 +81,7 @@ static constexpr const char* SCANNER_LOADER_CLASS =
 
 const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
         "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
-        "String;Ljava/lang/String;JJJ)V";
+        "String;Ljava/lang/String;JJ)V";
 
 PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
         TPaimonWriteMode::type write_mode) {
@@ -225,6 +99,7 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
 Status JniPaimonWriteBackend::close() {
     if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
         _memory_manager.reset();
+        _arrow_schema.reset();
         _opened = false;
         return Status::OK();
     }
@@ -242,6 +117,7 @@ Status JniPaimonWriteBackend::close() {
         } else {
             _memory_manager.reset();
         }
+        _arrow_schema.reset();
         _opened = false;
         return env_status;
     }
@@ -278,6 +154,7 @@ Status JniPaimonWriteBackend::close() {
         // writers which were already open when the first close failure occurred.
         retain_memory_after_failed_close(std::move(_memory_manager));
     }
+    _arrow_schema.reset();
     _opened = false;
     return close_status;
 }
@@ -332,6 +209,38 @@ static jobject _to_java_options(JNIEnv* env, const std::map<std::string, std::st
     return map_obj;
 }
 
+static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID get_schema_id,
+                                       std::shared_ptr<arrow::Schema>* schema) {
+    auto schema_bytes = static_cast<jbyteArray>(env->CallObjectMethod(writer, get_schema_id));
+    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
+            env, false, "JNI exception in PaimonJniWriter.getArrowSchema: "));
+    if (schema_bytes == nullptr) {
+        return Status::InternalError("PaimonJniWriter.getArrowSchema returned null");
+    }
+
+    const jsize size = env->GetArrayLength(schema_bytes);
+    if (size <= 0) {
+        env->DeleteLocalRef(schema_bytes);
+        return Status::InternalError("PaimonJniWriter.getArrowSchema returned empty data");
+    }
+    std::string serialized_schema(static_cast<size_t>(size), '\0');
+    env->GetByteArrayRegion(schema_bytes, 0, size,
+                            reinterpret_cast<jbyte*>(serialized_schema.data()));
+    env->DeleteLocalRef(schema_bytes);
+    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
+            env, false, "JNI exception while reading Paimon Arrow schema: "));
+
+    auto input = std::make_shared<arrow::io::BufferReader>(
+            arrow::Buffer::FromString(std::move(serialized_schema)));
+    auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(input);
+    if (!reader_result.ok()) {
+        return Status::InternalError("Failed to deserialize Paimon Arrow schema: {}",
+                                     reader_result.status().ToString());
+    }
+    *schema = reader_result.ValueOrDie()->schema();
+    return Status::OK();
+}
+
 Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
     if (paimon_jni_close_failed().load(std::memory_order_acquire)) {
@@ -339,7 +248,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                 "Paimon JNI writes are disabled on this BE because a previous Java writer close "
                 "failed; restart the BE to reclaim retained native memory safely");
     }
-    _sink = sink;
+    _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
     DORIS_CHECK(sink.__isset.serialized_table);
@@ -350,13 +259,6 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     DORIS_CHECK(!sink.commit_user.empty());
     DORIS_CHECK(profile != nullptr);
 
-    _arrow_memory_limit_bytes = config::paimon_jni_writer_arrow_memory_limit_bytes;
-    if (_arrow_memory_limit_bytes > config::paimon_jni_total_arrow_memory_limit_bytes) {
-        return Status::InvalidArgument(
-                "Paimon JNI writer Arrow memory limit {} exceeds the process-wide limit {}",
-                PrettyPrinter::print_bytes(_arrow_memory_limit_bytes),
-                PrettyPrinter::print_bytes(config::paimon_jni_total_arrow_memory_limit_bytes));
-    }
     RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, &_memory_manager));
     RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
     _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
@@ -375,7 +277,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
     jmethodID open_id = env->GetMethodID(_jni_writer_cls, "open", PAIMON_JNI_WRITER_OPEN_SIGNATURE);
-    _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
+    jmethodID get_arrow_schema_id = env->GetMethodID(_jni_writer_cls, "getArrowSchema", "()[B");
+    _write_id = env->GetMethodID(_jni_writer_cls, "writeArrow", "(JJ)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
     _close_id = env->GetMethodID(_jni_writer_cls, "close", "()V");
@@ -417,7 +320,6 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                         static_cast<jlong>(sink.transaction_id), j_commit_user, open_mode.overwrite,
                         open_mode.changelog, j_time_zone, j_spill_directories,
                         static_cast<jlong>(_memory_manager->memory_limit()),
-                        static_cast<jlong>(_arrow_memory_limit_bytes),
                         reinterpret_cast<jlong>(_memory_manager.get()));
     Status st = _check_jni_exception(env, "open");
 
@@ -430,12 +332,13 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     env->DeleteLocalRef(string_cls);
 
     if (st.ok()) {
+        st = _get_paimon_arrow_schema(env, _jni_writer_obj, get_arrow_schema_id, &_arrow_schema);
+    }
+    if (st.ok()) {
         _opened = true;
         _refresh_memory_profile();
         LOG(INFO) << "Paimon JNI writer memory limit: "
                   << PrettyPrinter::print_bytes(_memory_manager->memory_limit())
-                  << ", Arrow direct memory limit="
-                  << PrettyPrinter::print_bytes(_arrow_memory_limit_bytes)
                   << ", local_sink_count=" << std::max(1, state->num_local_sink());
     }
     return st;
@@ -446,172 +349,72 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-function-const)
         std::unique_ptr<IPaimonWriter>* writer) {
     DORIS_CHECK(_opened);
+    DORIS_CHECK(_arrow_schema != nullptr);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
                                                 _abort_id, std::make_unique<ArrowMemoryPool<>>(),
-                                                _sink, _arrow_memory_limit_bytes);
+                                                _arrow_schema);
     return Status::OK();
 }
 
 JniPaimonWriter::JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id,
                                  jmethodID prepare_commit_id, jmethodID abort_id,
                                  std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                                 TPaimonTableSink sink, int64_t arrow_memory_limit_bytes)
+                                 std::shared_ptr<arrow::Schema> arrow_schema)
         : _jni_writer_obj(jni_writer_obj),
           _write_id(write_id),
           _prepare_commit_id(prepare_commit_id),
           _abort_id(abort_id),
           _arrow_pool(std::move(arrow_pool)),
-          _sink(std::move(sink)),
-          _arrow_memory_limit_bytes(arrow_memory_limit_bytes),
-          // This is a batching target, not the admission amount. Keeping IPC near half of the Java
-          // hard limit leaves room for decoded vectors and Arrow metadata; admission still uses the
-          // complete hard limit because the exact Java expansion is not predictable from IPC size.
-          _arrow_batch_size_bytes(static_cast<size_t>(arrow_memory_limit_bytes / 2)) {}
+          _arrow_schema(std::move(arrow_schema)) {}
 
 Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
 
-    // Use Thrift column_names as the authoritative schema source for both
-    // Arrow schema construction and Java-side write type derivation.
-    DORIS_CHECK(_sink.__isset.column_names);
-    DORIS_CHECK_EQ(_sink.column_names.size(), block.columns());
-    for (size_t i = 0; i < _sink.column_names.size(); ++i) {
-        block.get_by_position(i).name = _sink.column_names[i];
+    if (_arrow_schema == nullptr || _arrow_schema->num_fields() != block.columns()) {
+        return Status::InvalidArgument(
+                "Paimon Arrow schema column count does not match Doris Block: schema={}, block={}",
+                _arrow_schema == nullptr ? 0 : _arrow_schema->num_fields(), block.columns());
+    }
+    for (size_t i = 0; i < block.columns(); ++i) {
+        block.get_by_position(i).name = _arrow_schema->field(static_cast<int>(i))->name();
     }
 
-    // Build the Arrow schema once. Common blocks stay on the one-block/one-JNI-call fast path;
-    // only unusually wide blocks are divided into bounded row ranges.
-    // Paimon write timestamps are transported as civil-time fields. The Java writer uses the
-    // pinned Paimon target type to preserve NTZ values or convert LTZ values with the session zone.
-    // Variant V2 is transported losslessly as its value/metadata pair, including nested Variant.
-    std::shared_ptr<arrow::Schema> arrow_schema;
-    RETURN_IF_ERROR(get_paimon_arrow_schema_from_block(block, &arrow_schema));
-
-    const size_t block_rows = block.rows();
-    const size_t block_bytes = block.bytes();
-    if (block_bytes <= _arrow_batch_size_bytes) {
-        return _write_row_range(state, block, arrow_schema, 0, block_rows,
-                                std::max<size_t>(1, block_bytes));
-    }
-
-    // Use Doris bytes only to choose an inexpensive initial range size, never as a memory
-    // reservation. Column encodings and nested values can make Arrow IPC larger or smaller than
-    // the Block. _write_row_range() therefore checks the real IPC size and adaptively splits an
-    // oversized range. This keeps the common whole-Block path while bounding wide-table batches.
-    const size_t average_row_bytes =
-            std::max<size_t>(1, block_bytes / block_rows + (block_bytes % block_rows != 0));
-    const size_t rows_per_batch = BlockBudget(state->batch_size(), _arrow_batch_size_bytes)
-                                          .effective_max_rows(average_row_bytes);
-
-    for (size_t start_row = 0; start_row < block_rows; start_row += rows_per_batch) {
-        const size_t end_row = std::min(start_row + rows_per_batch, block_rows);
-        const size_t range_rows = end_row - start_row;
-        const size_t estimated_ipc_bytes = average_row_bytes > _arrow_batch_size_bytes / range_rows
-                                                   ? _arrow_batch_size_bytes
-                                                   : average_row_bytes * range_rows;
-        RETURN_IF_ERROR(_write_row_range(state, block, arrow_schema, start_row, end_row,
-                                         estimated_ipc_bytes));
-    }
-    return Status::OK();
-}
-
-Status JniPaimonWriter::_write_row_range(RuntimeState* state, const Block& block,
-                                         const std::shared_ptr<arrow::Schema>& arrow_schema,
-                                         size_t start_row, size_t end_row,
-                                         size_t estimated_ipc_bytes) {
+    // The schema comes from the pinned Paimon table, so timestamp timezone, nested nullability and
+    // Variant layout are fixed before the first write. Arrow builders remain on the Doris side and
+    // are charged to the current query's MemTracker through ArrowMemoryPool.
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
-                                           state->timezone_obj(), start_row, end_row));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, _arrow_pool.get(), &record_batch,
+                                           state->timezone_obj(), 0, block.rows()));
 
-    // Reserve approximately the row range's Doris size to reduce buffer growth copies. The
-    // estimate is capped by the IPC batching target; Arrow may still grow it when encoding expands.
-    auto out_stream_res = arrow::io::BufferOutputStream::Create(
-            std::max<size_t>(4096, estimated_ipc_bytes), _arrow_pool.get());
-    if (!out_stream_res.ok()) {
-        return Status::InternalError("Arrow BufferOutputStream create failed: {}",
-                                     out_stream_res.status().ToString());
-    }
-    auto out_stream = std::move(out_stream_res).ValueOrDie();
-
-    auto writer_res = arrow::ipc::MakeStreamWriter(out_stream, arrow_schema);
-    if (!writer_res.ok()) {
-        return Status::InternalError("Arrow StreamWriter create failed: {}",
-                                     writer_res.status().ToString());
-    }
-    auto ipc_writer = std::move(writer_res).ValueOrDie();
-    auto arrow_status = ipc_writer->WriteRecordBatch(*record_batch);
+    ArrowArray c_array {};
+    ArrowSchema c_schema {};
+    auto arrow_status = arrow::ExportRecordBatch(*record_batch, &c_array, &c_schema);
     if (!arrow_status.ok()) {
-        return Status::InternalError("Arrow WriteRecordBatch failed: {}", arrow_status.ToString());
-    }
-    arrow_status = ipc_writer->Close();
-    if (!arrow_status.ok()) {
-        return Status::InternalError("Arrow StreamWriter close failed: {}",
+        return Status::InternalError("Failed to export Paimon Arrow RecordBatch: {}",
                                      arrow_status.ToString());
     }
+    // Java consumes ArrowArray ownership on a successful import. On every exit, release whichever
+    // struct still retains its callback: this handles JNI/import failures without double release.
+    Defer release_c_data {[&] {
+        if (c_array.release != nullptr) {
+            c_array.release(&c_array);
+        }
+        if (c_schema.release != nullptr) {
+            c_schema.release(&c_schema);
+        }
+    }};
 
-    auto buffer_res = out_stream->Finish();
-    if (!buffer_res.ok()) {
-        return Status::InternalError("Arrow output stream finish failed: {}",
-                                     buffer_res.status().ToString());
-    }
-    std::shared_ptr<arrow::Buffer> buffer = std::move(buffer_res).ValueOrDie();
-
-    // Only the finalized IPC buffer must stay alive during the synchronous JNI call. Releasing the
-    // Arrow arrays and builders first keeps the C++ peak from spanning Java decoding and writing.
-    record_batch.reset();
-    ipc_writer.reset();
-    out_stream.reset();
-
-    const size_t range_rows = end_row - start_row;
-    const size_t serialized_bytes = static_cast<size_t>(buffer->size());
-    if (serialized_bytes > _arrow_batch_size_bytes && range_rows > 1) {
-        // Doris column bytes are only an estimate of Arrow IPC size and may hide skew. Once the
-        // actual encoded size is known, discard the oversized candidate and retry its two halves.
-        // A one-row range is intentionally not split: it is the smallest writable unit and the
-        // Java allocator still has the other half of its configured limit as headroom.
-        buffer.reset();
-        const size_t middle_row = start_row + range_rows / 2;
-        const size_t average_serialized_row_bytes =
-                serialized_bytes / range_rows + (serialized_bytes % range_rows != 0);
-        const auto estimate_range_bytes = [&](size_t rows) {
-            return average_serialized_row_bytes > _arrow_batch_size_bytes / rows
-                           ? _arrow_batch_size_bytes
-                           : average_serialized_row_bytes * rows;
-        };
-        RETURN_IF_ERROR(_write_row_range(state, block, arrow_schema, start_row, middle_row,
-                                         estimate_range_bytes(middle_row - start_row)));
-        return _write_row_range(state, block, arrow_schema, middle_row, end_row,
-                                estimate_range_bytes(end_row - middle_row));
-    }
-
-    // Serialize first, then reserve the complete Java Arrow allocator quota immediately before
-    // JNI. Reserving earlier would occupy scarce Java capacity while doing C++ work that is already
-    // protected by MemTracker. Reserving only serialized_bytes would be unsafe because Java decode
-    // can expand beyond the IPC representation. This call runs on the blocking scheduler, so the
-    // condition-variable wait is synchronous and does not reintroduce a pipeline dependency.
-    // A split Block reaches here once per row range; ranges are sequential and release their quota
-    // after each JNI call, so one sink invocation never holds multiple Arrow quotas concurrently.
-    RETURN_IF_ERROR(paimon_arrow_memory_limiter().acquire(_arrow_memory_limit_bytes, state));
-    Defer release_arrow_memory {
-            [&] { paimon_arrow_memory_limiter().release(_arrow_memory_limit_bytes); }};
-
-    // Wrap the IPC buffer in a JNI direct ByteBuffer (zero-copy). Java consumes it synchronously;
-    // the quota is released only after the JNI call returns.
+    // writeArrow is synchronous and this operator runs on the blocking scheduler. The exported
+    // RecordBatch therefore stays alive until Paimon has consumed all rows; Java never owns an IPC
+    // copy, and any synchronous SDK flush or memory wait occupies only a blocking-scheduler worker.
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    jobject direct_buffer =
-            env->NewDirectByteBuffer(buffer->mutable_data(), static_cast<jlong>(buffer->size()));
-    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
-            env, false, "JNI exception in NewDirectByteBuffer for PaimonJniWriter::write: "));
-
-    env->CallVoidMethod(_jni_writer_obj, _write_id, direct_buffer);
-    Status write_status =
-            Jni::Env::GetJniExceptionMsg(env, false, "JNI exception in JniPaimonWriter::write: ");
-    env->DeleteLocalRef(direct_buffer);
-    return write_status;
+    env->CallVoidMethod(_jni_writer_obj, _write_id, reinterpret_cast<jlong>(&c_array),
+                        reinterpret_cast<jlong>(&c_schema));
+    return Jni::Env::GetJniExceptionMsg(env, false,
+                                        "JNI exception in JniPaimonWriter::writeArrow: ");
 }
 
 Status JniPaimonWriter::write(RuntimeState* state, Block& block) {

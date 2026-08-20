@@ -82,9 +82,8 @@ private:
     jmethodID _abort_id = nullptr;
     jmethodID _close_id = nullptr;
 
-    TPaimonTableSink _sink;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
-    int64_t _arrow_memory_limit_bytes = 0;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
     bool _opened = false;
@@ -92,25 +91,22 @@ private:
 
 /// Lightweight C++ adapter that delegates to the shared JNI backend.
 ///
-/// Owns the Arrow memory pool used for Block → Arrow IPC conversion.
+/// Owns the Arrow memory pool used for Block → Arrow RecordBatch conversion.
 /// Each JniPaimonWriter is created by JniPaimonWriteBackend::create_writer()
 /// and shares the backend's JNI method IDs and Java writer object reference.
 class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
                     jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    TPaimonTableSink sink, int64_t arrow_memory_limit_bytes);
+                    std::shared_ptr<arrow::Schema> arrow_schema);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
     Status abort() override;
 
 private:
-    /// Convert Block → Arrow RecordBatch → IPC Stream, then pass to Java via JNI direct buffer.
+    /// Convert Block to an Arrow RecordBatch, then pass it to Java through Arrow C Data.
     Status _write_projected_block(RuntimeState* state, Block& block);
-    Status _write_row_range(RuntimeState* state, const Block& block,
-                            const std::shared_ptr<arrow::Schema>& arrow_schema, size_t start_row,
-                            size_t end_row, size_t estimated_ipc_bytes);
 
     // Shared JNI state (owned by JniPaimonWriteBackend, not this adapter).
     jobject _jni_writer_obj;
@@ -120,9 +116,7 @@ private:
 
     // Arrow resources owned by this writer adapter.
     std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
-    TPaimonTableSink _sink;
-    int64_t _arrow_memory_limit_bytes;
-    size_t _arrow_batch_size_bytes;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 
 } // namespace doris

@@ -87,11 +87,10 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
-    // There is no sound whole-sink estimate: Block/IPC bytes do not predict Java Arrow decoding,
-    // while Paimon pages are allocated lazily and can outlive this call. C++ allocations and native
-    // pages remain covered by Doris' MemTracker; Java Arrow uses its own fixed synchronous
-    // admission at the JNI boundary. A generic sink reservation would only double-account C++
-    // memory without reserving the untracked Java memory that this sink actually needs to bound.
+    // Arrow C Data exposes Doris-owned RecordBatch buffers to Java without another batch body.
+    // Those buffers are already covered by the query MemTracker, while Paimon pages are allocated
+    // lazily under the DorisMemorySegmentPool cap and may outlive this call. A generic whole-sink
+    // reservation cannot predict the latter and would only double-account the former.
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState*, bool) override { return 0; }
 
 private:

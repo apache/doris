@@ -258,24 +258,12 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
     const int64_t query_limit = state->query_mem_tracker()->limit();
     const int64_t query_share = query_limit > 0 ? query_limit / writer_count : query_limit;
     // Paimon requests pages lazily, can flush/preempt owners inside its MemoryPoolFactory, and may
-    // retain allocated pages until writer close. Their per-call peak therefore cannot be reserved
-    // accurately before sink(). Bound and account actual page allocations instead. Leave one Java
-    // Arrow allocator's fixed hard limit outside this long-lived page budget so a writer that fills
-    // its page pool still has headroom for its next decode. C++ IPC remains under query MemTracker.
-    const int64_t arrow_memory_limit = config::paimon_jni_writer_arrow_memory_limit_bytes;
-    if (query_limit > 0 && (query_share <= 0 || arrow_memory_limit >= query_share)) {
-        return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
-                "Paimon JNI writer has insufficient memory for its Java Arrow limit: "
-                "query_limit={}, local_sink_count={}, arrow_memory_limit={}",
-                PrettyPrinter::print_bytes(query_limit), writer_count,
-                PrettyPrinter::print_bytes(arrow_memory_limit));
-    }
-    const int64_t page_query_share =
-            query_share > 0 ? query_share - arrow_memory_limit : query_share;
+    // retain allocated pages until writer close. Bound and account those actual page allocations.
+    // Arrow C Data keeps the batch body in Doris-owned buffers, so there is no separate Java Arrow
+    // body budget to subtract from this writer's Paimon page allowance.
     const int64_t configured_memory_limit = config::paimon_jni_writer_memory_pool_limit_bytes;
-    const int64_t memory_limit = page_query_share > 0
-                                         ? std::min(page_query_share, configured_memory_limit)
-                                         : configured_memory_limit;
+    const int64_t memory_limit = query_share > 0 ? std::min(query_share, configured_memory_limit)
+                                                 : configured_memory_limit;
     if (memory_limit <= 0) {
         return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
                 "Paimon JNI writer has insufficient memory budget: query_limit={}, "

@@ -34,7 +34,7 @@ TEST(PaimonWriteBackendFactoryTest, SelectBackendType) {
 TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {
     EXPECT_STREQ(
             "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
-            "String;Ljava/lang/String;JJJ)V",
+            "String;Ljava/lang/String;JJ)V",
             PAIMON_JNI_WRITER_OPEN_SIGNATURE);
 
     auto append = PaimonJniWriterOpenMode::from_write_mode(TPaimonWriteMode::APPEND);

@@ -89,7 +89,7 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     state->update_num_bytes_load_total(block.bytes());
 
     // Step 2: Delegate to the backend writer (JNI or FFI). For the JNI path
-    // this converts Block → Arrow IPC → direct buffer → Java PaimonJniWriter.
+    // this converts Block → Arrow RecordBatch → Arrow C Data → Java PaimonJniWriter.
     DCHECK(_writer);
     {
         SCOPED_TIMER(_file_store_write_timer);

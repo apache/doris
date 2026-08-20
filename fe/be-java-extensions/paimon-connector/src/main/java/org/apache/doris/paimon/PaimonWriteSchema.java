@@ -18,6 +18,7 @@
 package org.apache.doris.paimon;
 
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowKind;
@@ -25,7 +26,9 @@ import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.utils.DefaultValueUtils;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Immutable mapping from Doris input columns to a Paimon table row.
@@ -40,7 +43,8 @@ final class PaimonWriteSchema {
     static final byte UPDATE_OPERATION = 1;
     static final byte DELETE_OPERATION = 2;
 
-    private final DataType[] targetTypes;
+    private final InternalRow.FieldGetter[] fieldGetters;
+    private final RowType inputType;
     /** Maps Doris input-column position → Paimon table-schema position. */
     private final int[] tableFieldIndexes;
     /** Paimon defaults for table fields omitted from the Doris input. */
@@ -49,8 +53,13 @@ final class PaimonWriteSchema {
     private final int tableFieldCount;
 
     private PaimonWriteSchema(DataType[] targetTypes, int[] tableFieldIndexes,
-            int[] omittedDefaultFieldIndexes, Object[] omittedDefaultValues, int tableFieldCount) {
-        this.targetTypes = targetTypes;
+            int[] omittedDefaultFieldIndexes, Object[] omittedDefaultValues, int tableFieldCount,
+            RowType inputType) {
+        this.fieldGetters = new InternalRow.FieldGetter[targetTypes.length];
+        for (int i = 0; i < targetTypes.length; i++) {
+            this.fieldGetters[i] = InternalRow.createFieldGetter(targetTypes[i], i);
+        }
+        this.inputType = inputType;
         this.tableFieldIndexes = tableFieldIndexes;
         this.omittedDefaultFieldIndexes = omittedDefaultFieldIndexes;
         this.omittedDefaultValues = omittedDefaultValues;
@@ -79,6 +88,7 @@ final class PaimonWriteSchema {
 
         DataType[] targetTypes = new DataType[columnNames.length];
         int[] tableFieldIndexes = new int[columnNames.length];
+        List<DataField> inputFields = new ArrayList<>(columnNames.length);
         boolean[] specifiedFields = new boolean[tableType.getFieldCount()];
         for (int i = 0; i < columnNames.length; i++) {
             if (changelogWrite && i == 0) {
@@ -88,6 +98,8 @@ final class PaimonWriteSchema {
                 }
                 targetTypes[i] = new TinyIntType(false);
                 tableFieldIndexes[i] = -1;
+                inputFields.add(new DataField(
+                        Integer.MIN_VALUE, ROW_KIND_COLUMN, targetTypes[i]));
                 continue;
             }
             int tableIndex = tableType.getFieldIndex(columnNames[i]);
@@ -103,6 +115,7 @@ final class PaimonWriteSchema {
             DataField field = tableType.getFields().get(tableIndex);
             targetTypes[i] = field.type();
             tableFieldIndexes[i] = tableIndex;
+            inputFields.add(field);
         }
 
         int[] omittedDefaultFieldIndexes = new int[tableType.getFieldCount()];
@@ -124,17 +137,18 @@ final class PaimonWriteSchema {
                 tableFieldIndexes,
                 Arrays.copyOf(omittedDefaultFieldIndexes, omittedDefaultCount),
                 Arrays.copyOf(omittedDefaultValues, omittedDefaultCount),
-                tableType.getFieldCount());
+                tableType.getFieldCount(),
+                new RowType(inputFields));
     }
 
-    /** Paimon {@link DataType}s for each write column, in write order. */
-    DataType[] targetTypes() {
-        return targetTypes;
+    /** Paimon input fields in the exact order transported by Arrow C Data. */
+    RowType inputType() {
+        return inputType;
     }
 
     /** Expand one input row to the full Paimon table-schema layout. */
-    GenericRow tableRow(Object[] columnValues) {
-        if (columnValues.length != tableFieldIndexes.length) {
+    GenericRow tableRow(InternalRow columnValues) {
+        if (columnValues.getFieldCount() != tableFieldIndexes.length) {
             throw new IllegalArgumentException(
                     "Paimon input value count does not match write schema");
         }
@@ -143,13 +157,14 @@ final class PaimonWriteSchema {
             row.setField(omittedDefaultFieldIndexes[i], omittedDefaultValues[i]);
         }
         for (int i = 0; i < tableFieldIndexes.length; i++) {
+            Object value = fieldGetters[i].getFieldOrNull(columnValues);
             if (tableFieldIndexes[i] < 0) {
-                row.setRowKind(toRowKind(columnValues[i]));
+                row.setRowKind(toRowKind(value));
                 continue;
             }
             // Actual Doris input is applied last so an explicit NULL remains distinct
             // from an omitted field and retains Paimon's writer-side semantics.
-            row.setField(tableFieldIndexes[i], columnValues[i]);
+            row.setField(tableFieldIndexes[i], value);
         }
         return row;
     }
