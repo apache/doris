@@ -1519,7 +1519,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = false,
             description = "Whether to enable the FE Web UI and its dedicated APIs.")
-    public static boolean enable_web_ui = false;
+    public static boolean enable_web_ui = true;
 
     /*
      * Base path is the URL prefix for all API paths.

@@ -5,7 +5,7 @@ Date: 2026-08-11
 ## Source and runtime baseline
 
 - Doris source HEAD: `8ad4fe202190bfc8944c42e716c29f735c6d35fe`.
-- Legacy `ui/` baseline tree: `91a76d311c66a124536dfcf87fcb753708171f19`. It remains protected; its pre-existing Axios change is not part of ui-next.
+- Legacy `ui/` baseline tree: `91a76d311c66a124536dfcf87fcb753708171f19`. That AngularJS application has since been removed; its pre-existing Axios change is not part of this UI.
 - Verified a123 FE PID: `3332046`, recovery deployment, HTTP `8030`, MySQL `59330`.
 - Verified a123 BE PID: `3400721`, recovery deployment, heartbeat `59050`, alive.
 - FE and BE data directories must not be initialized, deleted, or overwritten.
