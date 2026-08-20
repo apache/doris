@@ -153,25 +153,16 @@ int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
     }
     DCHECK(limiter->limiter);
 
-    if (!dry_run) {
-        auto result = limiter->limiter->add_with_config(1);
-        if (result.sleep_duration > 0 && limiter->should_log(MonotonicMicros())) {
-            LOG(INFO) << "[ms-throttle] host-level rate limiter throttled MS RPC request"
-                      << ", rpc=" << meta_service_rpc_display_name(rpc)
-                      << ", sleep_ns=" << result.sleep_duration
-                      << ", qps_limit=" << result.max_speed;
-        }
-        return result.sleep_duration;
-    }
-
-    auto result = limiter->limiter->reserve_with_config(1);
+    auto result = dry_run ? limiter->limiter->reserve_with_config(1)
+                          : limiter->limiter->add_with_config(1);
     if (result.sleep_duration > 0 && limiter->should_log(MonotonicMicros())) {
-        LOG(INFO) << "[ms-throttle] host-level rate limiter dry run would throttle MS RPC request"
+        LOG(INFO) << "[ms-throttle] host-level rate limiter "
+                  << (dry_run ? "dry run would throttle" : "throttled") << " MS RPC request"
                   << ", rpc=" << meta_service_rpc_display_name(rpc)
-                  << ", estimated_wait_ns=" << result.sleep_duration
+                  << (dry_run ? ", estimated_wait_ns=" : ", sleep_ns=") << result.sleep_duration
                   << ", qps_limit=" << result.max_speed;
     }
-    return 0;
+    return dry_run ? 0 : result.sleep_duration;
 }
 
 void HostLevelMSRpcRateLimiters::reset(MetaServiceRPC rpc, int qps) {
