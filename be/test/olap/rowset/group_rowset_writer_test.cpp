@@ -417,6 +417,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions inflate it.
 TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     auto partial_update_info = std::make_shared<PartialUpdateInfo>();
     ASSERT_TRUE(partial_update_info
