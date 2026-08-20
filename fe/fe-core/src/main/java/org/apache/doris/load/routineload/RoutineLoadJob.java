@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -41,6 +42,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -54,6 +56,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -181,15 +184,10 @@ public abstract class RoutineLoadJob
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
-    @SerializedName("pni")
     protected PartitionNamesInfo partitionNamesInfo; // optional
-    @SerializedName("cds")
     protected ImportColumnDescs columnDescs; // optional
-    @SerializedName("pf")
     protected Expr precedingFilter; // optional
-    @SerializedName("we")
     protected Expr whereExpr; // optional
-    @SerializedName("cs")
     protected Separator columnSeparator; // optional
     @SerializedName("lidel")
     protected Separator lineDelimiter;
@@ -236,7 +234,6 @@ public abstract class RoutineLoadJob
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
-    @SerializedName("sc")
     protected String sequenceCol;
 
     @SerializedName("mosn")
@@ -266,7 +263,7 @@ public abstract class RoutineLoadJob
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // Keep the original CREATE statement for downgrade compatibility and legacy image migration.
+    // Persist the current effective load definition as a CREATE statement.
     @SerializedName("ostmt")
     protected OriginStatement origStmt;
     // User who submit this job. Maybe null for the old version job(before v1.1)
@@ -277,9 +274,7 @@ public abstract class RoutineLoadJob
     protected String comment = "";
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    @SerializedName("mt")
-    protected LoadTask.MergeType mergeType;
-    @SerializedName("dc")
+    protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
@@ -1978,20 +1973,9 @@ public abstract class RoutineLoadJob
         if (tableId == 0) {
             isMultiTable = true;
         }
-        // Legacy images did not persist mergeType. New images always contain it, including jobs
-        // without any load clause, so its absence is sufficient to identify the one-time fallback.
-        boolean isOldImage = mergeType == null;
-        if (isOldImage) {
-            mergeType = LoadTask.MergeType.APPEND;
-            // Legacy images did not persist this create-time session option. Preserve their historical
-            // post-restart behavior instead of inheriting the image-loading thread's ConnectContext.
-            memtableOnSinkNode = false;
-        }
         try {
             hydrateJobProperties();
-            if (isOldImage) {
-                restoreLegacyDefinition();
-            }
+            restoreLoadDefinition();
         } catch (Exception e) {
             this.state = JobState.CANCELLED;
             LOG.warn("error happens when restoring routine load job", e);
@@ -2046,40 +2030,85 @@ public abstract class RoutineLoadJob
         }
     }
 
-    private void restoreLegacyDefinition() throws UserException {
+    private void restoreLoadDefinition() throws UserException {
+        Database database = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
+        ConnectContext ctx = createLoadDefinitionContext(database);
+        try {
+            ctx.setThreadLocalInfo();
+            CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) parsePersistedStatement(origStmt);
+            CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+            String currentTableName = isMultiTable ? "" : getTableName();
+            setRoutineLoadDesc(createRoutineLoadInfo.analyzeLoadProperties(
+                    ctx, database.getName(), currentTableName));
+            createRoutineLoadInfo.checkJobProperties();
+            execMemLimit = createRoutineLoadInfo.getExecMemLimit();
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    protected void replayLoadDefinition(OriginStatement alterStatement) throws UserException {
+        if (alterStatement == null) {
+            return;
+        }
+        Database database = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
+        ConnectContext ctx = createLoadDefinitionContext(database);
+        try {
+            ctx.setThreadLocalInfo();
+            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) parsePersistedStatement(alterStatement);
+            setRoutineLoadDesc(command.analyzeLoadProperties(ctx, this));
+            mergeLoadDescToOriginStatement();
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    private ConnectContext createLoadDefinitionContext(Database database) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+        ctx.setDatabase(database.getName());
         StatementContext statementContext = new StatementContext();
         statementContext.setConnectContext(ctx);
         ctx.setStatementContext(statementContext);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.getState().reset();
-        try {
-            ctx.setThreadLocalInfo();
-            NereidsParser nereidsParser = new NereidsParser();
-            CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
-                    origStmt.originStmt);
-            CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
-            // Resolve the current table name by ID so table rename or SWAP TABLE does not leave the
-            // legacy CREATE statement pointing at a stale table name.
-            if (!isMultiTable && tableId != 0) {
-                try {
-                    Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
-                    if (db != null) {
-                        db.getTable(tableId).ifPresent(
-                                table -> createRoutineLoadInfo.setTableName(table.getName()));
-                    }
-                } catch (Exception ignored) {
-                    // Let validate() below surface the original catalog error.
-                }
-            }
-            createRoutineLoadInfo.validate(ctx);
-            setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
-            execMemLimit = createRoutineLoadInfo.getExecMemLimit();
-        } finally {
-            ctx.cleanup();
+        if (sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
+            ctx.getSessionVariable().setSqlMode(Long.parseLong(sessionVariables.get(SessionVariable.SQL_MODE)));
         }
+        ctx.getState().reset();
+        return ctx;
+    }
+
+    protected void mergeLoadDescToOriginStatement() throws UserException {
+        List<ImportColumnDesc> columns =
+                columnDescs == null ? null : Lists.newArrayList(columnDescs.descs);
+        RoutineLoadDesc loadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, columns,
+                precedingFilter, whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
+        StringBuilder sql = new StringBuilder("CREATE ROUTINE LOAD ")
+                .append(SqlUtils.getIdentSql(name));
+        if (!isMultiTable) {
+            sql.append(" ON ").append(SqlUtils.getIdentSql(getTableName()));
+        }
+        sql.append(" WITH ").append(mergeType.name());
+        String loadClauseSql = loadDesc.toSql();
+        if (!loadClauseSql.isEmpty()) {
+            sql.append(" ").append(loadClauseSql);
+        }
+        sql.append(" PROPERTIES (\"exec_mem_limit\" = \"").append(execMemLimit).append("\")");
+        sql.append(buildPersistedDataSourceSql());
+        origStmt = new OriginStatement(sql.toString(), 0);
+    }
+
+    private String buildPersistedDataSourceSql() {
+        if (dataSourceType == LoadDataSourceType.KINESIS) {
+            return " FROM KINESIS (\"aws.region\" = \"us-east-1\", "
+                    + "\"kinesis_stream\" = \"__routine_load_persistence__\")";
+        }
+        return " FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                + "\"kafka_topic\" = \"__routine_load_persistence__\")";
+    }
+
+    private LogicalPlan parsePersistedStatement(OriginStatement statement) {
+        return new NereidsParser().parseMultiple(statement.originStmt).get(statement.idx).first;
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;

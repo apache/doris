@@ -19,9 +19,9 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -38,8 +38,8 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private Map<String, String> jobProperties;
     @SerializedName(value = "dataSourceProperties")
     private AbstractDataSourceProperties dataSourceProperties;
-    @SerializedName(value = "routineLoadDesc")
-    private RoutineLoadDesc routineLoadDesc;
+    @SerializedName(value = "originStatement")
+    private OriginStatement originStatement;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
@@ -47,11 +47,11 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     }
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
-            AbstractDataSourceProperties dataSourceProperties, RoutineLoadDesc routineLoadDesc) {
+            AbstractDataSourceProperties dataSourceProperties, OriginStatement originStatement) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
-        this.routineLoadDesc = routineLoadDesc;
+        this.originStatement = originStatement;
     }
 
     public long getJobId() {
@@ -66,8 +66,8 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
         return dataSourceProperties;
     }
 
-    public RoutineLoadDesc getRoutineLoadDesc() {
-        return routineLoadDesc;
+    public OriginStatement getOriginStatement() {
+        return originStatement;
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {

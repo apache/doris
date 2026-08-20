@@ -72,7 +72,6 @@ public class MatchPredicate extends Predicate {
     private String invertedIndexParserStopwords = "";
     private String invertedIndexAnalyzerName = "";
     // Fields for SQL generation
-    @SerializedName("ea")
     private String explicitAnalyzer = "";
 
     private MatchPredicate() {

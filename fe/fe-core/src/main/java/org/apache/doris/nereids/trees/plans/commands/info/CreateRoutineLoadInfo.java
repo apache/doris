@@ -412,6 +412,17 @@ public class CreateRoutineLoadInfo {
         }
     }
 
+    /**
+     * Analyze only the load clauses from a persisted CREATE statement. RoutineLoadJob uses this
+     * during image and journal replay because job and data-source properties have their own
+     * persisted state.
+     */
+    public RoutineLoadDesc analyzeLoadProperties(ConnectContext ctx, String currentDbName,
+            String currentTableName) throws UserException {
+        return checkLoadProperties(ctx, loadPropertyMap, currentDbName, currentTableName,
+                isMultiTable, mergeType);
+    }
+
     private void checkDBTable(ConnectContext ctx) throws AnalysisException {
         labelNameInfo.validate(ctx);
         dbName = labelNameInfo.getDb();
