@@ -106,6 +106,7 @@ int main(int argc, char** argv) {
 
     google::ParseCommandLineFlags(&argc, &argv, false);
 
+    configureLibunwindPHDRCache();
     updatePHDRCache();
     try {
         int res = RUN_ALL_TESTS();

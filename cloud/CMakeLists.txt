@@ -98,6 +98,13 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 
+if (OS_MACOSX)
+    set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
+endif()
+message(STATUS "USE_UNWIND is ${USE_UNWIND}")
+
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")

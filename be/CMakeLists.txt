@@ -72,12 +72,13 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
-option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
     set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
 endif()
 
 if (DISPLAY_BUILD_TIME)
@@ -206,7 +207,19 @@ SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
-target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+target_compile_options(orc PRIVATE -fno-omit-frame-pointer -Wno-implicit-fallthrough -w)
+foreach(orc_tool
+        orc-contents
+        orc-metadata
+        orc-statistics
+        orc-scan
+        orc-memory
+        timezone-dump
+        csv-import)
+    if (TARGET ${orc_tool})
+        target_compile_options(${orc_tool} PRIVATE -fno-omit-frame-pointer)
+    endif()
+endforeach()
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
@@ -222,7 +235,7 @@ set(USE_BTHREAD OFF)
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
 
-set(clucene_options -w -Wall)
+set(clucene_options -fno-omit-frame-pointer -w -Wall)
 if (COMPILER_CLANG)
     set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
@@ -383,7 +396,7 @@ if (USE_JEMALLOC)
     add_definitions(-DUSE_JEMALLOC)
 endif()
 
-# Compile with libunwind
+# libunwind symbolization uses DWARF aranges for fast address-to-line lookup.
 if (USE_UNWIND)
     add_definitions(-DUSE_UNWIND)
     if (COMPILER_CLANG)

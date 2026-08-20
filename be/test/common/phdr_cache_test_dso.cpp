@@ -15,25 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/stack_util.h"
-
-#include "common/stack_trace.h"
-#include "util/mem_info.h"
-#include "util/pretty_printer.h"
-
-namespace doris {
-
-std::string get_stack_trace(int start_pointers_index, std::string dwarf_location_info_mode) {
-#ifndef BE_TEST
-    if (!config::enable_stacktrace) {
-        return "no enable stacktrace";
-    }
-#endif
-    if (dwarf_location_info_mode.empty()) {
-        dwarf_location_info_mode = config::dwarf_location_info_mode;
-    }
-
-    return "\n" + StackTrace().toString(start_pointers_index, dwarf_location_info_mode);
+extern "C" int phdr_cache_test_dso_marker() {
+    return 42;
 }
-
-} // namespace doris

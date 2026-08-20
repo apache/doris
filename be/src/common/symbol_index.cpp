@@ -25,10 +25,14 @@
 #include <pdqsort.h>
 
 #include <algorithm>
+#include <array>
 #include <cassert>
+#include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 
+#include "common/logging.h"
 #include "common/stack_trace.h"
 #include "vec/common/hex.h"
 
@@ -80,9 +84,11 @@ Otherwise you will get only exported symbols from program headers.
 #pragma clang diagnostic ignored "-Wunused-macros"
 #endif
 
+#define __msan_unpoison(X, Y)     // NOLINT
 #define __msan_unpoison_string(X) // NOLINT
 #if defined(__clang__) && defined(__has_feature)
 #if __has_feature(memory_sanitizer)
+#undef __msan_unpoison
 #undef __msan_unpoison_string
 #include <sanitizer/msan_interface.h>
 #endif
@@ -91,6 +97,35 @@ Otherwise you will get only exported symbols from program headers.
 namespace doris {
 
 namespace {
+
+constexpr size_t MAX_SYMBOL_INDEX_LOADED_OBJECTS = 4096;
+constexpr size_t MAX_SYMBOL_INDEX_OBJECT_NAME = 4096;
+constexpr size_t MAX_SYMBOL_INDEX_BUILD_ID = 128;
+
+std::mutex& symbolIndexReloadMutex() {
+    static std::mutex lock;
+    return lock;
+}
+
+struct LoadedObject {
+    ElfW(Addr) base_address = 0;
+    std::array<char, MAX_SYMBOL_INDEX_OBJECT_NAME> name {};
+    size_t name_size = 0;
+    bool name_truncated = false;
+    std::array<char, MAX_SYMBOL_INDEX_BUILD_ID> build_id {};
+    size_t build_id_size = 0;
+    bool build_id_truncated = false;
+
+    std::string nameString() const { return {name.data(), name_size}; }
+    std::string buildIDString() const { return {build_id.data(), build_id_size}; }
+};
+
+struct LoadedObjectsSnapshot {
+    std::vector<LoadedObject> objects;
+    bool overflow = false;
+    bool name_truncated = false;
+    bool build_id_truncated = false;
+};
 
 /// Notes: "PHDR" is "Program Headers".
 /// To look at program headers, run:
@@ -101,6 +136,73 @@ namespace {
 /// Also look at: man elf
 /// http://www.linker-aliens.org/blogs/ali/entry/inside_elf_symbol_tables/
 /// https://stackoverflow.com/questions/32088140/multiple-string-tables-in-elf-object
+
+template <size_t N>
+bool copyCString(const char* src, std::array<char, N>& dst, size_t& dst_size) {
+    dst_size = 0;
+    if (src == nullptr) {
+        dst[0] = '\0';
+        return false;
+    }
+
+    while (dst_size + 1 < N && src[dst_size] != '\0') {
+        dst[dst_size] = src[dst_size];
+        ++dst_size;
+    }
+    const bool truncated = src[dst_size] != '\0';
+    dst[dst_size] = '\0';
+    return truncated;
+}
+
+const char* alignELFNote(const char* ptr) {
+    const auto value = reinterpret_cast<uintptr_t>(ptr);
+    return reinterpret_cast<const char*>((value + 3) & ~uintptr_t {3});
+}
+
+bool copyBuildIDFromNotes(const char* note_begin, size_t size, LoadedObject& object) {
+    const char* pos = note_begin;
+    const char* end = note_begin + size;
+
+    while (pos + sizeof(ElfNhdr) <= end) {
+        ElfNhdr nhdr;
+        memcpy(&nhdr, pos, sizeof(nhdr));
+
+        const char* name_begin = pos + sizeof(ElfNhdr);
+        if (name_begin > end || static_cast<size_t>(end - name_begin) < nhdr.n_namesz) {
+            return false;
+        }
+
+        const char* desc_begin = alignELFNote(name_begin + nhdr.n_namesz);
+        if (desc_begin > end || static_cast<size_t>(end - desc_begin) < nhdr.n_descsz) {
+            return false;
+        }
+
+        if (nhdr.n_type == NT_GNU_BUILD_ID) {
+            const size_t copied = std::min<size_t>(nhdr.n_descsz, object.build_id.size());
+            memcpy(object.build_id.data(), desc_begin, copied);
+            object.build_id_size = copied;
+            object.build_id_truncated = nhdr.n_descsz > object.build_id.size();
+            return true;
+        }
+
+        pos = alignELFNote(desc_begin + nhdr.n_descsz);
+    }
+    return false;
+}
+
+void copyBuildIDFromProgramHeaders(dl_phdr_info* info, LoadedObject& object) {
+    for (size_t header_index = 0; header_index < info->dlpi_phnum; ++header_index) {
+        const ElfPhdr& phdr = info->dlpi_phdr[header_index];
+        if (phdr.p_type != PT_NOTE) {
+            continue;
+        }
+
+        if (copyBuildIDFromNotes(reinterpret_cast<const char*>(info->dlpi_addr + phdr.p_vaddr),
+                                 phdr.p_memsz, object)) {
+            return;
+        }
+    }
+}
 
 void updateResources(ElfW(Addr) base_address, std::string_view object_name, std::string_view name,
                      const void* address, SymbolIndex::Resources& resources) {
@@ -138,8 +240,9 @@ void updateResources(ElfW(Addr) base_address, std::string_view object_name, std:
 /// https://stackoverflow.com/questions/15779185/list-all-the-functions-symbols-on-the-fly-in-c-code-on-a-linux-architecture
 /// It does not extract all the symbols (but only public - exported and used for dynamic linking),
 /// but will work if we cannot find or parse ELF files.
-void collectSymbolsFromProgramHeaders(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>& symbols,
-                                      SymbolIndex::Resources& resources) {
+[[maybe_unused]] void collectSymbolsFromProgramHeaders(dl_phdr_info* info,
+                                                       std::vector<SymbolIndex::Symbol>& symbols,
+                                                       SymbolIndex::Resources& resources) {
     /* Iterate over all headers of the current shared lib
      * (first call is for the executable itself)
      */
@@ -266,7 +369,7 @@ void collectSymbolsFromProgramHeaders(dl_phdr_info* info, std::vector<SymbolInde
 }
 
 #if !defined USE_MUSL
-std::string getBuildIDFromProgramHeaders(dl_phdr_info* info) {
+[[maybe_unused]] std::string getBuildIDFromProgramHeaders(dl_phdr_info* info) {
     for (size_t header_index = 0; header_index < info->dlpi_phnum; ++header_index) {
         const ElfPhdr& phdr = info->dlpi_phdr[header_index];
         if (phdr.p_type != PT_NOTE) {
@@ -280,8 +383,8 @@ std::string getBuildIDFromProgramHeaders(dl_phdr_info* info) {
 }
 #endif
 
-void collectSymbolsFromELFSymbolTable(dl_phdr_info* info, const Elf& elf,
-                                      const Elf::Section& symbol_table,
+void collectSymbolsFromELFSymbolTable(ElfW(Addr) base_address, std::string_view object_name,
+                                      const Elf& elf, const Elf::Section& symbol_table,
                                       const Elf::Section& string_table,
                                       std::vector<SymbolIndex::Symbol>& symbols,
                                       SymbolIndex::Resources& resources) {
@@ -306,21 +409,21 @@ void collectSymbolsFromELFSymbolTable(dl_phdr_info* info, const Elf& elf,
 
         SymbolIndex::Symbol symbol;
         symbol.address_begin =
-                reinterpret_cast<const void*>(info->dlpi_addr + symbol_table_entry->st_value);
+                reinterpret_cast<const void*>(base_address + symbol_table_entry->st_value);
         symbol.address_end = reinterpret_cast<const void*>(
-                info->dlpi_addr + symbol_table_entry->st_value + symbol_table_entry->st_size);
+                base_address + symbol_table_entry->st_value + symbol_table_entry->st_size);
         symbol.name = symbol_name;
 
         if (symbol_table_entry->st_size) {
             symbols.push_back(symbol);
         }
 
-        updateResources(info->dlpi_addr, info->dlpi_name, symbol.name, symbol.address_begin,
-                        resources);
+        updateResources(base_address, object_name, symbol.name, symbol.address_begin, resources);
     }
 }
 
-bool searchAndCollectSymbolsFromELFSymbolTable(dl_phdr_info* info, const Elf& elf,
+bool searchAndCollectSymbolsFromELFSymbolTable(ElfW(Addr) base_address,
+                                               std::string_view object_name, const Elf& elf,
                                                unsigned section_header_type,
                                                const char* string_table_name,
                                                std::vector<SymbolIndex::Symbol>& symbols,
@@ -341,37 +444,35 @@ bool searchAndCollectSymbolsFromELFSymbolTable(dl_phdr_info* info, const Elf& el
         return false;
     }
 
-    collectSymbolsFromELFSymbolTable(info, elf, *symbol_table, *string_table, symbols, resources);
+    collectSymbolsFromELFSymbolTable(base_address, object_name, elf, *symbol_table, *string_table,
+                                     symbols, resources);
     return true;
 }
 
-void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>& symbols,
+void collectSymbolsFromELF(const LoadedObject& loaded_object,
+                           std::vector<SymbolIndex::Symbol>& symbols,
                            std::vector<SymbolIndex::Object>& objects,
                            SymbolIndex::Resources& resources, std::string& build_id) {
     std::string object_name;
-    std::string our_build_id;
+    std::string object_build_id = loaded_object.buildIDString();
 #if defined(USE_MUSL)
     object_name = "/proc/self/exe";
-    our_build_id = Elf(object_name).getBuildID();
-    build_id = our_build_id;
+    object_build_id = Elf(object_name).getBuildID();
+    build_id = object_build_id;
 #else
-    /// MSan does not know that the program segments in memory are initialized.
-    __msan_unpoison_string(info->dlpi_name);
-
-    object_name = info->dlpi_name;
-    our_build_id = getBuildIDFromProgramHeaders(info);
+    object_name = loaded_object.nameString();
 
     /// If the name is empty and there is a non-empty build-id - it's main executable.
     /// Find a elf file for the main executable and set the build-id.
     if (object_name.empty()) {
         object_name = "/proc/self/exe";
 
-        if (our_build_id.empty()) {
-            our_build_id = Elf(object_name).getBuildID();
+        if (object_build_id.empty()) {
+            object_build_id = Elf(object_name).getBuildID();
         }
 
         if (build_id.empty()) {
-            build_id = our_build_id;
+            build_id = object_build_id;
         }
     }
 #endif
@@ -404,14 +505,14 @@ void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>&
         object_name = local_debug_info_path;
     } else if (exists_not_empty(debug_info_path)) {
         object_name = debug_info_path;
-    } else if (build_id.size() >= 2) {
+    } else if (object_build_id.size() >= 2) {
         // Check if there is a .debug file in .build-id folder. For example:
         // /usr/lib/debug/.build-id/e4/0526a12e9a8f3819a18694f6b798f10c624d5c.debug
         std::string build_id_hex;
-        build_id_hex.resize(build_id.size() * 2);
+        build_id_hex.resize(object_build_id.size() * 2);
 
         char* pos = build_id_hex.data();
-        for (auto c : build_id) {
+        for (auto c : object_build_id) {
             vectorized::write_hex_byte_lowercase(c, pos);
             pos += 2;
         }
@@ -434,7 +535,7 @@ void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>&
 
     std::string file_build_id = object.elf->getBuildID();
 
-    if (our_build_id != file_build_id) {
+    if (!object_build_id.empty() && object_build_id != file_build_id) {
         /// If debug info doesn't correspond to our binary, fallback to the info in our binary.
         if (object_name != canonical_path) {
             object_name = canonical_path;
@@ -442,7 +543,7 @@ void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>&
 
             /// But it can still be outdated, for example, if executable file was deleted from filesystem and replaced by another file.
             file_build_id = object.elf->getBuildID();
-            if (our_build_id != file_build_id) {
+            if (object_build_id != file_build_id) {
                 return;
             }
         } else {
@@ -450,32 +551,41 @@ void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>&
         }
     }
 
-    object.address_begin = reinterpret_cast<const void*>(info->dlpi_addr);
-    object.address_end = reinterpret_cast<const void*>(info->dlpi_addr + object.elf->size());
+    object.address_begin = reinterpret_cast<const void*>(loaded_object.base_address);
+    object.address_end =
+            reinterpret_cast<const void*>(loaded_object.base_address + object.elf->size());
     object.name = object_name;
     objects.push_back(std::move(object));
+    const auto& indexed_object = objects.back();
 
-    searchAndCollectSymbolsFromELFSymbolTable(info, *objects.back().elf, SHT_SYMTAB, ".strtab",
-                                              symbols, resources);
-
-    /// Unneeded if they were parsed from "program headers" of loaded objects.
-#if defined USE_MUSL
-    searchAndCollectSymbolsFromELFSymbolTable(info, *objects.back().elf, SHT_DYNSYM, ".dynstr",
-                                              symbols, resources);
-#endif
+    searchAndCollectSymbolsFromELFSymbolTable(loaded_object.base_address, indexed_object.name,
+                                              *indexed_object.elf, SHT_SYMTAB, ".strtab", symbols,
+                                              resources);
+    searchAndCollectSymbolsFromELFSymbolTable(loaded_object.base_address, indexed_object.name,
+                                              *indexed_object.elf, SHT_DYNSYM, ".dynstr", symbols,
+                                              resources);
 }
 
 /* Callback for dl_iterate_phdr.
  * Is called by dl_iterate_phdr for every loaded shared lib until something
  * else than 0 is returned by one call of this function.
  */
-int collectSymbols(dl_phdr_info* info, size_t, void* data_ptr) {
-    SymbolIndex::Data& data = *reinterpret_cast<SymbolIndex::Data*>(data_ptr);
+int collectLoadedObject(dl_phdr_info* info, size_t, void* data_ptr) {
+    __msan_unpoison(info, sizeof(*info));
+    __msan_unpoison_string(info->dlpi_name);
+    auto& snapshot = *reinterpret_cast<LoadedObjectsSnapshot*>(data_ptr);
+    if (snapshot.objects.size() == snapshot.objects.capacity()) {
+        snapshot.overflow = true;
+        return 0;
+    }
 
-    collectSymbolsFromProgramHeaders(info, data.symbols, data.resources);
-    collectSymbolsFromELF(info, data.symbols, data.objects, data.resources, data.build_id);
-
-    /* Continue iterations */
+    LoadedObject object;
+    object.base_address = info->dlpi_addr;
+    object.name_truncated = copyCString(info->dlpi_name, object.name, object.name_size);
+    copyBuildIDFromProgramHeaders(info, object);
+    snapshot.name_truncated |= object.name_truncated;
+    snapshot.build_id_truncated |= object.build_id_truncated;
+    snapshot.objects.push_back(object);
     return 0;
 }
 
@@ -503,7 +613,34 @@ const T* find(const void* address, const std::vector<T>& vec) {
 } // namespace
 
 void SymbolIndex::update() {
-    dl_iterate_phdr(collectSymbols, &data);
+    LoadedObjectsSnapshot snapshot;
+    snapshot.objects.reserve(MAX_SYMBOL_INDEX_LOADED_OBJECTS);
+
+    // glibc holds the loader lock while running dl_iterate_phdr callbacks. The callback only copies
+    // fixed-size metadata into pre-reserved storage; ELF parsing and symbol vector growth happen
+    // after the loader lock is released so jemalloc profiling cannot re-enter libunwind from here.
+    dl_iterate_phdr(collectLoadedObject, &snapshot);
+
+    for (const auto& object : snapshot.objects) {
+        collectSymbolsFromELF(object, data.symbols, data.objects, data.resources, data.build_id);
+    }
+
+    if (snapshot.overflow) {
+        LOG(WARNING) << "SymbolIndex skipped loaded objects after "
+                     << MAX_SYMBOL_INDEX_LOADED_OBJECTS
+                     << " entries; stack symbolization may be incomplete";
+    }
+    if (snapshot.name_truncated) {
+        LOG(WARNING) << "SymbolIndex skipped at least one loaded object name longer than "
+                     << MAX_SYMBOL_INDEX_OBJECT_NAME - 1
+                     << " bytes; stack symbolization may be incomplete";
+    }
+    if (snapshot.build_id_truncated) {
+        LOG(WARNING) << "SymbolIndex truncated a loaded object build id longer than "
+                     << MAX_SYMBOL_INDEX_BUILD_ID
+                     << " bytes; stack symbolization may be incomplete";
+    }
+
     ::pdqsort(data.objects.begin(), data.objects.end(),
               [](const Object& a, const Object& b) { return a.address_begin < b.address_begin; });
     ::pdqsort(data.symbols.begin(), data.symbols.end(),
@@ -549,6 +686,7 @@ MultiVersion<SymbolIndex>::Version SymbolIndex::instance() {
 }
 
 void SymbolIndex::reload() {
+    std::lock_guard<std::mutex> lock(symbolIndexReloadMutex());
     instanceImpl().set(std::unique_ptr<SymbolIndex>(new SymbolIndex));
     /// Also drop stacktrace cache.
     StackTrace::dropCache();
