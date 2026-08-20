@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -1266,42 +1267,71 @@ bool residual_supplies_any_row(const ShreddedPathLevel& level, size_t rows) {
     return false;
 }
 
-// Seeks object paths inside encoded residual bytes, resolving each key to a dictionary field id
-// once per distinct metadata dictionary instead of once per row. Iceberg normally repeats a single
-// dictionary across a decoded batch, so the dictionary list stays at one entry and identifying a
-// row's dictionary is a byte-range comparison.
+// Identifies the metadata dictionary of every row once per decoded batch. Iceberg normally repeats
+// a single dictionary across a batch, so the list stays at one entry. Sharing this across the paths
+// of one batch is what keeps a wide projection from re-scanning the dictionary column per path.
+struct VariantMetadataIndex {
+    static constexpr uint32_t MISSING_DICTIONARY = std::numeric_limits<uint32_t>::max();
+
+    DorisVector<StringRef> dictionaries;
+    DorisVector<uint32_t> row_dictionaries;
+};
+
+std::shared_ptr<const VariantMetadataIndex> build_variant_metadata_index(
+        const NullableColumnView& metadata, size_t rows) {
+    auto index = std::make_shared<VariantMetadataIndex>();
+    index->row_dictionaries.assign(rows, VariantMetadataIndex::MISSING_DICTIONARY);
+    for (size_t row = 0; row < rows; ++row) {
+        if (metadata.is_null(row)) {
+            continue;
+        }
+        const StringRef bytes = metadata.values->get_data_at(row);
+        uint32_t dictionary = 0;
+        while (dictionary < index->dictionaries.size() &&
+               index->dictionaries[dictionary] != bytes) {
+            ++dictionary;
+        }
+        if (dictionary == index->dictionaries.size()) {
+            index->dictionaries.push_back(bytes);
+        }
+        index->row_dictionaries[row] = dictionary;
+    }
+    return index;
+}
+
+// Seeks object paths inside encoded residual bytes. Keys resolve to a dictionary field id once per
+// distinct dictionary instead of once per row, and the dictionary index is built only when a path
+// still has keys to resolve - a residual that already is the requested value needs no dictionary.
 class VariantResidualSeeker {
 public:
-    VariantResidualSeeker(const NullableColumnView& metadata, size_t rows, size_t path_length)
-            : _path_length(path_length) {
-        _row_dictionaries.assign(rows, MISSING_DICTIONARY);
-        for (size_t row = 0; row < rows; ++row) {
-            if (metadata.is_null(row)) {
-                continue;
-            }
-            const StringRef bytes = metadata.values->get_data_at(row);
-            uint32_t dictionary = 0;
-            while (dictionary < _dictionaries.size() && _dictionaries[dictionary] != bytes) {
-                ++dictionary;
-            }
-            if (dictionary == _dictionaries.size()) {
-                _dictionaries.push_back(bytes);
-            }
-            _row_dictionaries[row] = dictionary;
-        }
-        _field_ids.assign(_dictionaries.size() * _path_length, UNRESOLVED_FIELD_ID);
-    }
+    using MetadataIndexProvider = std::function<const VariantMetadataIndex&()>;
+
+    VariantResidualSeeker(const NullableColumnView& metadata, size_t path_length,
+                          MetadataIndexProvider provider)
+            : _metadata(metadata), _path_length(path_length), _provider(std::move(provider)) {}
 
     // Resolves path[path_offset..] inside `value`. The offset keeps the cache keyed by absolute
     // path position, because different rows can enter the residual at different depths.
     bool seek(size_t row, StringRef value, size_t path_offset,
               std::span<const VariantShreddedPathSegment> path, VariantRef* output) {
         DORIS_CHECK(output != nullptr);
-        const uint32_t dictionary = _row_dictionaries[row];
-        if (dictionary == MISSING_DICTIONARY) {
+        if (path.empty()) {
+            // The residual already is the requested value; only its dictionary travels with it.
+            if (_metadata.is_null(row)) {
+                return false;
+            }
+            const StringRef bytes = _metadata.values->get_data_at(row);
+            *output = VariantRef {.metadata = {.data = bytes.data, .size = bytes.size},
+                                  .value = value};
+            return true;
+        }
+
+        const VariantMetadataIndex& index = _index == nullptr ? _resolve_index() : *_index;
+        const uint32_t dictionary = index.row_dictionaries[row];
+        if (dictionary == VariantMetadataIndex::MISSING_DICTIONARY) {
             return false;
         }
-        const StringRef dictionary_bytes = _dictionaries[dictionary];
+        const StringRef dictionary_bytes = index.dictionaries[dictionary];
         VariantRef current {
                 .metadata = {.data = dictionary_bytes.data, .size = dictionary_bytes.size},
                 .value = value};
@@ -1339,12 +1369,18 @@ public:
     }
 
 private:
-    static constexpr uint32_t MISSING_DICTIONARY = std::numeric_limits<uint32_t>::max();
     static constexpr int64_t UNRESOLVED_FIELD_ID = -2;
 
+    const VariantMetadataIndex& _resolve_index() {
+        _index = &_provider();
+        _field_ids.assign(_index->dictionaries.size() * _path_length, UNRESOLVED_FIELD_ID);
+        return *_index;
+    }
+
+    const NullableColumnView& _metadata;
     size_t _path_length;
-    DorisVector<StringRef> _dictionaries;
-    DorisVector<uint32_t> _row_dictionaries;
+    MetadataIndexProvider _provider;
+    const VariantMetadataIndex* _index = nullptr;
     DorisVector<int64_t> _field_ids;
 };
 
@@ -1356,13 +1392,14 @@ private:
 ColumnPtr resolve_variant_path_rows(const ParquetColumnSchema* leaf_schema, const IColumn* leaf,
                                     const NullableColumnView& metadata, size_t rows,
                                     std::span<const ShreddedPathLevel> levels,
-                                    std::span<const VariantShreddedPathSegment> path) {
+                                    std::span<const VariantShreddedPathSegment> path,
+                                    VariantResidualSeeker::MetadataIndexProvider provider) {
     DORIS_CHECK(!levels.empty() && levels.size() <= path.size() + 1);
     // A shredded leaf always sits one level below the last path segment. Without one the walk
     // stopped early, and the deepest collected level is where the remaining path resolves.
     DORIS_CHECK(leaf == nullptr || levels.size() == path.size() + 1);
     const auto* nullable = leaf == nullptr ? nullptr : &assert_cast<const ColumnNullable&>(*leaf);
-    VariantResidualSeeker seeker(metadata, rows, path.size());
+    VariantResidualSeeker seeker(metadata, path.size(), std::move(provider));
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
     auto nulls = ColumnUInt8::create();
     nulls->get_data().reserve(rows);
@@ -1583,6 +1620,10 @@ public:
         auto mutable_physical = IColumn::mutate(std::move(_physical));
         append_compatible_column(*mutable_physical, *parquet_source->_physical);
         _physical = std::move(mutable_physical);
+        {
+            std::lock_guard index_lock(_metadata_index_lock);
+            _metadata_index.reset();
+        }
         std::lock_guard lock(_materialization_lock);
         _unshredded_path_cache.reset();
         _unshredded_metadata_index.reset();
@@ -1634,6 +1675,15 @@ public:
         // A key the shredding schema does not describe can only live in the residual beside the
         // object that was searched, so seeking it there answers the path exactly. Rebuilding the
         // canonical root would reach the same value after re-encoding every unrelated field.
+        // Every path of one decoded batch shares the dictionary identification; it is built on the
+        // first path that still has keys to resolve, and never at all for the paths that do not.
+        const auto metadata_index = [this, &metadata]() -> const VariantMetadataIndex& {
+            std::lock_guard lock(_metadata_index_lock);
+            if (!_metadata_index) {
+                _metadata_index = build_variant_metadata_index(metadata, _physical->size());
+            }
+            return *_metadata_index;
+        };
         const auto seek_residual = [&]() -> std::optional<VariantShreddedTypedValue> {
             if (!metadata.present() || !levels.back().residual_view.present()) {
                 return path_miss();
@@ -1643,7 +1693,7 @@ public:
                     .column = nullptr,
                     .type = nullptr,
                     .normalized = resolve_variant_path_rows(nullptr, nullptr, metadata, rows,
-                                                            levels, path)};
+                                                            levels, path, metadata_index)};
         };
 
         for (size_t position = 0; position < path.size(); ++position) {
@@ -1714,11 +1764,11 @@ public:
                 update_counter(_profile.variant_direct_leaf_rows, static_cast<int64_t>(rows));
                 update_counter(_profile.variant_direct_leaf_residual_merged_rows,
                                static_cast<int64_t>(rows));
-                return VariantShreddedTypedValue {
-                        .column = nullptr,
-                        .type = nullptr,
-                        .normalized = resolve_variant_path_rows(typed_schema, typed.get(), metadata,
-                                                                rows, levels, path)};
+                return VariantShreddedTypedValue {.column = nullptr,
+                                                  .type = nullptr,
+                                                  .normalized = resolve_variant_path_rows(
+                                                          typed_schema, typed.get(), metadata, rows,
+                                                          levels, path, metadata_index)};
             }
 
             update_counter(_profile.variant_direct_leaf_rows, static_cast<int64_t>(rows));
@@ -1961,6 +2011,8 @@ private:
     mutable ColumnPtr _normalized_prefix;
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;
+    mutable std::mutex _metadata_index_lock;
+    mutable std::shared_ptr<const VariantMetadataIndex> _metadata_index;
 };
 
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,

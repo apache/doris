@@ -4216,12 +4216,16 @@ TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {
     ASSERT_EQ(root.children.size(), 1);
     const auto& variant = root.children[0];
     EXPECT_EQ(variant.local_id(), 0);
-    ASSERT_EQ(variant.children.size(), 1);
-    EXPECT_EQ(variant.children[0].local_id(), 2);
-    ASSERT_EQ(variant.children[0].children.size(), 1);
-    EXPECT_EQ(variant.children[0].children[0].local_id(), 0);
-    ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+    // The root dictionary travels with typed_value, and the wrapper keeps its residual beside the
+    // typed leaf so rows stored outside the leaf can be merged.
+    ASSERT_EQ(variant.children.size(), 2);
+    EXPECT_EQ(variant.children[0].local_id(), 0);
+    EXPECT_EQ(variant.children[1].local_id(), 2);
+    ASSERT_EQ(variant.children[1].children.size(), 1);
+    EXPECT_EQ(variant.children[1].children[0].local_id(), 0);
+    ASSERT_EQ(variant.children[1].children[0].children.size(), 2);
+    EXPECT_EQ(variant.children[1].children[0].children[0].local_id(), 0);
+    EXPECT_EQ(variant.children[1].children[0].children[1].local_id(), 1);
 }
 
 TEST(ColumnMapperTest, NestedVariantAllAccessPathKeepsPhysicalTypedLeaf) {
@@ -4255,11 +4259,12 @@ TEST(ColumnMapperTest, NestedVariantAllAccessPathKeepsPhysicalTypedLeaf) {
     ASSERT_EQ(root.children.size(), 1);
     const auto& variant = root.children[0];
     ASSERT_FALSE(variant.project_all_children);
-    ASSERT_EQ(variant.children.size(), 1);
-    EXPECT_EQ(variant.children[0].local_id(), 2);
-    ASSERT_EQ(variant.children[0].children.size(), 1);
-    ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+    ASSERT_EQ(variant.children.size(), 2);
+    EXPECT_EQ(variant.children[0].local_id(), 0);
+    EXPECT_EQ(variant.children[1].local_id(), 2);
+    ASSERT_EQ(variant.children[1].children.size(), 1);
+    ASSERT_EQ(variant.children[1].children[0].children.size(), 2);
+    EXPECT_EQ(variant.children[1].children[0].children[1].local_id(), 1);
 }
 
 TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
@@ -4275,11 +4280,12 @@ TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
     };
     auto assert_variant_leaf = [](const LocalColumnIndex& variant) {
         ASSERT_FALSE(variant.project_all_children);
-        ASSERT_EQ(variant.children.size(), 1);
-        EXPECT_EQ(variant.children[0].local_id(), 2);
-        ASSERT_EQ(variant.children[0].children.size(), 1);
-        ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
-        EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+        ASSERT_EQ(variant.children.size(), 2);
+        EXPECT_EQ(variant.children[0].local_id(), 0);
+        EXPECT_EQ(variant.children[1].local_id(), 2);
+        ASSERT_EQ(variant.children[1].children.size(), 1);
+        ASSERT_EQ(variant.children[1].children[0].children.size(), 2);
+        EXPECT_EQ(variant.children[1].children[0].children[1].local_id(), 1);
     };
 
     {
@@ -4403,19 +4409,22 @@ TEST(ColumnMapperTest, VariantDeepObjectPathProjectsPhysicalTypedLeaf) {
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& root = request.non_predicate_columns[0];
     ASSERT_FALSE(root.project_all_children);
-    ASSERT_EQ(root.children.size(), 1);
-    EXPECT_EQ(root.children[0].local_id(), 2);
-    ASSERT_EQ(root.children[0].children.size(), 1);
-    EXPECT_EQ(root.children[0].children[0].local_id(), 0);
-    ASSERT_EQ(root.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(root.children[0].children[0].children[0].local_id(), 1);
-    const auto& object_typed = root.children[0].children[0].children[0];
+    ASSERT_EQ(root.children.size(), 2);
+    EXPECT_EQ(root.children[0].local_id(), 0);
+    EXPECT_EQ(root.children[1].local_id(), 2);
+    ASSERT_EQ(root.children[1].children.size(), 1);
+    EXPECT_EQ(root.children[1].children[0].local_id(), 0);
+    ASSERT_EQ(root.children[1].children[0].children.size(), 1);
+    EXPECT_EQ(root.children[1].children[0].children[0].local_id(), 1);
+    const auto& object_typed = root.children[1].children[0].children[0];
     ASSERT_EQ(object_typed.children.size(), 2);
     EXPECT_EQ(object_typed.children[0].local_id(), 0);
     EXPECT_EQ(object_typed.children[1].local_id(), 1);
+    // Both leaf wrappers keep their residual beside the typed leaf.
     for (const auto& projected_leaf_wrapper : object_typed.children) {
-        ASSERT_EQ(projected_leaf_wrapper.children.size(), 1);
-        EXPECT_EQ(projected_leaf_wrapper.children[0].local_id(), 1);
+        ASSERT_EQ(projected_leaf_wrapper.children.size(), 2);
+        EXPECT_EQ(projected_leaf_wrapper.children[0].local_id(), 0);
+        EXPECT_EQ(projected_leaf_wrapper.children[1].local_id(), 1);
     }
 }
 

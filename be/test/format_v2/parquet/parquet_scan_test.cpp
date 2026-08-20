@@ -2182,8 +2182,10 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
              .page_skip_plans = {},
              .offset_indexes = {},
              .prunable_variant_projection_ordinals = {},
+             .full_variant_projection_ordinals = {},
              .variant_leaf_projection_columns = 0,
              .variant_residual_projection_columns = 0,
+             .variant_full_projection_columns = 0,
              .expensive_pruning_pending = false});
 
     format::parquet::ParquetScanScheduler scheduler;

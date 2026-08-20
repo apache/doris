@@ -1917,35 +1917,41 @@ TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection
     EXPECT_EQ(residual_projections, 0);
     row_group.columns[1].meta_data.statistics.__set_null_count(10);
 
-    // A terminal residual that carries values no longer forfeits the leaf projection. The reader
-    // reads that residual beside the leaf and merges the affected rows, so the row group keeps
-    // reading leaves instead of the complete Variant.
+    // This projection does not read the residual beside the leaf, so a residual that carries
+    // values cannot be served from leaves and the complete Variant comes back.
+    size_t full_projections = 0;
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
     residual_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &residual_projections),
-              1);
-    EXPECT_FALSE(row_group_projection.project_all_children);
-    EXPECT_EQ(residual_projections, 1);
+                      row_group, *root, &row_group_projection, &residual_projections,
+                      &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
+    EXPECT_EQ(residual_projections, 0);
+    EXPECT_EQ(full_projections, 1);
     row_group.columns[2].meta_data.__set_num_values(9);
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
     residual_projections = 0;
+    full_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &residual_projections),
-              1);
-    EXPECT_FALSE(row_group_projection.project_all_children);
-    EXPECT_EQ(residual_projections, 1);
+                      row_group, *root, &row_group_projection, &residual_projections,
+                      &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 1);
     row_group.columns[2].meta_data.__set_num_values(10);
     row_group.columns[2].meta_data.__isset.statistics = false;
     row_group_projection = projection;
     residual_projections = 0;
+    full_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &residual_projections),
-              1);
-    EXPECT_FALSE(row_group_projection.project_all_children);
-    EXPECT_EQ(residual_projections, 1);
+                      row_group, *root, &row_group_projection, &residual_projections,
+                      &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 1);
 }
 
 TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveThemNull) {
@@ -2251,6 +2257,8 @@ TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) 
               1);
     EXPECT_FALSE(projection.children[0].project_all_children);
 
+    // This projection does not read the residual, so a residual that carries values restores the
+    // complete Variant.
     auto fallback = projection;
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
@@ -2258,6 +2266,8 @@ TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) 
               0);
     EXPECT_TRUE(fallback.children[0].project_all_children);
 
+    // Row-group null counts are per value, not per row, so a repeated Variant can never prove its
+    // residual is empty either.
     auto repeated = projection;
     root->children[0]->max_repetition_level = 1;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
@@ -2451,10 +2461,14 @@ TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
         rows += batch_rows;
     }
     EXPECT_EQ(rows, 2);
+    // This request projects the typed leaf without the residual beside it, so the row group whose
+    // residual carries values cannot be served from leaves and restores the complete Variant.
     ASSERT_NE(profile.get_counter("VariantLeafProjectionRowGroupColumns"), nullptr);
     EXPECT_EQ(profile.get_counter("VariantLeafProjectionRowGroupColumns")->value(), 1);
     ASSERT_NE(profile.get_counter("VariantResidualProjectionRowGroupColumns"), nullptr);
-    EXPECT_EQ(profile.get_counter("VariantResidualProjectionRowGroupColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("VariantResidualProjectionRowGroupColumns")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantFullProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantFullProjectionRowGroupColumns")->value(), 1);
 
     const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());

@@ -3587,7 +3587,14 @@ TEST(VariantColumnReaderTest, CompleteShreddedStringLeafSkipsCanonicalMaterializ
     ASSERT_EQ(extracted_nullable.get_null_map_data()[0], 0);
     const auto& extracted_variant =
             assert_cast<const ColumnVariantV2&>(extracted_nullable.get_nested_column());
-    EXPECT_EQ(extracted_variant.get_value_ref(0).get_string(), StringRef("abc"));
+    // The UTF-8 annotation lets the leaf ride the typed state, so the result keeps the decoded
+    // string column rather than encoded Variant rows.
+    ASSERT_TRUE(extracted_variant.is_typed());
+    EXPECT_EQ(assert_cast<const ColumnString&>(
+                      assert_cast<const ColumnNullable&>(extracted_variant.typed_column())
+                              .get_nested_column())
+                      .get_data_at(0),
+              StringRef("abc"));
 
     auto* reconstructed_rows = runtime_profile.get_counter("VariantReconstructedRows");
     ASSERT_NE(reconstructed_rows, nullptr);
@@ -3887,9 +3894,10 @@ TEST(VariantColumnReaderTest, UnshreddedKeySeeksRootResidualWithoutMaterializing
     auto* reconstructed_rows = runtime_profile.get_counter("VariantReconstructedRows");
     ASSERT_NE(reconstructed_rows, nullptr);
     EXPECT_EQ(reconstructed_rows->value(), 0);
+    // One row, resolved once through find_shredded_typed_value and once through element_at.
     auto* seek_rows = runtime_profile.get_counter("VariantResidualSeekRows");
     ASSERT_NE(seek_rows, nullptr);
-    EXPECT_EQ(seek_rows->value(), 1);
+    EXPECT_EQ(seek_rows->value(), 2);
 }
 
 TEST(VariantColumnReaderTest, KeyAbsentFromShreddingAndResidualResolvesToNull) {

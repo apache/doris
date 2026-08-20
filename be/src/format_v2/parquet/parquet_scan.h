@@ -81,12 +81,17 @@ struct AdaptivePredicateStats {
 size_t finalize_variant_leaf_projection_for_row_group(const tparquet::RowGroup& row_group,
                                                       const ParquetColumnSchema& schema,
                                                       format::LocalColumnIndex* projection,
-                                                      size_t* residual_projections = nullptr);
+                                                      size_t* residual_projections = nullptr,
+                                                      size_t* full_projections = nullptr);
 // True when this row group's statistics prove every residual beside a projected leaf is NULL, so
 // the residual columns and the root dictionary can be dropped from the read.
 bool variant_residual_columns_are_prunable_for_row_group(
         const tparquet::RowGroup& row_group, const ParquetColumnSchema& schema,
         const format::LocalColumnIndex& projection);
+// True when the projection reads every terminal residual the file schema declares, plus the root
+// dictionary. A projection that omits one cannot serve the rows stored outside its shredded leaves.
+bool variant_projection_carries_residuals(const ParquetColumnSchema& schema,
+                                          const format::LocalColumnIndex& projection);
 void prune_variant_residual_columns(const ParquetColumnSchema& schema,
                                     format::LocalColumnIndex* projection);
 
@@ -136,17 +141,20 @@ struct RowGroupReadPlan {
     // same remote index reads a second time while opening the row group.
     std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
     // Candidate ordinals refer to a deterministic traversal of the immutable request projection.
-    // Only prunable candidates are retained, keeping the row-group delta independent of projection
-    // size.
+    // Only candidates whose projection this row group changes are retained, keeping the row-group
+    // delta independent of projection size.
     std::vector<size_t> prunable_variant_projection_ordinals;
+    std::vector<size_t> full_variant_projection_ordinals;
     size_t variant_leaf_projection_columns = 0;
     size_t variant_residual_projection_columns = 0;
+    size_t variant_full_projection_columns = 0;
     // Footer statistics are cheap and eager. Remote dictionary/Bloom/page-index probes fill the
     // remaining fields only when this row group reaches the scheduler.
     bool expensive_pruning_pending = false;
 
     bool has_row_group_physical_projection() const {
-        return !prunable_variant_projection_ordinals.empty();
+        return !prunable_variant_projection_ordinals.empty() ||
+               !full_variant_projection_ordinals.empty();
     }
 };
 

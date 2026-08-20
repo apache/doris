@@ -331,14 +331,19 @@ void collect_variant_projection_decisions(const tparquet::RowGroup& row_group,
         return;
     }
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
-        // Every candidate keeps its leaf projection. The statistics only decide whether the
-        // residual columns beside the leaves can be dropped from this row group's read.
-        ++row_group_plan->variant_leaf_projection_columns;
         if (detail::variant_residual_columns_are_prunable_for_row_group(row_group, schema,
                                                                         projection)) {
+            // The statistics prove no residual can contribute, so this row group reads pure leaves.
             row_group_plan->prunable_variant_projection_ordinals.push_back(*candidate_ordinal);
-        } else {
+            ++row_group_plan->variant_leaf_projection_columns;
+        } else if (detail::variant_projection_carries_residuals(schema, projection)) {
+            // The reader merges the rows stored outside the shredded leaves.
+            ++row_group_plan->variant_leaf_projection_columns;
             ++row_group_plan->variant_residual_projection_columns;
+        } else {
+            // Nothing proves the residual is empty and the projection cannot read it.
+            row_group_plan->full_variant_projection_ordinals.push_back(*candidate_ordinal);
+            ++row_group_plan->variant_full_projection_columns;
         }
         ++*candidate_ordinal;
         return;
@@ -370,6 +375,7 @@ void collect_variant_projection_decisions(
 void apply_variant_projection_decisions(const ParquetColumnSchema& schema,
                                         format::LocalColumnIndex* projection,
                                         std::span<const size_t> prunable_ordinals,
+                                        std::span<const size_t> full_ordinals,
                                         size_t* candidate_ordinal) {
     DORIS_CHECK(projection != nullptr && candidate_ordinal != nullptr);
     if (!format::is_partial_projection(projection)) {
@@ -378,6 +384,9 @@ void apply_variant_projection_decisions(const ParquetColumnSchema& schema,
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
         if (std::ranges::binary_search(prunable_ordinals, *candidate_ordinal)) {
             detail::prune_variant_residual_columns(schema, projection);
+        } else if (std::ranges::binary_search(full_ordinals, *candidate_ordinal)) {
+            projection->project_all_children = true;
+            projection->children.clear();
         }
         ++*candidate_ordinal;
         return;
@@ -386,14 +395,15 @@ void apply_variant_projection_decisions(const ParquetColumnSchema& schema,
         const auto* child_schema = projection_schema_child(schema, child_projection.local_id());
         DORIS_CHECK(child_schema != nullptr);
         apply_variant_projection_decisions(*child_schema, &child_projection, prunable_ordinals,
-                                           candidate_ordinal);
+                                           full_ordinals, candidate_ordinal);
     }
 }
 
 void apply_variant_projection_decisions(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         std::vector<format::LocalColumnIndex>* projections,
-        std::span<const size_t> prunable_ordinals, size_t* candidate_ordinal) {
+        std::span<const size_t> prunable_ordinals, std::span<const size_t> full_ordinals,
+        size_t* candidate_ordinal) {
     DORIS_CHECK(projections != nullptr);
     for (auto& projection : *projections) {
         const int32_t local_id = projection.local_id();
@@ -402,7 +412,7 @@ void apply_variant_projection_decisions(
             continue;
         }
         apply_variant_projection_decisions(*file_schema[local_id], &projection, prunable_ordinals,
-                                           candidate_ordinal);
+                                           full_ordinals, candidate_ordinal);
     }
 }
 
@@ -412,8 +422,10 @@ void prepare_row_group_physical_projection(
         const format::FileScanRequest& request, RowGroupReadPlan* row_group_plan) {
     DORIS_CHECK(row_group_plan != nullptr);
     row_group_plan->prunable_variant_projection_ordinals.clear();
+    row_group_plan->full_variant_projection_ordinals.clear();
     row_group_plan->variant_leaf_projection_columns = 0;
     row_group_plan->variant_residual_projection_columns = 0;
+    row_group_plan->variant_full_projection_columns = 0;
     size_t candidate_ordinal = 0;
     collect_variant_projection_decisions(row_group, file_schema, request.predicate_columns,
                                          &candidate_ordinal, row_group_plan);
@@ -487,7 +499,7 @@ std::optional<std::unordered_set<int>> row_group_leaf_column_ids(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, const RowGroupReadPlan& row_group_plan,
         const std::unordered_set<int>& request_leaf_ids) {
-    if (row_group_plan.prunable_variant_projection_ordinals.empty()) {
+    if (!row_group_plan.has_row_group_physical_projection()) {
         return std::nullopt;
     }
     // Pruning removes columns, so this set cannot be derived by adding to the request-level set:
@@ -513,9 +525,11 @@ void materialize_row_group_projection(
     size_t candidate_ordinal = 0;
     apply_variant_projection_decisions(file_schema, &physical_request->predicate_columns,
                                        row_group_plan.prunable_variant_projection_ordinals,
+                                       row_group_plan.full_variant_projection_ordinals,
                                        &candidate_ordinal);
     apply_variant_projection_decisions(file_schema, &physical_request->non_predicate_columns,
                                        row_group_plan.prunable_variant_projection_ordinals,
+                                       row_group_plan.full_variant_projection_ordinals,
                                        &candidate_ordinal);
 }
 
@@ -1585,6 +1599,9 @@ Status ParquetScanScheduler::open_next_row_group(
         update_counter_if_not_null(
                 _parquet_profile->variant_residual_projection_row_group_columns,
                 cast_set<int64_t>(row_group_plan.variant_residual_projection_columns));
+        update_counter_if_not_null(
+                _parquet_profile->variant_full_projection_row_group_columns,
+                cast_set<int64_t>(row_group_plan.variant_full_projection_columns));
     }
     *has_row_group = true;
     return Status::OK();
