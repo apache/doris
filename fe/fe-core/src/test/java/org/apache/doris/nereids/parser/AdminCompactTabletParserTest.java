@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTabletCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -34,5 +35,11 @@ public class AdminCompactTabletParserTest {
         Assertions.assertInstanceOf(AdminCompactTabletCommand.class, plan);
         Assertions.assertEquals(StmtType.ADMIN, plan.stmtType());
         Assertions.assertEquals(12345L, ((AdminCompactTabletCommand) plan).getTabletId());
+    }
+
+    @Test
+    public void testRejectTabletCompactionWithoutType() {
+        Assertions.assertThrows(ParseException.class,
+                () -> parser.parseSingle("ADMIN COMPACT TABLET 12345"));
     }
 }

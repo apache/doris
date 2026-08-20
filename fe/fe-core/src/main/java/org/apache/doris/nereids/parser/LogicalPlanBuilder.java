@@ -1942,13 +1942,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public AdminCompactTabletCommand visitAdminCompactTablet(AdminCompactTabletContext ctx) {
-        EqualTo equalTo = null;
-        if (ctx.WHERE() != null) {
-            StringLiteral left = new StringLiteral(stripQuotes(ctx.TYPE().getText()));
-            StringLiteral right = new StringLiteral(stripQuotes(ctx.STRING_LITERAL().getText()));
-            equalTo = new EqualTo(left, right);
-        }
-        return new AdminCompactTabletCommand(Long.parseLong(ctx.tabletId.getText()), equalTo);
+        String compactionType = stripQuotes(ctx.STRING_LITERAL().getText());
+        return new AdminCompactTabletCommand(Long.parseLong(ctx.tabletId.getText()), compactionType);
     }
 
     @Override

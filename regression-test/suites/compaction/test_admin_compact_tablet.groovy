@@ -91,7 +91,7 @@ suite("test_admin_compact_tablet", "p0") {
 
     test {
         sql "ADMIN COMPACT TABLET ${tabletId}"
-        exception "type"
+        exception "WHERE"
     }
 
     def rowCount = sql "SELECT COUNT(*) FROM ${tableName}"

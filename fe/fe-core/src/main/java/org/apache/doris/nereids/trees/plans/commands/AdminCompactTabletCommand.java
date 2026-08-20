@@ -29,8 +29,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -53,27 +51,23 @@ public class AdminCompactTabletCommand extends Command implements ForwardWithSyn
             this.value = value;
         }
 
-        private static CompactionType fromWhere(EqualTo where) throws AnalysisException {
-            if (where == null) {
-                throw new AnalysisException("Compaction type must be specified in"
-                        + " Where clause like: type = 'BASE/CUMULATIVE/FULL'");
-            }
+        private static CompactionType fromString(String compactionType) throws AnalysisException {
             try {
-                return valueOf(((StringLiteral) where.right()).getStringValue().toUpperCase(Locale.ROOT));
-            } catch (RuntimeException e) {
+                return valueOf(compactionType.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
                 throw new AnalysisException("Where clause should looks like: type = 'BASE/CUMULATIVE/FULL'");
             }
         }
     }
 
     private final long tabletId;
-    private final EqualTo where;
+    private final String compactionType;
     private CompactionType typeFilter;
 
-    public AdminCompactTabletCommand(long tabletId, EqualTo where) {
+    public AdminCompactTabletCommand(long tabletId, String compactionType) {
         super(PlanType.ADMIN_COMPACT_TABLET_COMMAND);
         this.tabletId = tabletId;
-        this.where = where;
+        this.compactionType = compactionType;
     }
 
     public long getTabletId() {
@@ -88,7 +82,7 @@ public class AdminCompactTabletCommand extends Command implements ForwardWithSyn
 
     private void validate(ConnectContext ctx) throws UserException {
         validateTablet(ctx);
-        typeFilter = CompactionType.fromWhere(where);
+        typeFilter = CompactionType.fromString(compactionType);
     }
 
     private void validateTablet(ConnectContext ctx) throws UserException {
