@@ -159,4 +159,20 @@ suite("bucketed_hash_agg") {
     GROUP BY grp
     ORDER BY grp;
     """
+
+    // ============================================================
+    // Test 6: Negative — multi-distinct GROUP_CONCAT with ORDER BY
+    //          BucketedAggregationNode does not carry aggregate sort info.
+    // ============================================================
+    sql "set agg_phase=1"
+    String groupConcatQuery = """
+        SELECT grp, GROUP_CONCAT(DISTINCT CAST(id AS STRING) ORDER BY val)
+        FROM bucketed_agg_reg_test
+        GROUP BY grp;
+    """
+    explain {
+        sql(groupConcatQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    sql "set agg_phase=0"
 }

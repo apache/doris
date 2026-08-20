@@ -93,6 +93,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -3253,7 +3254,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
                 if (c instanceof AggregateExpression) {
                     AggregateFunction func = ((AggregateExpression) c).getFunction();
-                    if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
+                    if (!func.supportAggregatePhase(AggregatePhase.TWO)
+                            || func instanceof MultiDistinction
+                            || func.children().stream().anyMatch(OrderExpression.class::isInstance)) {
                         foundOnePhaseOnly.set(true);
                     }
                     return true;
