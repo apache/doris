@@ -21,8 +21,18 @@ import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 
+import org.apache.paimon.catalog.CachingCatalog;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -148,5 +158,60 @@ public class PaimonConnectorCacheTest {
         connector.invalidateAll();
         cache.get(db2t1, loader);
         Assertions.assertEquals(6, loads[0], "REFRESH CATALOG drops everything");
+    }
+
+    // ============ paimon CachingCatalog eviction: the frozen-Table-after-out-of-band-ALTER fix ============
+
+    @Test
+    public void invalidateHooksEvictPaimonCachingCatalogFrozenTable(@TempDir java.nio.file.Path warehouse)
+            throws Exception {
+        // A real FileSystemCatalog wrapped by paimon's CachingCatalog (the CatalogFactory default), plus a
+        // SECOND bare catalog over the same warehouse modelling the other side of the production bug: an
+        // ALTER COLUMN executed on ANOTHER FE (DDL forwards to master) or by an external engine. The
+        // mutation bypasses THIS CachingCatalog instance, so its alterTable self-invalidation never fires
+        // and getTable keeps serving the frozen pre-ALTER FileStoreTable — which the scan path serializes
+        // to the BE, where PaimonJniScanner fails with "jni reader fields' size {N} is not matched with
+        // paimon fields' size {M}" on every merged-read split until the (default 24h) access-TTL.
+        try (Catalog inner = new FileSystemCatalog(LocalFileIO.create(),
+                        new org.apache.paimon.fs.Path(warehouse.toUri()));
+                Catalog outOfBand = new FileSystemCatalog(LocalFileIO.create(),
+                        new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            Catalog caching = CachingCatalog.tryToCreate(inner, new Options());
+            Assertions.assertTrue(caching instanceof CachingCatalog,
+                    "precondition: the factory default wraps in CachingCatalog (cache.enabled)");
+            caching.createDatabase("db1", false);
+            Identifier id = Identifier.create("db1", "t1");
+            caching.createTable(id, Schema.newBuilder().column("id", DataTypes.INT()).build(), false);
+            Assertions.assertEquals(1, caching.getTable(id).rowType().getFieldCount());
+
+            // Out-of-band ALTER: the caching instance still serves the frozen 1-column Table (the repro).
+            outOfBand.alterTable(id, SchemaChange.addColumn("c2", DataTypes.INT()), false);
+            Assertions.assertEquals(1, caching.getTable(id).rowType().getFieldCount(),
+                    "precondition: an out-of-band ALTER leaves the CachingCatalog serving the frozen Table");
+
+            PaimonConnector connector = connector(Collections.emptyMap());
+            connector.setCatalogForTest(caching);
+
+            // REFRESH TABLE / the PluginDrivenExternalCatalog DDL hook (both route through
+            // connector.invalidateTable on every FE) must evict the frozen entry. MUTATION: dropping the
+            // invalidatePaimonCatalogTable call -> getTable keeps returning 1 column -> red.
+            connector.invalidateTable("db1", "t1");
+            Assertions.assertEquals(2, caching.getTable(id).rowType().getFieldCount(),
+                    "invalidateTable must evict the paimon CachingCatalog's frozen Table");
+
+            // REFRESH DATABASE analogue.
+            outOfBand.alterTable(id, SchemaChange.addColumn("c3", DataTypes.INT()), false);
+            Assertions.assertEquals(2, caching.getTable(id).rowType().getFieldCount());
+            connector.invalidateDb("db1");
+            Assertions.assertEquals(3, caching.getTable(id).rowType().getFieldCount(),
+                    "invalidateDb must evict the database's frozen Tables");
+
+            // REFRESH CATALOG analogue.
+            outOfBand.alterTable(id, SchemaChange.addColumn("c4", DataTypes.INT()), false);
+            Assertions.assertEquals(3, caching.getTable(id).rowType().getFieldCount());
+            connector.invalidateAll();
+            Assertions.assertEquals(4, caching.getTable(id).rowType().getFieldCount(),
+                    "invalidateAll must evict every frozen Table");
+        }
     }
 }

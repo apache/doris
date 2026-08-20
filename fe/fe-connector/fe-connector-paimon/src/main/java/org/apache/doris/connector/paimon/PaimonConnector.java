@@ -51,6 +51,7 @@ import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.hive.HiveCatalog;
@@ -304,6 +305,17 @@ public class PaimonConnector implements Connector {
         // PERF-06: also drop this table's cached derived partition-view entries (every snapshotId cached for
         // it), so the next listPartitions re-enumerates live.
         metaCache.invalidateTable(dbName, tableName);
+        // Also evict the paimon SDK catalog's cached Table object. The factory-built catalog is wrapped in
+        // paimon's CachingCatalog (cache.enabled default), whose cached FileStoreTable freezes rowType() at
+        // load time. The metadata path already reads the latest schema live (schemaManager().latest(), see
+        // PaimonCatalogOps.latestSchema), but the SCAN path serializes catalogOps.getTable()'s Table to the
+        // BE: after an ALTER COLUMN executed on ANOTHER FE (DDL forwards to master; only the mutating
+        // CachingCatalog instance self-invalidates) or by an external engine, every JNI merged-read split on
+        // this FE fails with "jni reader fields' size {N} is not matched with paimon fields' size {M}" until
+        // the (default 24h) access-TTL — and without this eviction REFRESH TABLE could not heal it either.
+        // Reached on every FE: the master's DDL hook AND the follower's editlog replay both route through
+        // RefreshManager.refreshTableInternal -> connector.invalidateTable.
+        invalidatePaimonCatalogTable(Identifier.create(dbName, tableName));
     }
 
     /**
@@ -319,11 +331,57 @@ public class PaimonConnector implements Connector {
     @Override
     public void invalidateDb(String dbName) {
         metaCache.invalidateDatabase(dbName);
+        // Db-scoped analogue of invalidateTable's paimon-catalog eviction: drop every cached Table of this
+        // database from the CachingCatalog (paimon exposes no db-scoped API, so filter its table cache).
+        Catalog current = catalog;
+        if (current instanceof CachingCatalog) {
+            try {
+                ((CachingCatalog) current).tableCache().asMap().keySet()
+                        .removeIf(id -> id.getDatabaseName().equals(dbName));
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to evict paimon catalog table cache for db {}: {}", dbName, e.getMessage());
+            }
+        }
     }
 
     @Override
     public void invalidateAll() {
         metaCache.invalidateCatalog();
+        // Catalog-scoped analogue of invalidateTable's paimon-catalog eviction (REFRESH CATALOG must heal
+        // frozen Table objects too).
+        Catalog current = catalog;
+        if (current instanceof CachingCatalog) {
+            try {
+                ((CachingCatalog) current).tableCache().invalidateAll();
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to evict paimon catalog table cache: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Evicts the paimon catalog's cached {@link org.apache.paimon.table.Table} for {@code id}.
+     * {@code Catalog.invalidateTable} is an interface default (a no-op for a non-caching catalog;
+     * {@code CachingCatalog} overrides it to drop its table cache entry, and {@code DelegateCatalog}
+     * forwards it), so this is safe for every catalog flavor. Reads the field directly instead of
+     * {@code ensureCatalog()}: a never-built catalog has nothing cached, and an invalidation hook must
+     * not be the thing that first builds (and possibly fails to build) the catalog.
+     */
+    private void invalidatePaimonCatalogTable(Identifier id) {
+        Catalog current = catalog;
+        if (current == null) {
+            return;
+        }
+        try {
+            current.invalidateTable(id);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to evict paimon catalog table cache for {}: {}", id, e.getMessage());
+        }
+    }
+
+    /** Test hook: install a pre-built paimon catalog so eviction semantics are testable offline. */
+    void setCatalogForTest(Catalog catalog) {
+        this.catalog = catalog;
     }
 
     @Override
