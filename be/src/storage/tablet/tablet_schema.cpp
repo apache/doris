@@ -43,6 +43,7 @@
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
+#include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/olap_common.h"
@@ -55,134 +56,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
-    switch (primitiveType) {
-    case PrimitiveType::INVALID_TYPE:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    case PrimitiveType::TYPE_NULL:
-        return FieldType::OLAP_FIELD_TYPE_NONE;
-    case PrimitiveType::TYPE_BOOLEAN:
-        return FieldType::OLAP_FIELD_TYPE_BOOL;
-    case PrimitiveType::TYPE_TINYINT:
-        return FieldType::OLAP_FIELD_TYPE_TINYINT;
-    case PrimitiveType::TYPE_SMALLINT:
-        return FieldType::OLAP_FIELD_TYPE_SMALLINT;
-    case PrimitiveType::TYPE_INT:
-        return FieldType::OLAP_FIELD_TYPE_INT;
-    case PrimitiveType::TYPE_BIGINT:
-        return FieldType::OLAP_FIELD_TYPE_BIGINT;
-    case PrimitiveType::TYPE_LARGEINT:
-        return FieldType::OLAP_FIELD_TYPE_LARGEINT;
-    case PrimitiveType::TYPE_FLOAT:
-        return FieldType::OLAP_FIELD_TYPE_FLOAT;
-    case PrimitiveType::TYPE_DOUBLE:
-        return FieldType::OLAP_FIELD_TYPE_DOUBLE;
-    case PrimitiveType::TYPE_VARCHAR:
-        return FieldType::OLAP_FIELD_TYPE_VARCHAR;
-    case PrimitiveType::TYPE_DATE:
-        return FieldType::OLAP_FIELD_TYPE_DATE;
-    case PrimitiveType::TYPE_DATETIME:
-        return FieldType::OLAP_FIELD_TYPE_DATETIME;
-    case PrimitiveType::TYPE_BINARY:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_CHAR:
-        return FieldType::OLAP_FIELD_TYPE_CHAR;
-    case PrimitiveType::TYPE_STRUCT:
-        return FieldType::OLAP_FIELD_TYPE_STRUCT;
-    case PrimitiveType::TYPE_ARRAY:
-        return FieldType::OLAP_FIELD_TYPE_ARRAY;
-    case PrimitiveType::TYPE_MAP:
-        return FieldType::OLAP_FIELD_TYPE_MAP;
-    case PrimitiveType::TYPE_HLL:
-        return FieldType::OLAP_FIELD_TYPE_HLL;
-    case PrimitiveType::TYPE_DECIMALV2:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_BITMAP:
-        return FieldType::OLAP_FIELD_TYPE_BITMAP;
-    case PrimitiveType::TYPE_STRING:
-        return FieldType::OLAP_FIELD_TYPE_STRING;
-    case PrimitiveType::TYPE_QUANTILE_STATE:
-        return FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
-    case PrimitiveType::TYPE_DATEV2:
-        return FieldType::OLAP_FIELD_TYPE_DATEV2;
-    case PrimitiveType::TYPE_DATETIMEV2:
-        return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
-    case PrimitiveType::TYPE_TIMESTAMPTZ:
-        return FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
-    case PrimitiveType::TYPE_TIMEV2:
-        return FieldType::OLAP_FIELD_TYPE_TIMEV2;
-    case PrimitiveType::TYPE_DECIMAL32:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL32;
-    case PrimitiveType::TYPE_DECIMAL64:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL64;
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
-    case PrimitiveType::TYPE_DECIMAL256:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL256;
-    case PrimitiveType::TYPE_JSONB:
-        return FieldType::OLAP_FIELD_TYPE_JSONB;
-    case PrimitiveType::TYPE_VARIANT:
-        return FieldType::OLAP_FIELD_TYPE_VARIANT;
-    case PrimitiveType::TYPE_IPV4:
-        return FieldType::OLAP_FIELD_TYPE_IPV4;
-    case PrimitiveType::TYPE_IPV6:
-        return FieldType::OLAP_FIELD_TYPE_IPV6;
-    case PrimitiveType::TYPE_AGG_STATE:
-        return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
-    default:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    }
-}
-
-PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
-    static const PrimitiveType mapping[] = {
-            /*  0 */ PrimitiveType::INVALID_TYPE,
-            /*  1 OLAP_FIELD_TYPE_TINYINT           */ PrimitiveType::TYPE_TINYINT,
-            /*  2 OLAP_FIELD_TYPE_UNSIGNED_TINYINT  */ PrimitiveType::INVALID_TYPE,
-            /*  3 OLAP_FIELD_TYPE_SMALLINT          */ PrimitiveType::TYPE_SMALLINT,
-            /*  4 OLAP_FIELD_TYPE_UNSIGNED_SMALLINT */ PrimitiveType::INVALID_TYPE,
-            /*  5 OLAP_FIELD_TYPE_INT               */ PrimitiveType::TYPE_INT,
-            /*  6 OLAP_FIELD_TYPE_UNSIGNED_INT      */ PrimitiveType::INVALID_TYPE,
-            /*  7 OLAP_FIELD_TYPE_BIGINT            */ PrimitiveType::TYPE_BIGINT,
-            /*  8 OLAP_FIELD_TYPE_UNSIGNED_BIGINT   */ PrimitiveType::INVALID_TYPE,
-            /*  9 OLAP_FIELD_TYPE_LARGEINT          */ PrimitiveType::TYPE_LARGEINT,
-            /* 10 OLAP_FIELD_TYPE_FLOAT             */ PrimitiveType::TYPE_FLOAT,
-            /* 11 OLAP_FIELD_TYPE_DOUBLE            */ PrimitiveType::TYPE_DOUBLE,
-            /* 12 OLAP_FIELD_TYPE_DISCRETE_DOUBLE   */ PrimitiveType::INVALID_TYPE,
-            /* 13 OLAP_FIELD_TYPE_CHAR              */ PrimitiveType::TYPE_CHAR,
-            /* 14 OLAP_FIELD_TYPE_DATE              */ PrimitiveType::TYPE_DATE,
-            /* 15 OLAP_FIELD_TYPE_DATETIME          */ PrimitiveType::TYPE_DATETIME,
-            /* 16 OLAP_FIELD_TYPE_DECIMAL           */ PrimitiveType::INVALID_TYPE,
-            /* 17 OLAP_FIELD_TYPE_VARCHAR           */ PrimitiveType::TYPE_VARCHAR,
-            /* 18 OLAP_FIELD_TYPE_STRUCT            */ PrimitiveType::TYPE_STRUCT,
-            /* 19 OLAP_FIELD_TYPE_ARRAY             */ PrimitiveType::TYPE_ARRAY,
-            /* 20 OLAP_FIELD_TYPE_MAP               */ PrimitiveType::TYPE_MAP,
-            /* 21 OLAP_FIELD_TYPE_UNKNOWN           */ PrimitiveType::INVALID_TYPE,
-            /* 22 OLAP_FIELD_TYPE_NONE              */ PrimitiveType::TYPE_NULL,
-            /* 23 OLAP_FIELD_TYPE_HLL               */ PrimitiveType::TYPE_HLL,
-            /* 24 OLAP_FIELD_TYPE_BOOL              */ PrimitiveType::TYPE_BOOLEAN,
-            /* 25 OLAP_FIELD_TYPE_BITMAP            */ PrimitiveType::TYPE_BITMAP,
-            /* 26 OLAP_FIELD_TYPE_STRING            */ PrimitiveType::TYPE_STRING,
-            /* 27 OLAP_FIELD_TYPE_QUANTILE_STATE    */ PrimitiveType::TYPE_QUANTILE_STATE,
-            /* 28 OLAP_FIELD_TYPE_DATEV2            */ PrimitiveType::TYPE_DATEV2,
-            /* 29 OLAP_FIELD_TYPE_DATETIMEV2        */ PrimitiveType::TYPE_DATETIMEV2,
-            /* 30 OLAP_FIELD_TYPE_TIMEV2            */ PrimitiveType::TYPE_TIMEV2,
-            /* 31 OLAP_FIELD_TYPE_DECIMAL32         */ PrimitiveType::TYPE_DECIMAL32,
-            /* 32 OLAP_FIELD_TYPE_DECIMAL64         */ PrimitiveType::TYPE_DECIMAL64,
-            /* 33 OLAP_FIELD_TYPE_DECIMAL128I       */ PrimitiveType::TYPE_DECIMAL128I,
-            /* 34 OLAP_FIELD_TYPE_JSONB             */ PrimitiveType::TYPE_JSONB,
-            /* 35 OLAP_FIELD_TYPE_VARIANT           */ PrimitiveType::TYPE_VARIANT,
-            /* 36 OLAP_FIELD_TYPE_AGG_STATE         */ PrimitiveType::TYPE_AGG_STATE,
-            /* 37 OLAP_FIELD_TYPE_DECIMAL256        */ PrimitiveType::TYPE_DECIMAL256,
-            /* 38 OLAP_FIELD_TYPE_IPV4              */ PrimitiveType::TYPE_IPV4,
-            /* 39 OLAP_FIELD_TYPE_IPV6              */ PrimitiveType::TYPE_IPV6,
-            /* 40 OLAP_FIELD_TYPE_TIMESTAMPTZ       */ PrimitiveType::TYPE_TIMESTAMPTZ,
-    };
-
-    int idx = static_cast<int>(type);
-    return mapping[idx];
-}
-
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     std::string upper_type_str = type_str;
     std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(),
@@ -238,6 +111,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     } else if (0 == upper_type_str.compare("DECIMAL256")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL256;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
+        // Keep this generic prefix match after all specific DECIMAL types; otherwise DECIMAL32,
+        // DECIMAL64, DECIMAL128I, and DECIMAL256 would all be classified as DECIMAL.
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
         type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
@@ -683,24 +558,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
 }
 
-TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
-                                                              const std::vector<std::string>& paths,
-                                                              int32_t parent_unique_id,
-                                                              int32_t max_subcolumns_count,
-                                                              bool enable_doc_mode) {
-    TabletColumn subcol;
-    subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    subcol.set_is_nullable(true);
-    subcol.set_unique_id(-1);
-    subcol.set_parent_unique_id(parent_unique_id);
-    PathInData path(root, paths);
-    subcol.set_path_info(path);
-    subcol.set_name(path.get_path());
-    subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
-    subcol.set_variant_enable_doc_mode(enable_doc_mode);
-    return subcol;
-}
-
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
@@ -790,22 +647,29 @@ AggregateFunctionPtr TabletColumn::get_aggregate_function_union(DataTypePtr type
 
 AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix,
                                                           int current_be_exec_version) const {
+    return get_aggregate_function(std::move(suffix), current_be_exec_version,
+                                  DataTypeFactory::instance().create_data_type(*this));
+}
+
+AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix,
+                                                          int current_be_exec_version,
+                                                          DataTypePtr runtime_type) const {
     AggregateFunctionPtr function = nullptr;
 
-    auto type = DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
-        function = get_aggregate_function_union(type, current_be_exec_version);
+    DORIS_CHECK(runtime_type != nullptr);
+    if (runtime_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+        function = get_aggregate_function_union(runtime_type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
         std::string agg_name = origin_name + suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type, type->is_nullable(),
+                agg_name, {runtime_type}, runtime_type, runtime_type->is_nullable(),
                 BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
-                         << ", column_type=" << type->get_name();
+                         << ", column_type=" << runtime_type->get_name();
         }
     }
     if (function) {
@@ -1006,10 +870,14 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _version_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
         _skip_bitmap_col_idx = _num_columns;
-    } else if (UNLIKELY(column.name() == BINLOG_TIMESTAMP_COL)) {
-        _binlog_timestamp_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == COMMIT_TSO_COL)) {
+        _commit_tso_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == BINLOG_TSO_COL)) {
+        _binlog_tso_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
         _binlog_lsn_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == BINLOG_OP_COL)) {
+        _binlog_op_col_idx = _num_columns;
     } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
         _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
@@ -1100,8 +968,8 @@ void TabletSchema::remove_index(int64_t index_id) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
                 pattern_to_index_map[field_pattern].emplace_back(index);
             } else {
-                IndexKey key = std::make_tuple(_indexes.back()->index_type(), col_uid,
-                                               _indexes.back()->get_index_suffix());
+                IndexKey key =
+                        std::make_tuple(index->index_type(), col_uid, index->get_index_suffix());
                 _col_id_suffix_to_index[key].push_back(new_pos);
             }
         }
@@ -1217,8 +1085,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
-    _binlog_timestamp_col_idx = schema.binlog_timestamp_col_idx();
+    _commit_tso_col_idx = schema.commit_tso_col_idx();
+    _binlog_tso_col_idx = schema.binlog_tso_col_idx();
     _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
+    _binlog_op_col_idx = schema.binlog_op_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1329,6 +1199,11 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _delete_sign_idx = -1;
     _sequence_col_idx = -1;
     _version_col_idx = -1;
+    _skip_bitmap_col_idx = -1;
+    _commit_tso_col_idx = -1;
+    _binlog_tso_col_idx = -1;
+    _binlog_lsn_col_idx = -1;
+    _binlog_op_col_idx = -1;
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
@@ -1393,8 +1268,10 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sequence_col_idx = -1;
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
-    _binlog_timestamp_col_idx = -1;
+    _commit_tso_col_idx = -1;
+    _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
+    _binlog_op_col_idx = -1;
     _cluster_key_uids.clear();
     for (const auto& i : ori_tablet_schema._cluster_key_uids) {
         _cluster_key_uids.push_back(i);
@@ -1420,10 +1297,14 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _version_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
             _skip_bitmap_col_idx = _num_columns;
-        } else if (UNLIKELY(column->name() == BINLOG_TIMESTAMP_COL)) {
-            _binlog_timestamp_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == COMMIT_TSO_COL)) {
+            _commit_tso_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == BINLOG_TSO_COL)) {
+            _binlog_tso_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
             _binlog_lsn_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == BINLOG_OP_COL)) {
+            _binlog_op_col_idx = _num_columns;
         }
         // Reuse TabletColumn object from pool to reduce memory consumption
         TabletColumnPtr new_column;
@@ -1576,8 +1457,10 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_storage_dict_page_size(_storage_dict_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
-    tablet_schema_pb->set_binlog_timestamp_col_idx(_binlog_timestamp_col_idx);
+    tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
+    tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
     tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
+    tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
@@ -1976,6 +1859,13 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     }
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
+    if (a._sequence_col_idx != b._sequence_col_idx) return false;
+    if (a._version_col_idx != b._version_col_idx) return false;
+    if (a._skip_bitmap_col_idx != b._skip_bitmap_col_idx) return false;
+    if (a._commit_tso_col_idx != b._commit_tso_col_idx) return false;
+    if (a._binlog_tso_col_idx != b._binlog_tso_col_idx) return false;
+    if (a._binlog_lsn_col_idx != b._binlog_lsn_col_idx) return false;
+    if (a._binlog_op_col_idx != b._binlog_op_col_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;

@@ -198,9 +198,8 @@ public:
             auto left_column =
                     block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
             if (const auto* nullable = check_and_get_column<ColumnNullable>(left_column.get())) {
-                res_column = ColumnNullable::create(
-                        res_column,
-                        nullable->get_null_map_column().clone_resized(nullable->size()));
+                res_column =
+                        ColumnNullable::create(res_column, nullable->get_null_map_column_ptr());
             }
         }
 

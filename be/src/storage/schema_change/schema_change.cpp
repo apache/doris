@@ -181,6 +181,10 @@ public:
                                 tablet_schema->column(i).name(),
                                 tablet_schema->column(i).aggregation());
                     }
+                    const auto* column = finalized_block.get_by_position(i).column.get();
+                    const IColumn* function_columns[] = {column};
+                    function->check_input_columns_type(function_columns);
+                    function->check_result_column_type(*column);
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -978,7 +982,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         std::lock_guard new_tablet_lock(_new_tablet->get_push_lock());
         std::lock_guard base_tablet_wlock(_base_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        std::lock_guard<std::shared_mutex> new_tablet_wlock(_new_tablet->get_header_lock());
+        std::lock_guard new_tablet_wlock(_new_tablet->get_header_lock());
 
         do {
             RowsetSharedPtr max_rowset;
@@ -1174,7 +1178,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
         } else {
             // set state to ready
-            std::lock_guard<std::shared_mutex> new_wlock(_new_tablet->get_header_lock());
+            std::lock_guard new_wlock(_new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             res = _new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {

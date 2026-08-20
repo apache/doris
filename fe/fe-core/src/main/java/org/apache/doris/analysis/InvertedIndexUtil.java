@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -93,6 +94,18 @@ public class InvertedIndexUtil {
         return InvertedIndexProperties.getInvertedIndexFieldPattern(properties);
     }
 
+    /**
+     * Scalar column types the SNII storage format can serve with its native BKD index. Mirrors
+     * {@code field_is_numeric_type} on the BE side, which is what routes the column to
+     * SniiBkdIndexColumnWriter / SniiBkdIndexReader. Kept in sync with
+     * {@code IndexDefinition.isSupportSniiNumericIdxType}, which applies the same rule one layer up
+     * where the ARRAY item type is also known.
+     */
+    public static boolean isSupportSniiNumericIdxType(PrimitiveType colType) {
+        return colType.isNumericType() || colType.isDateLikeType() || colType.isTimeStampTzType()
+                || colType.isIPType() || colType == PrimitiveType.BOOLEAN;
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
@@ -103,6 +116,16 @@ public class InvertedIndexUtil {
                 parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
             }
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
+        }
+
+        // A whole-column VARIANT index reaches here with the parent type, which decides
+        // nothing: the sub-column type is checked on the field_pattern path instead.
+        if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII
+                && !colType.isStringType() && !colType.isArrayType()
+                && colType != PrimitiveType.VARIANT
+                && !isSupportSniiNumericIdxType(colType)) {
+            throw new AnalysisException("SNII inverted index storage format does not support index on column: "
+                    + indexColName + " type: " + colType);
         }
 
         // default is "none" if not set
@@ -134,13 +157,41 @@ public class InvertedIndexUtil {
         }
     }
 
-    private static boolean isSingleByte(String str) {
+    private static boolean isAscii(String str) {
         for (int i = 0; i < str.length(); i++) {
-            if (str.charAt(i) > 0xFF) {
+            if (str.charAt(i) > 0x7F) {
                 return false;
             }
         }
         return true;
+    }
+
+    public static void checkCharFilterProperties(Map<String, String> properties) throws AnalysisException {
+        String charFilterType = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        if (charFilterType == null) {
+            return;
+        }
+
+        String charFilterPattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+        String charFilterReplacement = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
+        if (!INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE.equals(charFilterType)) {
+            throw new AnalysisException("Invalid 'char_filter_type', only '"
+                    + INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE + "' is supported");
+        }
+        if (charFilterPattern == null || charFilterPattern.isEmpty()) {
+            throw new AnalysisException("Missing 'char_filter_pattern' for 'char_replace' filter type");
+        }
+        if (!isAscii(charFilterPattern)) {
+            throw new AnalysisException("'char_filter_pattern' must contain only ASCII characters");
+        }
+        if (charFilterReplacement != null) {
+            if (charFilterReplacement.isEmpty() || charFilterReplacement.length() != 1) {
+                throw new AnalysisException("'char_filter_replacement' must be a single non-empty character");
+            }
+            if (!isAscii(charFilterReplacement)) {
+                throw new AnalysisException("'char_filter_replacement' must contain only ASCII characters");
+            }
+        }
     }
 
     private static void checkInvertedIndexProperties(Map<String, String> properties, PrimitiveType colType,
@@ -174,9 +225,6 @@ public class InvertedIndexUtil {
         }
         String parserMode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         String supportPhrase = properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
-        String charFilterType = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
-        String charFilterPattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
-        String charFilterReplacement = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
         String ignoreAbove = properties.get(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
         String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
         String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
@@ -204,7 +252,7 @@ public class InvertedIndexUtil {
                             + "or 'normalizer' for text normalization without tokenization.");
         }
 
-        checkAnalyzerName(analyzerName, colType);
+        checkAnalyzerName(analyzerName, colType, invertedIndexFileStorageFormat, supportPhrase);
         checkNormalizerName(normalizerName, colType);
 
         if (parser != null && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik")) {
@@ -233,23 +281,7 @@ public class InvertedIndexUtil {
                     + ", support_phrase must be true or false");
         }
 
-        if (charFilterType != null) {
-            if (!INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE.equals(charFilterType)) {
-                throw new AnalysisException("Invalid 'char_filter_type', only '"
-                    + INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE + "' is supported");
-            }
-            if (charFilterPattern == null || charFilterPattern.isEmpty()) {
-                throw new AnalysisException("Missing 'char_filter_pattern' for 'char_replace' filter type");
-            }
-            if (!isSingleByte(charFilterPattern)) {
-                throw new AnalysisException("'char_filter_pattern' must contain only ASCII characters");
-            }
-            if (charFilterReplacement != null && !charFilterReplacement.isEmpty()) {
-                if (!isSingleByte(charFilterReplacement)) {
-                    throw new AnalysisException("'char_filter_replacement' must contain only ASCII characters");
-                }
-            }
-        }
+        checkCharFilterProperties(properties);
 
         if (ignoreAbove != null) {
             try {
@@ -309,16 +341,36 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 
-    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
+    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType,
+            TInvertedIndexFileStorageFormat storageFormat, String supportPhrase) throws AnalysisException {
         if (analyzerName == null || analyzerName.isEmpty()) {
             return;
         }
-        if (!colType.isStringType() && !colType.isVariantType()) {
-            throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
-                    + " is not supported for column of type " + colType);
-        }
         try {
-            Env.getCurrentEnv().getIndexPolicyMgr().validateAnalyzerExists(analyzerName);
+            IndexPolicyMgr indexPolicyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+            if (indexPolicyMgr.validateAnalyzerUsesCommonGrams(analyzerName)) {
+                if (colType.isArrayType()) {
+                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
+                            + "' does not support ARRAY columns");
+                }
+                if (!colType.isCharFamily()) {
+                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
+                            + "' is supported only on scalar CHAR, VARCHAR, or STRING columns");
+                }
+                if (storageFormat != TInvertedIndexFileStorageFormat.SNII) {
+                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
+                            + "' is supported only by SNII inverted indexes");
+                }
+                if (!"true".equals(supportPhrase)) {
+                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
+                            + "' requires support_phrase=true");
+                }
+                return;
+            }
+            if (!colType.isStringType() && !colType.isVariantType()) {
+                throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
+                        + " is not supported for column of type " + colType);
+            }
         } catch (DdlException e) {
             throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
         }

@@ -105,11 +105,11 @@ TEST_F(DistinctStreamingAggOperatorTest, require_hash_shuffle_after_non_hash_loc
     op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     OperatorPtr child = std::make_shared<LocalExchangeSourceOperatorX>();
-    EXPECT_TRUE(child->init(ExchangeType::ADAPTIVE_PASSTHROUGH).ok());
+    EXPECT_TRUE(child->init(TLocalPartitionType::ADAPTIVE_PASSTHROUGH).ok());
     op->_child = child;
 
     const auto distribution = op->required_data_distribution(state.get());
-    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+    EXPECT_EQ(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, distribution.distribution_type);
 }
 
 TEST_F(DistinctStreamingAggOperatorTest, test2) {

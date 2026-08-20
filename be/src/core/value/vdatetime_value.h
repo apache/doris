@@ -219,7 +219,9 @@ static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
 static constexpr uint32_t DATETIMEV2_MONTH_WIDTH = 4;
 
-static RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
+// One shared instance program-wide (was `static`, i.e. one copy constructed
+// per including TU). Visiting is thread-safe.
+inline RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
 
 uint8_t mysql_week_mode(uint32_t mode);
 
@@ -1802,6 +1804,11 @@ struct DateTraits<uint64_t> {
     using DateType = DataTypeDateTimeV2;
 };
 #include "common/compile_check_avoid_end.h"
+
+/// Instantiated once in vdatetime_value.cpp; suppresses per-TU implicit instantiation.
+extern template class DateV2Value<DateV2ValueType>;
+extern template class DateV2Value<DateTimeV2ValueType>;
+
 } // namespace doris
 
 template <>

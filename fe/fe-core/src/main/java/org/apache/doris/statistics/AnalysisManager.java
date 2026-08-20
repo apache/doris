@@ -43,7 +43,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -429,7 +429,9 @@ public class AnalysisManager implements Writable {
         }
         infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
-        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
+        // Must not alias TableStatsMeta.partitionUpdateRows: it is cleared at the job terminal state.
+        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null
+                : new ConcurrentHashMap<>(tableStatsStatus.partitionUpdateRows));
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
         return infoBuilder.build();
     }
@@ -548,6 +550,13 @@ public class AnalysisManager implements Writable {
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_JOB.increase(1L);
                     }
+                    // The job reached a terminal state: all tasks share the job's
+                    // partitionUpdateRows map, so clearing it here releases the memory
+                    // retained by every task record in the history at once. The success
+                    // path clears it inside updateTableStats.
+                    if (job.partitionUpdateRows != null) {
+                        job.partitionUpdateRows.clear();
+                    }
                 } else {
                     job.markFinished();
                     if (MetricRepo.isInit) {
@@ -567,22 +576,27 @@ public class AnalysisManager implements Writable {
 
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
-        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
-        if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(jobInfo.rowCount, jobInfo, tbl));
-        } else {
-            tableStats.update(jobInfo, tbl);
-            logCreateTableStats(tableStats);
-        }
-        if (jobInfo.jobColumns != null) {
-            jobInfo.jobColumns.clear();
-        }
-        if (jobInfo.partitionNames != null) {
-            jobInfo.partitionNames.clear();
-        }
-        if (jobInfo.partitionUpdateRows != null) {
-            jobInfo.partitionUpdateRows.clear();
+        // Clear the shared maps even when the stats update fails, so the job and all its
+        // task records release their memory once the job reaches a terminal state.
+        try {
+            TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+            TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
+            if (tableStats == null) {
+                updateTableStatsStatus(new TableStatsMeta(jobInfo.rowCount, jobInfo, tbl));
+            } else {
+                tableStats.update(jobInfo, tbl);
+                logCreateTableStats(tableStats);
+            }
+        } finally {
+            if (jobInfo.jobColumns != null) {
+                jobInfo.jobColumns.clear();
+            }
+            if (jobInfo.partitionNames != null) {
+                jobInfo.partitionNames.clear();
+            }
+            if (jobInfo.partitionUpdateRows != null) {
+                jobInfo.partitionUpdateRows.clear();
+            }
         }
     }
 
@@ -992,10 +1006,21 @@ public class AnalysisManager implements Writable {
             return;
         }
         checkPriv(anyTask);
-        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
+        AnalysisInfo job = analysisJobInfoMap.get(anyTask.getJobId());
+        // The job record may have been evicted from analysisJobInfoMap while the job was
+        // still running; its shared partitionUpdateRows map was already cleared at
+        // eviction time (see replayCreateAnalysisJob), so skip the job-level update.
+        if (job != null) {
+            logKilled(job);
+        }
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
             taskInfo.cancel();
             logKilled(taskInfo.info);
+        }
+        // The job reached a terminal state: all tasks share the job's partitionUpdateRows
+        // map, so clearing it here releases the memory retained by every task record.
+        if (job != null && job.partitionUpdateRows != null) {
+            job.partitionUpdateRows.clear();
         }
     }
 
@@ -1035,7 +1060,15 @@ public class AnalysisManager implements Writable {
     public void replayCreateAnalysisJob(AnalysisInfo jobInfo) {
         synchronized (analysisJobInfoMap) {
             while (analysisJobInfoMap.size() >= Config.analyze_record_limit) {
-                analysisJobInfoMap.remove(analysisJobInfoMap.pollFirstEntry().getKey());
+                // pollFirstEntry removes the oldest entry from the map.
+                AnalysisInfo evicted = analysisJobInfoMap.pollFirstEntry().getValue();
+                // The evicted job may still be running: its updateTaskStatus will return
+                // early on the "job == null" guard and never reach the terminal-state
+                // clear, so clear the shared partitionUpdateRows map here to release the
+                // memory held by the evicted job and all its task records at once.
+                if (evicted.partitionUpdateRows != null) {
+                    evicted.partitionUpdateRows.clear();
+                }
             }
             if (jobInfo.message != null && jobInfo.message.length() >= StatisticConstants.MSG_LEN_UPPER_BOUND) {
                 jobInfo.message = jobInfo.message.substring(0, StatisticConstants.MSG_LEN_UPPER_BOUND);
@@ -1481,8 +1514,14 @@ public class AnalysisManager implements Writable {
         if (table instanceof OlapTable) {
             return true;
         }
-        return table instanceof HMSExternalTable
-                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+        // Additive: a flipped plain-hive table is a PluginDrivenExternalTable declaring SUPPORTS_SAMPLE_ANALYZE
+        // per-table (iceberg/hudi-on-HMS and native iceberg/paimon do NOT declare it). Keeps the legacy
+        // HMSExternalTable arm below live for the un-flipped path, like StatisticsUtil.supportAutoAnalyze.
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsSampleAnalyze()) {
+            return true;
+        }
+        return false;
     }
 
 

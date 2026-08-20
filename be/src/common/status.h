@@ -25,13 +25,7 @@
 
 namespace doris {
 
-namespace io {
-struct ObjectStorageStatus;
-}
-
 class Status;
-
-extern io::ObjectStorageStatus convert_to_obj_response(Status st);
 
 class PStatus;
 
@@ -299,6 +293,7 @@ namespace ErrorCode {
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
     E(INVERTED_INDEX_FILE_CORRUPTED, -6012, false);          \
+    E(INVERTED_INDEX_SNII_NOT_FOUND, -6013, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
@@ -527,7 +522,7 @@ public:
 
     void set_code(int code) { _code = code; }
 
-    bool ok() const { return _code == ErrorCode::OK || _code == ErrorCode::FINISHED; }
+    bool ok() const { return _code == ErrorCode::OK; }
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
@@ -576,8 +571,6 @@ public:
     std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
 
     std::pair<int, std::string> retrieve_error_msg() { return {_code, std::move(_err_msg->_msg)}; }
-
-    friend io::ObjectStorageStatus convert_to_obj_response(Status st);
 
 private:
     int _code;

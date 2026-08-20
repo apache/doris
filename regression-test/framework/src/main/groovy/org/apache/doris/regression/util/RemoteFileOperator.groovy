@@ -100,7 +100,7 @@ class RemoteFileOperator {
             }
             
             if (execResult.exitCode != 0) {
-                def errorMsg = "Failed to create directory on ${host} (exit code: ${execResult.exitCode}): ${execResult.error}"
+                def errorMsg = "Failed to create directory on ${host} (exit code: ${execResult.exitCode}): ${execResult.stderr}"
                 logger.error(errorMsg)
                 throw new Exception(errorMsg)
             }
@@ -140,7 +140,9 @@ class RemoteFileOperator {
         hosts.each { host ->
             // Step 1: Check if remote directory has files (count regular files only)
             // scp user@host:/tmp/doristest/* will fail if doristest has no files.
-            String countCommand = """ssh -p ${port} ${username}@${host} "find ${escapePath(remoteDir)} -maxdepth 1 -type f | wc -l" """
+            String countCommand = isLocalHost(host)
+                    ? "find ${escapePath(remoteDir)} -maxdepth 1 -type f | wc -l"
+                    : """ssh -p ${port} ${username}@${host} "find ${escapePath(remoteDir)} -maxdepth 1 -type f | wc -l" """
             def countResult = executeLocalCommand(countCommand)
             
             if (countResult.timedOut) {
@@ -150,7 +152,7 @@ class RemoteFileOperator {
             }
             
             if (countResult.exitCode != 0) {
-                def errorMsg = "Failed to check file count on ${host} (exit code: ${countResult.exitCode}): ${countResult.error}"
+                def errorMsg = "Failed to check file count on ${host} (exit code: ${countResult.exitCode}): ${countResult.stderr}"
                 logger.error(errorMsg)
                 throw new Exception(errorMsg)
             }
@@ -163,9 +165,16 @@ class RemoteFileOperator {
             if (fileCount > 0) {
                 logger.info("Downloading ${fileCount} files from ${host}:${remoteDir} to ${localBaseDir}")
 
-                def normalizedRemoteDir = (remoteDir.endsWith('/') ? remoteDir : "${remoteDir}/") + "*"
-                def scpCommand = "scp -P ${port} ${username}@${host}:${escapePath(normalizedRemoteDir)} ${escapePath(localBaseDir)}"
-                def execResult = executeLocalCommand(scpCommand)
+                def copyCommand
+                if (isLocalHost(host)) {
+                    copyCommand = "find ${escapePath(remoteDir)} -maxdepth 1 -type f " +
+                            "-exec cp -f '{}' ${escapePath(localBaseDir)} ';'"
+                } else {
+                    def normalizedRemoteDir = (remoteDir.endsWith('/') ? remoteDir : "${remoteDir}/") + "*"
+                    copyCommand = "scp -P ${port} ${username}@${host}:${escapePath(normalizedRemoteDir)} " +
+                            escapePath(localBaseDir)
+                }
+                def execResult = executeLocalCommand(copyCommand)
 
                 if (execResult.timedOut) {
                     def errorMsg = "Timeout downloading from ${host} (${timeout}ms)"
@@ -174,7 +183,7 @@ class RemoteFileOperator {
                 }
 
                 if (execResult.exitCode != 0) {
-                    def errorMsg = "Failed to download from ${host} (exit code: ${execResult.exitCode}): ${execResult.error}"
+                    def errorMsg = "Failed to download from ${host} (exit code: ${execResult.exitCode}): ${execResult.stderr}"
                     logger.error(errorMsg)
                     throw new Exception(errorMsg)
                 }
@@ -214,7 +223,7 @@ class RemoteFileOperator {
             }
             
             if (execResult.exitCode != 0) {
-                def errorMsg = "Failed to delete directory on ${host} (exit code: ${execResult.exitCode}): ${execResult.error}"
+                def errorMsg = "Failed to delete directory on ${host} (exit code: ${execResult.exitCode}): ${execResult.stderr}"
                 logger.error(errorMsg)
                 throw new Exception(errorMsg)
             }
@@ -224,8 +233,15 @@ class RemoteFileOperator {
     }
 
     private Map executeSshCommand(String host, String command) {
+        if (isLocalHost(host)) {
+            return executeLocalCommand(command)
+        }
         def sshCommand = "ssh -p ${port} ${username}@${host} '${command}'"
         return executeLocalCommand(sshCommand)
+    }
+
+    private boolean isLocalHost(String host) {
+        return host in ["127.0.0.1", "localhost", "::1"]
     }
 
     private Map executeLocalCommand(String command) {

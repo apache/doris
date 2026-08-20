@@ -19,8 +19,10 @@ package org.apache.doris.filesystem.properties;
 
 import org.apache.doris.filesystem.FileSystemType;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Parsed and validated FileSystem properties owned by a specific provider.
@@ -65,6 +67,89 @@ public interface FileSystemProperties extends StorageProperties {
      * implementation details.</p>
      */
     Map<String, String> matchedProperties();
+
+    /**
+     * Returns the URI schemes this provider accepts, lower-cased (e.g. {@code {hdfs, viewfs}}).
+     *
+     * <p>Single source of truth for the provider's scheme identity: URI parsing and
+     * scheme-to-storage routing both read this set. The default is empty for providers
+     * without a scheme identity (e.g. Broker, Local); every scheme-addressable provider
+     * overrides it.</p>
+     */
+    default Set<String> getSupportedSchemes() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Storage family name reported to fe-core consumers and persisted in e.g. backup
+     * Repository metadata (the legacy {@code getStorageName()} contract). Defaults to the
+     * provider name; families with a legacy spelling override it (every S3-compatible
+     * dialect reports {@code "S3"}, HDFS-family {@code "HDFS"}, Local {@code "local"}).
+     */
+    default String storageFamilyName() {
+        return providerName();
+    }
+
+    /**
+     * The exact scheme set the legacy fe-core {@code schemas()} contract exposed for this
+     * provider — feeds per-scheme {@code fs.<schema>.impl.disable.cache} handling. This is
+     * deliberately NOT {@link #getSupportedSchemes()}: that set advertises broader routing
+     * aliases (e.g. OSS accepts {@code {oss, s3, s3a}}) while the legacy disable-cache loop
+     * only ever saw the narrow per-type sets (e.g. OSS = {@code {oss}}, HDFS family =
+     * {@code {hdfs}} only).
+     */
+    default Set<String> legacyCacheSchemes() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Validates and normalizes a single storage URI against this provider's configuration.
+     *
+     * <p>This is pure configuration logic (no I/O) and lives on the properties model rather than
+     * on {@link org.apache.doris.filesystem.FileSystem} on purpose: many callers validate a URI
+     * before — or without ever — creating a FileSystem (e.g. HTTP has no FileSystem). Providers
+     * with scheme/endpoint/path-style specific rules override this; the default returns the URI
+     * unchanged.
+     *
+     * @throws IllegalArgumentException if the URI is invalid for this provider
+     */
+    default String validateAndNormalizeUri(String uri) {
+        return uri;
+    }
+
+    /**
+     * Extracts the storage URI from the given load properties and validates it via
+     * {@link #validateAndNormalizeUri(String)}.
+     *
+     * <p>The default looks up the {@code "uri"} key. Providers whose URI lives under a different
+     * key, or that need extra extraction logic (e.g. HDFS nameservices), override this.
+     *
+     * @throws IllegalArgumentException if the URI is missing or invalid for this provider
+     */
+    default String validateAndGetUri(Map<String, String> loadProperties) {
+        return validateAndNormalizeUri(loadProperties == null ? null : loadProperties.get("uri"));
+    }
+
+    /**
+     * Stable fingerprint of this storage identity, published under
+     * {@code doris.fs.cache.key.<scheme>} in every BE-bound / Hadoop-bound property map derived
+     * from it, so that the Doris-patched {@code org.apache.hadoop.fs.FileSystem} never shares one
+     * cached instance between different credential sets. See {@link FsCacheKeys}.
+     *
+     * <p>The default hashes the concrete class name together with
+     * {@link FsCacheKeys#identityProperties}, i.e. the user-supplied keys this binding consumed
+     * (credentials included) plus the raw Hadoop keys consumers overlay on top of the derived map.
+     * A provider whose derived map resolves inputs the raw properties do not carry (the HDFS
+     * families read {@code hadoop.config.resources} XML files into theirs) must override this and
+     * mix that map in under {@link FsCacheKeys#derivedIdentityKey}. It lives here
+     * rather than on {@link StorageProperties} because publishing it needs the scheme sets
+     * ({@link #getSupportedSchemes()} / {@link #legacyCacheSchemes()}) declared at this level;
+     * a provider with neither (Broker, Local) publishes nothing, which is correct — it carries no
+     * credentials the Hadoop FileSystem cache could confuse.
+     */
+    default String fsCacheFingerprint() {
+        return FsCacheKeys.fingerprintOf(this);
+    }
 
     /**
      * Converts to backend storage properties if this provider supports BE access.

@@ -35,6 +35,7 @@
 #include "exprs/table_function/vexplode_numbers.h"
 #include "exprs/table_function/vexplode_v2.h"
 #include "exprs/table_function/vjson_each.h"
+#include "exprs/table_function/vstack.h"
 
 namespace doris {
 
@@ -53,6 +54,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"json_each", TableFunctionCreator<VJsonEachTableFn> {}},
                 {"json_each_text", TableFunctionCreator<VJsonEachTextTableFn> {}},
                 {"posexplode", TableFunctionCreator<VExplodeV2TableFunction> {}},
+                {"stack", TableFunctionCreator<VStackTableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeV2TableFunction> {}},
                 {"explode_variant_array_old", TableFunctionCreator<VExplodeTableFunction>()},
                 {"explode_old", TableFunctionCreator<VExplodeTableFunction> {}}};

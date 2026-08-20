@@ -434,6 +434,7 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
         has_second = true;
         if (ptr == end) {
             // no fraction or timezone part, just return.
+            cast_to_type<TargetType>(res);
             return true;
         }
         goto FRAC;
@@ -556,6 +557,7 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
                              part[0]);
     if (ptr == end) {
         // no minute part, just return.
+        cast_to_type<TargetType>(res);
         return true;
     }
     if (*ptr == ':') {

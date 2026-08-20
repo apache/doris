@@ -26,6 +26,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -78,6 +80,39 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testForwardQueryCacheVariables() {
+        // A forwarded statement is planned by the master in a fresh
+        // ConnectContext that only sees what getForwardVariables() sends, so
+        // every session variable the query cache reads at plan time must
+        // travel: the switch and its incremental companion (both planner gates
+        // and the eligibility check), and the three the cache param carries
+        // (a forced refresh must not be dropped, and entries must be sized by
+        // the session's limits, not the master's defaults).
+        SessionVariable follower = new SessionVariable();
+        follower.setEnableQueryCache(true);
+        follower.setEnableQueryCacheIncremental(true);
+        follower.setQueryCacheForceRefresh(true);
+        follower.setQueryCacheEntryMaxBytes(4096);
+        follower.setQueryCacheEntryMaxRows(64);
+        Map<String, String> vars = follower.getForwardVariables();
+        Assertions.assertEquals("true", vars.get(SessionVariable.ENABLE_QUERY_CACHE));
+        Assertions.assertEquals("true", vars.get(SessionVariable.ENABLE_QUERY_CACHE_INCREMENTAL));
+        Assertions.assertEquals("true", vars.get(SessionVariable.QUERY_CACHE_FORCE_REFRESH));
+        Assertions.assertEquals("4096", vars.get(SessionVariable.QUERY_CACHE_ENTRY_MAX_BYTES));
+        Assertions.assertEquals("64", vars.get(SessionVariable.QUERY_CACHE_ENTRY_MAX_ROWS));
+
+        SessionVariable master = new SessionVariable();
+        Assertions.assertFalse(master.getEnableQueryCache());
+        Assertions.assertFalse(master.getEnableQueryCacheIncremental());
+        master.setForwardedSessionVariables(vars);
+        Assertions.assertTrue(master.getEnableQueryCache());
+        Assertions.assertTrue(master.getEnableQueryCacheIncremental());
+        Assertions.assertTrue(master.isQueryCacheForceRefresh());
+        Assertions.assertEquals(4096, master.getQueryCacheEntryMaxBytes());
+        Assertions.assertEquals(64, master.getQueryCacheEntryMaxRows());
+    }
+
+    @Test
     public void testInsertVisibleTimeoutReturnMode() throws Exception {
         connectContext.setThreadLocalInfo();
         SessionVariable sessionVar = connectContext.getSessionVariable();
@@ -117,11 +152,10 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Field field = SessionVariable.class.getDeclaredField("insertVisibleTimeoutReturnMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
-        Assertions.assertArrayEquals(new String[] {
-                "控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+        Assertions.assertEquals(
                 "Controls the status returned to the client when a normal internal-table INSERT times out "
-                        + "while waiting for publish visibility."
-        }, varAttr.description());
+                        + "while waiting for publish visibility.",
+                varAttr.description());
         Assertions.assertArrayEquals(new String[] {
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED,
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR
@@ -152,6 +186,52 @@ public class SessionVariablesTest extends TestWithFeService {
         ExceptionChecker.expectThrowsWithMsg(UnsupportedOperationException.class,
                 "insertVisibleTimeoutReturnMode value is empty",
                 () -> sessionVar.checkInsertVisibleTimeoutReturnMode(""));
+    }
+
+    @Test
+    public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
+
+        Field field = SessionVariable.class.getDeclaredField("runtimeFilterBroadcastJoinProducerNum");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals(
+                "Controls the number of producer BEs for each broadcast join runtime filter in "
+                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
+                        + "The legacy Coordinator path keeps the existing behavior.",
+                varAttr.description());
+    }
+
+    @Test
+    public void testExternalTableBatchModeDefaultsAndFuzzyAttribute() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.getEnableExternalTableBatchMode());
+
+        Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertTrue(varAttr.fuzzy());
+    }
+
+    @Test
+    public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                "force_eager_agg_hint", new StringLiteral("sum:t1.a=push; count:*=nopush")));
+        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
+        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
+        Assertions.assertEquals(Action.NOPUSH, sessionVar.getForceEagerAggHintMap().get("count:*"));
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid force_eager_agg_hint",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        "force_eager_agg_hint", new StringLiteral("sum:t1.a=unknown"))));
+        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
+        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
+
+        SessionVariable restored = new SessionVariable();
+        restored.readFromJson("{\"force_eager_agg_hint\":\"sum:t2.b=no_push\"}");
+        Assertions.assertEquals(Action.NOPUSH, restored.getForceEagerAggHintMap().get("sum:t2.b"));
     }
 
     @Test
@@ -305,5 +385,38 @@ public class SessionVariablesTest extends TestWithFeService {
                         SessionVariable.IVF_NPROBE, new IntLiteral(0))));
         Assertions.assertTrue(nprobeException.getMessage().contains("ivf_nprobe must be >= 1"));
         Assertions.assertEquals(2, sv.ivfNprobe);
+    }
+
+    @Test
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
+    }
+
+    @Test
+    public void testCoordinatorThriftLimitPropagatesToBackends() {
+        TQueryOptions queryOptions = new SessionVariable().toThrift();
+
+        Assertions.assertTrue(queryOptions.isSetCoordinatorThriftMaxMessageSize());
+        Assertions.assertEquals(Config.thrift_max_message_size,
+                queryOptions.getCoordinatorThriftMaxMessageSize());
+        Assertions.assertTrue(queryOptions.isSupportsExternalFileReportAck());
+    }
+
+    @Test
+    public void testHyperscanFallbackPropagatesToBackends() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        Assertions.assertTrue(variable.toThrift().isEnableHyperscanFallback());
+
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_HYPERSCAN_FALLBACK, new StringLiteral("false")));
+
+        Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
     }
 }

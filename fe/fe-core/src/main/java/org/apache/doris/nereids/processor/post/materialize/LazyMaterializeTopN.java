@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
@@ -133,13 +134,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 materializedSlots.add(slot);
             }
         }
-        List<Slot> requiredOutputSlots = new ArrayList<>();
-        for (Map.Entry<Slot, MaterializeSource> entry : materializeMap.entrySet()) {
-            if (requiredMaterializedSlots.contains(entry.getKey())
-                    || requiredMaterializedSlots.contains(entry.getValue().baseSlot)) {
-                requiredOutputSlots.add(entry.getKey());
-            }
-        }
+        // A lazy alias can share its base slot with another output that must be materialized for TopN.
+        // Keep the alias materialized too, otherwise LazySlotPruning removes the base slot needed by that output.
+        List<Slot> requiredOutputSlots = collectRequiredOutputSlots(
+                materializeMap, requiredMaterializedSlots, new HashSet<>(materializedSlots));
         for (Slot slot : requiredOutputSlots) {
             if (materializeMap.remove(slot) != null) {
                 materializedSlots.add(slot);
@@ -162,6 +160,17 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         HashSet<SlotReference> rowIdSet = new HashSet<>();
         StatementContext threadStatementContext = StatementScopeIdGenerator.getStatementContext();
         for (Relation relation : relationToLazySlotMap.keySet()) {
+            // TopN lazy materialization relies on BE adding a GLOBAL_ROWID_COL to the
+            // tablet schema. When light_schema_change=false, the table columns have
+            // col_unique_id=-1, which causes BE to skip the schema rebuild from
+            // columns_desc, so the GLOBAL_ROWID_COL is never added and the scan fails.
+            if (relation instanceof CatalogRelation
+                    && ((CatalogRelation) relation).getTable() instanceof OlapTable
+                    && !((OlapTable) ((CatalogRelation) relation).getTable()).getEnableLightSchemaChange()) {
+                LOG.debug("Skip TopN lazy materialization for table {} with light_schema_change=false",
+                        ((CatalogRelation) relation).getTable().getName());
+                return topN;
+            }
             if (relation instanceof CatalogRelation) {
                 CatalogRelation catalogRelation = (CatalogRelation) relation;
                 Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + catalogRelation.getTable().getName(),
@@ -222,6 +231,20 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             hasMaterialized = true;
         }
         return result;
+    }
+
+    @VisibleForTesting
+    static List<Slot> collectRequiredOutputSlots(Map<Slot, MaterializeSource> materializeMap,
+            Set<Slot> requiredMaterializedSlots, Set<Slot> materializedSlots) {
+        List<Slot> requiredOutputSlots = new ArrayList<>();
+        for (Map.Entry<Slot, MaterializeSource> entry : materializeMap.entrySet()) {
+            if (requiredMaterializedSlots.contains(entry.getKey())
+                    || requiredMaterializedSlots.contains(entry.getValue().baseSlot)
+                    || materializedSlots.contains(entry.getValue().baseSlot)) {
+                requiredOutputSlots.add(entry.getKey());
+            }
+        }
+        return requiredOutputSlots;
     }
 
     private void collectProjectExprInputSlots(Plan plan, Set<Slot> requiredMaterializedSlots) {

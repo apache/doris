@@ -46,10 +46,8 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         auto finalized_variant = variant->clone_finalized();
         variant = assert_cast<const ColumnVariant*>(finalized_variant.get());
         if (nullable != nullptr) {
-            auto cloned_null_map =
-                    nullable->get_null_map_column_ptr()->clone_resized(input_rows_count);
             finalized_input_column = ColumnNullable::create(std::move(finalized_variant),
-                                                            std::move(cloned_null_map));
+                                                            nullable->get_null_map_column_ptr());
         } else {
             finalized_input_column = std::move(finalized_variant);
         }

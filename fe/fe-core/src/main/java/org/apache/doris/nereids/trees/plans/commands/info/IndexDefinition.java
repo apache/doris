@@ -139,6 +139,31 @@ public class IndexDefinition {
     }
 
     /**
+     * Scalar column types the SNII storage format can serve with its native BKD index.
+     *
+     * <p>This mirrors {@code field_is_numeric_type} on the BE side, which is what
+     * {@code IndexColumnWriter::create} and {@code ColumnReader::_load_index} route on. A one-level
+     * ARRAY of such a type is included: the BE adapter indexes each element as its own point under
+     * the row's id, so a row matches when any of its elements does. VARIANT is excluded for the
+     * reason it always was on SNII -- there is no writer for it.
+     */
+    public static boolean isSupportSniiNumericIdxType(DataType columnType) {
+        if (columnType.isArrayType()) {
+            // One level only, matching isSupportIdxType: the BE adapter indexes an
+            // array row as several points under one row id, and a nested array has
+            // no such flattening.
+            DataType itemType = ((ArrayType) columnType).getItemType();
+            return !itemType.isArrayType() && isSupportSniiNumericIdxType(itemType);
+        }
+        if (columnType.isVariantType()) {
+            return false;
+        }
+        return columnType.isDateLikeType() || columnType.isDecimalLikeType()
+                || columnType.isIntegralType() || columnType.isBooleanType()
+                || columnType.isIPType() || columnType.isFloatLikeType();
+    }
+
+    /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
@@ -164,6 +189,10 @@ public class IndexDefinition {
                         "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
                                 + " merge-on-write enabled");
             }
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
+            }
             return;
         }
 
@@ -176,6 +205,20 @@ public class IndexDefinition {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringLikeType()
+                        || (colType.isArrayType()
+                            && ((ArrayType) colType).getItemType().isStringLikeType());
+                // VARIANT carries no postings itself; its extracted sub-columns are indexed
+                // under their own suffix paths and are type-checked at write time.
+                if (!isStringIndex && !colType.isVariantType()
+                        && !isSupportSniiNumericIdxType(colType)) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support index on column: "
+                                    + indexColName);
+                }
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
@@ -265,7 +308,8 @@ public class IndexDefinition {
                                 + " merge-on-write enabled");
             }
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                throw new AnalysisException("ANN index is not supported in index format V1");
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
             }
             return;
         }
@@ -280,9 +324,18 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                     + "invalid index: " + name);
             }
-
-            if (indexType == IndexType.ANN && !colType.isArrayType()) {
-                throw new AnalysisException("ANN index column must be array type");
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringType()
+                        || (colType.isArrayType()
+                            && ((org.apache.doris.catalog.ArrayType) columnType).getItemType().isStringType());
+                // Same rule as the ColumnDefinition overload above.
+                if (!isStringIndex && !colType.isVariantType()
+                        && !isSupportSniiNumericIdxType(DataType.fromCatalogType(columnType))) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support index on column: "
+                                    + indexColName);
+                }
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.

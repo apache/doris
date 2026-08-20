@@ -404,6 +404,12 @@ public class CacheHotspotManager extends MasterDaemon {
                 continue;
             }
             if (isTableLevelLoadEventWarmUpJob(newJob) != isTableLevelLoadEventWarmUpJob(existingJob)) {
+                LOG.info("warmup-conflict detect newJobId={} existingJobId={} srcCluster={} dstCluster={} "
+                                + "newJobType={} existingJobType={} newTableFilter={} existingTableFilter={}",
+                        newJob.getJobId(), existingJob.getJobId(),
+                        newJob.getSrcClusterName(), newJob.getDstClusterName(),
+                        newJob.getJobType(), existingJob.getJobType(),
+                        newJob.getTableFilterExpr(), existingJob.getTableFilterExpr());
                 throw buildLoadEventWarmUpConflictException(newJob, existingJob);
             }
         }
@@ -507,6 +513,10 @@ public class CacheHotspotManager extends MasterDaemon {
     public boolean tryRegisterRunningJob(CloudWarmUpJob job) {
         if (job.isEventDriven()) {
             // Event-driven jobs do not require registration, always allow
+            LOG.debug("warmup-lock register-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "reason=event-driven",
+                    job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
+                    job.getSyncMode(), job.getJobType());
             return true;
         }
 
@@ -516,9 +526,16 @@ public class CacheHotspotManager extends MasterDaemon {
         // Try to register the job atomically if absent
         Long existingJobId = clusterToRunningJobId.putIfAbsent(clusterName, jobId);
         boolean success = (existingJobId == null) || (existingJobId == jobId);
-        if (!success) {
-            LOG.info("Job {} skipped: waiting for job {} to finish on destination cluster {}",
-                    jobId, existingJobId, clusterName);
+        if (success) {
+            LOG.debug("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "existingJobId={} registerResult={}",
+                    jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
+                    existingJobId, "success");
+        } else {
+            LOG.info("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "existingJobId={} registerResult={}",
+                    jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
+                    existingJobId, "blocked");
         }
         return success;
     }
@@ -539,19 +556,32 @@ public class CacheHotspotManager extends MasterDaemon {
     private boolean deregisterRunningJob(CloudWarmUpJob job) {
         if (job.isEventDriven()) {
             // Event-driven jobs are not registered, so nothing to deregister
+            LOG.debug("warmup-lock deregister-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "reason=event-driven",
+                    job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
+                    job.getSyncMode(), job.getJobType());
             return true;
         }
 
         String clusterName = job.getDstClusterName();
         long jobId = job.getJobId();
-
-        return clusterToRunningJobId.remove(clusterName, jobId);
+        Long currentRegisteredJobId = clusterToRunningJobId.get(clusterName);
+        boolean removed = clusterToRunningJobId.remove(clusterName, jobId);
+        LOG.info("warmup-lock deregister jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                        + "currentRegisteredJobId={} releaseResult={} jobFinalState={}",
+                jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
+                currentRegisteredJobId, removed, job.getJobState());
+        return removed;
     }
 
     public void notifyJobStop(CloudWarmUpJob job) {
         if (job.isOnce() || job.isPeriodic()) {
             this.deregisterRunningJob(job);
         }
+        LOG.info("warmup-lock notify-stop jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                        + "jobState={} isDone={}",
+                job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
+                job.getSyncMode(), job.getJobType(), job.getJobState(), job.isDone());
         if (!job.isDone()) {
             return;
         }

@@ -38,6 +38,7 @@
 #include "format/parquet/level_decoder.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -504,9 +505,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dict_values_to_column(
         MutableColumnPtr& doris_column, bool* has_dict) {
-    bool loaded;
-    RETURN_IF_ERROR(_try_load_dict_page(&loaded, has_dict));
-    if (loaded && *has_dict) {
+    RETURN_IF_ERROR(_chunk_reader->load_dictionary_page(has_dict));
+    if (*has_dict) {
         return _chunk_reader->read_dict_values_to_column(doris_column);
     }
     return Status::OK();
@@ -516,15 +516,6 @@ Result<MutableColumnPtr>
 ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_column(
         const ColumnInt32* dict_column) {
     return _chunk_reader->convert_dict_column_to_string_column(dict_column);
-}
-
-template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool* loaded,
-                                                                            bool* has_dict) {
-    // _chunk_reader init will load first page header to check whether has dict page
-    *loaded = true;
-    *has_dict = _chunk_reader->has_dict();
-    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -784,6 +775,7 @@ Status StructColumnReader::init(
         FieldSchema* field) {
     _field_schema = field;
     _child_readers = std::move(child_readers);
+    _nested_initial_default_values.clear();
     return Status::OK();
 }
 Status StructColumnReader::read_column_data(
@@ -990,11 +982,19 @@ Status StructColumnReader::read_column_data(
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = doris_struct_type->get_element(idx);
-        DCHECK(doris_type->is_nullable());
-        doris_field = IColumn::mutate(std::move(doris_field));
-        auto mutable_column = doris_field->assert_mutable();
-        auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
-        nullable_column->insert_many_defaults(missing_column_sz);
+        const auto& doris_name = doris_struct_type->get_element_name(idx);
+        const auto* iceberg_field = root_node->get_missing_column_field(doris_name);
+        if (iceberg_field != nullptr) {
+            RETURN_IF_ERROR(
+                    iceberg::append_initial_default(*iceberg_field, doris_type, missing_column_sz,
+                                                    &_nested_initial_default_values, &doris_field));
+        } else {
+            DCHECK(doris_type->is_nullable());
+            doris_field = IColumn::mutate(std::move(doris_field));
+            auto mutable_column = doris_field->assert_mutable();
+            auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
+            nullable_column->insert_many_defaults(missing_column_sz);
+        }
     }
 
     if (null_map_ptr != nullptr) {

@@ -38,15 +38,20 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.SplitAssignment;
-import org.apache.doris.datasource.SplitGenerator;
-import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.datasource.split.SplitGenerator;
+import org.apache.doris.datasource.split.SplitSource;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -69,6 +74,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -105,9 +111,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<Column> columns;
 
     // Save the id of backends which this scan node will be executed on.
-    // This is also important for local shuffle logic.
+    // Iteration order is part of the semantics for point-query and selection-sensitive consumers.
     // Now only OlapScanNode and FileQueryScanNode implement this.
-    protected HashSet<Long> scanBackendIds = new HashSet<>();
+    protected Set<Long> scanBackendIds = new LinkedHashSet<>();
     // Immutable scan context used for evolving scan-related metadata.
     protected final ScanContext scanContext;
 
@@ -650,6 +656,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
             OlapScanNode scanNode = (OlapScanNode) node;
             OlapTable table = scanNode.getOlapTable();
+            if (table instanceof OlapTableWrapper
+                    && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
+                continue;
+            }
             for (Long id : scanNode.getSelectedPartitionIds()) {
                 if (!partitionSet.contains(id)) {
                     partitionSet.add(id);
@@ -658,34 +668,34 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
         }
 
-        if (partitions.isEmpty()) {
-            return;
-        }
+        Map<Long, Long> visibleVersionMap = Maps.newHashMap();
+        if (!partitions.isEmpty()) {
+            List<Long> versions;
+            try {
+                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+            } catch (RpcException e) {
+                throw new UserException("get visible version for OlapScanNode failed", e);
+            }
 
-        List<Long> versions;
-        try {
-            versions = CloudPartition.getSnapshotVisibleVersion(partitions);
-        } catch (RpcException e) {
-            throw new UserException("get visible version for OlapScanNode failed", e);
-        }
-
-        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
-        if (versions.stream().anyMatch(x -> x <= 0)) {
-            int size = versions.size();
-            for (int i = 0; i < size; ++i) {
-                if (versions.get(i) <= 0) {
-                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
-                            partitions.get(i).getId(), versions.get(i));
-                    throw new UserException("partition " + partitions.get(i).getId()
-                        + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+            assert versions.size() == partitions.size()
+                    : "the got num versions is not equals to acquired num versions";
+            if (versions.stream().anyMatch(x -> x <= 0)) {
+                int size = versions.size();
+                for (int i = 0; i < size; ++i) {
+                    if (versions.get(i) <= 0) {
+                        LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
+                                partitions.get(i).getId(), versions.get(i));
+                        throw new UserException("partition " + partitions.get(i).getId()
+                            + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+                    }
                 }
             }
-        }
 
-        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
-        Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
-                .boxed()
-                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+            // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
+            visibleVersionMap = IntStream.range(0, versions.size())
+                    .boxed()
+                    .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+        }
 
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
@@ -693,7 +703,14 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
 
             OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.updateScanRangeVersions(visibleVersionMap);
+            OlapTable table = scanNode.getOlapTable();
+            if (table instanceof OlapTableWrapper
+                    && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
+                scanNode.updateScanRangeVersions(
+                        ((OlapTableWrapper) table).getPartitionVisibleVersionMap());
+            } else {
+                scanNode.updateScanRangeVersions(visibleVersionMap);
+            }
         }
     }
 
@@ -733,7 +750,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         ConnectContext context = ConnectContext.get();
         if (context == null) {
             return numScanBackends() <= 0;
@@ -747,7 +764,15 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     @Override
     public boolean hasSerialScanChildren() {
-        return isSerialOperator();
+        return isSerialNode();
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        // Base ScanNode returns NOOP — only OlapScanNode overrides with BUCKET_HASH_SHUFFLE
+        // for non-pooling scans that have bucket distribution.
+        return Pair.of(this, LocalExchangeType.NOOP);
     }
 
     public void setDesc(TupleDescriptor desc) {

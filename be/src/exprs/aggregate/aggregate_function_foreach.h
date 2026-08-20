@@ -97,24 +97,25 @@ protected:
             char* new_state =
                     arena.aligned_alloc(allocation_size, nested_function->align_of_data());
 
-            size_t i;
+            size_t num_created = 0;
             try {
-                for (i = 0; i < new_size; ++i) {
-                    nested_function->create(&new_state[i * nested_size_of_data]);
+                for (; num_created < new_size; ++num_created) {
+                    nested_function->create(&new_state[num_created * nested_size_of_data]);
+                }
+
+                for (size_t i = 0; i < old_size; ++i) {
+                    nested_function->merge(&new_state[i * nested_size_of_data],
+                                           &old_state[i * nested_size_of_data], arena);
                 }
             } catch (...) {
-                size_t cleanup_size = i;
-
-                for (i = 0; i < cleanup_size; ++i) {
+                for (size_t i = 0; i < num_created; ++i) {
                     nested_function->destroy(&new_state[i * nested_size_of_data]);
                 }
 
                 throw;
             }
 
-            for (i = 0; i < old_size; ++i) {
-                nested_function->merge(&new_state[i * nested_size_of_data],
-                                       &old_state[i * nested_size_of_data], arena);
+            for (size_t i = 0; i < old_size; ++i) {
                 nested_function->destroy(&old_state[i * nested_size_of_data]);
             }
 
@@ -208,12 +209,12 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const AggregateFunctionForEachData& state = data(place);
 
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& offsets_to = arr_to.get_offsets();
         IColumn* elems_to = &arr_to.get_data();
         ColumnNullable* nullable_elems_to = nullptr;
         if (!nested_function->get_return_type()->is_nullable()) {
-            nullable_elems_to = assert_cast<ColumnNullable*>(elems_to);
+            nullable_elems_to = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(elems_to);
             elems_to = nullable_elems_to->get_nested_column_ptr().get();
         }
 
@@ -227,6 +228,29 @@ public:
         }
 
         offsets_to.push_back(offsets_to.back() + state.dynamic_array_size);
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        const auto* arr_to = check_and_get_column<ColumnArray>(to);
+        if (UNLIKELY(arr_to == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} is not "
+                    "ColumnArray",
+                    get_name(), to.get_name()));
+        }
+
+        const IColumn* elems_to = &arr_to->get_data();
+        if (!nested_function->get_return_type()->is_nullable()) {
+            const auto* nullable_elems_to = check_and_get_column<ColumnNullable>(*elems_to);
+            if (UNLIKELY(nullable_elems_to == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} result type check failed: Array nested column "
+                        "type {} is not ColumnNullable",
+                        get_name(), elems_to->get_name()));
+            }
+            elems_to = &nullable_elems_to->get_nested_column();
+        }
+        nested_function->check_result_column_type(*elems_to);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -266,6 +290,21 @@ public:
             nested_function->add(nested_state, nested.data(), i, arena);
             nested_state += nested_size_of_data;
         }
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        std::vector<const IColumn*> nested(num_arguments);
+        for (size_t i = 0; i < num_arguments; ++i) {
+            const auto* array_column = check_and_get_column<ColumnArray>(*columns[i]);
+            if (UNLIKELY(array_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} argument {} type check failed: Column type {} is "
+                        "not ColumnArray",
+                        get_name(), i, columns[i]->get_name()));
+            }
+            nested[i] = &array_column->get_data();
+        }
+        nested_function->check_input_columns_type(nested.data());
     }
 };
 } // namespace doris

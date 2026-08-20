@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
@@ -165,6 +166,7 @@ public class FEOpExecutor {
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setConnectingFeLocalResourceGroup(Config.local_resource_group);
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
@@ -211,6 +213,13 @@ public class FEOpExecutor {
                 params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
             }
         }
+
+        ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
+            params.setDelegatedCredentialSessionId(ctx.getSessionContext().getSessionId());
+            params.setDelegatedCredentialType(credential.getType().name());
+            params.setDelegatedCredentialToken(credential.getToken());
+            credential.getExpiresAtMillis().ifPresent(params::setDelegatedCredentialExpiresAtMillis);
+        });
 
         // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
         // generates packets matching the original client's protocol expectations.

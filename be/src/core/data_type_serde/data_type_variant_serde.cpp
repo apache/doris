@@ -49,8 +49,7 @@ Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVar
     options.timezone = &ctz;
     for (int64_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[cast_set<size_t>(i)]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             builder.type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
             continue;
         }
 
@@ -59,7 +58,7 @@ Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVar
         const auto serialized_size =
                 cast_set<typename BuilderType::offset_type>(serialized_value.size());
         RETURN_IF_ERROR(checkArrowStatus(builder.Append(serialized_value.data(), serialized_size),
-                                         column.get_name(), builder.type()->name()));
+                                         column, builder));
     }
     return Status::OK();
 }

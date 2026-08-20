@@ -100,12 +100,19 @@ enum KeySetType {
     MULTI_VERSION_META_ROWSET = 21;
 }
 
+enum InstanceRecycleState {
+    INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING = 0;
+    INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING = 1;
+    INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED = 2;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
         DELETED = 1;
         OVERDUE = 2;
     }
+
     optional string user_id = 1;
     optional string instance_id = 2;
     optional string name = 3;
@@ -152,6 +159,10 @@ message InstanceInfoPB {
     // It is not always same as source_instance_id, because the source instance may inherit from another
     // instance during rollback, and the predecessor instance is the real instance which to execute the rollback.
     optional string predecessor_instance_id = 124;
+
+    optional InstanceRecycleState recycle_state = 125;
+    // Last time when recycle_state was updated by a recycle step.
+    optional int64 recycle_state_update_time_ms = 126;
 }
 
 message StagePB {
@@ -394,6 +405,7 @@ message TxnCoordinatorPB {
 message RoutineLoadProgressPB {
     map<int32, int64> partition_to_offset = 1;
     optional RoutineLoadJobStatisticPB stat = 2;
+    // Error log URLs and first error messages are transient diagnostics and are not stored here.
 }
 
 message RLTaskTxnCommitAttachmentPB {
@@ -406,6 +418,7 @@ message RLTaskTxnCommitAttachmentPB {
     optional int64 task_execution_time_ms = 7;
     optional RoutineLoadProgressPB progress = 8;
     optional string error_log_url = 9;
+    optional string first_error_msg = 10;
 }
 
 message RoutineLoadJobStatisticPB {
@@ -531,6 +544,49 @@ message TxnInfoPB {
     // The cluster_id of the compute cluster that performed the load
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
+    optional int64 commit_tso = 23;
+}
+
+enum IndexObjectTypePB {
+    MATERIALIZED_INDEX = 0;
+    TABLE_STREAM = 1;
+}
+
+message TableStreamIdentityPB {
+    optional int64 base_db_id = 1;
+    optional int64 base_table_id = 2;
+    optional int64 stream_db_id = 3;
+    optional int64 stream_id = 4;
+}
+
+enum TableStreamOffsetStatePB {
+    TABLE_STREAM_OFFSET_UNKNOWN = 0;
+    TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING = 1;
+    TABLE_STREAM_OFFSET_CONSUMED = 2;
+}
+
+message TableStreamOffsetPB {
+    optional int64 partition_id = 1;
+    optional TableStreamOffsetStatePB state = 2;
+    optional int64 offset_tso = 3;
+    optional int64 last_consumption_time_ms = 4;
+}
+
+message TableStreamPartitionSetPB {
+    optional TableStreamIdentityPB identity = 1;
+    repeated int64 partition_ids = 2 [packed = true];
+}
+
+message TableStreamPartitionUpdatePB {
+    optional int64 partition_id = 1;
+    optional TableStreamOffsetStatePB expected_state = 2;
+    optional int64 expected_offset_tso = 3;
+    optional int64 next_offset_tso = 4;
+}
+
+message TableStreamUpdatePB {
+    optional TableStreamIdentityPB identity = 1;
+    repeated TableStreamPartitionUpdatePB partition_updates = 2;
 }
 
 // For check txn conflict and txn timeout
@@ -545,6 +601,7 @@ message VersionPB {
     optional int64 update_time_ms = 2;
     // now only allow one element
     repeated int64 pending_txn_ids = 3;
+    optional int64 commit_tso = 4 [default = -1];
 }
 
 message RecycleTxnPB {
@@ -565,6 +622,8 @@ message RecycleIndexPB {
     optional int64 expiration = 3; // expiration timestamp
     optional State state = 4;
     optional int64 db_id = 5;
+    optional IndexObjectTypePB object_type = 6 [default = MATERIALIZED_INDEX];
+    optional int64 stream_db_id = 7;
 }
 
 message RecyclePartitionPB {
@@ -580,6 +639,7 @@ message RecyclePartitionPB {
     optional int64 expiration = 4; // expiration timestamp
     optional State state = 5;
     optional int64 db_id = 6; // For version recycling
+    repeated TableStreamIdentityPB table_streams = 7;
 }
 
 message RecycleRowsetPB {
@@ -765,6 +825,7 @@ message CommitTxnLogPB {
     optional int64 txn_id = 4;
     optional RecycleTxnPB recycle_txn = 5;
     optional int64 db_id = 6;
+    repeated TableStreamPartitionSetPB table_stream_offset_gc = 7;
 }
 
 message SchemaChangeLogPB {
@@ -790,6 +851,7 @@ message DropPartitionLogPB {
     optional bool update_table_version = 6;
 
     map<string, int64> index_partition_to_data_size = 7;
+    repeated TableStreamIdentityPB table_streams = 8;
 }
 
 message CommitIndexLogPB {
@@ -807,6 +869,8 @@ message DropIndexLogPB {
     optional int64 expiration = 4; // expiration timestamp
 
     map<string, int64> index_partition_to_data_size = 5;
+    optional IndexObjectTypePB object_type = 6 [default = MATERIALIZED_INDEX];
+    optional int64 stream_db_id = 7;
 }
 
 message UpdateTabletLogPB {
@@ -1019,6 +1083,8 @@ message CommitTxnRequest {
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
     optional string request_ip = 12;
+    optional int64 commit_tso = 13;
+    repeated TableStreamUpdatePB table_stream_updates = 14;
 }
 
 message SubTxnInfo {
@@ -1044,6 +1110,11 @@ message CommitTxnResponse {
     repeated int64 versions = 5;
     repeated TableStatsPB table_stats = 6;
     optional int64 version_update_time_ms = 7;
+    // Whether this commit request used the lazy commit path.
+    optional bool is_lazy_commit = 8;
+    // The lazy commit has only completed its first phase. FE must not notify BE to make
+    // temporary rowsets visible until BE observes the final metadata from meta-service.
+    optional bool is_lazy_commit_incomplete = 9;
 }
 
 message AbortTxnRequest {
@@ -1228,6 +1299,7 @@ message GetVersionResponse {
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
     repeated int64 version_update_time_ms = 7;
+    repeated int64 commit_tsos = 8;
 };
 
 message GetObjStoreInfoRequest {
@@ -1408,6 +1480,10 @@ message IndexRequest {
     optional bool is_new_table = 6; // For table version
     optional string request_ip = 7;
     repeated int64 partition_ids = 8;
+    optional IndexObjectTypePB object_type = 9 [default = MATERIALIZED_INDEX];
+    optional int64 stream_db_id = 10;
+    // Initialize partition version metadata with the empty TSO boundary.
+    optional bool enable_tso = 11;
 }
 
 message IndexResponse {
@@ -1425,11 +1501,42 @@ message PartitionRequest {
     optional bool need_update_table_version = 7;
     optional string request_ip = 8;
     repeated int64 partition_versions = 9;
+    optional IndexObjectTypePB object_type = 10 [default = MATERIALIZED_INDEX];
+    repeated TableStreamOffsetPB table_stream_offsets = 11;
+    optional int64 stream_db_id = 12;
+    repeated TableStreamIdentityPB table_streams = 13;
+    // Initialize partition version metadata with the empty TSO boundary.
+    optional bool enable_tso = 14;
 }
 
 message PartitionResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 table_version = 2;
+}
+
+message GetTableStreamOffsetRequest {
+    optional string cloud_unique_id = 1;
+    repeated TableStreamPartitionSetPB bindings = 2;
+    optional string request_ip = 3;
+}
+
+message TableStreamPartitionReadStatePB {
+    optional int64 partition_id = 1;
+    optional TableStreamOffsetStatePB offset_state = 2;
+    optional int64 offset_tso = 3;
+    optional int64 end_tso = 4;
+    optional int64 visible_version = 5;
+    optional int64 last_consumption_time_ms = 6;
+}
+
+message TableStreamReadBindingResultPB {
+    optional TableStreamIdentityPB identity = 1;
+    repeated TableStreamPartitionReadStatePB partition_states = 2;
+}
+
+message GetTableStreamOffsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated TableStreamReadBindingResultPB bindings = 2;
 }
 
 message RestoreJobRequest {
@@ -1455,8 +1562,15 @@ message RestoreJobResponse {
 }
 
 message MetaServiceResponseStatus {
+    // Legacy-compatible status code. Keep this value recognizable by all released clients.
     optional MetaServiceCode code = 1;
     optional string msg = 2;
+    // Exact client-visible status code encoded as int32, so proto2 clients do not drop unknown
+    // enum values. Internal retry signals must be converted before the response is sent.
+    // New clients should use this field when the local enum descriptor recognizes the value.
+    // Otherwise, use `code` only when it is explicitly present and non-OK, and fail closed with
+    // UNDEFINED_ERR when no recognizable error code is available.
+    optional int32 actual_code = 3;
 }
 
 message MetaServiceHttpRequest {
@@ -1793,6 +1907,13 @@ message RecycleInstanceResponse {
 }
 
 enum MetaServiceCode {
+    // Compatibility rule: proto2 optional enum fields drop unknown enum values into
+    // UnknownFieldSet, so old clients read an unset `MetaServiceResponseStatus.code` as OK.
+
+    // MetaService must write the exact client-visible code to
+    // `MetaServiceResponseStatus.actual_code` and write only a legacy fallback code to
+    // `MetaServiceResponseStatus.code`. Any newly added error code that may be returned to
+    // clients must be mapped in resolve_response_code_and_msg().
     OK = 0;
 
     //Meta service internal error
@@ -1810,10 +1931,7 @@ enum MetaServiceCode {
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
     KV_TXN_TOO_OLD = 1011;
-    // WARNING: KV_TXN_MAYBE_COMMITTED is NOT returned to clients. It is kept as an
-    // internal retry signal inside MetaServiceProxy::call_impl(), then downgraded to
-    // KV_TXN_COMMIT_ERR before the response is sent back. Older BE/FE versions do not
-    // recognize this enum value, and proto2 would otherwise fall back to OK (= 0).
+    // WARNING: KV_TXN_MAYBE_COMMITTED must be downgraded through the legacy status channel.
     KV_TXN_MAYBE_COMMITTED = 1012;
 
     //Doris error
@@ -1877,11 +1995,6 @@ enum MetaServiceCode {
 
     SCHEMA_DICT_NOT_FOUND = 11001;
 
-    // WARNING: Before adding a new MetaServiceCode, consider backward compatibility.
-    // This is a proto2 optional enum field. If an older client receives an unrecognized
-    // enum value, the field is treated as unset and defaults to OK (= 0), silently
-    // turning errors into success. Any new error code that may be sent to older clients
-    // MUST be downgraded to a legacy code before the response is sent to the client.
     UNDEFINED_ERR = 1000000;
 }
 
@@ -2303,6 +2416,7 @@ service MetaService {
     rpc get_prepare_txn_by_coordinator(GetPrepareTxnByCoordinatorRequest) returns (GetPrepareTxnByCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
+    rpc get_table_stream_offset(GetTableStreamOffsetRequest) returns (GetTableStreamOffsetResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
 

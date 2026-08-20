@@ -47,7 +47,7 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::PASSTHROUGH};
+        return {TLocalPartitionType::PASSTHROUGH};
     }
 
 private:
@@ -58,5 +58,8 @@ private:
     TAssertion::type _assertion;
     bool _should_convert_output_to_nullable;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StreamingOperatorX<AssertNumRowsLocalState>;
 
 } // namespace doris

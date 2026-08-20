@@ -63,11 +63,16 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         TestableProvider() {
             super();
-            // Default to initial mode so initOnCreate() takes the splitting path
-            // (latest mode would try to call initSourceReader against a real backend).
+            // Default to initial mode so initOnCreate() takes the splitting path.
             this.sourceProperties.put(
                     org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET,
                     org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET_INITIAL);
+        }
+
+        // initOnCreate() now opens the remote reader for every mode; stub it out so the unit test
+        // doesn't issue a real backend RPC.
+        @Override
+        protected void initSourceReader() {
         }
 
         @Override

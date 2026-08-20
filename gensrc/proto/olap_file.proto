@@ -183,6 +183,9 @@ message RowsetMetaPB {
     // For row binlog LSN allocation (FE auto-inc RPC)
     optional int64 db_id = 1016;
     optional int64 table_id = 1017;
+    // Actual inverted-index format used by this rowset's files. It is independent
+    // from the shared (index_id, schema_version) schema key.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1018;
 }
 
 message SchemaDictKeyList {
@@ -301,6 +304,9 @@ message RowsetMetaCloudPB {
     optional int64 db_id = 115;
     optional int64 table_id = 116;
 
+    // Actual inverted-index format used by this rowset's files. It is independent
+    // from the shared (index_id, schema_version) schema key.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 117;
 }
 
 message SegmentStatisticsPB {
@@ -446,6 +452,7 @@ enum InvertedIndexStorageFormatPB {
     V1 = 0;
     V2 = 1;
     V3 = 2;
+    SNII = 3;
 }
 
 // Tablet-level storage format. Values match TStorageFormat (Thrift) integer values so
@@ -540,11 +547,17 @@ message TabletSchemaPB {
     // storage_format; the fallback path lives in TabletSchema::init_from_pb.
     optional TabletStorageFormatPB storage_format = 36;
 
-    // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
-    optional int32 binlog_timestamp_col_idx = 37 [default = -1];
+    // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
+    optional int32 commit_tso_col_idx = 39 [default = -1];
+
+    // cid of the binlog tso column (__DORIS_BINLOG_TSO__).
+    optional int32 binlog_tso_col_idx = 40 [default = -1];
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    optional int32 binlog_lsn_col_idx = 38 [default = -1];
+    optional int32 binlog_lsn_col_idx = 41 [default = -1];
+
+    // cid of the binlog op column (__DORIS_BINLOG_OP__).
+    optional int32 binlog_op_col_idx = 42 [default = -1];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -593,11 +606,17 @@ message TabletSchemaCloudPB {
     // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
     optional TabletStorageFormatPB storage_format = 37;
 
-    // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
-    optional int32 binlog_timestamp_col_idx = 38 [default = -1];
+    // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
+    optional int32 commit_tso_col_idx = 40 [default = -1];
+
+    // cid of the binlog tso column (__DORIS_BINLOG_TSO__).
+    optional int32 binlog_tso_col_idx = 41 [default = -1];
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    optional int32 binlog_lsn_col_idx = 39 [default = -1];
+    optional int32 binlog_lsn_col_idx = 42 [default = -1];
+
+    // cid of the binlog op column (__DORIS_BINLOG_OP__).
+    optional int32 binlog_op_col_idx = 43 [default = -1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 
@@ -618,6 +637,11 @@ enum TabletStatePB {
 enum TabletTypePB {
     TABLET_TYPE_DISK = 0;
     TABLET_TYPE_MEMORY = 1;
+}
+
+enum TabletRolePB {
+    TABLET_ROLE_DATA = 0;
+    TABLET_ROLE_ROW_BINLOG = 1;
 }
 
 enum StorageMediumPB {
@@ -695,9 +719,6 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
-    optional TabletSchemaPB row_binlog_schema = 42;
-    repeated RowsetMetaPB row_binlog_rs_metas = 43;
-    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 28 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 1000];
@@ -706,6 +727,10 @@ message TabletMetaPB {
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 34;
     optional int32 vertical_compaction_num_columns_per_group = 35 [default = 5];
+    // Tablet role: data or row_binlog.
+    optional TabletRolePB tablet_role = 36 [default = TABLET_ROLE_DATA];
+    // Used by a base tablet to find its paired row-binlog tablet.
+    optional int64 binlog_tablet_id = 37;
 
     // For cloud
     optional int64 index_id = 1000;
@@ -714,6 +739,8 @@ message TabletMetaPB {
     optional string table_name = 1003;
     optional int64 ttl_seconds = 1004;
     optional int32 schema_version = 1005; // index_id, schema_version -> schema
+    // Immutable format of this tablet's inverted-index files.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1006;
 }
 
 message TabletMetaCloudPB {
@@ -754,9 +781,6 @@ message TabletMetaCloudPB {
     optional int64 storage_policy_id = 28;
     optional PUniqueId cooldown_meta_id = 29;
     optional BinlogConfigPB binlog_config = 30;
-    optional TabletSchemaCloudPB row_binlog_schema = 42;
-    repeated RowsetMetaCloudPB row_binlog_rs_metas = 43;
-    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 31 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 1000];
@@ -767,11 +791,17 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 39;
     optional int32 vertical_compaction_num_columns_per_group = 40 [default = 5];
+    // Tablet role: data or row_binlog.
+    optional TabletRolePB tablet_role = 41 [default = TABLET_ROLE_DATA];
+    // Used by a base tablet to find its paired row-binlog tablet.
+    optional int64 binlog_tablet_id = 42;
 
     // Use for selectdb-cloud
     optional string table_name = 101;
     optional int64 ttl_seconds = 102;
     optional int32 schema_version = 103; // index_id, schema_version -> schema
+    // Immutable format of this tablet's inverted-index files.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 104;
 }
 
 message OLAPRawDeltaHeaderMessage {
@@ -784,7 +814,6 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
-    repeated bool is_binlog_delvec = 5;
 }
 
 message BinlogMetaEntryPB {

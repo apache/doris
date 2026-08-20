@@ -64,7 +64,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -100,8 +100,10 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -109,6 +111,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -180,6 +183,7 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
+    private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
@@ -189,10 +193,18 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
+    // reverted, so the audit log (built after execute() returns) can reflect the values that
+    // were actually in effect for this statement. Null when no SET_VAR hint was used.
+    private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
     private volatile Coordinator coord = null;
+    // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
+    // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
+    // is skipped.
+    private volatile boolean deferredForArrowFlight = false;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -339,6 +351,14 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
+        String queryBackendSelection = context.getBackendSelectionProfile().getQuerySummary();
+        if (queryBackendSelection != null) {
+            builder.queryBackendSelection(queryBackendSelection);
+        }
+        String loadBackendSelection = context.getBackendSelectionProfile().getLoadSummary();
+        if (loadBackendSelection != null) {
+            builder.loadBackendSelection(loadBackendSelection);
+        }
         builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
@@ -451,7 +471,8 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+                        || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
 
@@ -551,6 +572,10 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public List<List<String>> getChangedSessionVarsForAudit() {
+        return changedSessionVarsForAudit;
+    }
+
     /**
      * Replace the executor statement context and synchronize it to the owning ConnectContext.
      */
@@ -574,7 +599,7 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
+                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
         }
         queryRetry(queryId);
     }
@@ -583,6 +608,7 @@ public class StmtExecutor {
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        boolean disableCloudVersionCacheOnRetry = false;
         // If the query is an `outfile` statement,
         // we execute it only once to avoid exporting redundant data.
         if (parsedStmt instanceof Queriable) {
@@ -590,7 +616,11 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
-                execute(queryId);
+                if (disableCloudVersionCacheOnRetry) {
+                    executeWithVersionCacheDisabled(queryId);
+                } else {
+                    execute(queryId);
+                }
                 return;
             } catch (UserException e) {
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
@@ -602,6 +632,7 @@ public class StmtExecutor {
                 if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
+                disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
                 TUniqueId lastQueryId = queryId;
                 queryId = UniqueIdUtils.fastUniqueId();
                 int randomMillis = 10 + (int) (Math.random() * 10);
@@ -622,8 +653,37 @@ public class StmtExecutor {
         }
     }
 
+    // Temporarily disable the cloud version cache for this single attempt so that the retry
+    // re-fetches the visible version from meta-service, then restore the user-set TTLs.
+    private void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long oldPartitionTtl = sessionVariable.cloudPartitionVersionCacheTtlMs;
+        long oldTableTtl = sessionVariable.cloudTableVersionCacheTtlMs;
+        try {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = 0;
+            sessionVariable.cloudTableVersionCacheTtlMs = 0;
+            LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
+                    SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
+                    SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
+                    context.getQueryIdentifier());
+            execute(queryId);
+        } finally {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
+            sessionVariable.cloudTableVersionCacheTtlMs = oldTableTtl;
+        }
+    }
+
+    boolean shouldDisableCloudVersionCacheOnRetry(String errorMessage) {
+        return Config.isCloudMode()
+                && errorMessage != null
+                && errorMessage.contains(SystemInfoService.ERROR_E230)
+                && (context.getSessionVariable().cloudPartitionVersionCacheTtlMs != 0
+                || context.getSessionVariable().cloudTableVersionCacheTtlMs != 0);
+    }
+
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
+        context.setEffectiveCloudCluster(null);
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
@@ -650,6 +710,22 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Preserve the effective per-query compute group before SET_VAR values are reverted.
+            // Audit logging runs after this method returns and otherwise sees the session value.
+            if (Config.isCloudMode()) {
+                context.setEffectiveCloudCluster(sessionVariable.getCloudCluster());
+            }
+            // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
+            // so the audit log (logged after execute() returns, i.e. after the revert below) can
+            // reflect what was actually in effect for this statement instead of the reverted values.
+            if (sessionVariable.getIsSingleSetVar()) {
+                try {
+                    changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
+                } catch (Throwable t) {
+                    LOG.warn("failed to snapshot changed session variables for audit. {}",
+                            context.getQueryIdentifier(), t);
+                }
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -697,7 +773,7 @@ public class StmtExecutor {
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
+            LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
         }
         context.setQueryId(queryId);
         context.setStartTime();
@@ -778,15 +854,16 @@ public class StmtExecutor {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 }
                 context.setState(e.getQueryState());
-                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+                throw new NereidsException("Command(" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed",
                         new AnalysisException(e.getMessage(), e));
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 }
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
@@ -794,13 +871,15 @@ public class StmtExecutor {
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+                throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed",
                         new AnalysisException(e.getMessage(), e));
             } catch (Exception | Error e) {
                 // Maybe our bug
-                LOG.info("Command({}) process failed.", originStmt.originStmt, e);
+                LOG.info("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
-                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+                throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed.",
                         new AnalysisException(e.getMessage() == null ? e.toString() : e.getMessage(), e));
             }
         } else {
@@ -840,7 +919,7 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
+                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
@@ -980,6 +1059,23 @@ public class StmtExecutor {
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
     }
 
+    public boolean isDeferredForArrowFlight() {
+        return deferredForArrowFlight;
+    }
+
+    // Finalize an Arrow Flight query whose coordinator was kept alive across the
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
+    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    public void finalizeArrowFlightQuery() {
+        try {
+            if (coord != null) {
+                coord.close();
+            }
+        } finally {
+            finalizeQuery();
+        }
+    }
+
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
@@ -993,6 +1089,13 @@ public class StmtExecutor {
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
                     context.setNeedRegenerateInstanceId(newQueryId);
+                    // Each retry attempt gets a fresh per-statement connector scope. The previous attempt's scope
+                    // was closed by its own query-finish callback (registered under the previous query id), so
+                    // reusing it would memoize into an already-closed scope whose values then never close. Reset
+                    // closes (idempotent) and drops it; this attempt builds a fresh one under the new query id.
+                    if (context.getStatementContext() != null) {
+                        context.getStatementContext().resetConnectorStatementScope();
+                    }
                     if (Config.isCloudMode()) {
                         // sleep random millis [1000, 1500] ms
                         // in the begining of retryTime/2
@@ -1126,12 +1229,19 @@ public class StmtExecutor {
             return true;
         }
 
+        // Computed DML profiles are currently only supported for OLAP target tables.
+        if (plan instanceof SupportProfile && ((SupportProfile) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
         // Generate profile for:
         // 1. CreateTableCommand(mainly for create as select).
         // 2. LoadCommand.
         // 3. InsertOverwriteTableCommand.
+        // 4. MergeIntoCommand (merge into ... using ...).
         if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)
+                && !(plan instanceof MergeIntoCommand)) {
             // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {
@@ -1408,6 +1518,22 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                // Defer closing the coordinator to ConnectContext (closed on the next query or
+                // connection teardown) instead of in the finally block below. This gate covers
+                // every Arrow Flight query whose results are produced on the BE (coordBase ==
+                // coord) -- internal-table and external, batch or not. It is REQUIRED only for an
+                // external-table scan in batch mode, where the BE lazily fetches splits from the FE
+                // during the later DoGet phase, so closing the coordinator here would release its
+                // batch SplitSource too early and break DoGet. Other remote-result queries do not
+                // need deferral (the BE buffers their result independently) but are captured by the
+                // same gate; the trade-off is their coordinator, query queue slot and query
+                // registration stay held until the next query / teardown instead of being released
+                // at the end of GetFlightInfo. Point queries use a different coordBase (not
+                // deferred). See #62259.
+                if (coordBase == coord) {
+                    deferredForArrowFlight = true;
+                    context.addFlightSqlDeferredExecutor(this);
+                }
                 return;
             }
 
@@ -1517,7 +1643,12 @@ public class StmtExecutor {
             this.coord = null;
             throw e;
         } finally {
-            coordBase.close();
+            // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
+            // (next query / connection teardown), so the BE can still fetch splits during DoGet.
+            // See #62259.
+            if (!deferredForArrowFlight) {
+                coordBase.close();
+            }
         }
     }
 
@@ -1586,9 +1717,12 @@ public class StmtExecutor {
                 "delete_existing_files requires a remote outfile sink");
         Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
                 "delete_existing_files is not supported for local outfile sinks");
+        // Concrete filesystems only accept their native schemes; normalize legacy compatibility
+        // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
+        String filePath = outFileClause.getBrokerDesc().getFileLocation(outFileClause.getFilePath());
         try (org.apache.doris.filesystem.FileSystem fs =
                 FileSystemFactory.getFileSystem(outFileClause.getBrokerDesc())) {
-            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(outFileClause.getFilePath())), true);
+            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(filePath)), true);
         } catch (java.io.IOException e) {
             throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
         }
@@ -2281,6 +2415,55 @@ public class StmtExecutor {
             return originStmt.originStmt;
         }
         return "";
+    }
+
+    private String getStmtForLogging(String stmt) {
+        if (stmt == null) {
+            return stmt;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return getStmtForLoggingBeforeParse(stmt);
+        }
+        // Internal export outfile tasks use an empty origin SQL, so audit masking must skip reparsing here.
+        if (stmt.isEmpty()) {
+            return stmt;
+        }
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        if (!(logicalPlan instanceof NeedAuditEncryption)) {
+            return stmt;
+        }
+        try {
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+        } catch (Exception e) {
+            // Logging must not leak plaintext or change command behavior when masking fails.
+            LOG.warn("failed to mask statement for FE logging", e);
+            return MASKED_STMT_FALLBACK;
+        }
+    }
+
+    private String getStmtForLoggingBeforeParse() {
+        return getStmtForLoggingBeforeParse(originStmt == null ? null : originStmt.originStmt);
+    }
+
+    private String getStmtForLoggingBeforeParse(String stmt) {
+        if (stmt == null) {
+            return null;
+        }
+        // Empty SQL cannot produce a valid parse tree for audit masking, so keep the original text.
+        if (stmt.isEmpty()) {
+            return stmt;
+        }
+        try {
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(stmt);
+            if (!(logicalPlan instanceof NeedAuditEncryption)) {
+                return stmt;
+            }
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+        } catch (Exception e) {
+            // Logging must fail closed before parsing so secrets never fall back to plaintext.
+            LOG.warn("failed to prepare masked statement for FE logging", e);
+            return MASKED_STMT_FALLBACK;
+        }
     }
 
     public List<ByteBuffer> getProxyQueryResultBufList() {

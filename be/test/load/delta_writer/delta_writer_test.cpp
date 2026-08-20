@@ -44,6 +44,7 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -536,7 +537,7 @@ TEST_F(TestDeltaWriter, open) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     EXPECT_EQ(Status::OK(), res);
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
@@ -685,7 +686,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
         block.set_columns(std::move(columns));
-        res = delta_writer->write(&block, {0});
+        res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
     }
 
@@ -699,7 +700,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -775,11 +776,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
 
     generate_data(&block, 123, 456, 100);
-    res = delta_writer->write(&block, {0});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     ASSERT_TRUE(res.ok());
 
     generate_data(&block, 123, 456, 90);
-    res = delta_writer->write(&block, {1});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
     ASSERT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -792,7 +793,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -898,11 +899,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 100);
-        res = delta_writer1->write(&block, {0});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 100);
-        res = delta_writer1->write(&block, {1});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer1->close();
@@ -915,7 +916,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
         res = delta_writer1->wait_calc_delete_bitmap();
         ASSERT_TRUE(res.ok());
-        res = delta_writer1->commit_txn(PSlaveTabletNodes());
+        res = delta_writer1->commit_txn();
         ASSERT_TRUE(res.ok());
     }
     // write data in delta writer 2
@@ -927,11 +928,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 110);
-        res = delta_writer2->write(&block, {0});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 90);
-        res = delta_writer2->write(&block, {1});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer2->close();
@@ -997,7 +998,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         // We can't get the rowset id of rowset2 now, will check the delete bitmap
         // contains row 0 of rowset2 at L929.
 
-        res = delta_writer2->commit_txn(PSlaveTabletNodes());
+        res = delta_writer2->commit_txn();
         ASSERT_TRUE(res.ok());
 
         Version version;

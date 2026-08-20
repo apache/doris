@@ -62,6 +62,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -69,9 +70,11 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
@@ -100,8 +103,47 @@
 #include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
+#include "util/jsonb_utils.h"
 
 namespace doris::variant_util {
+
+namespace {
+
+PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::string_view path) {
+    if (!path.empty()) {
+        return PathInData(parent_column->name_lower_case() + "." + std::string(path));
+    }
+
+    // Keep the empty JSON key as a real path part. The variant root is `parts.empty()`;
+    // an empty key is `parts.size() == 1 && parts[0].key.empty()` after popping root.
+    PathInDataBuilder builder;
+    return builder.append(parent_column->name_lower_case(), false).append("", false).build();
+}
+
+void append_empty_key_subcolumn_from_stats(TabletSchema::PathsSetInfo& paths_set_info,
+                                           const TabletColumnPtr& parent_column,
+                                           TabletSchemaSPtr& output_schema) {
+    if (!paths_set_info.sub_path_set.contains("") || paths_set_info.sparse_path_set.contains("") ||
+        paths_set_info.subcolumn_indexes.contains("")) {
+        return;
+    }
+
+    auto column_name = parent_column->name_lower_case() + ".";
+    auto column_path = make_full_subcolumn_path(parent_column, "");
+
+    TabletColumn subcolumn;
+    subcolumn.set_name(column_name);
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    subcolumn.set_parent_unique_id(parent_column->unique_id());
+    subcolumn.set_path_info(column_path);
+    subcolumn.set_aggregation_method(parent_column->aggregation());
+    subcolumn.set_variant_max_subcolumns_count(parent_column->variant_max_subcolumns_count());
+    subcolumn.set_variant_enable_doc_mode(parent_column->variant_enable_doc_mode());
+    subcolumn.set_is_nullable(true);
+    output_schema->append_column(subcolumn);
+}
+
+} // namespace
 
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
@@ -341,7 +383,12 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (type->get_primitive_type() == TYPE_VARIANT) {
+    // ColumnVariantV2 owns its encoded/typed representation and its CAST implementation preserves
+    // the outer null map. The manual root-wrapping path below is V1-only and would rebuild V2 as a
+    // legacy ColumnVariant.
+    const bool target_is_variant_v2 =
+            dynamic_cast<const DataTypeVariantV2*>(remove_nullable(type).get()) != nullptr;
+    if (type->get_primitive_type() == TYPE_VARIANT && !target_is_variant_v2) {
         // If source column is variant, so the nullable info is different from dst column
         if (arg.type->get_primitive_type() == TYPE_VARIANT) {
             *result = type->is_nullable() ? make_nullable(arg.column) : remove_nullable(arg.column);
@@ -385,7 +432,14 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     ctx->set_jsonb_string_as_string(true);
     tmp_block.insert({nullptr, type, arg.name});
     // TODO(lihangyu): we should handle this error in strict mode
-    if (!function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size())) {
+    Status cast_status =
+            function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size());
+    if (!cast_status.ok()) {
+        // Variant V2 deliberately rejects source types without a physical encoding (currently
+        // Decimal256). Publishing the legacy all-null fallback would silently lose stored values.
+        if (target_is_variant_v2) {
+            return cast_status;
+        }
         LOG_EVERY_N(WARNING, 100) << fmt::format("cast from {} to {}", arg.type->get_name(),
                                                  type->get_name());
         *result = type->create_column_const_with_default_value(arg.column->size())
@@ -396,6 +450,37 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
                               arg.column->get_name(), (*result)->get_name());
     return Status::OK();
+}
+
+ColumnPtr jsonb_root_to_json_string_column(const IColumn& root) {
+    auto root_column = root.convert_to_full_column_if_const();
+    const IColumn* jsonb_column = root_column.get();
+    const NullMap* null_map = nullptr;
+    if (root_column->is_nullable()) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*root_column);
+        jsonb_column = &nullable.get_nested_column();
+        null_map = &nullable.get_null_map_data();
+    }
+
+    const auto& column = assert_cast<const ColumnString&>(*jsonb_column);
+    auto result = ColumnString::create();
+    result->reserve(column.size());
+    for (size_t i = 0; i < column.size(); ++i) {
+        if (null_map != nullptr && (*null_map)[i]) {
+            result->insert_default();
+            continue;
+        }
+
+        const auto jsonb = column.get_data_at(i);
+        if (jsonb.size == 0) {
+            result->insert_default();
+            continue;
+        }
+
+        const auto json = JsonbToJson::jsonb_to_json_string(jsonb.data, jsonb.size);
+        result->insert_data(json.data(), json.size());
+    }
+    return result->get_ptr();
 }
 
 void get_column_by_type(const DataTypePtr& data_type, const std::string& name, TabletColumn& column,
@@ -426,9 +511,15 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
         return;
     }
     if (data_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        const auto* dt_variant = assert_cast<const DataTypeVariant*>(data_type.get());
-        column.set_variant_max_subcolumns_count(dt_variant->variant_max_subcolumns_count());
-        column.set_variant_enable_doc_mode(dt_variant->enable_doc_mode());
+        const auto* variant_v1 = typeid_cast<const DataTypeVariant*>(data_type.get());
+        const auto* variant_v2 = typeid_cast<const DataTypeVariantV2*>(data_type.get());
+        DORIS_CHECK(variant_v1 != nullptr || variant_v2 != nullptr);
+        column.set_variant_max_subcolumns_count(
+                variant_v2 != nullptr ? variant_v2->variant_max_subcolumns_count()
+                                      : variant_v1->variant_max_subcolumns_count());
+        column.set_variant_enable_doc_mode(variant_v2 != nullptr ? variant_v2->enable_doc_mode()
+                                                                 : variant_v1->enable_doc_mode());
+        column.set_variant_is_v2(variant_v2 != nullptr);
         return;
     }
     // size is not fixed when type is string or json
@@ -1162,7 +1253,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
     // append subcolumns
     for (const auto& subpath : sorted_subpaths) {
         auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
-        auto column_path = PathInData(column_name);
+        auto column_path = make_full_subcolumn_path(parent_column,
+                                                    std::string_view(subpath.data, subpath.size));
 
         const auto& find_data_types = path_to_data_types.find(PathInData(subpath));
 
@@ -1229,7 +1321,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
-        auto column_path = PathInData(column_name);
+        auto column_path = make_full_subcolumn_path(parent_column, path.get_path());
         TabletColumn sub_column =
                 get_column_by_type(data_type, column_name,
                                    ExtraInfo {.unique_id = -1,
@@ -1244,6 +1336,10 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
                    << data_type->get_name();
     }
+    // The data-type map can contain the variant root as PathInData(), while an empty JSON key
+    // only appears in path stats as "". If stats selected it as a materialized path, append it
+    // with an explicit empty path part so it does not collide with root.
+    append_empty_key_subcolumn_from_stats(paths_set_info, parent_column, output_schema);
 }
 
 // Build the temporary schema for compaction.
@@ -1827,26 +1923,26 @@ static void append_field_to_binary_chars(const Field& field, ColumnString::Chars
     }
     case PrimitiveType::TYPE_BOOLEAN: {
         append_binary_type(chars,
-                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BOOLEAN));
+                           primitive_type_to_storage_field_type(PrimitiveType::TYPE_BOOLEAN));
         const auto v = static_cast<UInt8>(field.get<PrimitiveType::TYPE_BOOLEAN>());
         append_binary_bytes(chars, &v, sizeof(UInt8));
         return;
     }
     case PrimitiveType::TYPE_BIGINT: {
-        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BIGINT));
+        append_binary_type(chars, primitive_type_to_storage_field_type(PrimitiveType::TYPE_BIGINT));
         const auto v = field.get<PrimitiveType::TYPE_BIGINT>();
         append_binary_bytes(chars, &v, sizeof(Int64));
         return;
     }
     case PrimitiveType::TYPE_LARGEINT: {
         append_binary_type(chars,
-                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_LARGEINT));
+                           primitive_type_to_storage_field_type(PrimitiveType::TYPE_LARGEINT));
         const auto v = field.get<PrimitiveType::TYPE_LARGEINT>();
         append_binary_bytes(chars, &v, sizeof(int128_t));
         return;
     }
     case PrimitiveType::TYPE_DOUBLE: {
-        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_DOUBLE));
+        append_binary_type(chars, primitive_type_to_storage_field_type(PrimitiveType::TYPE_DOUBLE));
         const auto v = field.get<PrimitiveType::TYPE_DOUBLE>();
         append_binary_bytes(chars, &v, sizeof(Float64));
         return;
@@ -2152,6 +2248,13 @@ Status _parse_and_materialize_variant_columns(Block& block,
     for (size_t i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = is_column_nullable(*column_ref);
+        const IColumn& physical_column =
+                is_nullable ? assert_cast<const ColumnNullable&>(*column_ref).get_nested_column()
+                            : *column_ref;
+        const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(physical_column);
+        if (variant_v2 != nullptr) {
+            continue;
+        }
         MutableColumnPtr owner_column = IColumn::mutate(std::move(column_ref));
         ColumnPtr nullable_null_map;
         MutableColumnPtr var_column;
@@ -2174,17 +2277,7 @@ Status _parse_and_materialize_variant_columns(Block& block,
         VLOG_DEBUG << "parse scalar variant column: " << var.get_root_type()->get_name();
         ColumnPtr scalar_root_column;
         if (var.get_root_type()->get_primitive_type() == TYPE_JSONB) {
-            // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
-            // json str and parse them into variant
-            RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
-                                        var.get_root()->is_nullable()
-                                                ? make_nullable(std::make_shared<DataTypeString>())
-                                                : std::make_shared<DataTypeString>(),
-                                        &scalar_root_column));
-            if (is_column_nullable(*scalar_root_column)) {
-                scalar_root_column = assert_cast<const ColumnNullable*>(scalar_root_column.get())
-                                             ->get_nested_column_ptr();
-            }
+            scalar_root_column = jsonb_root_to_json_string_column(*var.get_root());
         } else {
             const auto& root = *var.get_root();
             scalar_root_column =

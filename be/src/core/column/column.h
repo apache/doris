@@ -36,8 +36,7 @@
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
-#include "exec/sort/hybrid_sorter.h"
-#include "storage/olap_common.h"
+#include "storage/rowset_id.h"
 
 namespace doris {
 class SipHash;
@@ -47,6 +46,7 @@ namespace doris {
 
 class Arena;
 class ColumnSorter;
+class HybridSorter;
 
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
@@ -421,6 +421,16 @@ public:
                                "Method update_crc32c_batch is not supported for " + get_name());
     }
 
+    // Hash NULL rows as this column type's default value, instead of skipping them like
+    // update_crc32c_batch(hashes, null_map). This keeps the legacy Nullable fixed-width hash
+    // semantics without mutating the source nested column.
+    virtual void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_crc32c_batch_default_on_null is not supported for " + get_name());
+    }
+
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_map) const {
@@ -452,7 +462,8 @@ public:
      *  // nullable -> predict_column
      *  // string (dictionary) -> column_dictionary
      */
-    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                      IColumn* col_ptr) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
@@ -503,11 +514,10 @@ public:
     }
 
 #ifdef BE_TEST
+    // Defined in column.cpp: constructs a HybridSorter, which is only
+    // forward-declared here to keep exec/sort out of column.h's closure.
     void get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const {
-        HybridSorter sorter;
-        get_permutation(reverse, limit, nan_direction_hint, sorter, res);
-    }
+                                 Permutation& res) const;
 #endif
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
@@ -563,10 +573,27 @@ public:
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
-    using ColumnCallback = std::function<void(WrappedPtr&)>;
-    using ImutableColumnCallback = std::function<void(const IColumn&)>;
-    virtual void for_each_subcolumn(ColumnCallback) {}
+    using ColumnCallback = std::function<void(const IColumn&)>;
+    virtual void for_each_subcolumn(ColumnCallback) const {}
 
+protected:
+    virtual void mutate_subcolumns() {}
+
+    static void mutate_subcolumn(WrappedPtr& subcolumn) {
+        static_cast<IColumn::Ptr&>(subcolumn) =
+                std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+    }
+
+    template <typename ColumnType>
+    static void mutate_subcolumn(typename ColumnType::WrappedPtr& subcolumn) {
+        auto mutated = std::move(*static_cast<const typename ColumnType::Ptr&>(subcolumn)).mutate();
+        auto typed_mutated = ColumnType::cast_to_column_mutptr(
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(mutated.get()));
+        mutated = nullptr;
+        static_cast<typename ColumnType::Ptr&>(subcolumn) = std::move(typed_mutated);
+    }
+
+public:
     /// Columns have equal structure.
     /// If true - you can use "compare_at", "insert_from", etc. methods.
     virtual bool structure_equals(const IColumn&) const {
@@ -580,10 +607,7 @@ public:
     // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 
@@ -594,10 +618,7 @@ public:
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 
@@ -653,6 +674,21 @@ public:
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_string64() const { return false; }
+
+    bool contains_column_string64() const {
+        if (is_column_string64()) {
+            return true;
+        }
+
+        bool contains = false;
+        ColumnCallback callback = [&](const IColumn& subcolumn) {
+            if (!contains) {
+                contains = subcolumn.contains_column_string64();
+            }
+        };
+        for_each_subcolumn(callback);
+        return contains;
+    }
 
     virtual bool is_column_dictionary() const { return false; }
 
@@ -726,6 +762,17 @@ public:
     // whether support replace null data, default return false
     // column_vector and column_decimal override this method to return true
     virtual bool support_replace_column_null_data() const { return false; }
+
+    /**
+     * Try to replace the payload of NULL rows with the nested column's default value without
+     * going through COW. Implementations must return false without modifying data unless the
+     * complete column ownership chain is exclusive. This is only safe because payloads of rows
+     * that are already NULL are not observable through the nullable column. In particular, a
+     * shared nested column may belong to another nullable column with a different null map.
+     *
+     * This bypasses the normal COW mutation path. Do not use it for general column mutation.
+     */
+    virtual bool try_replace_null_payload_with_default_without_cow() const { return false; }
 
     // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
     // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join

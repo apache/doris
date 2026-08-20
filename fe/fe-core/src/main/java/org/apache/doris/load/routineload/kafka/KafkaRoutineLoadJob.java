@@ -33,6 +33,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -82,6 +83,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -102,6 +104,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final String READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE = "Kafka routine load consumed 0 rows "
             + "while lag is still positive under isolation.level=read_committed. If the upstream producer uses "
             + "Kafka transactions, some records may be in uncommitted transactions and are not visible yet.";
+    private static final String SENSITIVE_PROPERTY_MASK = "******";
 
     @SerializedName("bl")
     private String brokerList;
@@ -549,7 +552,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties(false);
-        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
+        String computeGroupName = getComputeGroupName();
+        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties, computeGroupName);
+    }
+
+    private String getComputeGroupName() {
+        return Config.isCloudMode() ? getCloudCluster() : null;
     }
 
     public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
@@ -649,13 +657,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Integer kafkaPartition : newPartitions) {
             partitionOffsets.add(Pair.of(kafkaPartition, beginOffset));
         }
+        String computeGroupName = getComputeGroupName();
         try {
             if (isOffsetForTimes()) {
                 partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList,
-                        this.topic, convertedCustomProperties, partitionOffsets);
+                        this.topic, convertedCustomProperties, partitionOffsets, computeGroupName);
             } else {
                 partitionOffsets = KafkaUtil.getRealOffsets(this.brokerList,
-                        this.topic, convertedCustomProperties, partitionOffsets);
+                        this.topic, convertedCustomProperties, partitionOffsets, computeGroupName);
             }
         } catch (LoadException e) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -687,15 +696,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         List<Pair<Integer, Long>> kafkaPartitionOffsets = kafkaDataSourceProperties.getKafkaPartitionOffsets();
         boolean isForTimes = kafkaDataSourceProperties.isOffsetsForTimes();
+        String computeGroupName = getComputeGroupName();
         if (isForTimes) {
             // the offset is set by date time, we need to get the real offset by time
             kafkaPartitionOffsets = KafkaUtil.getOffsetsForTimes(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
-                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets(),
+                    computeGroupName);
         } else {
             kafkaPartitionOffsets = KafkaUtil.getRealOffsets(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
-                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets(),
+                    computeGroupName);
         }
 
         for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
@@ -723,7 +735,31 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(customProperties);
+        return gson.toJson(getMaskedCustomProperties(""));
+    }
+
+    private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
+        Map<String, String> maskedProperties = new HashMap<>();
+        customProperties.forEach((key, value) -> {
+            String lowerKey = key.toLowerCase(Locale.ROOT);
+            boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
+                    || KafkaConfiguration.AWS_ACCESS_KEY.equalsIgnoreCase(key)
+                    || DatasourcePrintableMap.SENSITIVE_KEY.contains(key)
+                    || lowerKey.endsWith(".password")
+                    || lowerKey.endsWith(".secret")
+                    || lowerKey.endsWith(".secret_key")
+                    || lowerKey.endsWith(".secret.key")
+                    || lowerKey.endsWith(".session_key")
+                    || lowerKey.endsWith(".session.token")
+                    || lowerKey.contains(".private.key.")
+                    || lowerKey.endsWith(".private.key")
+                    || lowerKey.endsWith(".private_key")
+                    || lowerKey.endsWith(".passphrase")
+                    || "ssl.keystore.key".equals(lowerKey)
+                    || "ssl.key.pem".equals(lowerKey);
+            maskedProperties.put(keyPrefix + key, sensitive ? SENSITIVE_PROPERTY_MASK : value);
+        });
+        return maskedProperties;
     }
 
     @Override
@@ -736,9 +772,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public Map<String, String> getCustomProperties() {
-        Map<String, String> ret = new HashMap<>();
-        customProperties.forEach((k, v) -> ret.put("property." + k, v));
-        return ret;
+        return getMaskedCustomProperties("property.");
     }
 
     @Override
@@ -771,11 +805,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (partitionOffsets.isEmpty()) {
             return;
         }
+        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
-            newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic, convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getOffsetsForTimes(
+                    brokerList, topic, convertedCustomProperties, partitionOffsets, computeGroupName);
         } else {
-            newOffsets = KafkaUtil.getRealOffsets(brokerList, topic, convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getRealOffsets(
+                    brokerList, topic, convertedCustomProperties, partitionOffsets, computeGroupName);
         }
         dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
@@ -889,6 +926,25 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    boolean isTaskLagGreaterThanMaxBatchRows(Map<Integer, Long> partitionIdToOffset) {
+        long remainingRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            Long latestOffset = cachedPartitionWithLatestOffsets.get(entry.getKey());
+            if (latestOffset == null) {
+                continue;
+            }
+            long partitionLag = latestOffset - entry.getValue();
+            if (partitionLag <= 0) {
+                continue;
+            }
+            if (partitionLag > remainingRows) {
+                return true;
+            }
+            remainingRows -= partitionLag;
+        }
+        return false;
+    }
+
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
     public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
@@ -931,8 +987,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             } finally {
                 writeUnlock();
             }
+            String computeGroupName = getComputeGroupName();
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
-                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()));
+                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()),
+                    computeGroupName);
             updateLatestOffsetsCache(tmp, taskId);
         } catch (Exception e) {
             // It needs to pause job when can not get partition meta.
@@ -995,8 +1053,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             writeUnlock();
         }
         UUID taskId = UUID.randomUUID();
+        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> latestOffsets = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
-                topicSnapshot, customPropertiesSnapshot, partitionIds);
+                topicSnapshot, customPropertiesSnapshot, partitionIds, computeGroupName);
         updateLatestOffsetsCache(latestOffsets, taskId);
     }
 

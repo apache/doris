@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_row_binlog_schema_change", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_mow_schema_change_with_binlog FORCE"
 
     sql """
@@ -64,7 +60,7 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
                __BEFORE__v2__,
                __BEFORE__v3__
         FROM binlog("table" = "test_mow_schema_change_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql "ALTER TABLE test_mow_schema_change_with_binlog DROP COLUMN v1"
@@ -80,7 +76,7 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
                __BEFORE__v2__,
                __BEFORE__v3__
         FROM binlog("table" = "test_mow_schema_change_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql "ALTER TABLE test_mow_schema_change_with_binlog ADD COLUMN v1 STRING"
@@ -99,7 +95,7 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
                __BEFORE__v2__,
                __BEFORE__v3__
         FROM binlog("table" = "test_mow_schema_change_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     test {

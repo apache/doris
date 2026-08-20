@@ -35,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
@@ -97,7 +98,8 @@ public class StreamLoadHandler {
     public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(Backend::isLoadAvailable)
+                .stream().filter(backend -> backend.isLoadAvailable() && !backend.isDecommissioned()
+                        && !backend.isDecommissioning())
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -117,7 +119,7 @@ public class StreamLoadHandler {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("stream load put request: {}", request);
+            LOG.debug("stream load put request: {}", ThriftLogHelper.requestForLog(request));
         }
         // create connect context
         ConnectContext ctx = new ConnectContext();
@@ -136,11 +138,19 @@ public class StreamLoadHandler {
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
             ctx.setCurrentUserIdentity(resolveCloudLoadUserIdentity(userName));
         }
-        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
+        if (request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
-            ctx.setCloudCluster(backend.getCloudClusterName());
+            String computeGroup = backend.getCloudClusterName();
+            // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
+            // stream loads must still validate compute group privilege, existence, and status.
+            if (request.isSetToken() || request.isSetAuthCode() || Strings.isNullOrEmpty(userName)) {
+                ctx.setCloudCluster(computeGroup);
+            } else {
+                ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(computeGroup, ctx);
+            }
+            request.setCloudCluster(computeGroup);
             return;
         }
         if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
@@ -278,6 +288,7 @@ public class StreamLoadHandler {
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+            result.setEnableTso(table.enableTso());
             fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {

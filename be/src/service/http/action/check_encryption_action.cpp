@@ -36,6 +36,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_status.h"
@@ -44,7 +45,6 @@
 
 namespace doris {
 
-const std::string TABLET_ID = "tablet_id";
 const std::string GET_FOOTER = "get_footer";
 
 CheckEncryptionAction::CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,

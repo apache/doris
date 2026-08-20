@@ -57,7 +57,12 @@ public:
         std::string value;
         value.reserve(row_ids.size() * 15);
         for (int i = 0; i < row_ids.size(); i++) {
-            value.append(fmt::format("[{}, {}, {}]", row_ids[i], partition_ids[i], tablet_ids[i]));
+            if (i < tablet_ids.size()) {
+                value.append(
+                        fmt::format("[{}, {}, {}]", row_ids[i], partition_ids[i], tablet_ids[i]));
+            } else {
+                value.append(fmt::format("[{}, {}]", row_ids[i], partition_ids[i]));
+            }
         }
         return value;
     }
@@ -81,7 +86,6 @@ public:
         const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
         std::shared_ptr<OlapTableSchemaParam> schema;
         void* caller = nullptr;
-        bool write_single_replica = false;
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
@@ -103,7 +107,6 @@ public:
         _vec_output_expr_ctxs = ctx.vec_output_expr_ctxs;
         _schema = ctx.schema;
         _caller = ctx.caller;
-        _write_single_replica = ctx.write_single_replica;
         _create_partition_callback = ctx.create_partition_callback;
     }
 
@@ -241,7 +244,6 @@ private:
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
-    bool _write_single_replica = false;
 
     // reuse for find_tablet. save partitions found by find_tablets
     std::vector<VOlapTablePartition*> _partitions;

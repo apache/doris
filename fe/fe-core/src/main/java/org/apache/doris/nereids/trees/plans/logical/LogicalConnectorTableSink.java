@@ -47,23 +47,73 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
     // bound data sink
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
+    // Preserve the single schema generation captured by BindSink; later phases must not re-read a
+    // newer schema and accidentally move the baseline used for ordinal write validation.
+    private final List<Column> boundTargetSchema;
+    private final List<Column> boundPartitionColumns;
+    private final String boundWriteMetadataIdentity;
     private final DMLCommandType dmlCommandType;
+    // Rewrite (compaction) marker, carried from UnboundConnectorTableSink.isRewrite so the physical sink
+    // can force single-node GATHER output for a rewrite_data_files INSERT-SELECT. Part of plan identity
+    // (equals/hashCode) so the memo never collapses a rewrite sink onto a non-rewrite one. Defaults false.
+    private final boolean rewrite;
 
     /**
      * constructor
      */
     public LogicalConnectorTableSink(ExternalDatabase database,
                                      ExternalTable targetTable,
+                                     List<Column> boundTargetSchema,
                                      List<Column> cols,
                                      List<NamedExpression> outputExprs,
                                      DMLCommandType dmlCommandType,
+                                     boolean rewrite,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, ImmutableList.of(), cols, outputExprs,
+                dmlCommandType, rewrite, groupExpression, logicalProperties, child);
+    }
+
+    /**
+     * Builds a connector sink with target and partition columns captured from one schema generation.
+     */
+    public LogicalConnectorTableSink(ExternalDatabase database,
+                                     ExternalTable targetTable,
+                                     List<Column> boundTargetSchema,
+                                     List<Column> boundPartitionColumns,
+                                     List<Column> cols,
+                                     List<NamedExpression> outputExprs,
+                                     DMLCommandType dmlCommandType,
+                                     boolean rewrite,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns, null, cols, outputExprs,
+                dmlCommandType, rewrite, groupExpression, logicalProperties, child);
+    }
+
+    /** Builds a connector sink with its opaque write generation captured by the same schema load. */
+    public LogicalConnectorTableSink(ExternalDatabase database,
+                                     ExternalTable targetTable,
+                                     List<Column> boundTargetSchema,
+                                     List<Column> boundPartitionColumns,
+                                     String boundWriteMetadataIdentity,
+                                     List<Column> cols,
+                                     List<NamedExpression> outputExprs,
+                                     DMLCommandType dmlCommandType,
+                                     boolean rewrite,
                                      Optional<GroupExpression> groupExpression,
                                      Optional<LogicalProperties> logicalProperties,
                                      CHILD_TYPE child) {
         super(PlanType.LOGICAL_CONNECTOR_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalConnectorTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalConnectorTableSink");
+        this.boundTargetSchema = ImmutableList.copyOf(boundTargetSchema);
+        this.boundPartitionColumns = ImmutableList.copyOf(boundPartitionColumns);
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
         this.dmlCommandType = dmlCommandType;
+        this.rewrite = rewrite;
     }
 
     /** Update output expressions based on child output and replace child. */
@@ -72,22 +122,25 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalConnectorTableSink<>(database, targetTable, cols, output,
-                dmlCommandType, Optional.empty(), Optional.empty(), child));
+                new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, output,
+                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), child));
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalConnectorTableSink only accepts one child");
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0)));
+                new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, outputExprs,
+                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     public LogicalConnectorTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), child()));
+                new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, outputExprs,
+                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), child()));
     }
 
     public ExternalDatabase getDatabase() {
@@ -98,8 +151,24 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         return targetTable;
     }
 
+    public List<Column> getBoundTargetSchema() {
+        return boundTargetSchema;
+    }
+
+    public List<Column> getBoundPartitionColumns() {
+        return boundPartitionColumns;
+    }
+
+    public String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
+    }
+
     public DMLCommandType getDmlCommandType() {
         return dmlCommandType;
+    }
+
+    public boolean isRewrite() {
+        return rewrite;
     }
 
     @Override
@@ -115,13 +184,19 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         }
         LogicalConnectorTableSink<?> that = (LogicalConnectorTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
+                && rewrite == that.rewrite
                 && Objects.equals(database, that.database)
-                && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols);
+                && Objects.equals(targetTable, that.targetTable)
+                && Objects.equals(boundTargetSchema, that.boundTargetSchema)
+                && Objects.equals(boundPartitionColumns, that.boundPartitionColumns)
+                && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity)
+                && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType);
+        return Objects.hash(super.hashCode(), database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, dmlCommandType, rewrite);
     }
 
     @Override
@@ -130,8 +205,11 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
+                "boundTargetSchema", boundTargetSchema,
+                "boundPartitionColumns", boundPartitionColumns,
                 "cols", cols,
-                "dmlCommandType", dmlCommandType
+                "dmlCommandType", dmlCommandType,
+                "rewrite", rewrite
         );
     }
 
@@ -143,15 +221,17 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child()));
+                new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, outputExprs,
+                dmlCommandType, rewrite, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0)));
+                new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, outputExprs,
+                dmlCommandType, rewrite, groupExpression, logicalProperties, children.get(0)));
     }
 }

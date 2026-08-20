@@ -30,6 +30,7 @@
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
@@ -98,6 +99,12 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
+    // SNII only: (column_unique_id, index_id) pairs whose postings are produced
+    // by index compaction. The segment writer raw-builds every OTHER SNII index
+    // of the column, so one eligible and one new index on the same column can
+    // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
+    // their per-column CLucene directories cannot split an index off a column.
+    std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
@@ -247,17 +254,26 @@ struct RowsetWriterContext {
 
     io::FileSystem& fs_ref() const { return *fs(); }
 
-    io::FileWriterOptions get_file_writer_options(bool is_index_file = false) {
-        bool should_write_cache = write_file_cache;
-        // If configured to only write index files to cache, skip cache for data files
-        if (compaction_output_write_index_only && !is_index_file) {
-            should_write_cache = false;
+    io::FileWriterOptions get_file_writer_options(FileType file_type = FileType::SEGMENT_FILE) {
+        io::FileWriterOptions opts {.write_file_cache = write_file_cache,
+                                    .is_cold_data = is_hot_data,
+                                    .file_cache_expiration_time = file_cache_ttl_sec,
+                                    .approximate_bytes_to_write = approximate_bytes_to_write};
+
+        if (config::enable_file_cache_write_index_file_only) {
+            opts.allow_adaptive_file_cache_write = false;
+            opts.approximate_bytes_to_write = 0;
+            opts.write_file_cache = file_type == FileType::INVERTED_INDEX_FILE;
+            return opts;
         }
 
-        return io::FileWriterOptions {.write_file_cache = should_write_cache,
-                                      .is_cold_data = is_hot_data,
-                                      .file_cache_expiration_time = file_cache_ttl_sec,
-                                      .approximate_bytes_to_write = approximate_bytes_to_write};
+        if (compaction_output_write_index_only && file_type == FileType::SEGMENT_FILE) {
+            opts.write_file_cache = false;
+            opts.allow_adaptive_file_cache_write = false;
+            opts.approximate_bytes_to_write = 0;
+        }
+
+        return opts;
     }
 
     struct BinlogOptions {

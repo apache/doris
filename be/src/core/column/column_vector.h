@@ -257,6 +257,9 @@ public:
     void update_crc32c_batch(uint32_t* __restrict hashes,
                              const uint8_t* __restrict null_map) const override;
 
+    void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                             const uint8_t* __restrict null_map) const override;
+
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
@@ -271,7 +274,8 @@ public:
 
     void insert_value(const value_type value) { data.push_back(value); }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override {
         Self* output = assert_cast<Self*>(col_ptr);
         auto& res_data = output->get_data();
         DCHECK(res_data.empty())
@@ -417,6 +421,7 @@ public:
 
 protected:
     uint32_t _zlib_crc32_hash(uint32_t hash, size_t idx) const;
+    uint32_t _crc32c_hash_value(uint32_t hash, const value_type& value) const;
     uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     Container data;
 };
@@ -440,5 +445,25 @@ using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
+
+/// Instantiated once in column_vector.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnVector<TYPE_BOOLEAN>;
+extern template class ColumnVector<TYPE_TINYINT>;
+extern template class ColumnVector<TYPE_SMALLINT>;
+extern template class ColumnVector<TYPE_INT>;
+extern template class ColumnVector<TYPE_BIGINT>;
+extern template class ColumnVector<TYPE_LARGEINT>;
+extern template class ColumnVector<TYPE_FLOAT>;
+extern template class ColumnVector<TYPE_DOUBLE>;
+extern template class ColumnVector<TYPE_IPV4>;
+extern template class ColumnVector<TYPE_IPV6>;
+extern template class ColumnVector<TYPE_DATE>;
+extern template class ColumnVector<TYPE_DATEV2>;
+extern template class ColumnVector<TYPE_DATETIME>;
+extern template class ColumnVector<TYPE_DATETIMEV2>;
+extern template class ColumnVector<TYPE_TIMEV2>;
+extern template class ColumnVector<TYPE_TIMESTAMPTZ>;
+extern template class ColumnVector<TYPE_UINT32>;
+extern template class ColumnVector<TYPE_UINT64>;
 
 } // namespace doris

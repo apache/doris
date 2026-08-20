@@ -81,8 +81,8 @@ public:
     bool is_shuffled_operator() const override { return true; }
     bool is_colocated_operator() const override { return _is_colocate; }
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE);
+        return _is_colocate ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE)
+                            : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
     }
 
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -103,4 +103,11 @@ private:
     const size_t _child_quantity;
     const bool _is_colocate;
 };
+
+/// Instantiated once in set_source_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class SetSourceLocalState<true>;
+extern template class SetSourceLocalState<false>;
+extern template class SetSourceOperatorX<true>;
+extern template class SetSourceOperatorX<false>;
+
 } // namespace doris

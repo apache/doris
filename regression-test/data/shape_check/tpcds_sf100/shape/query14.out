@@ -69,8 +69,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
 --------------------PhysicalOlapScan[date_dim]
-----PhysicalCteAnchor ( cteId=CTEId#4 )
-------PhysicalCteProducer ( cteId=CTEId#4 )
+----PhysicalCteAnchor ( cteId=CTEId#2 )
+------PhysicalCteProducer ( cteId=CTEId#2 )
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
@@ -82,22 +82,18 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF16 ss_item_sk->ss_item_sk;RF17 ss_item_sk->i_item_sk
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF16 i_item_sk->ss_item_sk;RF17 i_item_sk->ss_item_sk
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF15 ss_item_sk->ss_item_sk
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF14 d_date_sk->ss_sold_date_sk
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF14 RF15 RF16
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF17
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF15 d_date_sk->ss_sold_date_sk
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF14 i_item_sk->ss_item_sk
-----------------------------------------hashAgg[GLOBAL]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF14 RF15 RF16
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[item] apply RFs: RF17
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------------PhysicalOlapScan[item]
 --------------------PhysicalAssertNumRows
 ----------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
@@ -108,22 +104,18 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF20 ss_item_sk->cs_item_sk;RF21 ss_item_sk->i_item_sk
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF20 i_item_sk->cs_item_sk;RF21 i_item_sk->ss_item_sk
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF19 ss_item_sk->cs_item_sk
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF18 d_date_sk->cs_sold_date_sk
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF18 RF19 RF20
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF21
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF19 d_date_sk->cs_sold_date_sk
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF18 i_item_sk->cs_item_sk
-----------------------------------------hashAgg[GLOBAL]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF18 RF19 RF20
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[item] apply RFs: RF21
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------------PhysicalOlapScan[item]
 --------------------PhysicalAssertNumRows
 ----------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
@@ -134,22 +126,18 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF24 ss_item_sk->ws_item_sk;RF25 ss_item_sk->i_item_sk
+------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF24 i_item_sk->ws_item_sk;RF25 i_item_sk->ss_item_sk
+--------------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF23 ss_item_sk->ws_item_sk
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF22 d_date_sk->ws_sold_date_sk
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF22 RF23 RF24
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF25
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF23 d_date_sk->ws_sold_date_sk
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF22 i_item_sk->ws_item_sk
-----------------------------------------hashAgg[GLOBAL]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF22 RF23 RF24
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[item] apply RFs: RF25
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------------PhysicalOlapScan[item]
 --------------------PhysicalAssertNumRows
 ----------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
@@ -164,7 +152,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalRepeat
 --------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------PhysicalCteConsumer ( cteId=CTEId#4 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalCteConsumer ( cteId=CTEId#4 )
+------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 

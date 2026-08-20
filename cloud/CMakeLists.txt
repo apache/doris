@@ -98,6 +98,13 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 
+if (OS_MACOSX)
+    set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
+endif()
+message(STATUS "USE_UNWIND is ${USE_UNWIND}")
+
 option(ENABLE_TLS "Enable TLS feature module" OFF)
 set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under cloud/src")
 if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
@@ -295,7 +302,7 @@ set(WL_END_GROUP "-Wl,--end-group")
 # Set Doris libraries
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
+    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
 
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}

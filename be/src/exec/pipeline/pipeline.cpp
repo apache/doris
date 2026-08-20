@@ -58,12 +58,12 @@ bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distrib
                 std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_operators.front());
         local_exchange_source && is_hash_exchange(target_data_distribution.distribution_type)) {
         const auto source_exchange_type = local_exchange_source->exchange_type();
-        if (source_exchange_type != ExchangeType::NOOP && !is_hash_exchange(source_exchange_type)) {
+        if (source_exchange_type != TLocalPartitionType::NOOP &&
+            !is_hash_exchange(source_exchange_type)) {
             return true;
         }
     }
-    if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
-        target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
+    if (!is_hash_exchange(target_data_distribution.distribution_type)) {
         // Always do local exchange if non-hash-partition exchanger is required.
         // For example, `PASSTHROUGH` exchanger is always required to distribute data evenly.
         return true;

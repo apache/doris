@@ -304,8 +304,8 @@ suite('test_warm_up_cluster_event_compaction_sync_wait_timeout', 'docker') {
         assertTrue(num_submitted >= 8)
         assertEquals(num_finished, num_submitted)
 
-        // inject slow io, which should cause the warmup takes longger than 10s
-        GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "S3FileReader::read_at_impl.io_slow", [sleep:20])
+        // inject 20s slow io, which should cause the warmup takes longer than 10s
+        GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "S3FileReader::read_at_impl.io_slow", [sleep:20000000])
 
         // trigger and wait compaction async
         def future = thread {

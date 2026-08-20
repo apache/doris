@@ -36,6 +36,7 @@
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
@@ -125,11 +126,14 @@ struct WindowFunnelState {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
         events_list.dt.emplace_back(
-                assert_cast<const typename PrimitiveTypeTraits<PType>::ColumnType&>(*arg_columns[2])
+                assert_cast<const typename PrimitiveTypeTraits<PType>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(*arg_columns[2])
                         .get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
             events_list.event_columns_data[i].emplace_back(
-                    assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num]);
+                    assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                            *arg_columns[3 + i])
+                            .get_data()[row_num]);
         }
     }
 
@@ -373,10 +377,22 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        const auto& window = assert_cast<const ColumnInt64&>(*columns[0]).get_data()[row_num];
+        const auto& window =
+                assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, window,
                               string_to_window_funnel_mode(mode.to_string()));
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnInt64>(columns[0]);
+        this->template check_argument_column_type<ColumnString>(columns[1]);
+        this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                columns[2]);
+        for (size_t i = 3; i < this->argument_types.size(); ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -396,7 +412,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
-        assert_cast<ColumnInt32&>(to).get_data().push_back(
+        assert_cast<ColumnInt32&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 IAggregateFunctionDataHelper<WindowFunnelState<T>,
                                              AggregateFunctionWindowFunnel<T>>::data(place)
                         .get());

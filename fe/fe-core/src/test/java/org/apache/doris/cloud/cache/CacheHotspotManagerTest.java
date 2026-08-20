@@ -37,6 +37,11 @@ import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -340,6 +345,30 @@ public class CacheHotspotManagerTest {
         Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
+    @Test
+    public void testTryRegisterRunningJobLogsBlockedResult() {
+        CloudWarmUpJob runningJob = newClusterJob(10L, "src_a", "dst_a", SyncMode.ONCE, JobState.RUNNING, 100L);
+        CloudWarmUpJob blockedJob = newClusterJob(11L, "src_b", "dst_a", SyncMode.ONCE, JobState.PENDING, 200L);
+
+        RecordingAppender appender = new RecordingAppender("warmup-lock-register-log-test");
+        Logger logger = (Logger) LogManager.getLogger(CacheHotspotManager.class);
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            Assert.assertTrue(cacheHotspotManager.tryRegisterRunningJob(runningJob));
+            Assert.assertFalse(cacheHotspotManager.tryRegisterRunningJob(blockedJob));
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+
+        String logs = appender.messagesAsString();
+        Assert.assertTrue(logs, logs.contains("warmup-lock register"));
+        Assert.assertTrue(logs, logs.contains("jobId=11"));
+        Assert.assertTrue(logs, logs.contains("existingJobId=10"));
+        Assert.assertTrue(logs, logs.contains("registerResult=blocked"));
+    }
+
     private WarmUpClusterCommand newTableStmt(String dstClusterName, boolean force,
             Triple<String, String, String>... tables) {
         WarmUpClusterCommand stmt = new WarmUpClusterCommand(new ArrayList<>(),
@@ -428,5 +457,22 @@ public class CacheHotspotManagerTest {
             Thread.sleep(10L);
         }
         Assert.fail("Timed out waiting for once pending create lock ref count " + expectedRefCount);
+    }
+
+    private static class RecordingAppender extends AbstractAppender {
+        private final List<String> messages = new ArrayList<>();
+
+        RecordingAppender(String name) {
+            super(name, null, null, true, Property.EMPTY_ARRAY);
+        }
+
+        @Override
+        public void append(LogEvent event) {
+            messages.add(event.getMessage().getFormattedMessage());
+        }
+
+        String messagesAsString() {
+            return String.join("\n", messages);
+        }
     }
 }

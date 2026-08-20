@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_schema_template_auto_cast", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
@@ -34,10 +35,10 @@ suite("test_schema_template_auto_cast", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-    sql """insert into ${tableName} values(1, '{"num_a": 10, "num_b": 20, "str_name": "alice"}')"""
-    sql """insert into ${tableName} values(2, '{"num_a": 30, "num_b": 40, "str_name": "bob"}')"""
-    sql """insert into ${tableName} values(3, '{"num_a": 50, "num_b": 60, "str_name": "charlie"}')"""
-    sql """insert into ${tableName} values(4, '{"num_a": 15, "num_b": 25, "str_name": "alice"}')"""
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"num_a": 10, "num_b": 20, "str_name": "alice"}'))"""
+    sql """insert into ${tableName} values(2, ${variantV2Function}('{"num_a": 30, "num_b": 40, "str_name": "bob"}'))"""
+    sql """insert into ${tableName} values(3, ${variantV2Function}('{"num_a": 50, "num_b": 60, "str_name": "charlie"}'))"""
+    sql """insert into ${tableName} values(4, ${variantV2Function}('{"num_a": 15, "num_b": 25, "str_name": "alice"}'))"""
 
     // Simple WHERE
     qt_where_simple """ SELECT id FROM ${tableName}
@@ -192,13 +193,13 @@ suite("test_schema_template_auto_cast", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-    sql """insert into ${leftTable} values(1, '{"key_id": 100}')"""
-    sql """insert into ${leftTable} values(2, '{"key_id": 200}')"""
-    sql """insert into ${leftTable} values(3, '{"key_id": 300}')"""
+    sql """insert into ${leftTable} values(1, ${variantV2Function}('{"key_id": 100}'))"""
+    sql """insert into ${leftTable} values(2, ${variantV2Function}('{"key_id": 200}'))"""
+    sql """insert into ${leftTable} values(3, ${variantV2Function}('{"key_id": 300}'))"""
 
-    sql """insert into ${rightTable} values(1, '{"key_id": 100, "name_val": "first"}')"""
-    sql """insert into ${rightTable} values(2, '{"key_id": 200, "name_val": "second"}')"""
-    sql """insert into ${rightTable} values(3, '{"key_id": 400, "name_val": "fourth"}')"""
+    sql """insert into ${rightTable} values(1, ${variantV2Function}('{"key_id": 100, "name_val": "first"}'))"""
+    sql """insert into ${rightTable} values(2, ${variantV2Function}('{"key_id": 200, "name_val": "second"}'))"""
+    sql """insert into ${rightTable} values(3, ${variantV2Function}('{"key_id": 400, "name_val": "fourth"}'))"""
 
     qt_join_on """ SELECT l.id, r.info['name_val']
         FROM ${leftTable} l JOIN ${rightTable} r
@@ -225,8 +226,8 @@ suite("test_schema_template_auto_cast", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-    sql """insert into ${exactTable} values(1, '{"exact_key": 10, "glob_1": 20, "glob_2": 5}')"""
-    sql """insert into ${exactTable} values(2, '{"exact_key": 30, "glob_2": 40}')"""
+    sql """insert into ${exactTable} values(1, ${variantV2Function}('{"exact_key": 10, "glob_1": 20, "glob_2": 5}'))"""
+    sql """insert into ${exactTable} values(2, ${variantV2Function}('{"exact_key": 30, "glob_2": 40}'))"""
 
     qt_match_name_exact_where """ SELECT id FROM ${exactTable}
         WHERE data['exact_key'] > 10 ORDER BY id """
@@ -250,15 +251,15 @@ suite("test_schema_template_auto_cast", "p0") {
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     sql """insert into ${leafTable} values
-        (1, '{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}'),
-        (2, '{"int_1": 2, "int_nested": {"level1_num_1": 2022222, "level1_num_2": 202}}'),
-        (3, '{"int_1": 1, "int_nested": {"level1_num_1": 3033333, "level1_num_2": 302}}'),
-        (4, '{"int_1": 3, "int_nested": {"level1_num_1": 4044444, "level1_num_2": 402}}')"""
+        (1, ${variantV2Function}('{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}')),
+        (2, ${variantV2Function}('{"int_1": 2, "int_nested": {"level1_num_1": 2022222, "level1_num_2": 202}}')),
+        (3, ${variantV2Function}('{"int_1": 1, "int_nested": {"level1_num_1": 3033333, "level1_num_2": 302}}')),
+        (4, ${variantV2Function}('{"int_1": 3, "int_nested": {"level1_num_1": 4044444, "level1_num_2": 402}}'))"""
 
     qt_leaf_int1_select """ SELECT data['int_1'] FROM ${leafTable} ORDER BY id """
     qt_leaf_int1_add """ SELECT data['int_1'] + 1 FROM ${leafTable} ORDER BY id """
     // still fails: FE can't distinguish leaf/non-leaf, may cast int_nested to int
-    qt_leaf_int_nested_nonleaf """ SELECT data['int_nested'] FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_nonleaf """ SELECT data['int_nested'] IS NULL FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_chain_select """ SELECT data['int_nested']['level1_num_1']
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_dot_select """ SELECT data['int_nested.level1_num_1'] FROM ${leafTable} ORDER BY id """
@@ -293,7 +294,7 @@ suite("test_schema_template_auto_cast", "p0") {
         ORDER BY data.int_nested.level1_num_1 """
     qt_leaf_group_by_ok """ SELECT data['int_1'], COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_1'] ORDER BY data['int_1'] """
-    qt_leaf_group_by_nonleaf """ SELECT data['int_nested'], COUNT(*) AS cnt
+    qt_leaf_group_by_nonleaf """ SELECT data['int_nested'] IS NULL, COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_nested'] ORDER BY data['int_nested'] """
     qt_leaf_group_by_mixed """ SELECT data['int_nested.level1_num_1'], COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_nested.level1_num_1']
@@ -330,8 +331,8 @@ suite("test_schema_template_auto_cast", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-    sql """insert into ${globWildTable} values(1, '{\"a*b\": 1, \"axb\": 2}')"""
-    sql """insert into ${globLiteralTable} values(1, '{\"a*b\": 1, \"axb\": 2}')"""
+    sql """insert into ${globWildTable} values(1, ${variantV2Function}('{\"a*b\": 1, \"axb\": 2}'))"""
+    sql """insert into ${globLiteralTable} values(1, ${variantV2Function}('{\"a*b\": 1, \"axb\": 2}'))"""
 
     // wildcard a*b matches both a*b and axb
     qt_glob_wild_match """ SELECT data['a*b'] + 1 AS v1, data['axb'] + 1 AS v2
@@ -359,11 +360,11 @@ suite("test_schema_template_auto_cast", "p0") {
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     sql """insert into ${nonleafTable} values(
-        1, '{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}')"""
+        1, ${variantV2Function}('{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}'))"""
 
     // auto cast enabled: non-leaf path matches int_* and returns NULL
     sql "set enable_variant_schema_auto_cast = true"
-    qt_nonleaf_auto_cast_on """ SELECT data['int_nested'] FROM ${nonleafTable} ORDER BY id """
+    qt_nonleaf_auto_cast_on """ SELECT data['int_nested'] IS NULL FROM ${nonleafTable} ORDER BY id """
 
     // auto cast disabled: return original object
     sql "set enable_variant_schema_auto_cast = false"
@@ -384,10 +385,10 @@ suite("test_schema_template_auto_cast", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-    sql """insert into ${castChainTable} values(1, '{\"num_a\": 10, \"num_b\": 20, \"str_name\": \"alice\"}')"""
-    sql """insert into ${castChainTable} values(2, '{\"num_a\": 30, \"num_b\": 40, \"str_name\": \"bob\"}')"""
-    sql """insert into ${castChainTable} values(3, '{\"num_a\": 50, \"num_b\": 60, \"str_name\": \"charlie\"}')"""
-    sql """insert into ${castChainTable} values(4, '{\"num_a\": 15, \"num_b\": 25, \"str_name\": \"alice\"}')"""
+    sql """insert into ${castChainTable} values(1, ${variantV2Function}('{\"num_a\": 10, \"num_b\": 20, \"str_name\": \"alice\"}'))"""
+    sql """insert into ${castChainTable} values(2, ${variantV2Function}('{\"num_a\": 30, \"num_b\": 40, \"str_name\": \"bob\"}'))"""
+    sql """insert into ${castChainTable} values(3, ${variantV2Function}('{\"num_a\": 50, \"num_b\": 60, \"str_name\": \"charlie\"}'))"""
+    sql """insert into ${castChainTable} values(4, ${variantV2Function}('{\"num_a\": 15, \"num_b\": 25, \"str_name\": \"alice\"}'))"""
 
     qt_explicit_cast_chain_select_2 """ SELECT CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT)
         FROM ${castChainTable} ORDER BY id """

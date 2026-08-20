@@ -24,8 +24,19 @@ import org.apache.doris.common.Config;
 import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.Message;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ClientInterceptors;
 import io.grpc.ConnectivityState;
+import io.grpc.ForwardingClientCall;
+import io.grpc.ForwardingClientCallListener;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
 import io.grpc.NameResolverRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -72,9 +83,101 @@ public class MetaServiceClient {
         Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
         channelConfigVersion = CHANNEL_PROVIDER.currentConfigVersion();
         channel = CHANNEL_PROVIDER.createChannel(target);
-        stub = MetaServiceGrpc.newFutureStub(channel);
-        blockingStub = MetaServiceGrpc.newBlockingStub(channel);
+        Channel intercepted = ClientInterceptors.intercept(channel, new MetaServiceResponseStatusInterceptor());
+        stub = MetaServiceGrpc.newFutureStub(intercepted);
+        blockingStub = MetaServiceGrpc.newBlockingStub(intercepted);
         expiredAt = connectionAgeExpiredAt();
+    }
+
+    private static final class MetaServiceResponseStatusInterceptor implements ClientInterceptor {
+        @Override
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+            ClientCall<ReqT, RespT> call = next.newCall(method, callOptions);
+            return new ForwardingClientCall.SimpleForwardingClientCall<>(call) {
+                @Override
+                public void start(Listener<RespT> listener, Metadata headers) {
+                    Listener<RespT> normalizingListener =
+                            new ForwardingClientCallListener.SimpleForwardingClientCallListener<>(listener) {
+                                @Override
+                                public void onMessage(RespT response) {
+                                    super.onMessage(restoreActualCode(response));
+                                }
+                            };
+                    super.start(normalizingListener, headers);
+                }
+            };
+        }
+    }
+
+    // Resolve the status code returned by Meta Service (MS) for FE clients of different versions.
+    // Assuming MS is always the latest version, it sends both the meta-service error code and a code that
+    // older clients can decode:
+    //
+    //                              latest MS
+    //                 +---------------------------------------+
+    //                 | actual_code = meta-service error code |
+    //                 | code        = compatible code         |
+    //                 +----------------+----------------------+
+    //                                  |
+    //                    +-------------+-------------+
+    //                    |                           |
+    //          old FE without the             old FE with the
+    //          actual_code field              actual_code field
+    //                    |                           |
+    //          ignores actual_code            local enum recognizes
+    //          and reads code                 actual_code value?
+    //                                           /                  \
+    //                                         yes                  no
+    //                                         |                     |
+    //                                  use actual code      use code only when it
+    //                                                       is explicit and non-OK
+    //                                                                 |
+    //                                                          otherwise return
+    //                                                           UNDEFINED_ERR
+    //
+    // After MS adds an error code, an older actual_code-aware client may not have that enum value;
+    // Cloud.MetaServiceCode.forNumber returns null in this case. The non-OK fallback check is essential:
+    // if MS ignores or incorrectly converts the compatible code to OK, an unknown error must remain an
+    // error instead of becoming a false success.
+    @SuppressWarnings("unchecked")
+    private static <Response> Response restoreActualCode(Response response) {
+        if (!(response instanceof Message)) {
+            return response;
+        }
+        Message message = (Message) response;
+        Descriptors.FieldDescriptor statusField = message.getDescriptorForType().findFieldByName("status");
+        if (statusField == null) {
+            return response;
+        }
+        Object statusObject = message.getField(statusField);
+        if (!(statusObject instanceof Cloud.MetaServiceResponseStatus)) {
+            return response;
+        }
+        Cloud.MetaServiceResponseStatus status = (Cloud.MetaServiceResponseStatus) statusObject;
+
+        Cloud.MetaServiceCode code;
+        if (status.hasActualCode()) {
+            code = Cloud.MetaServiceCode.forNumber(status.getActualCode());
+            if (code == null) {
+                if (status.hasCode() && status.getCode() != Cloud.MetaServiceCode.OK) {
+                    return response;
+                }
+                code = Cloud.MetaServiceCode.UNDEFINED_ERR;
+            }
+        } else {
+            if (status.hasCode()) {
+                return response;
+            }
+            code = Cloud.MetaServiceCode.UNDEFINED_ERR;
+        }
+        if (status.hasCode() && code == status.getCode()) {
+            return response;
+        }
+        Cloud.MetaServiceResponseStatus restoredStatus = status.toBuilder().setCode(code).build();
+        Message.Builder builder = message.toBuilder();
+        builder.setField(statusField, restoredStatus);
+        return (Response) builder.build();
     }
 
     private long connectionAgeExpiredAt() {
@@ -141,6 +244,18 @@ public class MetaServiceClient {
         }
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .getVersion(request);
+    }
+
+    public Cloud.GetTableStreamOffsetResponse getTableStreamOffset(
+            Cloud.GetTableStreamOffsetRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetTableStreamOffsetRequest.Builder builder =
+                    Cloud.GetTableStreamOffsetRequest.newBuilder().mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getTableStreamOffset(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTableStreamOffset(request);
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {

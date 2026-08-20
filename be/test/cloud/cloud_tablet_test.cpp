@@ -24,7 +24,6 @@
 
 #include <chrono>
 #include <cstdint>
-#include <ranges>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -722,6 +721,7 @@ protected:
                                              const std::string& compaction_policy = "size_based") {
         TTabletSchema new_schema;
         new_schema.__set_disable_auto_compaction(disable_auto_compaction);
+        new_schema.__set_is_in_memory(false);
         TColumn col;
         col.__set_column_name("test_col_" + std::to_string(_current_tablet_id));
         col.__set_column_type(TColumnType());
@@ -879,8 +879,8 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     sp->clear_all_call_backs();
 }
 
-// Test sync_meta is skipped when enable_file_cache is false
-TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSkippedWhenFileCacheDisabled) {
+// sync_meta should keep refreshing tablet meta even when file cache is disabled.
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
     // Disable file cache
     config::enable_file_cache = false;
 
@@ -891,17 +891,22 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSkippedWhenFileCacheDisabled) {
     sp->clear_all_call_backs();
     sp->enable_processing();
 
+    auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
     bool callback_called = false;
     sp->set_call_back("CloudMetaMgr::get_tablet_meta",
-                      [&callback_called](auto&& args) { callback_called = true; });
+                      [mock_tablet_meta, &callback_called](auto&& args) {
+                          callback_called = true;
+                          auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+                          *tablet_meta_ptr = mock_tablet_meta;
+                          try_any_cast_ret<Status>(args)->second = true;
+                      });
 
-    // Call sync_meta - should return early without calling get_tablet_meta
     Status st = _tablet->sync_meta();
     EXPECT_TRUE(st.ok());
-    EXPECT_FALSE(callback_called);
+    EXPECT_TRUE(callback_called);
 
-    // Verify disable_auto_compaction is not changed
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -920,6 +925,12 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
 
     // Create mock tablet meta with updated properties
     auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
+    mock_tablet_meta->set_time_series_compaction_goal_size_mbytes(1234);
+    mock_tablet_meta->set_time_series_compaction_file_count_threshold(17);
+    mock_tablet_meta->set_time_series_compaction_time_threshold_seconds(3601);
+    mock_tablet_meta->set_time_series_compaction_empty_rowsets_threshold(9);
+    mock_tablet_meta->set_time_series_compaction_level_threshold(7);
+    mock_tablet_meta->set_vertical_compaction_num_columns_per_group(13);
 
     // Mock get_tablet_meta to return tablet_meta with updated properties
     sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
@@ -937,10 +948,47 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     // Verify both properties are synced
     EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_goal_size_mbytes(), 1234);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_file_count_threshold(), 17);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_time_threshold_seconds(), 3601);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold(), 9);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_level_threshold(), 7);
+    EXPECT_EQ(_tablet->tablet_meta()->vertical_compaction_num_columns_per_group(), 13);
 
     sp->disable_processing();
     sp->clear_all_call_backs();
 }
+
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
+    EXPECT_EQ(0, _tablet->tablet_meta()->ttl_seconds());
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
+    mock_tablet_meta->set_ttl_seconds(3600);
+    mock_tablet_meta->mutable_tablet_schema()->set_is_in_memory(true);
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = mock_tablet_meta;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+
+    EXPECT_EQ(3600, _tablet->tablet_meta()->ttl_seconds());
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
 class CloudTabletApplyVisiblePendingTest : public testing::Test {
 public:
     CloudTabletApplyVisiblePendingTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
@@ -1006,7 +1054,7 @@ public:
     }
 
     void add_initial_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
-        std::unique_lock<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        std::unique_lock meta_wlock(_tablet->get_header_lock());
         _tablet->add_rowsets(std::vector<RowsetSharedPtr>(rowsets), false, meta_wlock, false);
     }
 

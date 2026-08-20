@@ -19,12 +19,14 @@
 
 #include <gen_cpp/FrontendService_types.h>
 
+#include <boost/algorithm/string.hpp>
 #include <memory>
 
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
+#include "util/string_util.h"
 
 namespace doris {
 class RuntimeState;
@@ -123,6 +125,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         _common_scanner_param->thread_id = tnode.schema_scan_node.thread_id;
     }
 
+    if (tnode.schema_scan_node.__isset.mysql_compatible_index_metadata) {
+        _common_scanner_param->mysql_compatible_index_metadata =
+                tnode.schema_scan_node.mysql_compatible_index_metadata;
+    }
+
     if (tnode.schema_scan_node.__isset.catalog) {
         _common_scanner_param->catalog =
                 state->obj_pool()->add(new std::string(tnode.schema_scan_node.catalog));
@@ -186,6 +193,8 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
         for (; j < columns_desc.size(); ++j) {
             if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(), columns_desc[j].name)) {
                 _slot_offsets[i] = j;
+                _common_scanner_param->required_columns.insert(
+                        to_upper(_dest_tuple_desc->slots()[i]->col_name()));
                 break;
             }
         }

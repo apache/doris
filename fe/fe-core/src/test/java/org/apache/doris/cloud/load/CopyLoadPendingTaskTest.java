@@ -26,7 +26,7 @@ import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -181,7 +181,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             mockedFileSystemFactory.close();
         }
         mockedFileSystemFactory = Mockito.mockStatic(FileSystemFactory.class);
-        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class)))
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class)))
                 .thenReturn(mockObjFs);
     }
 
@@ -333,7 +333,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             mockedFileSystemFactory.close();
         }
         mockedFileSystemFactory = Mockito.mockStatic(FileSystemFactory.class);
-        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class)))
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class)))
                 .thenReturn(mockObjFs);
     }
 

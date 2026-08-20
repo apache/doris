@@ -37,6 +37,10 @@ suite("test_single_hive_kerberos", "p0,external") {
                 "type" = "hms",
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
@@ -48,52 +52,69 @@ suite("test_single_hive_kerberos", "p0,external") {
             );
         """
         sql """ switch hms_kerberos """
+        sql """ CREATE DATABASE IF NOT EXISTS test_single_krb_hive_db """
+        sql """ USE test_single_krb_hive_db """
+        sql """ DROP TABLE IF EXISTS test_krb_hive_tbl """
+        sql """
+            CREATE TABLE test_krb_hive_tbl (
+                id_key INT,
+                string_key STRING,
+                rate_val DOUBLE,
+                comment STRING
+            ) ENGINE = hive
+            PROPERTIES ("file_format" = "parquet")
+        """
+        sql """
+            INSERT INTO test_krb_hive_tbl VALUES
+                (1, 'a', 3.16, 'cc0'),
+                (2, 'b', 41.2, 'cc1'),
+                (3, 'c', 6.2, 'cc2'),
+                (4, 'd', 1.4, 'cc3')
+        """
         sql """ show databases """
-        order_qt_q01 """ select * from hms_kerberos.test_krb_hive_db.test_krb_hive_tbl """
+        order_qt_q01 """ select * from hms_kerberos.test_single_krb_hive_db.test_krb_hive_tbl """
         sql """drop catalog hms_kerberos;"""
 
-        try {
-            sql """drop catalog if exists hms_kerberos_hadoop_err1;"""
-            sql """
-                CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err1
-                PROPERTIES (
-                    "type" = "hms",
-                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
-                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
-                    "hadoop.security.authentication" = "kerberos",
-                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-                    "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
-                                   RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
-                                   RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
-                                   DEFAULT",
-                    "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab"
-                );
-            """
-            sql """ switch hms_kerberos_hadoop_err1 """
+        sql """drop catalog if exists hms_kerberos_hadoop_err1;"""
+        sql """
+            CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err1
+            PROPERTIES (
+                "type" = "hms",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
+                               RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                               RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
+                               DEFAULT",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab"
+            );
+        """
+        sql """ switch hms_kerberos_hadoop_err1 """
+        test {
             sql """ show databases """
-        } catch (Exception e) {
-            logger.info(e.toString())
-            // caused by a warning msg if enable sasl on hive but "hive.metastore.sasl.enabled" is not true:
-            // "set_ugi() not successful, Likely cause: new client talking to old server. Continuing without it."
-            assertTrue(e.toString().contains("thrift.transport.TTransportException"))
+            exception "thrift.transport.TTransportException"
         }
 
-        try {
-            sql """drop catalog if exists hms_kerberos_hadoop_err2;"""
-            sql """
-                CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err2
-                PROPERTIES (
-                    "type" = "hms",
-                    "hive.metastore.sasl.enabled " = "true",
-                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
-                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520"
-                );
-            """
-            sql """ switch hms_kerberos_hadoop_err2 """
+        sql """drop catalog if exists hms_kerberos_hadoop_err2;"""
+        sql """
+            CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err2
+            PROPERTIES (
+                "type" = "hms",
+                "hive.metastore.sasl.enabled " = "true",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
+                "hive.metastore.kerberos.principal" = "hive/invalid-host@LABS.TERADATA.COM"
+            );
+        """
+        sql """ switch hms_kerberos_hadoop_err2 """
+        test {
             sql """ show databases """
-        } catch (Exception e) {
-            // org.apache.thrift.transport.TTransportException: GSS initiate failed
-            assertTrue(e.toString().contains("Could not connect to meta store using any of the URIs provided. Most recent failure: shade.doris.hive.org.apache.thrift.transport.TTransportException: GSS initiate failed"))
+            exception "GSS initiate failed"
         }
 
         //        try {

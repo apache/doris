@@ -22,8 +22,10 @@
 #include <memory>
 
 #include "arrow/array/builder_binary.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/value/jsonb_value.h"
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
@@ -99,8 +101,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
@@ -109,7 +110,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
         RETURN_IF_ERROR(
                 checkArrowStatus(builder.Append(json_string.data(),
                                                 cast_set<int, size_t, false>(json_string.size())),
-                                 column.get_name(), array_builder->type()->name()));
+                                 column, *array_builder));
     }
     return Status::OK();
 }
@@ -117,6 +118,9 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
 Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                   int64_t start, int64_t end,
                                                   const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
@@ -145,12 +149,11 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
-        const auto* array_data = concrete_array->GetValue(start);
 
         JsonBinaryValue value;
-        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = array_data + (offset_i * width);
+                const auto* raw_data = concrete_array->GetValue(offset_i);
 
                 RETURN_IF_ERROR(
                         value.from_json_string(reinterpret_cast<const char*>(raw_data), width));

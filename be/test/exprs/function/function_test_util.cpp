@@ -599,7 +599,8 @@ static Block* create_block_from_inputset(const InputTypeSet& input_types,
                                     ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
                                     : desc.data_type;
 
-            for (int r = 0; r < row_size; r++) {
+            const size_t rows_to_insert = desc.is_const ? 1 : row_size;
+            for (size_t r = 0; r < rows_to_insert; r++) {
                 if (!insert_cell(column, type_ptr, input_set[r][i * input_col_size + j])) {
                     return nullptr;
                 }

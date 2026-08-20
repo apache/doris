@@ -113,10 +113,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -173,6 +170,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -304,7 +302,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -445,6 +442,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAllArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
@@ -486,7 +484,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SortJsonbObjectKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
@@ -714,7 +711,7 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitArrayFirst(ArrayFirst arrayFirst, C context) {
-        return visitElementAt(arrayFirst, context);
+        return visitScalarFunction(arrayFirst, context);
     }
 
     default R visitArrayFirstIndex(ArrayFirstIndex arrayFirstIndex, C context) {
@@ -730,7 +727,7 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitArrayLast(ArrayLast arrayLast, C context) {
-        return visitElementAt(arrayLast, context);
+        return visitScalarFunction(arrayLast, context);
     }
 
     default R visitArrayLastIndex(ArrayLastIndex arrayLastIndex, C context) {
@@ -929,20 +926,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapAndCount, context);
     }
 
-    default R visitBitmapAndNot(BitmapAndNot bitmapAndNot, C context) {
-        return visitScalarFunction(bitmapAndNot, context);
-    }
-
     default R visitBitmapAndNotCount(BitmapAndNotCount bitmapAndNotCount, C context) {
         return visitScalarFunction(bitmapAndNotCount, context);
-    }
-
-    default R visitBitmapAndNotAlias(BitmapAndNotAlias bitmapAndNotAlias, C context) {
-        return visitScalarFunction(bitmapAndNotAlias, context);
-    }
-
-    default R visitBitmapAndNotCountAlias(BitmapAndNotCountAlias bitmapAndNotCountAlias, C context) {
-        return visitScalarFunction(bitmapAndNotCountAlias, context);
     }
 
     default R visitBitmapContains(BitmapContains bitmapContains, C context) {
@@ -1268,6 +1253,11 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDaysSub(DaysSub daysSub, C context) {
         return visitScalarFunction(daysSub, context);
+    }
+
+    default R visitDamerauLevenshteinDistance(DamerauLevenshteinDistance damerauLevenshteinDistance,
+            C context) {
+        return visitScalarFunction(damerauLevenshteinDistance, context);
     }
 
     default R visitDictGet(DictGet dictGet, C context) {
@@ -1742,10 +1732,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonObjectFlatten, context);
     }
 
-    default R visitJsonExtractNoQuotes(JsonExtractNoQuotes jsonExtract, C context) {
-        return visitScalarFunction(jsonExtract, context);
-    }
-
     default R visitJsonHash(JsonHash jsonhash, C context) {
         return visitScalarFunction(jsonhash, context);
     }
@@ -2202,6 +2188,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(regexpExtractAll, context);
     }
 
+    default R visitRegexpExtractAllArray(RegexpExtractAllArray regexpExtractAllArray, C context) {
+        return visitScalarFunction(regexpExtractAllArray, context);
+    }
+
     default R visitRegexpExtractOrNull(RegexpExtractOrNull regexpExtractOrNull, C context) {
         return visitScalarFunction(regexpExtractOrNull, context);
     }
@@ -2352,10 +2342,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSpace(Space space, C context) {
         return visitScalarFunction(space, context);
-    }
-
-    default R visitSplitByChar(SplitByChar splitByChar, C context) {
-        return visitScalarFunction(splitByChar, context);
     }
 
     default R visitSplitByRegexp(SplitByRegexp splitByRegexp, C context) {

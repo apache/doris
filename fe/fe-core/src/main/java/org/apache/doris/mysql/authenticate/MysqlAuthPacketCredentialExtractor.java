@@ -75,10 +75,20 @@ public class MysqlAuthPacketCredentialExtractor {
         } catch (RuntimeException e) {
             return authResponse;
         }
-        if (oidcToken == null || oidcToken.length == 0 || payload.remaining() != 0 || !looksLikeJwt(oidcToken)) {
+        if (oidcToken == null || oidcToken.length == 0 || !remainingBytesArePadding(payload)
+                || !looksLikeJwt(oidcToken)) {
             return authResponse;
         }
         return oidcToken;
+    }
+
+    private static boolean remainingBytesArePadding(ByteBuffer payload) {
+        while (payload.hasRemaining()) {
+            if (payload.get() != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean looksLikeJwt(byte[] bytes) {

@@ -154,44 +154,65 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
     if (UNLIKELY(wg_info.id != _id)) {
         return;
     }
-    {
-        std::shared_lock<std::shared_mutex> rl {_mutex};
-        if (LIKELY(wg_info.version <= _version)) {
-            return;
-        }
-    }
-    {
-        std::lock_guard<std::shared_mutex> wl {_mutex};
-        if (wg_info.version > _version) {
-            _name = wg_info.name;
-            _version = wg_info.version;
-            _min_cpu_percent = wg_info.min_cpu_percent;
-            _max_cpu_percent = wg_info.max_cpu_percent;
-            _memory_limit = wg_info.memory_limit;
-            _min_memory_percent = wg_info.min_memory_percent;
-            _max_memory_percent = wg_info.max_memory_percent;
-            _scan_thread_num = wg_info.scan_thread_num;
-            _max_remote_scan_thread_num = wg_info.max_remote_scan_thread_num;
-            _min_remote_scan_thread_num = wg_info.min_remote_scan_thread_num;
-            _memory_low_watermark = wg_info.memory_low_watermark;
-            _memory_high_watermark = wg_info.memory_high_watermark;
-            _scan_bytes_per_second = wg_info.read_bytes_per_second;
-            _remote_scan_bytes_per_second = wg_info.remote_read_bytes_per_second;
-            _total_query_slot_count = wg_info.total_query_slot_count;
-            _slot_mem_policy = wg_info.slot_mem_policy;
-            if (_max_memory_percent > 0) {
-                _min_memory_limit = static_cast<int64_t>(
-                        static_cast<double>(_memory_limit * _min_memory_percent) /
-                        _max_memory_percent);
-            }
-        } else {
-            return;
+    std::lock_guard<std::shared_mutex> wl {_mutex};
+    if (wg_info.version > _version) {
+        _name = wg_info.name;
+        _version = wg_info.version;
+        _min_cpu_percent = wg_info.min_cpu_percent;
+        _max_cpu_percent = wg_info.max_cpu_percent;
+        _memory_limit = wg_info.memory_limit;
+        _min_memory_percent = wg_info.min_memory_percent;
+        _max_memory_percent = wg_info.max_memory_percent;
+        _scan_thread_num = wg_info.scan_thread_num;
+        _max_remote_scan_thread_num = wg_info.max_remote_scan_thread_num;
+        _min_remote_scan_thread_num = wg_info.min_remote_scan_thread_num;
+        _memory_low_watermark = wg_info.memory_low_watermark;
+        _memory_high_watermark = wg_info.memory_high_watermark;
+        _scan_bytes_per_second = wg_info.read_bytes_per_second;
+        _remote_scan_bytes_per_second = wg_info.remote_read_bytes_per_second;
+        _total_query_slot_count = wg_info.total_query_slot_count;
+        _slot_mem_policy = wg_info.slot_mem_policy;
+        if (_max_memory_percent > 0) {
+            _min_memory_limit = static_cast<int64_t>(
+                    static_cast<double>(_memory_limit * _min_memory_percent) / _max_memory_percent);
         }
     }
 }
 
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
+    {
+        // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
+        // is not changed. So that we should update workload group's config ignore version.
+        std::lock_guard<std::shared_mutex> wl {_mutex};
+        const int max_memory_percent = _max_memory_percent.load(std::memory_order_relaxed);
+        const std::string mem_limit_str = fmt::format("{}%", max_memory_percent);
+        bool is_percent = true;
+        const int64_t new_memory_limit =
+                ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
+        DCHECK(is_percent) << "mem_limit_str: " << mem_limit_str;
+        if (new_memory_limit != _memory_limit.load(std::memory_order_relaxed)) {
+            LOG(INFO) << fmt::format(
+                    "Workload group id:{}, name:{}, "
+                    "memory_limit changed from {} to {}",
+                    _id, _name,
+                    PrettyPrinter::print(_memory_limit.load(std::memory_order_relaxed),
+                                         TUnit::BYTES),
+                    PrettyPrinter::print(new_memory_limit, TUnit::BYTES));
+
+            _memory_limit.store(new_memory_limit, std::memory_order_relaxed);
+            if (max_memory_percent == 0) {
+                _min_memory_limit.store(0, std::memory_order_relaxed);
+            } else {
+                const int min_memory_percent = _min_memory_percent.load(std::memory_order_relaxed);
+                const int64_t new_min_memory_limit =
+                        static_cast<int64_t>(static_cast<double>(new_memory_limit) *
+                                             min_memory_percent / max_memory_percent);
+                _min_memory_limit.store(new_min_memory_limit, std::memory_order_relaxed);
+            }
+        }
+    }
+
     int64_t fragment_used_memory = 0;
     {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
@@ -743,6 +764,10 @@ int64_t WorkloadGroup::get_mem_used() {
 
 void WorkloadGroup::try_stop_schedulers() {
     std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
+    stop_schedulers_no_lock();
+}
+
+void WorkloadGroup::stop_schedulers_no_lock() {
     if (_task_sched) {
         _task_sched->stop();
     }
@@ -764,6 +789,15 @@ void WorkloadGroup::try_stop_schedulers() {
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
+}
+
+void WorkloadGroup::destroy_schedulers() {
+    std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
+    _task_sched.reset();
+    _scan_task_sched.reset();
+    _remote_scan_task_sched.reset();
+    _memtable_flush_pool.reset();
+    _cgroup_cpu_ctl.reset();
 }
 
 void WorkloadGroup::update_memtable_flush_threads() {

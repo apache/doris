@@ -17,8 +17,6 @@
 1	\N	1	\N
 3	\N	1	\N
 
--- !predicate_full_acid_push_down --
-
 -- !lazy_materialization_for_list_type --
 ["c", "a"]
 ["b", "c"]
@@ -79,9 +77,6 @@
 1	\N	1	\N
 3	\N	1	\N
 
--- !predicate_full_acid_push_down --
-2	BB	20230101
-
 -- !lazy_materialization_for_list_type --
 ["c", "a"]
 ["b", "c"]
@@ -123,4 +118,3 @@
 {"struct_field":["1", "2", "3"]}
 {"struct_field":["1", "2", "3"]}
 {"struct_field":["1", "2", "3"]}
-

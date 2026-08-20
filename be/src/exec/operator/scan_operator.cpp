@@ -21,6 +21,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 
@@ -78,7 +79,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };
@@ -618,7 +619,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    if (!_parent->cast<typename Derived::Parent>().can_push_down_column_predicate(*slot_desc)) {
+    if (!can_push_down_column_predicate(*slot_desc)) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -1032,10 +1033,6 @@ Status ScanLocalState<Derived>::_start_scanners(
 }
 
 template <typename Derived>
-const TupleDescriptor* ScanLocalState<Derived>::input_tuple_desc() const {
-    return _parent->cast<typename Derived::Parent>()._input_tuple_desc;
-}
-template <typename Derived>
 const TupleDescriptor* ScanLocalState<Derived>::output_tuple_desc() const {
     return _parent->cast<typename Derived::Parent>()._output_tuple_desc;
 }
@@ -1043,6 +1040,12 @@ const TupleDescriptor* ScanLocalState<Derived>::output_tuple_desc() const {
 template <typename Derived>
 TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
     return _parent->cast<typename Derived::Parent>()._push_down_agg_type;
+}
+
+template <typename Derived>
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
+    return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
 }
 
 template <typename Derived>
@@ -1230,6 +1233,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
+    if (tnode.__isset.push_down_count_slot_ids) {
+        _push_down_count_slot_ids = tnode.push_down_count_slot_ids;
+    }
 
     if (tnode.__isset.topn_filter_source_node_ids) {
         _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
@@ -1255,7 +1261,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
 
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
-    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     RETURN_IF_ERROR(OperatorX<LocalStateType>::prepare(state));
 

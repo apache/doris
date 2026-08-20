@@ -374,6 +374,8 @@ struct TQueryOptions {
 
   148: optional i32 min_scanners_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
+  // Controls runtime-filter partition pruning for readers that honor this option.
+  // FileScannerV2 always enables safe partition pruning.
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -471,7 +473,6 @@ struct TQueryOptions {
   // session variable `spill_repartition_max_depth` in FE. Default is 8.
   209: optional i32 spill_repartition_max_depth = 8
 
-
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
 
@@ -498,11 +499,40 @@ struct TQueryOptions {
   221: optional i64 ann_index_candidate_rows_threshold = 0
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
   222: optional double ann_index_candidate_rows_percent_threshold = 0.3
+
+  // enable plan local exchange node in fe
+  223: optional bool enable_local_shuffle_planner;
+
+  // Controls expression-based ZoneMap pruning for readers that honor this option.
+  // FileScannerV2 always enables safe expression ZoneMap pruning.
+  224: optional bool enable_expr_zonemap_filter = true
+
+  225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
+
+  226: optional bool enable_prune_nested_column = false;
+  227: optional bool new_version_bitmap_op_count = false;
+  228: optional bool enable_local_exchange_before_streaming_agg = false;
+  // FE is the receiver of fragment reports, so BE must also honor its message limit.
+  229: optional i32 coordinator_thrift_max_message_size;
+  // FE can explicitly and idempotently acknowledge external-file commit reports.
+  230: optional bool supports_external_file_report_ack = false;
+  // Fall back to RE2 when Hyperscan cannot compile a regular expression.
+  231: optional bool enable_hyperscan_fallback = true;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+  1002: optional bool enable_file_scanner_v2 = false
+  1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
+  1004: optional i64 file_cache_query_limit_bytes = -1
+  // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache
+  // policy: cache hits are served, but a miss reads remote directly and writes
+  // nothing back into the file cache. Data (.dat) and segment-meta reads keep
+  // the normal read-through-and-write-back path, and so do CLucene (V1/V2/V3)
+  // index reads -- the two formats amplify write-back differently, so each
+  // needs its own switch.
+  1005: optional bool inverted_index_snii_read_no_write_file_cache = false
 }
 
 
@@ -510,13 +540,6 @@ struct TQueryOptions {
 struct TScanRangeParams {
   1: required PlanNodes.TScanRange scan_range
   2: optional i32 volume_id = -1
-}
-
-// deprecated
-struct TRuntimeFilterTargetParams {
-  1: required Types.TUniqueId target_fragment_instance_id
-  // The address of the instance where the fragment is expected to run
-  2: required Types.TNetworkAddress target_fragment_instance_addr
 }
 
 struct TRuntimeFilterTargetParamsV2 {
@@ -529,10 +552,6 @@ struct TRuntimeFilterTargetParamsV2 {
 struct TRuntimeFilterParams {
   // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
-
-  // keep 2/3/4/5 unset if BE is not used for merge 
-  // deprecated
-  2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
   // Used if this filter has a remote target
@@ -635,6 +654,7 @@ struct TFoldConstantParams {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
+    3: optional i64 binlog_tablet_id
 }
 
 struct TFetchDataResult {
@@ -749,6 +769,7 @@ struct TPipelineFragmentParams {
 
   // For cloud
   1000: optional bool is_mow_table;
+  1001: optional bool enable_tso;
 }
 
 // pull up runtime filter info from instance level to BE level

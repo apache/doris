@@ -60,34 +60,34 @@ PhysicalResultSink
 ----PhysicalIntersect
 ------filter((infer_intersect_except2.a < 10) and (infer_intersect_except2.a > 0) and (infer_intersect_except2.b > 'ab'))
 --------PhysicalOlapScan[infer_intersect_except2]
-------filter((cast(b as TEXT) = 'abc') and (infer_intersect_except3.a < 10) and (infer_intersect_except3.a > 0))
+------filter((cast(infer_intersect_except3.b as TEXT) = 'abc') and (infer_intersect_except3.a < 10) and (infer_intersect_except3.a > 0))
 --------PhysicalOlapScan[infer_intersect_except3]
 
 -- !intersect_and_except --
 PhysicalResultSink
 --PhysicalExcept
 ----PhysicalIntersect
-------filter((cast(b as TEXT) = 'abc') and (infer_intersect_except1.a = 1))
+------filter((cast(infer_intersect_except1.b as TEXT) = 'abc') and (infer_intersect_except1.a = 1))
 --------PhysicalOlapScan[infer_intersect_except1]
 ------filter((infer_intersect_except2.b > 'ab'))
 --------PhysicalOlapScan[infer_intersect_except2]
-----filter((cast(b as TEXT) = 'abc') and (infer_intersect_except3.a = 1))
+----filter((cast(infer_intersect_except3.b as TEXT) = 'abc') and (infer_intersect_except3.a = 1))
 ------PhysicalOlapScan[infer_intersect_except3]
 
 -- !function_intersect --
 PhysicalResultSink
 --PhysicalIntersect
-----filter((abs(a) < 3))
+----filter((abs(t1.a) < 3))
 ------PhysicalOlapScan[infer_intersect_except1(t1)]
-----filter((abs(a) < 3))
+----filter((abs(t2.a) < 3))
 ------PhysicalOlapScan[infer_intersect_except2(t2)]
 
 -- !function_except --
 PhysicalResultSink
 --PhysicalExcept
-----filter((abs(a) < 3))
+----filter((abs(t1.a) < 3))
 ------PhysicalOlapScan[infer_intersect_except1(t1)]
-----filter((abs(a) < 3))
+----filter((abs(t2.a) < 3))
 ------PhysicalOlapScan[infer_intersect_except2(t2)]
 
 -- !except_res --

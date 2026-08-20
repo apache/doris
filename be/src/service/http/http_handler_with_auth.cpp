@@ -19,6 +19,7 @@
 
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include "runtime/cluster_info.h"
 #include "service/http/http_channel.h"
 #include "service/http/utils.h"
 #include "util/client_cache.h"
@@ -112,13 +113,15 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         auth_result.status.status_code = TStatusCode::type::OK;
         auth_result.status.error_msgs.clear();
     } else {
-        HttpChannel::send_reply(req, HttpStatus::FORBIDDEN);
-        return -1;
+        auth_result.status.status_code = TStatusCode::type::ANALYSIS_ERROR;
+        auth_result.status.error_msgs.clear();
     }
 #endif
     Status status(Status::create(auth_result.status));
     if (!status.ok()) {
-        LOG(WARNING) << "permission verification failed, request: " << auth_request;
+        TCheckAuthRequest request_for_log(auth_request);
+        request_for_log.__set_passwd("***MASKED***");
+        LOG(WARNING) << "permission verification failed, request: " << request_for_log;
         HttpChannel::send_reply(req, HttpStatus::FORBIDDEN);
         return -1;
     }

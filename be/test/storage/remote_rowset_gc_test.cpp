@@ -203,7 +203,13 @@ TEST_F(RemoteRowsetGcTest, normal) {
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->close_wait(PSlaveTabletNodes(), false);
+    st = delta_writer->wait_flush();
+    ASSERT_EQ(Status::OK(), st);
+    st = delta_writer->build_rowset();
+    ASSERT_EQ(Status::OK(), st);
+    st = delta_writer->wait_calc_delete_bitmap();
+    ASSERT_EQ(Status::OK(), st);
+    st = delta_writer->commit_txn();
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success

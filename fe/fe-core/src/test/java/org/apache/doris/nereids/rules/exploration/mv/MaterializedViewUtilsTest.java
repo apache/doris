@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -24,14 +25,19 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Test for materialized view util
@@ -256,7 +262,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         connectContext.getSessionVariable().setDisableNereidsRules(
                 "OLAP_SCAN_PARTITION_PRUNE"
                 + ",PRUNE_EMPTY_PARTITION"
-                + ",ELIMINATE_GROUP_BY_KEY_BY_UNIFORM"
+                + ",ELIMINATE_GROUP_BY_KEY_BY_UNIFORM" + ",ELIMINATE_GROUP_BY_KEY"
                 + ",ELIMINATE_CONST_JOIN_CONDITION"
                 + ",CONSTANT_PROPAGATION"
         );
@@ -638,6 +644,80 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    public void getRelatedTableInfoTestWithUnrelatedRightWindowTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE "
+                                + "FROM lineitem as l "
+                                + "LEFT JOIN ("
+                                + "SELECT O_ORDERKEY, O_ORDERDATE, "
+                                + "ROW_NUMBER() OVER (PARTITION BY O_ORDERKEY ORDER BY O_ORDERDATE DESC) AS rn "
+                                + "FROM orders"
+                                + ") as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY AND o.rn = 1",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible(), relatedTableInfo.getFailReason());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithUnrelatedSameSchemaWindowTest() {
+        // t1 and t2 come from the same table, so t1.L_SHIPDATE and t2.L_SHIPDATE share an identical
+        // catalog Column definition but belong to different table instances. The MV partitions by
+        // t1.L_SHIPDATE while the row_number() partitions by the unrelated t2.L_SHIPDATE, and the join
+        // condition is on L_ORDERKEY so the two shipdate slots are NOT in the same equal set. Partition
+        // tracking must reject this: matching by bare Column would wrongly treat t2.L_SHIPDATE as the
+        // tracked partition key and allow stale rows after a partition-only refresh.
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT t1.L_SHIPDATE, t1.L_ORDERKEY "
+                                + "FROM lineitem t1 "
+                                + "LEFT JOIN ("
+                                + "SELECT L_ORDERKEY, L_SHIPDATE, "
+                                + "ROW_NUMBER() OVER (PARTITION BY L_SHIPDATE ORDER BY L_PARTKEY DESC) AS rn "
+                                + "FROM lineitem"
+                                + ") as t2 "
+                                + "ON t1.L_ORDERKEY = t2.L_ORDERKEY AND t2.rn = 1",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithUnrelatedRightAggregateTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY, o.max_orderdate "
+                                + "FROM lineitem as l "
+                                + "LEFT JOIN ("
+                                + "SELECT O_ORDERKEY, max(O_ORDERDATE) AS max_orderdate "
+                                + "FROM orders "
+                                + "GROUP BY O_ORDERKEY"
+                                + ") as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible(), relatedTableInfo.getFailReason());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
     public void getRelatedTableInfoTestWithLimitTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY "
@@ -875,9 +955,11 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "partition column is not in group by or window partition by"));
-                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible(), relatedTableInfo.getFailReason());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
                         });
     }
 
@@ -919,6 +1001,19 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Plan analyzedPlan = nereidsPlanner.getAnalyzedPlan();
                             Assertions.assertFalse(MaterializedViewUtils.containTableQueryOperator(analyzedPlan));
                         });
+    }
+
+    @Test
+    public void containTableQueryOperatorWithFileScanParamsTest() {
+        LogicalFileScan fileScan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(fileScan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.of(new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                Collections.emptyList())));
+
+        Assertions.assertTrue(MaterializedViewUtils.TableQueryOperatorChecker.INSTANCE
+                .visitLogicalRelation(fileScan, null));
     }
 
     @Test

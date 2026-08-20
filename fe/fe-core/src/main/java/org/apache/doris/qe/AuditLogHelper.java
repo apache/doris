@@ -46,6 +46,7 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
@@ -227,12 +228,20 @@ public class AuditLogHelper {
         String cloudCluster = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster(false);
+                cloudCluster = getCloudClusterForAudit(ctx);
             }
         } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
-        String cluster = Config.isCloudMode() ? cloudCluster : "";
+        // Load statements resolve their own hint at the scheduling sites and record it on the
+        // context; prefer it over the scan-side query decision so load audits are accurate.
+        BackendSelection.SelectionHint selectionHint = ctx.getLoadBackendSelectionDecisionForAudit();
+        if (selectionHint == null) {
+            selectionHint = ctx.getQueryBackendSelectionDecisionForAudit();
+        }
+        // In cloud mode, compute_group keeps its existing cloud compute group meaning. In integrated
+        // mode, resource groups provide compute affinity, so reuse compute_group for the preferred group.
+        String cluster = Config.isCloudMode() ? cloudCluster : selectionHint.getPreferredKey();
         String stmtType = getStmtType(parsedStmt);
         long queueTimeMs = getQueueTimeMs(ctx);
 
@@ -304,7 +313,13 @@ public class AuditLogHelper {
             auditEventBuilder.setScheduleTimeMs(summaryProfile.getScheduleTime());
             // changed variables
             if (ctx.sessionVariable != null) {
-                List<List<String>> changedVars = VariableMgr.dumpChangedVars(ctx.sessionVariable);
+                // Prefer the pre-revert snapshot captured in StmtExecutor so that per-query
+                // SET_VAR hint values are visible; fall back to the live session variables when
+                // no snapshot was taken (i.e. the statement used no SET_VAR hint).
+                List<List<String>> changedVars = (ctx.getExecutor() != null
+                        && ctx.getExecutor().getChangedSessionVarsForAudit() != null)
+                        ? ctx.getExecutor().getChangedSessionVarsForAudit()
+                        : VariableMgr.dumpChangedVars(ctx.sessionVariable);
                 StringBuilder changedVarsStr = new StringBuilder();
                 changedVarsStr.append("{");
                 for (int i = 0; i < changedVars.size(); i++) {
@@ -407,6 +422,13 @@ public class AuditLogHelper {
         return queueToken == null ? -1 : queueToken.getQueueEndTime() - queueToken.getQueueStartTime();
     }
 
+    static String getCloudClusterForAudit(ConnectContext ctx) throws ComputeGroupException {
+        if (!Strings.isNullOrEmpty(ctx.getEffectiveCloudCluster())) {
+            return ctx.getEffectiveCloudCluster();
+        }
+        return ctx.getCloudCluster(false);
+    }
+
     /**
      * Update query metrics without writing audit log. This is used when
      * enable_prepared_stmt_audit_log is disabled, to ensure QPS metrics
@@ -442,7 +464,7 @@ public class AuditLogHelper {
         String physicalClusterName = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster(false);
+                cloudCluster = getCloudClusterForAudit(ctx);
                 physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getPhysicalCluster(cloudCluster);
                 if (!cloudCluster.equals(physicalClusterName)) {
@@ -506,4 +528,3 @@ public class AuditLogHelper {
         }
     }
 }
-

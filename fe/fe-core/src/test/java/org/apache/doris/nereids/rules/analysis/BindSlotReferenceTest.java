@@ -19,14 +19,11 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -34,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -47,7 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 class BindSlotReferenceTest implements MemoPatternMatchSupported {
 
@@ -143,44 +138,5 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(aggregate));
         Assertions.assertTrue(exception.getMessage().contains("id is ambiguous: "));
-    }
-
-    @Test
-    public void testBindUsingJoinFromLeftToRight() {
-        String qualifiedName = "internal.db.student";
-        List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
-        LogicalOlapScan scan1 = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1);
-        LogicalOlapScan scan2 = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
-        LogicalOlapScan scan3 = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub3 = new LogicalSubQueryAlias<>("t3", scan3);
-
-        DistributeHint hint = new DistributeHint(DistributeType.NONE);
-        LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>
-                using1 = new LogicalUsingJoin<>(JoinType.LEFT_OUTER_JOIN, sub1,
-                sub2, ImmutableList.of(new UnboundSlot("id")), Optional.empty(), hint);
-
-        LogicalUsingJoin<LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>,
-                            LogicalSubQueryAlias<LogicalOlapScan>> using2 = new LogicalUsingJoin<>(
-                                    JoinType.LEFT_OUTER_JOIN, using1, sub3,
-                ImmutableList.of(new UnboundSlot("id")), Optional.empty(), hint);
-
-        PlanChecker.from(MemoTestUtils.createConnectContext())
-                .analyze(using2)
-                .matches(
-                        logicalJoin(
-                            logicalJoin(),
-                            any()
-                        ).when(join -> {
-                            EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(0);
-                            SlotReference leftSlot = (SlotReference) equalTo.left();
-                            return join.left().left().getOutput().contains(leftSlot)
-                                    && !join.left().right().getOutput().contains(leftSlot);
-                        })
-                );
     }
 }

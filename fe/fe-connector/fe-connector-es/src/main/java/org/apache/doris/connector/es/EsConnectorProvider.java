@@ -17,11 +17,12 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * SPI entry point for the Elasticsearch connector.
@@ -35,13 +36,20 @@ public class EsConnectorProvider implements ConnectorProvider {
     }
 
     @Override
+    public Optional<String> defaultDatabaseOnUse() {
+        // Elasticsearch has no database layer; Doris presents a single synthetic one, so switching to an es
+        // catalog lands the session in it instead of leaving the session with no database.
+        return Optional.of(EsConnectorMetadata.DEFAULT_DB);
+    }
+
+    /**
+     * All of it is {@link EsCatalogProperties}: building one strips the legacy prefix, resolves the
+     * legacy key names, binds and validates, so this door and the connector cannot disagree about what
+     * a valid catalog is.
+     */
+    @Override
     public void validateProperties(Map<String, String> properties) {
-        Map<String, String> processed = EsConnectorProperties.processCompatible(properties);
-        String hosts = processed.get(EsConnectorProperties.HOSTS);
-        if (hosts == null || hosts.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Required property '" + EsConnectorProperties.HOSTS + "' is missing");
-        }
+        EsCatalogProperties.of(properties);
     }
 
     @Override

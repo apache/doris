@@ -115,6 +115,15 @@ suite("string_functions_all") {
     testFoldConst("SELECT CONCAT_WS('x', 'ṭṛì', 'ḍḍumai'), CONCAT_WS('→', ['ṭṛì', 'ḍḍumai', 'hello']);")
     qt_concat_ws_42 "SELECT CONCAT_WS(',', 'Name', 'Age', 'City'), CONCAT_WS('/', 'home', 'user', 'documents', 'file.txt');"
     testFoldConst("SELECT CONCAT_WS(',', 'Name', 'Age', 'City'), CONCAT_WS('/', 'home', 'user', 'documents', 'file.txt');")
+    testFoldConst("SELECT CONCAT_WS(',', ['a', NULL]), CONCAT_WS(',', [NULL, 'a', NULL]), CONCAT_WS(',', [NULL]);")
+    testFoldConst("SELECT CONCAT_WS(',', 'a', NULL), CONCAT_WS(',', NULL, 'a', NULL), CONCAT_WS(',', NULL);")
+    testFoldConst("SELECT RIGHT('😀a', 1), INSTR('😀a', 'a');")
+    testFoldConst("SELECT UPPER('éßi'), LOWER('ÉİA'), INITCAP('ßETA İSTANBUL');")
+    testFoldConst("SELECT STRCMP('😀', ''), FIND_IN_SET('', 'a,');")
+    testFoldConst("""SELECT PARSE_URL('http://h/p%20x?q=a+b%20c&k=v#r', 'PATH'),
+        PARSE_URL('http://h/p%20x?q=a+b%20c&k=v#r', 'QUERY'),
+        EXTRACT_URL_PARAMETER('http://h/p%20x?q=a+b%20c&k=v#r', 'q');""")
+    testFoldConst("SELECT FIELD(CAST('-0.0' AS DOUBLE), CAST('0.0' AS DOUBLE), CAST('-0.0' AS DOUBLE));")
 
     // CONCAT tests
     qt_concat_43 "SELECT CONCAT('a', 'b'), CONCAT('a', 'b', 'c');"
@@ -435,6 +444,9 @@ suite("string_functions_all") {
     testFoldConst("SELECT LTRIM('000123', '0'), LTRIM('123abc123', '123');")
     qt_ltrim_185 "SELECT LTRIM('---text---', '-'), LTRIM('@@hello@@', '@');"
     testFoldConst("SELECT LTRIM('---text---', '-'), LTRIM('@@hello@@', '@');")
+
+    // MD5 tests
+    testFoldConst("SELECT MD5('doris'), MD5('ṭṛì'), MD5SUM('do', 'ris'), MD5SUM('ṭ', 'ṛ', 'ì');")
 
     // MAKE_SET tests
     qt_make_set_186 "SELECT make_set(3, 'dog', 'cat', 'bird');"
@@ -762,6 +774,16 @@ suite("string_functions_all") {
     testFoldConst("SELECT levenshtein('abcd', 'abdc'), levenshtein('你好呀', '你好'), levenshtein('a你b', 'a们b');")
     qt_levenshtein_334 "SELECT levenshtein(NULL, NULL), levenshtein('', '你好'), levenshtein('你好世界', '你好世间');"
     testFoldConst("SELECT levenshtein(NULL, NULL), levenshtein('', '你好'), levenshtein('你好世界', '你好世间');")
+    qt_levenshtein_alias_335 "SELECT levenshtein_distance('abcd', 'abdc'), edit_distance('kitten', 'sitting');"
+    testFoldConst("SELECT levenshtein_distance('abcd', 'abdc'), edit_distance('kitten', 'sitting');")
+    qt_damerau_levenshtein_336 "SELECT damerau_levenshtein_distance('', ''), damerau_levenshtein_distance('kitten', 'sitting'), damerau_levenshtein_distance('flaw', 'lawn'), damerau_levenshtein_distance('abcd', 'abdc'), damerau_levenshtein_distance('ca', 'ac'), damerau_levenshtein_distance('你好', '好你'), damerau_levenshtein_distance('数据库', '数据'), damerau_levenshtein_distance('CA', 'ABC');"
+    testFoldConst("SELECT damerau_levenshtein_distance('', ''), damerau_levenshtein_distance('kitten', 'sitting'), damerau_levenshtein_distance('flaw', 'lawn'), damerau_levenshtein_distance('abcd', 'abdc'), damerau_levenshtein_distance('ca', 'ac'), damerau_levenshtein_distance('你好', '好你'), damerau_levenshtein_distance('数据库', '数据'), damerau_levenshtein_distance('CA', 'ABC');")
+    qt_damerau_levenshtein_337 "SELECT damerau_levenshtein_distance(NULL, 'abc'), damerau_levenshtein_distance('abc', NULL), damerau_levenshtein_distance('', 'abc');"
+    testFoldConst("SELECT damerau_levenshtein_distance(NULL, 'abc'), damerau_levenshtein_distance('abc', NULL), damerau_levenshtein_distance('', 'abc');")
+    test {
+        sql "SELECT damerau_levenshtein_distance(repeat('a', 4096), repeat('b', 4096));"
+        exception "damerau_levenshtein_distance distance matrix is too large"
+    }
     sql """DROP TABLE IF EXISTS string_distance_lv_test"""
     sql """
         CREATE TABLE IF NOT EXISTS string_distance_lv_test (
@@ -782,9 +804,26 @@ suite("string_functions_all") {
         (6, 'abcd', 'abdc'),
         (7, '', '数据库'),
         (8, '你好', ''),
-        (9, '数据', '数据库')
+        (9, '数据', '数据库'),
+        (10, 'CA', 'ABC')
     """
     qt_levenshtein_tbl "SELECT id, levenshtein(s1, s2) FROM string_distance_lv_test ORDER BY id"
+    qt_damerau_levenshtein_tbl "SELECT id, damerau_levenshtein_distance(s1, s2) FROM string_distance_lv_test ORDER BY id"
+    sql """DROP TABLE IF EXISTS string_distance_big_damerau_test"""
+    sql """
+        CREATE TABLE IF NOT EXISTS string_distance_big_damerau_test (
+            id int,
+            s1 VARCHAR(5000),
+            s2 VARCHAR(5000)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num"="1")
+    """
+    sql """INSERT INTO string_distance_big_damerau_test VALUES (1, repeat('a', 4096), repeat('b', 4096))"""
+    test {
+        sql "SELECT damerau_levenshtein_distance(s1, s2) FROM string_distance_big_damerau_test;"
+        exception "damerau_levenshtein_distance distance matrix is too large"
+    }
 
     sql """DROP TABLE IF EXISTS string_distance_nn_test"""
     sql """
@@ -808,6 +847,11 @@ suite("string_functions_all") {
     qt_levenshtein_nn_scalar_vector_ascii "SELECT id, levenshtein('abc', s1) FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
     qt_levenshtein_nn_vector_scalar_utf8 "SELECT id, levenshtein(s1, '你们') FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
     qt_levenshtein_nn_scalar_vector_utf8 "SELECT id, levenshtein('你们', s1) FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_damerau_levenshtein_nn_vector_vector "SELECT id, damerau_levenshtein_distance(s1, s2) FROM string_distance_nn_test ORDER BY id"
+    qt_damerau_levenshtein_nn_vector_scalar_ascii "SELECT id, damerau_levenshtein_distance(s1, 'abdc') FROM string_distance_nn_test WHERE id IN (1, 2) ORDER BY id"
+    qt_damerau_levenshtein_nn_scalar_vector_ascii "SELECT id, damerau_levenshtein_distance('abdc', s1) FROM string_distance_nn_test WHERE id IN (1, 2) ORDER BY id"
+    qt_damerau_levenshtein_nn_vector_scalar_utf8 "SELECT id, damerau_levenshtein_distance(s1, '数库据') FROM string_distance_nn_test WHERE id = 4 ORDER BY id"
+    qt_damerau_levenshtein_nn_scalar_vector_utf8 "SELECT id, damerau_levenshtein_distance('数库据', s1) FROM string_distance_nn_test WHERE id = 4 ORDER BY id"
     qt_levenshtein_vector_scalar_nullable "SELECT id, levenshtein(s1, 'abc') FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
     qt_levenshtein_scalar_vector_nullable "SELECT id, levenshtein('abc', s1) FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
     qt_levenshtein_vector_scalar_utf8 "SELECT id, levenshtein(s1, '你好') FROM string_distance_lv_test WHERE id IN (5, 7) ORDER BY id"

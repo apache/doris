@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
@@ -64,6 +65,11 @@ import java.util.TreeSet;
 public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementContext> {
     private Multimap<Integer, CollectAccessPathResult> allSlotToAccessPaths = LinkedHashMultimap.create();
     private Map<Slot, List<CollectAccessPathResult>> scanSlotToAccessPaths = new LinkedHashMap<>();
+    private boolean skipMetaPath;
+
+    public void setSkipMetaPath(boolean skipMetaPath) {
+        this.skipMetaPath = skipMetaPath;
+    }
 
     public Map<Slot, List<CollectAccessPathResult>> collect(Plan root, StatementContext context) {
         root.accept(this, context);
@@ -83,7 +89,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         List<Slot> output = generate.getGeneratorOutput();
 
         AccessPathExpressionCollector exprCollector
-                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false);
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false, skipMetaPath);
         for (int i = 0; i < output.size(); i++) {
             Slot generatorOutput = output.get(i);
             Function function = generators.get(i);
@@ -229,7 +235,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     @Override
     public Void visitLogicalProject(LogicalProject<? extends Plan> project, StatementContext context) {
         AccessPathExpressionCollector exprCollector
-                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false);
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false, skipMetaPath);
         for (NamedExpression output : project.getProjects()) {
             // e.g. select element_at(s, 'city') from (select s from tbl)a;
             // we will not treat the inner `s` access all path
@@ -244,6 +250,12 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     List<String> outerPath = outerSlotAccessPath.getPath();
                     List<String> replaceSlotNamePath = new ArrayList<>();
                     replaceSlotNamePath.add(innerSlot.getName());
+                    if (outerPath.size() == 1 && innerSlot instanceof SlotReference
+                            && ((SlotReference) innerSlot).hasSubColPath()) {
+                        // A whole access to a derived subcolumn slot is whole only relative to that
+                        // slot; preserve its physical leaf path when propagating to the scan slot.
+                        replaceSlotNamePath.addAll(((SlotReference) innerSlot).getSubPath());
+                    }
                     replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
                     allSlotToAccessPaths.put(
                             innerSlot.getExprId().asInt(),
@@ -385,7 +397,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
 
     private void collectByExpressions(Plan plan, StatementContext context, boolean bottomPredicate) {
         AccessPathExpressionCollector exprCollector
-                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, bottomPredicate);
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, bottomPredicate, skipMetaPath);
         for (Expression expression : plan.getExpressions()) {
             exprCollector.collect(expression);
         }
@@ -417,6 +429,6 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         }
         String lastComponent = path.get(path.size() - 1);
         return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
-                || AccessPathInfo.ACCESS_STRING_OFFSET.equals(lastComponent);
+                || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 }

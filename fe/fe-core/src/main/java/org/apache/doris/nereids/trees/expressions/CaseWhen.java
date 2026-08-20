@@ -43,7 +43,7 @@ import java.util.function.Supplier;
  *
  * Children layout: [value?, WhenClause+, defaultValue?]
  */
-public class CaseWhen extends Expression implements NeedSessionVarGuard {
+public class CaseWhen extends Expression implements NeedSessionVarGuard, NullToNonNullFunction {
 
     private final Optional<Expression> value;
     private final List<WhenClause> whenClauses;
@@ -163,6 +163,18 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
             output.append(whenClause.toSql());
         }
         defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.toSql()));
+        output.append(" END");
+        return output.toString();
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder output = new StringBuilder("CASE");
+        value.ifPresent(v -> output.append(" ").append(v.shapeInfo()));
+        for (WhenClause whenClause : whenClauses) {
+            output.append(whenClause.shapeInfo());
+        }
+        defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.shapeInfo()));
         output.append(" END");
         return output.toString();
     }

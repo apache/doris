@@ -25,6 +25,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/operator.h"
@@ -56,6 +57,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {

@@ -46,7 +46,7 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
-#include "storage/olap_common.h"
+#include "storage/field_type.h"
 
 namespace doris {
 class DecimalV2Value;
@@ -207,10 +207,15 @@ public:
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(UInt32 arg_precision = max_decimal_precision<T>(),
-                    UInt32 arg_scale = default_decimal_scale<T>(),
-                    UInt32 arg_original_precision = UINT32_MAX,
-                    UInt32 arg_original_scale = UINT32_MAX)
+    DataTypeDecimal(
+            UInt32 arg_precision = max_decimal_precision<T>(),
+            UInt32 arg_scale = default_decimal_scale<T>(),
+            // For decimalv2 only, record the original(schema) precision and scale.
+            // UINT32_MAX means original precision and scale are unknown.
+            // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
+            // but when casting decimalv2 to string, it's better to keep the presion and
+            // scale of it's original value in schema.
+            UInt32 arg_original_precision = UINT32_MAX, UInt32 arg_original_scale = UINT32_MAX)
             : DecimalScaleInfo<T>(arg_precision, arg_scale, arg_original_precision,
                                   arg_original_scale) {}
 
@@ -520,5 +525,12 @@ static_assert(!has_original_precision_and_scale<DataTypeDecimal32>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal64>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
+
+/// Instantiated once in data_type_decimal.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeDecimal<TYPE_DECIMAL32>;
+extern template class DataTypeDecimal<TYPE_DECIMAL64>;
+extern template class DataTypeDecimal<TYPE_DECIMALV2>;
+extern template class DataTypeDecimal<TYPE_DECIMAL128I>;
+extern template class DataTypeDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris

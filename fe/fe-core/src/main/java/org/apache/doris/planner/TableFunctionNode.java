@@ -23,6 +23,10 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -119,5 +123,25 @@ public class TableFunctionNode extends PlanNode {
         for (SlotId slotId : outputSlotIds) {
             msg.table_function_node.addToOutputSlotIds(slotId.asInt());
         }
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        // Mirrors BE TableFunctionOperatorX::required_data_distribution() which always
+        // returns PASSTHROUGH, regardless of child's serial status.
+        //
+        // Conceptual model: TableFunction requires PASSTHROUGH input but outputs
+        // "unknown distribution" (NOOP). This means downstream operators (e.g. Sort)
+        // must independently evaluate their own requirements against NOOP, naturally
+        // triggering exchange insertion when they require PASSTHROUGH.
+        //
+        // In BE, need_to_local_exchange() Step 4 treats non-hash exchanges (PASSTHROUGH)
+        // as always needing insertion, so "PASSTHROUGH doesn't satisfy PASSTHROUGH" —
+        // which is equivalent to our FE model of require=PASSTHROUGH, output=NOOP.
+        Pair<PlanNode, LocalExchangeType> enforceResult = enforceRequire(
+                translatorContext, children.get(0), 0, LocalExchangeTypeRequire.requirePassthrough());
+        children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, LocalExchangeType.NOOP);
     }
 }

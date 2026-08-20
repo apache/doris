@@ -164,6 +164,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
                 .is_doris_table = false,
                 .cache_base_path = "",
                 .file_size = static_cast<int64_t>(hdr_file_len),
+                .storage_resource_id {},
         };
         LOG(INFO) << "download hdr file: " << full_remote_hdr_path;
         io::FileReaderSPtr hdr_reader = nullptr;
@@ -209,6 +210,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
                     .is_doris_table = false,
                     .cache_base_path = "",
                     .file_size = static_cast<int64_t>(file_stat.size),
+                    .storage_resource_id {},
             };
             io::FileReaderSPtr file_reader = nullptr;
             RETURN_IF_ERROR(

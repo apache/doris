@@ -16,4 +16,4 @@
 # under the License.
 
 matplotlib==3.7.0
-mysql_connector_repackaged==0.3.1
+mysql-connector-python>=8.0.33,<9

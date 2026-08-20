@@ -50,6 +50,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -99,6 +101,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -708,6 +711,7 @@ public abstract class ConnectProcessor {
         if (request.isSetConnectAttributes()) {
             ctx.setConnectAttributes(request.getConnectAttributes());
         }
+        restoreForwardedSessionContext(ctx, request);
 
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
@@ -780,6 +784,16 @@ public abstract class ConnectProcessor {
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        } finally {
+            // Master-side forwarded statements (redirect DDL / SHOW) execute via Command.run and never reach
+            // unregisterQuery, so their per-statement connector scope has no query-finish trigger. Close it here
+            // via StatementContext.close() (the same per-statement close the direct-connection path runs in its
+            // finally). Idempotent: a coordinated forwarded query's scope is already closed by its query-finish
+            // callback. These statements run synchronously with no off-thread scan pump, so close-after-use holds.
+            StatementContext forwardedStatementContext = ctx.getStatementContext();
+            if (forwardedStatementContext != null) {
+                forwardedStatementContext.close();
+            }
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
@@ -824,6 +838,24 @@ public abstract class ConnectProcessor {
             }
         }
         return result;
+    }
+
+    static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {
+        if (!request.isSetDelegatedCredentialToken()) {
+            return;
+        }
+        Preconditions.checkState(request.isSetDelegatedCredentialType(),
+                "delegated credential type is required");
+        Preconditions.checkState(request.isSetDelegatedCredentialSessionId(),
+                "delegated credential session id is required");
+        OptionalLong expiresAtMillis = request.isSetDelegatedCredentialExpiresAtMillis()
+                ? OptionalLong.of(request.getDelegatedCredentialExpiresAtMillis())
+                : OptionalLong.empty();
+        String sessionId = request.getDelegatedCredentialSessionId();
+        context.setSessionContext(SessionContext.of(sessionId, new DelegatedCredential(
+                DelegatedCredential.Type.valueOf(request.getDelegatedCredentialType()),
+                request.getDelegatedCredentialToken(),
+                expiresAtMillis)));
     }
 
     // only Mysql protocol

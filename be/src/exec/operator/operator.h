@@ -188,7 +188,6 @@ public:
             RuntimeState* /*state*/) const;
 
 protected:
-    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
     [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
 
     OperatorPtr _child = nullptr;
@@ -599,8 +598,8 @@ public:
     virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const { return false; }
 
     Status init(const TDataSink& tsink) override;
-    [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
-                                      const bool use_global_hash_shuffle,
+    [[nodiscard]] virtual Status init(RuntimeState* state, TLocalPartitionType::type type,
+                                      const int num_buckets,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
@@ -616,6 +615,8 @@ public:
     }
 
     [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
+        RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
         return sink_impl(state, block, eos);
     }
@@ -629,6 +630,10 @@ public:
     // execution round (sink only — pipeline task sums all operators + sink).
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
+    }
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                      const Block* block) {
+        return get_reserve_mem_size(state, eos);
     }
     bool is_blockable(RuntimeState* state) const override {
         return state->get_sink_local_state()->is_blockable();
@@ -818,7 +823,6 @@ public:
               _node_id(tnode.node_id),
               _type(tnode.node_type),
               _pool(pool),
-              _tuple_ids(tnode.row_tuples),
               _row_descriptor(descs, tnode.row_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
@@ -851,7 +855,7 @@ public:
     Status init(const TDataSink& tsink) override {
         throw Exception(Status::FatalError("should not reach here!"));
     }
-    virtual Status init(ExchangeType type) {
+    virtual Status init(TLocalPartitionType::type type) {
         throw Exception(Status::FatalError("should not reach here!"));
     }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
@@ -877,6 +881,8 @@ public:
     Status terminate(RuntimeState* state) override;
     [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
         RETURN_IF_ERROR(get_block_impl(state, block, eos));
+        RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
         return Status::OK();
     }
@@ -985,7 +991,6 @@ protected:
     int _nereids_id = -1;
     TPlanNodeType::type _type;
     ObjectPool* _pool = nullptr;
-    std::vector<TupleId> _tuple_ids;
 
 private:
     // The expr of operator set to private permissions, as cannot be executed concurrently,
@@ -1010,10 +1015,6 @@ protected:
 
     std::string _op_name;
     int _parallel_tasks = 0;
-
-    //_keep_origin is used to avoid copying during projection,
-    // currently set to false only in the nestloop join.
-    bool _keep_origin = true;
 
     // _blockable is true if the operator contains expressions that may block execution
     bool _blockable = false;
@@ -1257,6 +1258,46 @@ private:
     bool _disable_reserve_mem = false;
     bool _revoke_called = false;
 };
+#endif
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXSinkLocalState<HashJoinSharedState>;
+extern template class PipelineXSinkLocalState<PartitionedHashJoinSharedState>;
+extern template class PipelineXSinkLocalState<SortSharedState>;
+extern template class PipelineXSinkLocalState<SpillSortSharedState>;
+extern template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
+extern template class PipelineXSinkLocalState<AnalyticSharedState>;
+extern template class PipelineXSinkLocalState<AggSharedState>;
+extern template class PipelineXSinkLocalState<BucketedAggSharedState>;
+extern template class PipelineXSinkLocalState<PartitionedAggSharedState>;
+extern template class PipelineXSinkLocalState<FakeSharedState>;
+extern template class PipelineXSinkLocalState<UnionSharedState>;
+extern template class PipelineXSinkLocalState<PartitionSortNodeSharedState>;
+extern template class PipelineXSinkLocalState<MultiCastSharedState>;
+extern template class PipelineXSinkLocalState<SetSharedState>;
+extern template class PipelineXSinkLocalState<LocalExchangeSharedState>;
+extern template class PipelineXSinkLocalState<BasicSharedState>;
+extern template class PipelineXSinkLocalState<DataQueueSharedState>;
+extern template class PipelineXLocalState<HashJoinSharedState>;
+extern template class PipelineXLocalState<PartitionedHashJoinSharedState>;
+extern template class PipelineXLocalState<SortSharedState>;
+extern template class PipelineXLocalState<SpillSortSharedState>;
+extern template class PipelineXLocalState<NestedLoopJoinSharedState>;
+extern template class PipelineXLocalState<AnalyticSharedState>;
+extern template class PipelineXLocalState<AggSharedState>;
+extern template class PipelineXLocalState<BucketedAggSharedState>;
+extern template class PipelineXLocalState<PartitionedAggSharedState>;
+extern template class PipelineXLocalState<FakeSharedState>;
+extern template class PipelineXLocalState<UnionSharedState>;
+extern template class PipelineXLocalState<DataQueueSharedState>;
+extern template class PipelineXLocalState<MultiCastSharedState>;
+extern template class PipelineXLocalState<PartitionSortNodeSharedState>;
+extern template class PipelineXLocalState<SetSharedState>;
+extern template class PipelineXLocalState<LocalExchangeSharedState>;
+extern template class PipelineXLocalState<BasicSharedState>;
+#ifdef BE_TEST
+extern template class OperatorX<DummyOperatorLocalState>;
+extern template class DataSinkOperatorX<DummySinkLocalState>;
 #endif
 
 } // namespace doris

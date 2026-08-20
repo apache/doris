@@ -42,6 +42,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -283,19 +284,19 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
 
     auto rows = 4;
     generate_data(&block, 123, 456, 100);
-    res = delta_writer->write(&block, {0});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 123, 457, 100);
-    res = delta_writer->write(&block, {1});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 123, 455, 90);
-    res = delta_writer->write(&block, {2});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {2}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 123, 457, 90); // row 1 has larger sequence number
-    res = delta_writer->write(&block, {3});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {3}});
     ASSERT_TRUE(res.ok());
     generate_data(&block, 122, 456, 90);
-    res = delta_writer->write(&block, {4});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {4}});
     ASSERT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -308,7 +309,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success

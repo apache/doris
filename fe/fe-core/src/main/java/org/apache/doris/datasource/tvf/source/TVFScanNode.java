@@ -28,11 +28,11 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.FileSplit.FileSplitCreator;
-import org.apache.doris.datasource.FileSplitter;
-import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.scan.FileQueryScanNode;
+import org.apache.doris.datasource.scan.TableFormatType;
+import org.apache.doris.datasource.split.FileSplit;
+import org.apache.doris.datasource.split.FileSplit.FileSplitCreator;
+import org.apache.doris.datasource.split.FileSplitter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -47,7 +47,6 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -143,9 +142,9 @@ public class TVFScanNode extends FileQueryScanNode {
 
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
 
-        // Push down count optimization.
+        // Avoid splitting only for table-level COUNT(*). COUNT(column) still reads column data.
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
+        if (isTableLevelCountStarPushdown()) {
             int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             int totalFileNum = fileStatuses.size();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);

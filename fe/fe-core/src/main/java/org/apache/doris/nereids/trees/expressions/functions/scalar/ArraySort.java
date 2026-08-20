@@ -72,6 +72,13 @@ public class ArraySort extends ScalarFunction
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
             }
         }
+        if (getArgument(0) instanceof Lambda) {
+            Lambda lambda = (Lambda) getArgument(0);
+            if (lambda.getLambdaArgumentNames().size() != 2) {
+                throw new AnalysisException("When using lambda as the parameter of array_sort,"
+                        + " the lambda must be a binary comparator lambda.");
+            }
+        }
     }
 
     /**

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_agg"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """DROP TABLE IF EXISTS var_agg"""
 
     int max_subcolumns_count = Math.floor(Math.random() * 10)
@@ -34,39 +35,39 @@ suite("regression_test_variant_agg"){
             DISTRIBUTED BY HASH(k) BUCKETS 4
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
-    sql """insert into var_agg values (1,  '[1]', 1),(1,  '{"a" : 1}', 1);"""
-    sql """insert into var_agg values (2,  '[2]', 2),(1,  '{"a" : [[[1]]]}', 2);"""
-    sql """insert into var_agg values (3,  '3', 3),(1,  '{"a" : 1}', 3), (1,  '{"a" : [1]}', 3);"""
-    sql """insert into var_agg values (4,  '"4"', 4),(1,  '{"a" : "1223"}', 4);"""
-    sql """insert into var_agg values (5,  '5', 5),(1,  '{"a" : [1]}', 5);"""
-    sql """insert into var_agg values (6,  '"[6]"', 6),(1,  '{"a" : ["1", 2, 1.1]}', 6);"""
-    sql """insert into var_agg values (7,  '7', 7),(1,  '{"a" : 1, "b" : {"c" : 1}}', 7);"""
-    sql """insert into var_agg values (8,  '8.11111', 8),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 8);"""
-    sql """insert into var_agg values (9,  '"9999"', 9),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 9);"""
-    sql """insert into var_agg values (10,  '1000000', 10),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 10);"""
-    sql """insert into var_agg values (11,  '[123.0]', 11),(1999,  '{"a" : 1, "b" : {"c" : 1}}', 11),(19921,  '{"a" : 1, "d" : 10}', 11);"""
-    sql """insert into var_agg values (12,  '[123.2]', 12),(1022,  '{"a" : 1, "b" : {"f" : 17034, "g"  :1.111 }}', 12),(1029,  '{"a" : 1, "b" : {"c" : 1}}', 12);"""
+    sql """insert into var_agg values (1,  ${variantV2Function}('[1]'), 1),(1,  ${variantV2Function}('{"a" : 1}'), 1);"""
+    sql """insert into var_agg values (2,  ${variantV2Function}('[2]'), 2),(1,  ${variantV2Function}('{"a" : [[[1]]]}'), 2);"""
+    sql """insert into var_agg values (3,  ${variantV2Function}('3'), 3),(1,  ${variantV2Function}('{"a" : 1}'), 3), (1,  ${variantV2Function}('{"a" : [1]}'), 3);"""
+    sql """insert into var_agg values (4,  ${variantV2Function}('"4"'), 4),(1,  ${variantV2Function}('{"a" : "1223"}'), 4);"""
+    sql """insert into var_agg values (5,  ${variantV2Function}('5'), 5),(1,  ${variantV2Function}('{"a" : [1]}'), 5);"""
+    sql """insert into var_agg values (6,  ${variantV2Function}('"[6]"'), 6),(1,  ${variantV2Function}('{"a" : ["1", 2, 1.1]}'), 6);"""
+    sql """insert into var_agg values (7,  ${variantV2Function}('7'), 7),(1,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'), 7);"""
+    sql """insert into var_agg values (8,  ${variantV2Function}('8.11111'), 8),(1,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'), 8);"""
+    sql """insert into var_agg values (9,  ${variantV2Function}('"9999"'), 9),(1,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'), 9);"""
+    sql """insert into var_agg values (10,  ${variantV2Function}('1000000'), 10),(1,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'), 10);"""
+    sql """insert into var_agg values (11,  ${variantV2Function}('[123.0]'), 11),(1999,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'), 11),(19921,  ${variantV2Function}('{"a" : 1, "d" : 10}'), 11);"""
+    sql """insert into var_agg values (12,  ${variantV2Function}('[123.2]'), 12),(1022,  ${variantV2Function}('{"a" : 1, "b" : {"f" : 17034, "g"  :1.111 }}'), 12),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'), 12);"""
     qt_sql1 "select k, cast(v['a'] as array<int>) from  var_agg where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
     qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  var_agg where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
-    qt_sql3 "select k, v from  var_agg order by k, cast(v as string) limit 5"
+    qt_sql3 "select k, json_unquote(cast(v as json)) from  var_agg order by k, cast(v as string) limit 5"
     qt_sql4 "select v['b'], v['b']['c'], cast(v as int) from  var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,cast(v as string) desc limit 10000;"
     qt_sql5 "select v['b'] from var_agg where cast(v['b'] as int) > 0;"
     qt_sql6 "select cast(v['b'] as string) from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
-    qt_sql7 "select * from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
-    qt_sql8 "select * from var_agg order by 1, cast(2 as string), 3"
+    qt_sql7 "select k, json_unquote(cast(v as json)), s from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
+    qt_sql8 "select k, json_unquote(cast(v as json)), s from var_agg order by 1, cast(2 as string), 3"
     trigger_and_wait_compaction("var_agg", "cumulative", 1800)
     sql "alter table var_agg drop column s"
-    sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
-            union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "x" : 42005}' as json_str from numbers("number" = "1024") limit 1024;"""
-    sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
-            union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "y" : 11111111}' as json_str from numbers("number" = "2048") where number > 1024 limit 1024;"""
-    sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
-            union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "c" : 1.11}' as json_str from numbers("number" = "1024") limit 1024;"""
-    sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
-            union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "e" : [123456]}' as json_str from numbers("number" = "1024") limit 1024;"""
-    sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
-            union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "f" : ["123456"]}' as json_str from numbers("number" = "1024") limit 1024;"""
+    sql """insert into var_agg select 5, ${variantV2Function}('{"a" : 1234, "xxxx" : "fffff", "point" : 42000}') as json_str
+            union all select 5, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a": 11245, "x" : 42005}') as json_str from numbers("number" = "1024") limit 1024;"""
+    sql """insert into var_agg select 5, ${variantV2Function}('{"a" : 1234, "xxxx" : "fffff", "point" : 42000}') as json_str
+            union all select 5, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a": 11245, "y" : 11111111}') as json_str from numbers("number" = "2048") where number > 1024 limit 1024;"""
+    sql """insert into var_agg select 5, ${variantV2Function}('{"a" : 1234, "xxxx" : "fffff", "point" : 42000}') as json_str
+            union all select 5, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a": 11245, "c" : 1.11}') as json_str from numbers("number" = "1024") limit 1024;"""
+    sql """insert into var_agg select 5, ${variantV2Function}('{"a" : 1234, "xxxx" : "fffff", "point" : 42000}') as json_str
+            union all select 5, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a": 11245, "e" : [123456]}') as json_str from numbers("number" = "1024") limit 1024;"""
+    sql """insert into var_agg select 5, ${variantV2Function}('{"a" : 1234, "xxxx" : "fffff", "point" : 42000}') as json_str
+            union all select 5, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a": 11245, "f" : ["123456"]}') as json_str from numbers("number" = "1024") limit 1024;"""
     trigger_and_wait_compaction("var_agg", "cumulative", 1800)
-    qt_sql9 "select * from var_agg order by cast(2 as string), 3, 1 limit 10"
-    qt_sql9 "select * from var_agg where k > 1024 order by cast(2 as string), 3, 1 limit 10"
+    qt_sql9 "select k, json_unquote(cast(v as json)) from var_agg order by cast(2 as string), 1 limit 10"
+    qt_sql9 "select k, json_unquote(cast(v as json)) from var_agg where k > 1024 order by cast(2 as string), 1 limit 10"
 }

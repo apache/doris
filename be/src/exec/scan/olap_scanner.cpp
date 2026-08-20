@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
@@ -49,17 +50,18 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
 #include "storage/olap_utils.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #ifndef NDEBUG
@@ -77,8 +79,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
-                                 .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
-                                                                       : ReaderType::READER_QUERY,
+                                 .reader_type = ReaderType::READER_QUERY,
+                                 .read_row_binlog = params.read_row_binlog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -91,20 +93,23 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .predicate_access_paths {},
                                  .rs_splits {},
                                  .return_columns {},
+                                 .tso_predicate_column_id {},
                                  .output_columns {},
+                                 .extra_columns {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
-                                 .vir_cid_to_idx_in_block {},
-                                 .vir_col_idx_to_type {},
                                  .score_runtime {},
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
-                                 .binlog_scan_type = params.binlog_scan_type}),
+                                 .binlog_scan_type = params.binlog_scan_type,
+                                 .start_tso = std::nullopt,
+                                 .end_tso = std::nullopt}),
           _start_tso(params.start_tso),
-          _end_tso(params.end_tso) {
+          _end_tso(params.end_tso),
+          _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
@@ -152,7 +157,26 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_remote != 0 ||
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
-           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0 ||
+           stats.inverted_index_request_bytes != 0 || stats.inverted_index_read_bytes != 0 ||
+           stats.inverted_index_range_read_count != 0 ||
+           stats.inverted_index_serial_read_rounds != 0;
+}
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats) {
+    io::IOContext io_ctx {
+            .reader_type = reader_type,
+            .expiration_time = expiration_time,
+            .query_id = &state->query_id(),
+            .file_cache_stats = file_cache_stats,
+            .is_inverted_index = true,
+    };
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    return io_ctx;
 }
 
 Status OlapScanner::_prepare_impl() {
@@ -179,8 +203,6 @@ Status OlapScanner::_prepare_impl() {
         _slot_id_to_virtual_column_expr[pair.first] = context;
     }
 
-    _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
-    _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _score_runtime = local_state->_score_runtime;
     // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
@@ -197,10 +219,7 @@ Status OlapScanner::_prepare_impl() {
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        TabletSchemaSPtr source_tablet_schema =
-                _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                        ? tablet->row_binlog_tablet_schema()
-                        : tablet->tablet_schema();
+        TabletSchemaSPtr source_tablet_schema = tablet->tablet_schema();
 
         tablet_schema = std::make_shared<TabletSchema>();
         tablet_schema->copy_from(*source_tablet_schema);
@@ -236,8 +255,6 @@ Status OlapScanner::_prepare_impl() {
                             .skip_missing_versions = _state->skip_missing_version(),
                             .enable_fetch_rowsets_from_peers =
                                     config::enable_fetch_rowsets_from_peer_replicas,
-                            .capture_row_binlog =
-                                    _tablet_reader_params.reader_type == ReaderType::READER_BINLOG,
                             .enable_prefer_cached_rowset =
                                     config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
                                                             : false,
@@ -278,13 +295,9 @@ Status OlapScanner::_prepare_impl() {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
-        io::IOContext io_ctx {
-                .reader_type = _tablet_reader_params.reader_type,
-                .expiration_time = tablet->ttl_seconds(),
-                .query_id = &_state->query_id(),
-                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
-                .is_inverted_index = true,
-        };
+        auto io_ctx = build_score_runtime_collection_io_context(
+                _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
+                &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
@@ -301,11 +314,14 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        res.append("failed to initialize storage reader. tablet=" +
-                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+        // init() also runs the eager first-row read that evaluates pushed-down expressions,
+        // so res may be a data/expression error rather than a storage failure. Keep its own
+        // message and only append the tablet/backend, without a misleading storage wording.
+        res.append(". tablet=" + std::to_string(_tablet_reader_params.tablet->tablet_id()) +
                    ", backend=" + BackendOptions::get_localhost());
         return res;
     }
+    _tablet_reader->mutable_stats()->file_cache_stats.merge_from(_initial_file_cache_stats);
 
     // Do not hold rs_splits any more to release memory.
     _tablet_reader_params.rs_splits.clear();
@@ -313,43 +329,44 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
     return Status::OK();
 }
 
-// For binlog partition-based incremental read. Pushes down [start_tso, end_tso] range
-// predicates onto the binlog timestamp column for row-binlog scans. Also ensures the
-// timestamp column is part of return_columns so the predicates can be evaluated by the
-// storage layer.
-Status OlapScanner::_init_row_binlog_tso_predicates() {
-    if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
-        return Status::OK();
-    }
-
+// For binlog/snapshot incremental read. Forwards the (start_tso, end_tso] range and the TSO
+// column id down to BetaRowsetReader, which builds the comparison predicates directly on read
+// options. This bypasses the value/key predicate split in TabletReader::_init_conditions_param,
+// guaranteeing the range filter always reaches storage (a correctness requirement for MIN_DELTA).
+Status OlapScanner::_init_tso_pushdown() {
     if (!_start_tso.has_value() && !_end_tso.has_value()) {
         return Status::OK();
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = tablet_schema->binlog_timestamp_col_idx();
+    int32_t tso_index = _tablet_reader_params.read_row_binlog ? tablet_schema->binlog_tso_col_idx()
+                                                              : tablet_schema->commit_tso_col_idx();
+    const std::string& column_name =
+            _tablet_reader_params.read_row_binlog ? BINLOG_TSO_COL : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
-                                     BINLOG_TIMESTAMP_COL);
+                                     column_name);
     }
 
-    auto data_type = std::make_shared<DataTypeInt64>();
-    if (_start_tso.has_value()) {
-        Field start_value = Field::create_field<TYPE_BIGINT>(*_start_tso);
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-                tso_index, std::string(kRowBinlogTimestampColName), data_type, start_value, false));
-    }
-    if (_end_tso.has_value()) {
-        Field end_value = Field::create_field<TYPE_BIGINT>(*_end_tso);
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
-                tso_index, std::string(kRowBinlogTimestampColName), data_type, end_value, false));
-    }
+    // Push the TSO range down as-is; BetaRowsetReader builds the comparison predicates and
+    // injects them straight into read options, so they cannot be dropped by the value/key
+    // predicate split in TabletReader::_init_conditions_param.
+    _tablet_reader_params.start_tso = _start_tso;
+    _tablet_reader_params.end_tso = _end_tso;
 
-    if (std::find(_tablet_reader_params.return_columns.begin(),
-                  _tablet_reader_params.return_columns.end(),
-                  tso_index) == _tablet_reader_params.return_columns.end()) {
-        _tablet_reader_params.return_columns.push_back(tso_index);
-    }
+    // The storage-layer statistics fast path (VStatisticsIterator, picked when
+    // push_down_agg_type is COUNT/MINMAX) bypasses SegmentIterator and returns raw
+    // segment row counts without applying any column predicate. The commit-tso
+    // predicate injected above is row-level, so the fast path would both miscount
+    // (ignoring commit_tso <= snapshot_tso) and crash on a column-count DCHECK when
+    // the tso predicate column is not in return_columns. Disable it here, matching
+    // the binlog DETAIL/MIN_DELTA handling.
+    _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
+
+    // Always carry the tso column id so BetaRowsetReader can build predicates on it.
+    // Whether the column must be appended to read_columns (because it is not in
+    // return_columns) is decided downstream in BetaRowsetReader.
+    _tablet_reader_params.tso_predicate_column_id = static_cast<ColumnId>(tso_index);
 
     return Status::OK();
 }
@@ -382,7 +399,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
-    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/op/lsn/before
+    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/tso/op/before
     // columns to drive the row-level merge in BlockReader. The storage-layer
     // statistics fast path (VStatisticsIterator, picked when push_down_agg_type
     // is COUNT/MINMAX) bypasses SegmentIterator entirely, returning raw segment
@@ -397,8 +414,6 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
-    _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
-    _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
@@ -459,13 +474,14 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     };
 
-    // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
-    // every key column, every requested value column, the binlog meta columns (op / lsn /
-    // tso) and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
-    const bool need_before_columns =
+    // MIN_DELTA / DETAIL row-binlog scans reconstruct change rows in BlockReader through a
+    // key-ordered merge. They must read every key column, every requested value column, the
+    // binlog meta columns (tso / op) and their __BEFORE__ mirrors. APPEND_ONLY streams rows
+    // as-is and stays on the plain projection paths below.
+    const bool is_binlog_merge_scan =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
-    if (need_before_columns) {
+    if (is_binlog_merge_scan) {
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
             add_return_column_if_absent(static_cast<uint32_t>(i));
         }
@@ -473,12 +489,11 @@ Status OlapScanner::_init_tablet_reader_params(
             add_return_column_if_absent(cid);
         }
 
-        if (int32_t op_idx = tablet_schema->field_index(std::string(kRowBinlogOpColName));
-            op_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
+        if (int32_t tso_idx = tablet_schema->binlog_tso_col_idx(); tso_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(tso_idx));
         }
-        if (int32_t lsn_idx = tablet_schema->binlog_lsn_col_idx(); lsn_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(lsn_idx));
+        if (int32_t op_idx = tablet_schema->binlog_op_col_idx(); op_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
 
         for (auto cid : _return_columns) {
@@ -547,18 +562,28 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     }
 
-    RETURN_IF_ERROR(_init_row_binlog_tso_predicates());
+    RETURN_IF_ERROR(_init_tso_pushdown());
 
-    // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
-    // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit
-    // BEFORE/AFTER pairs in deterministic order (DETAIL). Disable ORDER BY / TopN pushdowns
-    // and reset their related params, since they would otherwise re-order the stream.
+    // Row-binlog scans must not be re-ordered or truncated by ORDER BY / TopN pushdowns,
+    // so reset every reorder-related param for all binlog scan types.
+    //
+    // Only MIN_DELTA / DETAIL additionally force the storage layer to deliver rows strictly
+    // in primary-key order, so the BlockReader can group consecutive same-key changes
+    // (MIN_DELTA) or emit BEFORE/AFTER pairs in deterministic order (DETAIL). Their storage
+    // projection is widened above with the full key prefix, which the key-ordered merge
+    // comparator relies on: with read_orderby_key_num_prefix_columns == 0 the comparator
+    // falls back to comparing the first num_key_columns block positions.
+    //
+    // APPEND_ONLY does no key grouping and keeps the raw SQL projection, which may omit
+    // some or even all key columns. Forcing a key-ordered merge would make the fallback
+    // comparator read key positions that do not exist in the projected blocks and crash
+    // the BE (issue #66390), so it reads unordered like a plain scan.
     if (_tablet_reader_params.binlog_scan_type != TBinlogScanType::NONE) {
-        _tablet_reader_params.read_orderby_key = true;
+        _tablet_reader_params.read_orderby_key = is_binlog_merge_scan;
+        _tablet_reader_params.force_key_ordered_read = is_binlog_merge_scan;
         _tablet_reader_params.read_orderby_key_reverse = false;
         _tablet_reader_params.read_orderby_key_num_prefix_columns = 0;
         _tablet_reader_params.read_orderby_key_limit = 0;
-        _tablet_reader_params.force_key_ordered_read = true;
         _tablet_reader_params.topn_filter_source_node_ids.clear();
     }
 
@@ -673,20 +698,32 @@ Status OlapScanner::_init_variant_columns() {
     if (tablet_schema->num_variant_columns() == 0) {
         return Status::OK();
     }
-    // Parent column has path info to distinction from each other
+    // A Variant read column is identified by its parent uid and PathInData. Root and already
+    // materialized paths may already exist in the copied tablet schema; missing paths are added
+    // below as transient read-schema columns.
     for (auto* slot : _output_tuple_desc->slots()) {
-        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            // Such columns are not exist in frontend schema info, so we need to
-            // add them into tablet_schema for later column indexing.
-            const auto& dt_variant =
-                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
-            TabletColumn subcol = TabletColumn::create_materialized_variant_column(
-                    tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
-                    slot->column_paths(), slot->col_unique_id(),
-                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
-            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
-                tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
-            }
+        if (slot->type()->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
+            continue;
+        }
+        // Materialized paths are absent from the persisted frontend schema. Build their transient
+        // read-schema entries from the slot type so V1 and V2 share the same path/type mapping.
+        const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                              slot->column_paths());
+        // Keep transient paths nullable so an absent path preserves the existing NULL result.
+        TabletColumn subcol = variant_util::get_column_by_type(
+                make_nullable(slot->type()), path.get_path(),
+                variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
+                                         .path_info = path});
+        const int32_t column_index = tablet_schema->field_index(path);
+        if (column_index < 0) {
+            tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            continue;
+        }
+        if (subcol.variant_is_v2()) {
+            // TODO: Remove this promotion after legacy ColumnVariant read destinations are
+            // deleted. Persisted metadata describes the shared storage layout; this transient
+            // marker only makes the current scan construct a ColumnVariantV2 destination.
+            tablet_schema->mutable_column(column_index).set_variant_is_v2(true);
         }
     }
     variant_util::inherit_column_attributes(tablet_schema);
@@ -694,6 +731,11 @@ Status OlapScanner::_init_variant_columns() {
 }
 
 Status OlapScanner::_init_return_columns() {
+    // For OLAP scan, _output_tuple_desc is the storage-aligned scan tuple
+    // descriptor. extra_key_column_slot_ids marks extra key slots that are
+    // present only for scan-schema alignment. For example, on an AGG table with
+    // keys (k1, k2), a query returning only k2 may still scan (k1, k2); k1 is
+    // an extra column and can be removed by the projection output tuple.
     for (auto* slot : _output_tuple_desc->slots()) {
         // variant column using path to index a column
         int32_t index = 0;
@@ -714,19 +756,25 @@ Status OlapScanner::_init_return_columns() {
         }
 
         if (slot->get_virtual_column_expr()) {
-            ColumnId virtual_column_cid = index;
-            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
-            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
-            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
-            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
+            _virtual_column_exprs[index] = _slot_id_to_virtual_column_expr[slot->id()];
 
-            VLOG_DEBUG << fmt::format(
-                    "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
-                    virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
-                    _vir_col_idx_to_type[idx_in_block]->get_name());
+            VLOG_DEBUG << fmt::format("Virtual column, slot id: {}, cid {}, type: {}", slot->id(),
+                                      index, slot->get_data_type_ptr()->get_name());
         }
 
         const auto& column = tablet_schema->column(index);
+        auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+        const auto& olap_scan_node = olap_local_state->olap_scan_node();
+        if (olap_scan_node.__isset.extra_key_column_slot_ids &&
+            olap_scan_node.extra_key_column_slot_ids.contains(slot->id())) {
+            DORIS_CHECK(column.is_key());
+            if (_tablet_reader_params.direct_mode) {
+                // Direct readers can synthesize extra storage keys because they are only
+                // placeholders before the scan projection removes them. Merge/aggregation
+                // readers must still read real key values to preserve storage semantics.
+                _tablet_reader_params.extra_columns.insert(index);
+            }
+        }
         int32_t unique_id =
                 column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
         if (!slot->all_access_paths().empty()) {
@@ -920,6 +968,7 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_predicate_column_read_seek_counter,
                    stats.predicate_column_read_seek_num);
     COUNTER_UPDATE(local_state->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(local_state->_lazy_read_pruned_timer, stats.lazy_read_pruned_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(local_state->_output_col_timer, stats.output_col_ns);
@@ -933,6 +982,14 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,
+                   stats.expr_zonemap_filtered_segments);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_page_counter,
+                   stats.expr_zonemap_filtered_pages);
+    COUNTER_UPDATE(local_state->_expr_zonemap_unusable_counter, stats.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(local_state->_in_zonemap_point_check_counter,
+                   stats.in_zonemap_point_check_count);
+    COUNTER_UPDATE(local_state->_in_zonemap_range_only_counter, stats.in_zonemap_range_only_count);
     COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.segment_dict_filtered);
     COUNTER_UPDATE(local_state->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_filtered);
@@ -948,6 +1005,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_query_cache_hit);
     COUNTER_UPDATE(local_state->_inverted_index_query_cache_miss_counter,
                    stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(local_state->_inverted_index_query_cache_lookup_counter,
+                   stats.inverted_index_query_cache_lookup);
+    COUNTER_UPDATE(local_state->_inverted_index_query_cache_insert_counter,
+                   stats.inverted_index_query_cache_insert);
     COUNTER_UPDATE(local_state->_inverted_index_query_timer, stats.inverted_index_query_timer);
     COUNTER_UPDATE(local_state->_inverted_index_query_null_bitmap_timer,
                    stats.inverted_index_query_null_bitmap_timer);
@@ -970,6 +1031,8 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    local_state->_snii_prx_profile_counters.update(stats);
+    local_state->_snii_phrase_profile_counters.update(stats);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
                    stats.variant_scan_sparse_column_timer_ns);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,

@@ -26,14 +26,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import org.apache.hudi.common.util.VisibleForTesting;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,6 +45,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -148,7 +149,13 @@ public class StatisticsAutoCollector extends MasterDaemon {
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
             analysisMethod = AnalysisMethod.FULL;
         }
-        if (table instanceof IcebergExternalTable) { // IcebergExternalTable table only support full analyze now
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsColumnAutoAnalyze()
+                && !((PluginDrivenExternalTable) table).supportsSampleAnalyze()) {
+            // Force FULL only for plugin tables that CANNOT sample (iceberg/paimon): ExternalAnalysisTask.doSample
+            // throws, so the SAMPLE default would fail. A flipped plain-hive table declares SUPPORTS_SAMPLE_ANALYZE
+            // and keeps the SAMPLE/FULL heuristic above (its PluginDrivenSampleAnalysisTask.doSample works), matching
+            // legacy hive background auto-analyze which could sample.
             analysisMethod = AnalysisMethod.FULL;
         }
         boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
@@ -269,7 +276,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setTableVersion(version)
                 .setPriority(priority)
-                .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
+                // Must not alias TableStatsMeta.partitionUpdateRows: cleared at the job terminal state.
+                .setPartitionUpdateRows(tableStatsStatus == null ? null
+                        : new ConcurrentHashMap<>(tableStatsStatus.partitionUpdateRows))
                 .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
                 .build();
     }

@@ -32,23 +32,31 @@ public class DistributionSpecMerge extends DistributionSpec {
     /**
      * Iceberg partition field metadata for merge insert routing.
      */
-    public static class IcebergPartitionField {
+    public static class MergePartitionField {
         private final String transform;
         private final ExprId sourceExprId;
         private final Integer param;
         private final String name;
         private final Integer sourceId;
+        private final ImmutableList<Integer> sourceFieldPath;
 
         /**
          * Create a partition field mapping for merge insert routing.
          */
-        public IcebergPartitionField(String transform, ExprId sourceExprId, Integer param,
+        public MergePartitionField(String transform, ExprId sourceExprId, Integer param,
                 String name, Integer sourceId) {
+            this(transform, sourceExprId, param, name, sourceId, ImmutableList.of());
+        }
+
+        /** Create a partition field mapping whose source is nested below a top-level slot. */
+        public MergePartitionField(String transform, ExprId sourceExprId, Integer param,
+                String name, Integer sourceId, List<Integer> sourceFieldPath) {
             this.transform = Objects.requireNonNull(transform, "transform should not be null");
             this.sourceExprId = Objects.requireNonNull(sourceExprId, "sourceExprId should not be null");
             this.param = param;
             this.name = name;
             this.sourceId = sourceId;
+            this.sourceFieldPath = ImmutableList.copyOf(sourceFieldPath);
         }
 
         public String getTransform() {
@@ -71,6 +79,10 @@ public class DistributionSpecMerge extends DistributionSpec {
             return sourceId;
         }
 
+        public List<Integer> getSourceFieldPath() {
+            return sourceFieldPath;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -79,17 +91,18 @@ public class DistributionSpecMerge extends DistributionSpec {
             if (o == null || getClass() != o.getClass()) {
                 return false;
             }
-            IcebergPartitionField that = (IcebergPartitionField) o;
+            MergePartitionField that = (MergePartitionField) o;
             return transform.equals(that.transform)
                     && sourceExprId.equals(that.sourceExprId)
                     && Objects.equals(param, that.param)
                     && Objects.equals(name, that.name)
-                    && Objects.equals(sourceId, that.sourceId);
+                    && Objects.equals(sourceId, that.sourceId)
+                    && sourceFieldPath.equals(that.sourceFieldPath);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(transform, sourceExprId, param, name, sourceId);
+            return Objects.hash(transform, sourceExprId, param, name, sourceId, sourceFieldPath);
         }
     }
 
@@ -97,7 +110,7 @@ public class DistributionSpecMerge extends DistributionSpec {
     private final ImmutableList<ExprId> insertPartitionExprIds;
     private final ImmutableList<ExprId> deletePartitionExprIds;
     private final boolean insertRandom;
-    private final ImmutableList<IcebergPartitionField> insertPartitionFields;
+    private final ImmutableList<MergePartitionField> insertPartitionFields;
     private final Integer partitionSpecId;
 
     /**
@@ -105,7 +118,7 @@ public class DistributionSpecMerge extends DistributionSpec {
      */
     public DistributionSpecMerge(ExprId operationExprId, List<ExprId> insertPartitionExprIds,
             List<ExprId> deletePartitionExprIds, boolean insertRandom,
-            List<IcebergPartitionField> insertPartitionFields, Integer partitionSpecId) {
+            List<MergePartitionField> insertPartitionFields, Integer partitionSpecId) {
         this.operationExprId = Objects.requireNonNull(operationExprId, "operationExprId should not be null");
         this.insertPartitionExprIds = ImmutableList.copyOf(
                 Objects.requireNonNull(insertPartitionExprIds, "insertPartitionExprIds should not be null"));
@@ -134,7 +147,7 @@ public class DistributionSpecMerge extends DistributionSpec {
         return insertRandom;
     }
 
-    public List<IcebergPartitionField> getInsertPartitionFields() {
+    public List<MergePartitionField> getInsertPartitionFields() {
         return insertPartitionFields;
     }
 

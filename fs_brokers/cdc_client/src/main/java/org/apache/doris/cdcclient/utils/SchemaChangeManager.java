@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.utils;
 
 import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -38,6 +39,7 @@ public class SchemaChangeManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeManager.class);
     private static final String SCHEMA_CHANGE_API = "http://%s/api/query/default_cluster/%s";
+    private static final String TABLE_SCHEMA_API = "http://%s/api/%s/%s/_schema";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String COLUMN_EXISTS_MSG = "Can not add column which already exists";
     private static final String COLUMN_NOT_EXISTS_MSG = "Column does not exists";
@@ -54,36 +56,50 @@ public class SchemaChangeManager {
      * @param feAddr Doris FE address (host:port)
      * @param db target database
      * @param token FE auth token
-     * @param sqls DDL statements to execute
+     * @param schemaChanges schema changes to execute
      */
-    public static void executeDdls(String feAddr, String db, String token, List<String> sqls)
+    public static void executeChanges(
+            String feAddr, String db, String token, List<SchemaChangeOperation> schemaChanges)
             throws IOException {
-        if (sqls == null || sqls.isEmpty()) {
+        if (schemaChanges == null || schemaChanges.isEmpty()) {
             LOG.info("No DDL statements to execute");
             return;
         }
-        for (String stmt : sqls) {
-            stmt = stmt.trim();
-            if (stmt.isEmpty()) {
-                continue;
-            }
-            LOG.info("Executing DDL on FE {}: {}", feAddr, stmt);
-            execute(feAddr, db, token, stmt);
+        for (SchemaChangeOperation operation : schemaChanges) {
+            LOG.info("Executing DDL on FE {}: {}", feAddr, operation.getSql());
+            execute(feAddr, db, token, operation);
         }
     }
 
     /**
      * Execute a single SQL statement via the FE query API.
      *
-     * <p>Idempotent errors are swallowed with a warning; all other errors throw {@link
-     * IOException}.
+     * <p>Known idempotent errors are swallowed directly. For other failures, the current Doris
+     * schema is checked before the failure is propagated.
      */
-    public static void execute(String feAddr, String db, String token, String sql)
+    public static void execute(
+            String feAddr, String db, String token, SchemaChangeOperation operation)
             throws IOException {
-        HttpPost post = buildHttpPost(feAddr, db, token, sql);
-        String responseBody = handleResponse(post);
-        LOG.info("Executed DDL {} with response: {}", sql, responseBody);
-        parseResponse(sql, responseBody);
+        HttpPost post = buildHttpPost(feAddr, db, token, operation.getSql());
+        try {
+            String responseBody = handleResponse(post);
+            LOG.info("Executed DDL {} with response: {}", operation.getSql(), responseBody);
+            parseResponse(operation, responseBody);
+        } catch (Exception ddlFailure) {
+            try {
+                if (isAlreadyApplied(feAddr, db, token, operation)) {
+                    LOG.warn(
+                            "[DDL-IDEMPOTENT] Doris schema already reflects {} {}. SQL: {}",
+                            operation.getType(),
+                            operation.getColumnName(),
+                            operation.getSql());
+                    return;
+                }
+            } catch (IOException schemaFailure) {
+                ddlFailure.addSuppressed(schemaFailure);
+            }
+            throw ddlFailure;
+        }
     }
 
     // ─── Internal helpers ─────────────────────────────────────────────────────
@@ -113,6 +129,40 @@ public class SchemaChangeManager {
         }
     }
 
+    private static boolean isAlreadyApplied(
+            String feAddr, String db, String token, SchemaChangeOperation operation)
+            throws IOException {
+        String url = String.format(TABLE_SCHEMA_API, feAddr, db, operation.getTableName());
+        HttpGet request = new HttpGet(url);
+        request.setHeader("Authorization", HttpUtil.getAuthHeader());
+        request.setHeader("token", token);
+
+        String responseBody;
+        try (CloseableHttpClient client = HttpUtil.getHttpClient();
+                CloseableHttpResponse response = client.execute(request)) {
+            responseBody =
+                    response.getEntity() != null ? EntityUtils.toString(response.getEntity()) : "";
+        }
+
+        JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+        JsonNode data = root.path("data");
+        JsonNode properties = data.path("properties");
+        if (root.path("code").asInt(-1) != 0
+                || data.path("status").asInt(-1) != 200
+                || !properties.isArray()) {
+            throw new IOException("Failed to query Doris table schema: " + responseBody);
+        }
+
+        boolean columnExists = false;
+        for (JsonNode property : properties) {
+            if (operation.getColumnName().equalsIgnoreCase(property.path("name").asText())) {
+                columnExists = true;
+                break;
+            }
+        }
+        return operation.getType() == SchemaChangeOperation.Type.ADD ? columnExists : !columnExists;
+    }
+
     /**
      * Parse the FE response. Idempotent errors are logged as warnings and skipped; all other errors
      * throw.
@@ -125,7 +175,8 @@ public class SchemaChangeManager {
      *   <li>DROP COLUMN — "Column does not exists": column was already dropped.
      * </ul>
      */
-    private static void parseResponse(String sql, String responseBody) throws IOException {
+    private static void parseResponse(SchemaChangeOperation operation, String responseBody)
+            throws IOException {
         JsonNode root = OBJECT_MAPPER.readTree(responseBody);
         JsonNode code = root.get("code");
         if (code != null && code.asInt() == 0) {
@@ -133,17 +184,24 @@ public class SchemaChangeManager {
         }
 
         String msg = root.path("msg").asText("");
+        String data = root.path("data").asText("");
 
-        if (msg.contains(COLUMN_EXISTS_MSG)) {
-            LOG.warn("[DDL-IDEMPOTENT] Skipped ADD COLUMN (column already exists). SQL: {}", sql);
+        if (operation.getType() == SchemaChangeOperation.Type.ADD
+                && (msg.contains(COLUMN_EXISTS_MSG) || data.contains(COLUMN_EXISTS_MSG))) {
+            LOG.warn(
+                    "[DDL-IDEMPOTENT] Skipped ADD COLUMN (column already exists). SQL: {}",
+                    operation.getSql());
             return;
         }
-        if (msg.contains(COLUMN_NOT_EXISTS_MSG)) {
-            LOG.warn("[DDL-IDEMPOTENT] Skipped DROP COLUMN (column already absent). SQL: {}", sql);
+        if (operation.getType() == SchemaChangeOperation.Type.DROP
+                && (msg.contains(COLUMN_NOT_EXISTS_MSG) || data.contains(COLUMN_NOT_EXISTS_MSG))) {
+            LOG.warn(
+                    "[DDL-IDEMPOTENT] Skipped DROP COLUMN (column already absent). SQL: {}",
+                    operation.getSql());
             return;
         }
 
-        LOG.warn("DDL execution failed. SQL: {}. Response: {}", sql, responseBody);
+        LOG.warn("DDL execution failed. SQL: {}. Response: {}", operation.getSql(), responseBody);
         throw new IOException("Failed to execute schema change: " + responseBody);
     }
 }

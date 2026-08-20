@@ -65,3 +65,12 @@ delta_record_count	bigint	Yes	true	\N	NONE
 changelog_record_count	bigint	Yes	true	\N	NONE
 watermark	bigint	Yes	true	\N	NONE
 
+-- !files_at_first_snapshot --
+1
+
+-- !files_at_latest_snapshot --
+3
+
+-- !files_without_options --
+3
+

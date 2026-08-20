@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TRoutineLoadTask;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -179,21 +180,29 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        partitionIdToOffset.put(1, 10L);
-        partitionIdToOffset.put(2, 20L);
-        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test-cloud";
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            routineLoadJob.setCloudCluster("routine-load-compute-group");
+            Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+            partitionIdToOffset.put(1, 10L);
+            partitionIdToOffset.put(2, 20L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
 
-        try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
-            kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
-                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList()))
-                    .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
+            try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+                kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                        Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList(),
+                        Mockito.eq("routine-load-compute-group")))
+                        .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
 
-            routineLoadJob.updateLag();
+                routineLoadJob.updateLag();
 
-            Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+                Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+            }
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
     }
 
@@ -222,7 +231,8 @@ public class KafkaRoutineLoadJobTest {
                     Mockito.<Map<String, String>>argThat(properties ->
                             "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
-                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))))
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
+                    Mockito.nullable(String.class)))
                     .thenReturn(Lists.newArrayList(Pair.of(1, 15L)));
 
             routineLoadJob.updateLag();
@@ -233,7 +243,8 @@ public class KafkaRoutineLoadJobTest {
                     Mockito.<Map<String, String>>argThat(properties ->
                             "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
-                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))));
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
+                    Mockito.nullable(String.class)));
         }
     }
 
@@ -259,6 +270,87 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testDisplayCustomPropertiesMasksKafkaSecrets() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.username", "doris");
+        customProperties.put("sasl.password", "plain_secret");
+        customProperties.put("sasl.jaas.config", "username=\"doris\" password=\"jaas_secret\"");
+        customProperties.put("sasl.oauthbearer.client.secret", "oauth_client_secret");
+        customProperties.put("sasl.oauthbearer.client.credentials.client.secret", "oauth_alias_secret");
+        customProperties.put("sasl.oauthbearer.assertion.private.key.pem", "oauth_private_key_pem");
+        customProperties.put("sasl.oauthbearer.assertion.private.key.passphrase", "oauth_private_key_passphrase");
+        customProperties.put("ssl.keystore.password", "keystore_secret");
+        customProperties.put("ssl.keystore.key", "keystore_key_secret");
+        customProperties.put("ssl.key.pem", "key_pem_secret");
+        customProperties.put(KafkaConfiguration.AWS_ACCESS_KEY, "aws_access_key");
+        customProperties.put("aws.secret_key", "aws_secret");
+        customProperties.put("aws.session_key", "aws_session_secret");
+        customProperties.put("password", "bare_password_secret");
+        customProperties.put("secret_key", "bare_secret_key");
+        customProperties.put("session_token", "bare_session_token");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
+        Map<String, String> showCreateCustomProperties = routineLoadJob.getCustomProperties();
+
+        Assert.assertFalse(customPropertiesJson.contains("plain_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("jaas_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_client_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_alias_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_private_key_pem"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_private_key_passphrase"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_key_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("key_pem_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_access_key"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_password_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_secret_key"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_session_token"));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.jaas.config\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.client.secret\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains(
+                "\"sasl.oauthbearer.client.credentials.client.secret\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.assertion.private.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains(
+                "\"sasl.oauthbearer.assertion.private.key.passphrase\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"session_token\":\"******\""));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.jaas.config"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.oauthbearer.client.secret"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.client.credentials.client.secret"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.assertion.private.key.pem"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.assertion.private.key.passphrase"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.key.pem"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.session_token"));
+        Assert.assertEquals("doris", showCreateCustomProperties.get("property.sasl.username"));
+        Assert.assertEquals("plain_secret", customProperties.get("sasl.password"));
     }
 
     @Test
@@ -306,6 +398,165 @@ public class KafkaRoutineLoadJobTest {
             RoutineLoadTaskInfo newTask = Deencapsulation.invoke(routineLoadJob,
                     "unprotectRenewTask", kafkaTaskInfo, false);
             Assert.assertTrue(newTask.needDedalySchedule());
+        }
+    }
+
+    @Test
+    public void testAdaptiveBatchUsesTaskLagThreshold() {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        int previousAdaptiveIntervalSec = Config.routine_load_adaptive_min_batch_interval_sec;
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.routine_load_adaptive_min_batch_interval_sec = 360;
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", 20L);
+            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 200000L);
+            Deencapsulation.setField(routineLoadJob, "maxBatchSizeBytes", 100L * 1024 * 1024);
+            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+            Map<Integer, Long> taskProgress = Maps.newHashMap();
+            taskProgress.put(1, 10L);
+            taskProgress.put(2, 20L);
+
+            KafkaTaskInfo taskWithUnknownLag = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            taskWithUnknownLag.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask unknownLagThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(
+                    taskWithUnknownLag, "adaptiveBatchParam", unknownLagThriftTask, routineLoadJob);
+            Assert.assertEquals(20L, unknownLagThriftTask.getMaxIntervalS());
+
+            Map<Integer, Long> latestOffsets = Maps.newHashMap();
+            latestOffsets.put(1, 10_000_010L);
+            latestOffsets.put(2, 10_000_020L);
+            latestOffsets.put(3, 100_000_000L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets", latestOffsets);
+
+            KafkaTaskInfo taskAtLagThreshold = new KafkaTaskInfo(new UUID(1, 2), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            taskAtLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            latestOffsets.put(2, 10_000_021L);
+            TRoutineLoadTask thresholdThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(
+                    taskAtLagThreshold, "adaptiveBatchParam", thresholdThriftTask, routineLoadJob);
+            Assert.assertEquals(20L, thresholdThriftTask.getMaxIntervalS());
+            Assert.assertEquals(200000L, thresholdThriftTask.getMaxBatchRows());
+            Assert.assertEquals(100L * 1024 * 1024, thresholdThriftTask.getMaxBatchSize());
+            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L, taskAtLagThreshold.getTimeoutMs());
+
+            KafkaTaskInfo taskAboveLagThreshold = new KafkaTaskInfo(new UUID(1, 3), 1L, 20000,
+                    taskProgress, false, 1000, true);
+            taskAboveLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask adaptiveThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(
+                    taskAboveLagThreshold, "adaptiveBatchParam", adaptiveThriftTask, routineLoadJob);
+            Assert.assertEquals(360L, adaptiveThriftTask.getMaxIntervalS());
+            Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS,
+                    adaptiveThriftTask.getMaxBatchRows());
+            Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE,
+                    adaptiveThriftTask.getMaxBatchSize());
+            Assert.assertEquals(360L * Config.routine_load_task_timeout_multiplier * 1000,
+                    taskAboveLagThreshold.getTimeoutMs());
+
+            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 50_000_000L);
+            latestOffsets.put(1, 25_000_010L);
+            latestOffsets.put(2, 25_000_020L);
+            KafkaTaskInfo taskAtConfiguredLagThreshold = new KafkaTaskInfo(new UUID(1, 4), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            taskAtConfiguredLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            latestOffsets.put(2, 25_000_021L);
+            TRoutineLoadTask configuredThresholdThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(taskAtConfiguredLagThreshold, "adaptiveBatchParam",
+                    configuredThresholdThriftTask, routineLoadJob);
+            Assert.assertEquals(20L, configuredThresholdThriftTask.getMaxIntervalS());
+            Assert.assertEquals(50_000_000L, configuredThresholdThriftTask.getMaxBatchRows());
+            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L,
+                    taskAtConfiguredLagThreshold.getTimeoutMs());
+
+            KafkaTaskInfo taskAboveConfiguredLagThreshold = new KafkaTaskInfo(new UUID(1, 5), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            taskAboveConfiguredLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask configuredAdaptiveThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(taskAboveConfiguredLagThreshold, "adaptiveBatchParam",
+                    configuredAdaptiveThriftTask, routineLoadJob);
+            Assert.assertEquals(360L, configuredAdaptiveThriftTask.getMaxIntervalS());
+            Assert.assertEquals(50_000_000L, configuredAdaptiveThriftTask.getMaxBatchRows());
+        } finally {
+            Config.routine_load_adaptive_min_batch_interval_sec = previousAdaptiveIntervalSec;
+        }
+    }
+
+    @Test
+    public void testAdaptiveBatchUsesCapturedIntervalAcrossConfigChange() {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        int previousAdaptiveIntervalSec = Config.routine_load_adaptive_min_batch_interval_sec;
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.routine_load_adaptive_min_batch_interval_sec = 360;
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", 30L);
+            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 200000L);
+            Deencapsulation.setField(routineLoadJob, "maxBatchSizeBytes", 100L * 1024 * 1024);
+            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+            Map<Integer, Long> taskProgress = Maps.newHashMap();
+            taskProgress.put(1, 10L);
+            Map<Integer, Long> latestOffsets = Maps.newHashMap();
+            latestOffsets.put(1, 20_000_011L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets", latestOffsets);
+
+            KafkaTaskInfo scheduledTask = new KafkaTaskInfo(new UUID(1, 6), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            scheduledTask.updateAdaptiveTimeout(routineLoadJob);
+            long adaptiveTimeoutMs = 360L * Config.routine_load_task_timeout_multiplier * 1000L;
+            Assert.assertEquals(adaptiveTimeoutMs, scheduledTask.getTimeoutMs());
+
+            Config.routine_load_adaptive_min_batch_interval_sec = 720;
+            TRoutineLoadTask scheduledThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(scheduledTask, "adaptiveBatchParam", scheduledThriftTask, routineLoadJob);
+            Assert.assertEquals(360L, scheduledThriftTask.getMaxIntervalS());
+            Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, scheduledThriftTask.getMaxBatchRows());
+            Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, scheduledThriftTask.getMaxBatchSize());
+            Assert.assertEquals(adaptiveTimeoutMs, scheduledTask.getTimeoutMs());
+
+            KafkaTaskInfo nextSchedulingAttempt = new KafkaTaskInfo(new UUID(1, 7), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            nextSchedulingAttempt.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask nextThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(nextSchedulingAttempt, "adaptiveBatchParam", nextThriftTask, routineLoadJob);
+            Assert.assertEquals(720L, nextThriftTask.getMaxIntervalS());
+            Assert.assertEquals(720L * Config.routine_load_task_timeout_multiplier * 1000L,
+                    nextSchedulingAttempt.getTimeoutMs());
+
+            for (int nonPositiveInterval : new int[] {0, -1}) {
+                Config.routine_load_adaptive_min_batch_interval_sec = nonPositiveInterval;
+                KafkaTaskInfo nonPositiveConfigTask = new KafkaTaskInfo(new UUID(1, 8), 1L, 20000,
+                        taskProgress, false, 1000, false);
+                nonPositiveConfigTask.updateAdaptiveTimeout(routineLoadJob);
+                TRoutineLoadTask nonPositiveConfigThriftTask = new TRoutineLoadTask();
+                Deencapsulation.invoke(nonPositiveConfigTask, "adaptiveBatchParam",
+                        nonPositiveConfigThriftTask, routineLoadJob);
+                Assert.assertEquals(30L, nonPositiveConfigThriftTask.getMaxIntervalS());
+                Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS,
+                        nonPositiveConfigThriftTask.getMaxBatchRows());
+                Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE,
+                        nonPositiveConfigThriftTask.getMaxBatchSize());
+                long normalTimeoutMs = Math.max(30L * Config.routine_load_task_timeout_multiplier,
+                        Config.routine_load_task_min_timeout_sec) * 1000L;
+                Assert.assertEquals(normalTimeoutMs, nonPositiveConfigTask.getTimeoutMs());
+            }
+        } finally {
+            Config.routine_load_adaptive_min_batch_interval_sec = previousAdaptiveIntervalSec;
         }
     }
 
@@ -372,11 +623,12 @@ public class KafkaRoutineLoadJobTest {
                     .getPartition(Mockito.anyString(), Mockito.anyBoolean());
 
             kafkaUtilStatic.when(() -> KafkaUtil.getAllKafkaPartitions(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.nullable(String.class)))
                     .thenReturn(Lists.newArrayList(1, 2, 3));
 
             kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList(),
+                    Mockito.nullable(String.class)))
                     .thenAnswer(invocation -> {
                         List<Pair<Integer, Long>> pairList = new ArrayList<>();
                         pairList.add(Pair.of(1, 0L));

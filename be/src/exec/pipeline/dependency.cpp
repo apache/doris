@@ -21,6 +21,11 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "exec/common/agg_utils.h"
+#include "exec/common/hash_table/hash_map_util.h"
+#include "exec/common/join_utils.h"
+#include "exec/common/set_utils.h"
+#include "exec/common/template_helpers.hpp"
 #include "exec/operator/multi_cast_data_streamer.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
@@ -197,6 +202,133 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     mem_counters.resize(num_instances, nullptr);
 }
 
+AggSharedState::AggSharedState() {
+    agg_data = std::make_unique<AggregatedDataVariants>();
+}
+
+AggSharedState::~AggSharedState() {
+    if (!probe_expr_ctxs.empty()) {
+        _close_with_serialized_key();
+    } else {
+        _close_without_key();
+    }
+}
+
+void AggSharedState::_close_with_serialized_key() {
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             // Do nothing
+                         },
+                         [&](auto& agg_method) -> void {
+                             if (use_simple_count) {
+                                 // Inline count: mapped slots hold UInt64,
+                                 // not real agg state pointers. Skip destroy.
+                                 return;
+                             }
+                             auto& data = *agg_method.hash_table;
+                             data.for_each_mapped([&](auto& mapped) {
+                                 if (mapped) {
+                                     _destroy_agg_status(mapped);
+                                     mapped = nullptr;
+                                 }
+                             });
+                             if (data.has_null_key_data()) {
+                                 _destroy_agg_status(
+                                         data.template get_null_key_data<AggregateDataPtr>());
+                             }
+                         }},
+               agg_data->method_variant);
+}
+
+void AggSharedState::_close_without_key() {
+    //because prepare maybe failed, and couldn't create agg data.
+    //but finally call close to destory agg data, if agg data has bitmapValue
+    //will be core dump, it's not initialized
+    if (agg_data_created_without_key) {
+        _destroy_agg_status(agg_data->without_key);
+        agg_data_created_without_key = false;
+    }
+}
+
+BucketedAggSharedState::PerInstanceData::PerInstanceData() : arena(std::make_unique<Arena>()) {
+    bucket_agg_data.resize(BUCKETED_AGG_NUM_BUCKETS);
+    for (auto& p : bucket_agg_data) {
+        p = std::make_unique<BucketedAggDataVariants>();
+    }
+}
+
+BucketedAggSharedState::~BucketedAggSharedState() {
+    _close();
+}
+
+Status BucketedAggSharedState::init_instances(int num_instances,
+                                              const std::function<Status()>& metadata_init) {
+    std::call_once(_init_once, [&]() {
+        num_sink_instances = num_instances;
+        per_instance_data.resize(num_instances);
+        sink_finished = std::make_unique<std::atomic<bool>[]>(num_instances);
+        for (int i = 0; i < num_instances; ++i) {
+            sink_finished[i].store(false, std::memory_order_relaxed);
+        }
+        for (auto& bs : bucket_states) {
+            bs.merged_instances.resize(num_instances, false);
+        }
+        _init_status = metadata_init();
+    });
+    return _init_status;
+}
+
+void BucketedAggSharedState::_close() {
+    for (auto& inst : per_instance_data) {
+        for (auto& bucket_data : inst.bucket_agg_data) {
+            _close_one_agg_data(*bucket_data);
+        }
+    }
+}
+
+void BucketedAggSharedState::_close_one_agg_data(BucketedAggDataVariants& agg_data) {
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             // Do nothing
+                         },
+                         [&](auto& agg_method) -> void {
+                             if (use_simple_count) {
+                                 // simple_count: mapped slots hold UInt64 counters,
+                                 // not real agg state pointers. Skip destroy.
+                                 return;
+                             }
+                             auto& data = *agg_method.hash_table;
+                             data.for_each_mapped([&](auto& mapped) {
+                                 if (mapped) {
+                                     _destroy_agg_status(mapped);
+                                     mapped = nullptr;
+                                 }
+                             });
+                             if constexpr (std::is_assignable_v<decltype(data.has_null_key_data()),
+                                                                bool>) {
+                                 if (data.has_null_key_data()) {
+                                     _destroy_agg_status(
+                                             data.template get_null_key_data<AggregateDataPtr>());
+                                 }
+                             }
+                         }},
+               agg_data.method_variant);
+}
+
+HashJoinSharedState::HashJoinSharedState() {
+    hash_table_variant_vector.push_back(std::make_shared<JoinDataVariants>());
+}
+
+HashJoinSharedState::HashJoinSharedState(int num_instances) {
+    source_deps.resize(num_instances, nullptr);
+    hash_table_variant_vector.resize(num_instances, nullptr);
+    for (int i = 0; i < num_instances; i++) {
+        hash_table_variant_vector[i] = std::make_shared<JoinDataVariants>();
+    }
+}
+
+SetSharedState::SetSharedState() : hash_table_variants(std::make_unique<SetDataVariants>()) {}
+
+SetSharedState::~SetSharedState() = default;
+
 MutableColumns AggSharedState::_get_keys_hash_table() {
     return std::visit(
             Overload {[&](std::monostate& arg) {
@@ -351,14 +483,14 @@ int AggSharedState::get_slot_column_id(const AggFnEvaluator* evaluator) {
 
 void AggSharedState::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
-        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+        aggregate_evaluators[i]->destroy(data + offsets_of_aggregate_states[i]);
     }
 }
 
 void BucketedAggSharedState::_destroy_agg_status(AggregateDataPtr data) {
     DCHECK(!use_simple_count) << "should not call _destroy_agg_status when use_simple_count";
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
-        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+        aggregate_evaluators[i]->destroy(data + offsets_of_aggregate_states[i]);
     }
 }
 

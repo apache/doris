@@ -144,7 +144,7 @@ struct ReaderReplaceData {
 
     void insert_result_into(IColumn& to, bool result_is_nullable) const {
         if (result_is_nullable) {
-            auto& nullable_col = assert_cast<ColumnNullable&>(to);
+            auto& nullable_col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
             if (!_has_value || _store.is_null()) {
                 nullable_col.insert_default();
             } else {

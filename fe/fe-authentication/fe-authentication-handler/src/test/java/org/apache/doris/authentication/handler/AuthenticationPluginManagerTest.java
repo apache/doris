@@ -24,8 +24,10 @@ import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
+import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,14 +48,24 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 /**
  * Unit tests for {@link AuthenticationPluginManager}.
  */
 @DisplayName("PluginManager Unit Tests")
 public class AuthenticationPluginManagerTest {
+
+    /**
+     * The same contract {@link AuthenticationPluginManager} loads plugins under. Building it here through the
+     * public {@code forFamily} path also asserts, by construction, that fe-authentication-spi really ships
+     * the filtered kernel resource — a build that dropped it fails every test in this class.
+     */
+    private static final ApiVersionGate AUTH_GATE =
+            ApiVersionGate.forFamily("authentication", AuthenticationPluginFactory.class);
 
     private AuthenticationPluginManager pluginManager;
 
@@ -70,7 +83,6 @@ public class AuthenticationPluginManagerTest {
         // Then
         Assertions.assertNotNull(pluginNames);
         Assertions.assertFalse(pluginNames.isEmpty(), "Should load at least built-in plugins");
-        Assertions.assertTrue(pluginNames.contains("oidc"), "Should include oidc plugin");
         Assertions.assertTrue(pluginNames.contains("password"), "Should include password plugin");
     }
 
@@ -147,10 +159,6 @@ public class AuthenticationPluginManagerTest {
         // Then
         Assertions.assertTrue(factory.isPresent());
         Assertions.assertEquals("password", factory.get().name());
-
-        Optional<AuthenticationPluginFactory> oidcFactory = pluginManager.getFactory("oidc");
-        Assertions.assertTrue(oidcFactory.isPresent());
-        Assertions.assertEquals("oidc", oidcFactory.get().name());
     }
 
     @Test
@@ -370,9 +378,114 @@ public class AuthenticationPluginManagerTest {
         Assertions.assertTrue(pluginManager.hasFactory("external-dir-test"));
     }
 
+    @Test
+    @DisplayName("UT-HANDLER-PM-021: Plugin declaring an incompatible API version is refused, with a reason")
+    void testLoadAll_IncompatibleApiVersionIsRefusedWithDiagnosableReason() throws Exception {
+        // Given: one plugin dir that loads fine, and one whose jar declares a different major. The healthy
+        // one matters: it keeps loadAll from throwing, which is exactly the case where the refusal would
+        // otherwise reach the operator as a bare "no factory found for type".
+        Path root = Files.createTempDirectory("plugin-root-api-version");
+        createServiceOnlyJar(
+                Files.createDirectories(root.resolve("external-dir-test")).resolve("external-dir-test.jar"),
+                DirectoryPluginFactory.class.getName());
+        createPluginJar(
+                Files.createDirectories(root.resolve("stale-plugin")).resolve("stale-plugin.jar"),
+                DirectoryPluginFactory.class.getName(),
+                (AUTH_GATE.getExpectedMajor() + 1) + ".0");
+
+        // When
+        pluginManager.loadAll(Arrays.asList(root), Thread.currentThread().getContextClassLoader());
+
+        // Then: the healthy plugin is in, and the refusal is retrievable rather than only in the FE log.
+        Assertions.assertTrue(pluginManager.hasFactory("external-dir-test"));
+        String hint = pluginManager.apiVersionRejectionHint();
+        Assertions.assertTrue(hint.contains("stale-plugin"), hint);
+        Assertions.assertTrue(hint.contains(AUTH_GATE.getManifestAttribute()), hint);
+        Assertions.assertTrue(hint.contains(AUTH_GATE.getExpectedVersion()), hint);
+    }
+
+    @Test
+    @DisplayName("UT-HANDLER-PM-022: Plugin declaring no API version is refused (fail-closed)")
+    void testLoadAll_UndeclaredApiVersionIsRefused() throws Exception {
+        // Given: a jar built with no awareness of this contract at all.
+        Path root = Files.createTempDirectory("plugin-root-no-api-version");
+        createPluginJar(
+                Files.createDirectories(root.resolve("external-dir-test")).resolve("external-dir-test.jar"),
+                DirectoryPluginFactory.class.getName(),
+                null);
+
+        // When: this is the only directory, so loadAll reports total failure...
+        AuthenticationException ex = Assertions.assertThrows(
+                AuthenticationException.class,
+                () -> pluginManager.loadAll(
+                        Arrays.asList(root),
+                        Thread.currentThread().getContextClassLoader()));
+
+        // Then: ...and the thrown message already carries the version reason, so the caller that wraps it
+        // does not have to.
+        Assertions.assertFalse(pluginManager.hasFactory("external-dir-test"));
+        Assertions.assertTrue(ex.getMessage().contains(LoadFailure.STAGE_API_VERSION), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains(AUTH_GATE.getManifestAttribute()), ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("UT-HANDLER-PM-023: A clean load leaves no stale rejection hint behind")
+    void testLoadAll_RejectionHintIsResetPerRun() throws Exception {
+        Path bad = Files.createTempDirectory("plugin-root-hint-reset-bad");
+        createPluginJar(
+                Files.createDirectories(bad.resolve("stale-plugin")).resolve("stale-plugin.jar"),
+                DirectoryPluginFactory.class.getName(),
+                (AUTH_GATE.getExpectedMajor() + 1) + ".0");
+        Path good = Files.createTempDirectory("plugin-root-hint-reset-good");
+        createServiceOnlyJar(
+                Files.createDirectories(good.resolve("external-dir-test")).resolve("external-dir-test.jar"),
+                DirectoryPluginFactory.class.getName());
+
+        Assertions.assertThrows(AuthenticationException.class, () -> pluginManager.loadAll(
+                Arrays.asList(bad), Thread.currentThread().getContextClassLoader()));
+        Assertions.assertFalse(pluginManager.apiVersionRejectionHint().isEmpty());
+
+        // A later successful load must not keep advertising the earlier run's rejection: the hint is
+        // appended to "no factory found" messages, and a stale one would misdiagnose an unrelated failure.
+        pluginManager.loadAll(Arrays.asList(good), Thread.currentThread().getContextClassLoader());
+        Assertions.assertEquals("", pluginManager.apiVersionRejectionHint());
+    }
+
     private static void createServiceOnlyJar(Path jarPath, String providerClassName) throws IOException {
+        createPluginJar(jarPath, providerClassName, AUTH_GATE.getExpectedVersion());
+    }
+
+    /**
+     * Builds a plugin jar the way the build really produces one: a MANIFEST declaring the authentication
+     * plugin API version, the provider's class bytes, and the ServiceLoader registration.
+     *
+     * <p>The class bytes matter for the version check, not just for classloading: the loader reads the
+     * declared version from the jar that <em>defines</em> the factory class, so a jar carrying only a service
+     * descriptor (with the implementation coming from the FE's own classpath) declares nothing and is
+     * refused. Pass a null {@code declaredApiVersion} to reproduce exactly that.
+     */
+    private static void createPluginJar(Path jarPath, String providerClassName, String declaredApiVersion)
+            throws IOException {
         Files.createDirectories(jarPath.getParent());
-        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath))) {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        if (declaredApiVersion != null) {
+            manifest.getMainAttributes().putValue(AUTH_GATE.getManifestAttribute(), declaredApiVersion);
+        }
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
+            String classEntry = providerClassName.replace('.', '/') + ".class";
+            try (InputStream classBytes = AuthenticationPluginManagerTest.class.getClassLoader()
+                    .getResourceAsStream(classEntry)) {
+                if (classBytes != null) {
+                    jar.putNextEntry(new JarEntry(classEntry));
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = classBytes.read(buffer)) != -1) {
+                        jar.write(buffer, 0, read);
+                    }
+                    jar.closeEntry();
+                }
+            }
             JarEntry serviceEntry = new JarEntry(
                     "META-INF/services/org.apache.doris.authentication.spi.AuthenticationPluginFactory");
             jar.putNextEntry(serviceEntry);
@@ -512,13 +625,30 @@ public class AuthenticationPluginManagerTest {
 
         @Override
         public LoadReport<AuthenticationPluginFactory> loadAll(List<Path> pluginRoots, ClassLoader parent,
-                Class<AuthenticationPluginFactory> factoryType, ClassLoadingPolicy policy) {
+                Class<AuthenticationPluginFactory> factoryType, ClassLoadingPolicy policy,
+                ApiVersionGate apiVersionGate) {
             return report;
         }
 
         @Override
         public Optional<PluginHandle<AuthenticationPluginFactory>> get(String pluginName) {
             return Optional.empty();
+        }
+
+        @Override
+        public void discard(String pluginName) {
+            // This stub bypasses the real loadAll bookkeeping, so honor the
+            // contract that discarding a reported success closes its classloader.
+            for (PluginHandle<AuthenticationPluginFactory> handle : report.getSuccesses()) {
+                if (handle.getPluginName().equals(pluginName)
+                        && handle.getClassLoader() instanceof Closeable) {
+                    try {
+                        ((Closeable) handle.getClassLoader()).close();
+                    } catch (IOException ignored) {
+                        // test stub: never expected
+                    }
+                }
+            }
         }
 
         @Override

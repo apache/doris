@@ -52,6 +52,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,9 +107,58 @@ public class PlanTranslatorContext {
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
 
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, List<ExprId>> tablePushCountArgumentExprIds = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
+    /**
+     * Depth of fragment-merging binary nodes (hash join / nested loop join /
+     * set operation) whose children are being visited right now. Bucketed fusion
+     * removes the exchange node that would otherwise keep an olap scan in its own
+     * fragment; when the fused fragment is consumed by such a node the scan gets
+     * merged into a fragment that already contains other scans, which the
+     * scan-assignment jobs reject ("Not supported multiple scan multiple
+     * OlapTable but not contains colocate join or bucket shuffle join"). The
+     * translator therefore skips bucketed fusion while inside a merge child.
+     */
+    private int fragmentMergeChildDepth = 0;
+
+    // Per-node "is there a serial operator between me and the pipeline's sink" flag.
+    // Mirrors BE's any_of(operators[idx..end], is_serial_operator) check used by
+    // _add_local_exchange / need_to_local_exchange to skip LE insertion when an ancestor
+    // in the same pipeline is already serial (the whole pipeline runs with 1 task, so an
+    // extra LE would be a no-op).  Written by AddLocalExchange entry + PlanNode.enforceRequire
+    // step 1 (root → leaf during traversal).  Read by PlanNode.enforceRequire step 4 (Layer 1
+    // skip) and by child overrides that compute their require.  Reset to false at fragment
+    // root and across pipeline boundaries (see shouldResetSerialFlagForChild).
+    private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
+    // Per-node "is there a downstream operator that depends on hash distribution for
+    // correctness, with HASH/NOOP path connecting it to me" flag.  Mirrors BE's
+    // _followed_by_shuffled_operator propagation in pipeline_fragment_context.cpp.
+    // Written by PlanNode.enforceRequire step 1b (root → leaf).  Read by SetOperationNode
+    // to decide whether to propagate hash requirement to its inputs (only when downstream
+    // needs shuffle for correctness, not just for performance like StreamingAgg pre-agg).
+    private final Map<PlanNodeId, Boolean> shuffledAncestorMap = Maps.newHashMap();
+
+    // Whether the fragment currently being processed by AddLocalExchange is eligible for the
+    // bucket → local-hash parallelism upgrade: a pooled bucket-join fragment whose per-BE
+    // instance count exceeds (buckets-with-data per BE) × local_shuffle_bucket_upgrade_ratio.
+    // Computed once per fragment in AddLocalExchange.addLocalExchange from the distributed
+    // plan's LocalShuffleBucketJoinAssignedJob assignments; read by
+    // HashJoinNode.enforceAndDeriveLocalExchange.
+    private boolean currentFragmentBucketUpgradeEligible = false;
+
+    // Per-node "a bucket join above me in this fragment already upgraded to local hash" flag.
+    // An upgraded join marks its direct children so a stacked bucket join below keeps its
+    // BUCKET_HASH_SHUFFLE requires: if it also upgraded, its LOCAL hash output (keyed by ITS
+    // join keys) would type-satisfy the upper join's requireSpecific(LOCAL_EXECUTION_HASH)
+    // and suppress the LE that re-aligns data to the upper join's keys → wrong results.
+    private final Map<PlanNodeId, Boolean> bucketUpgradedAncestorMap = Maps.newHashMap();
+
+    // Whether the current fragment uses LocalShuffleAssignedJob (pooling scan with
+    // ignoreDataDistribution → _parallel_instances=1 in BE). When true, serial operators
+    // indicate real pipeline bottlenecks needing PASSTHROUGH fan-out (heavy_ops).
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
@@ -234,6 +284,38 @@ public class PlanTranslatorContext {
         return nodeIdGenerator.getNextId();
     }
 
+    public void setHasSerialAncestorInPipeline(PlanNode node, boolean hasSerialAncestorInPipeline) {
+        serialAncestorInPipelineMap.put(node.getId(), hasSerialAncestorInPipeline);
+    }
+
+    public boolean hasSerialAncestorInPipeline(PlanNode node) {
+        return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
+        shuffledAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasShuffleForCorrectnessAncestor(PlanNode node) {
+        return shuffledAncestorMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setCurrentFragmentBucketUpgradeEligible(boolean eligible) {
+        this.currentFragmentBucketUpgradeEligible = eligible;
+    }
+
+    public boolean isCurrentFragmentBucketUpgradeEligible() {
+        return currentFragmentBucketUpgradeEligible;
+    }
+
+    public void setHasBucketUpgradedAncestor(PlanNode node, boolean value) {
+        bucketUpgradedAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasBucketUpgradedAncestor(PlanNode node) {
+        return bucketUpgradedAncestorMap.getOrDefault(node.getId(), false);
+    }
+
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
         return descTable.addSlotDescriptor(t);
     }
@@ -253,6 +335,18 @@ public class PlanTranslatorContext {
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
+    public void enterFragmentMergeChild() {
+        fragmentMergeChildDepth++;
+    }
+
+    public void exitFragmentMergeChild() {
+        fragmentMergeChildDepth--;
+    }
+
+    public boolean isInFragmentMergeChild() {
+        return fragmentMergeChildDepth > 0;
     }
 
     /**
@@ -360,6 +454,14 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public void setRelationPushCountArgumentExprIds(RelationId relationId, List<ExprId> exprIds) {
+        tablePushCountArgumentExprIds.put(relationId, Lists.newArrayList(exprIds));
+    }
+
+    public List<ExprId> getRelationPushCountArgumentExprIds(RelationId relationId) {
+        return tablePushCountArgumentExprIds.getOrDefault(relationId, Collections.emptyList());
     }
 
     public boolean isTopMaterializeNode() {

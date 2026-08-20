@@ -23,21 +23,43 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
+#include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_block.h"
 #include "util/simd/bits.h"
 
 namespace doris {
 
+namespace {
+
+bool contains_boolean_value_column(const IColumn& column) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        return contains_boolean_value_column(nullable->get_nested_column());
+    }
+    if (check_and_get_column<ColumnBool>(column)) {
+        return true;
+    }
+
+    bool contains_boolean = false;
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (!contains_boolean && contains_boolean_value_column(subcolumn)) {
+            contains_boolean = true;
+        }
+    };
+    column.for_each_subcolumn(callback);
+    return contains_boolean;
+}
+
+} // namespace
+
 std::string IColumn::dump_structure() const {
     std::stringstream res;
     res << get_name() << "(size = " << size();
 
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        res << ", " << subcolumn->dump_structure();
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        res << ", " << subcolumn.dump_structure();
     };
 
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
 
     res << ")";
     return res.str();
@@ -45,11 +67,10 @@ std::string IColumn::dump_structure() const {
 
 int IColumn::count_const_column() const {
     int count = is_column_const(*this) ? 1 : 0;
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        count += subcolumn->count_const_column();
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        count += subcolumn.count_const_column();
     };
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
     return count;
 }
 
@@ -66,6 +87,11 @@ bool IColumn::column_boolean_check() const {
     if (const auto* col_nullable = check_and_get_column<ColumnNullable>(*this)) {
         // for column nullable, we need to skip null values check
         const auto& nested_col = col_nullable->get_nested_column();
+        // Do not materialize complex payloads that cannot contain Boolean values; filtering a
+        // multi-GB nested column solely for debug validation can exhaust query memory.
+        if (!contains_boolean_value_column(nested_col)) {
+            return true;
+        }
         const auto& null_map = col_nullable->get_null_map_data();
         Filter not_null_filter;
         not_null_filter.reserve(nested_col.size());
@@ -75,6 +101,11 @@ bool IColumn::column_boolean_check() const {
             if (null_map[i] == 0) {
                 ++result_size_hint;
             }
+        }
+        if (result_size_hint == nested_col.size()) {
+            // Filtering an all-non-null column preserves every row, so copying nested payloads
+            // only for validation can exhaust memory for large complex columns.
+            return nested_col.column_boolean_check();
         }
         auto nested_col_skip_null = nested_col.filter(not_null_filter, result_size_hint);
         return nested_col_skip_null->column_boolean_check();
@@ -95,13 +126,12 @@ bool IColumn::column_boolean_check() const {
     };
 
     bool is_valid = check_boolean_is_zero_or_one(*this);
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        if (!subcolumn->column_boolean_check()) {
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (!subcolumn.column_boolean_check()) {
             is_valid = false;
         }
     };
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
     return is_valid;
 }
 
@@ -122,13 +152,12 @@ bool IColumn::null_map_check() const {
     };
 
     bool is_valid = check_null_map_is_zero_or_one(*this);
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        if (!subcolumn->null_map_check()) {
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (!subcolumn.null_map_check()) {
             is_valid = false;
         }
     };
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
     return is_valid;
 }
 
@@ -231,15 +260,22 @@ bool is_column_const(const IColumn& column) {
 }
 
 void IColumn::check_const_only_in_top_level() const {
-    ColumnCallback throw_if_const = [&](WrappedPtr& column) {
-        const ColumnPtr& col = const_cast<const WrappedPtr&>(column);
-        if (is_column_const(*col)) {
+    ColumnCallback throw_if_const = [&](const IColumn& column) {
+        if (is_column_const(column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "const column is not allowed to be nested, but got {}",
-                                   col->get_name());
+                                   column.get_name());
         }
     };
-    const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
+    for_each_subcolumn(throw_if_const);
 }
+
+#ifdef BE_TEST
+void IColumn::get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
+                                      Permutation& res) const {
+    HybridSorter sorter;
+    get_permutation(reverse, limit, nan_direction_hint, sorter, res);
+}
+#endif
 
 } // namespace doris

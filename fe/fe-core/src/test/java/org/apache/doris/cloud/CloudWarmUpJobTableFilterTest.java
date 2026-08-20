@@ -365,6 +365,7 @@ public class CloudWarmUpJobTableFilterTest {
         stats.finishIndexSize30m = 512;
         stats.failSegmentNum30m = 1;
         stats.lastTriggerTs = 5000;
+        stats.lastFinishTs = 4800;
         stats.progressTriggerTs = 4200;
         stats.computeGap();
 
@@ -380,6 +381,10 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertEquals(4, segNum.get("finish_30m").getAsLong());
         Assertions.assertEquals(2, segNum.get("gap_30m").getAsLong());
         Assertions.assertEquals(800, detailStats.get("trigger_gap_ms").getAsLong());
+        String dateTimePattern = "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}";
+        Assertions.assertTrue(detailStats.get("last_trigger_ts").getAsString().matches(dateTimePattern));
+        Assertions.assertTrue(detailStats.get("last_finish_ts").getAsString().matches(dateTimePattern));
+        Assertions.assertTrue(detailStats.get("progress_trigger_ts").getAsString().matches(dateTimePattern));
         Assertions.assertFalse(detailStats.has("window"));
 
         List<String> summary = job.getJobInfo(stats, false);

@@ -22,6 +22,10 @@ import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -31,6 +35,7 @@ import java.util.Map;
  * - JobWarmUpStats: aggregate requested/finished, compute gap, serialize
  */
 public class WarmUpStatsTest {
+    private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // ==================== TableWarmUpWindowedStats ====================
 
@@ -314,6 +319,29 @@ public class WarmUpStatsTest {
     }
 
     @Test
+    public void testToJsonStringFormatsTimestampsWithDate() {
+        long lastTriggerTs = 1700000000000L;
+        long lastFinishTs = 1700000001000L;
+        long progressTriggerTs = 1699999999000L;
+
+        JobWarmUpStats job = new JobWarmUpStats();
+        job.lastTriggerTs = lastTriggerTs;
+        job.lastFinishTs = lastFinishTs;
+        job.progressTriggerTs = progressTriggerTs;
+
+        JsonObject root = JsonParser.parseString(job.toJsonString()).getAsJsonObject();
+
+        Assertions.assertEquals(formatExpectedDateTime(lastTriggerTs),
+                root.get("last_trigger_ts").getAsString());
+        Assertions.assertEquals(formatExpectedDateTime(lastFinishTs),
+                root.get("last_finish_ts").getAsString());
+        Assertions.assertEquals(formatExpectedDateTime(progressTriggerTs),
+                root.get("progress_trigger_ts").getAsString());
+        Assertions.assertTrue(root.get("last_trigger_ts").getAsString()
+                .matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
+    }
+
+    @Test
     public void testToSummaryJsonStringMergesDataAndIndexSize() {
         JobWarmUpStats job = new JobWarmUpStats();
         job.requestedSegmentSize30m = 1048576; // 1 MB
@@ -493,5 +521,10 @@ public class WarmUpStatsTest {
         Assertions.assertEquals(1536, stats.gapSegmentSize30m + stats.gapIndexSize30m);
         Assertions.assertEquals(1000, stats.lastTriggerTs);
         Assertions.assertEquals(1200, stats.lastFinishTs);
+    }
+
+    private static String formatExpectedDateTime(long epochMs) {
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), ZoneId.systemDefault())
+                .format(DATETIME_FMT);
     }
 }

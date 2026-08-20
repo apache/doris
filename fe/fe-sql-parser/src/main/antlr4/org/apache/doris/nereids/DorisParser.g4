@@ -40,6 +40,7 @@ expressionWithEof
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
+    | SHOW (PROCEDURE | FUNCTION) STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
     // FIXME: like should be wildWhere? FRONTEND should not contain FROM backendid
     | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)? #showConfig
     ;
@@ -771,11 +772,11 @@ addRollupClause
     ;
 
 alterTableClause
-    : ADD COLUMN columnDef columnPosition? toRollup? properties=propertyClause?     #addColumnClause
+    : ADD COLUMN columnDefWithPath columnPosition? toRollup? properties=propertyClause? #addColumnClause
     | ADD COLUMN LEFT_PAREN columnDefs RIGHT_PAREN
         toRollup? properties=propertyClause?                                        #addColumnsClause
-    | DROP COLUMN name=identifier fromRollup? properties=propertyClause?            #dropColumnClause
-    | MODIFY COLUMN columnDef columnPosition? fromRollup?
+    | DROP COLUMN name=qualifiedName fromRollup? properties=propertyClause?         #dropColumnClause
+    | MODIFY COLUMN columnDefWithPath columnPosition? fromRollup?
     properties=propertyClause?                                                      #modifyColumnClause
     | ORDER BY identifierList fromRollup? properties=propertyClause?                #reorderColumnsClause
     | ADD TEMPORARY? partitionDef
@@ -794,15 +795,14 @@ alterTableClause
     | RENAME newName=identifier                                                     #renameClause
     | RENAME ROLLUP name=identifier newName=identifier                              #renameRollupClause
     | RENAME PARTITION name=identifier newName=identifier                           #renamePartitionClause
-    | RENAME COLUMN name=identifier newName=identifier                              #renameColumnClause
+    | RENAME COLUMN name=qualifiedName TO? newName=identifier                       #renameColumnClause
     | ADD indexDef                                                                  #addIndexClause
     | DROP INDEX (IF EXISTS)? name=identifier partitionSpec?                          #dropIndexClause
     | ENABLE FEATURE name=STRING_LITERAL (WITH properties=propertyClause)?          #enableFeatureClause
     | MODIFY DISTRIBUTION (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
         (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?                              #modifyDistributionClause
     | MODIFY COMMENT comment=STRING_LITERAL                                         #modifyTableCommentClause
-    | MODIFY COLUMN name=identifier COMMENT comment=STRING_LITERAL                  #modifyColumnCommentClause
-    | MODIFY ENGINE TO name=identifier properties=propertyClause?                   #modifyEngineClause
+    | MODIFY COLUMN name=qualifiedName COMMENT comment=STRING_LITERAL               #modifyColumnCommentClause
     | ADD TEMPORARY? PARTITIONS
         FROM from=partitionValueList TO to=partitionValueList
         INTERVAL INTEGER_VALUE unit=identifier? properties=propertyClause?          #alterMultiPartitionClause
@@ -1551,6 +1551,17 @@ columnDef
         (DEFAULT (nullValue=NULL | SUBTRACT? INTEGER_VALUE | SUBTRACT? DECIMAL_VALUE | PI | E | BITMAP_EMPTY | stringValue=STRING_LITERAL
            | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
+        (COMMENT comment=STRING_LITERAL)?
+    ;
+
+columnDefWithPath
+    : columnDef
+    | colNames+=identifier (DOT colNames+=identifier)+ type=dataType
+        KEY?
+        (aggType=aggTypeDef)?
+        ((GENERATED ALWAYS)? AS LEFT_PAREN generatedExpr=expression RIGHT_PAREN)?
+        ((NOT)? nullable=NULL)?
+        (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
 

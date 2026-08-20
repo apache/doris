@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
 #include <thrift/Thrift.h>
@@ -117,12 +118,14 @@
 #include "exec/operator/union_source_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "exec/pipeline/report_exec_status_size.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -145,7 +148,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _exec_env(exec_env),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
-          _is_report_on_cancel(true),
           _params(request),
           _parallel_instances(_params.__isset.parallel_instances ? _params.parallel_instances : 0),
           _need_notify_close(request.__isset.need_notify_close ? request.need_notify_close
@@ -174,8 +176,8 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
 }
 
 // notify_close() transitions the PFC from "waiting for external close notification" to
-// "self-managed close". For recursive CTE fragments, the old PFC is kept alive until
-// the rerun_fragment(wait_for_destroy) RPC calls this to trigger shutdown.
+// "self-managed close". A recursive CTE PFC normally remains registered until rerun_fragment()
+// calls this for WAIT_FOR_DESTROY or FINAL_CLOSE; cancellation can also call it.
 // Returns true if all tasks have already closed (i.e., the PFC can be safely destroyed).
 bool PipelineFragmentContext::notify_close() {
     bool all_closed = false;
@@ -184,7 +186,7 @@ bool PipelineFragmentContext::notify_close() {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks >= _total_tasks) {
             if (_need_notify_close) {
-                // Fragment was cancelled and waiting for notify to close.
+                // The fragment finished while waiting for the external close notification.
                 // Record that we need to remove from fragment mgr, but do it
                 // after releasing _task_mutex to avoid ABBA deadlock with
                 // dump_pipeline_tasks() (which acquires _pipeline_map lock
@@ -193,7 +195,7 @@ bool PipelineFragmentContext::notify_close() {
             }
             all_closed = true;
         }
-        // make fragment release by self after cancel
+        // Allow the fragment to be removed now or after its remaining tasks close.
         _need_notify_close = false;
     }
     if (need_remove) {
@@ -240,9 +242,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
 
     _query_ctx->cancel(reason, _fragment_id);
-    if (reason.is<ErrorCode::LIMIT_REACH>()) {
-        _is_report_on_cancel = false;
-    } else {
+    if (!reason.is<ErrorCode::LIMIT_REACH>() && !reason.is<ErrorCode::FINISHED>()) {
         for (auto& id : _fragment_instance_ids) {
             LOG(WARNING) << "PipelineFragmentContext cancel instance: " << print_id(id);
         }
@@ -290,6 +290,32 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
         RETURN_IF_ERROR(_build_pipelines(_runtime_state->obj_pool(), *_query_ctx->desc_tbl,
                                          &_root_op, root_pipeline));
 
+        // Propagate _num_instances from LOCAL_EXCHANGE pipelines to ancestor pipelines
+        // that inherited reduced num_tasks from a serial operator.
+        _propagate_local_exchange_num_tasks();
+
+        // Create deferred local exchangers now that all pipelines have final num_tasks.
+        RETURN_IF_ERROR(_create_deferred_local_exchangers());
+
+        // Raise num_tasks for pipelines whose serial non-scan operators (e.g.,
+        // UNPARTITIONED Exchange) reduced num_tasks below _num_instances.
+        // Without this, fragment instances 1+ have no task for these pipelines
+        // and downstream operators fail with "must set shared state".
+        //
+        // This applies to ALL pipelines (not just deferred exchanger upstreams):
+        // fragments with UNION/INTERSECT/EXCEPT + serial Exchange in child
+        // pipelines also need the raise, even without FE-planned local exchange.
+        //
+        // Exception: serial scan sources (pooling scan) keep num_tasks=1 — the
+        // PassthroughExchanger(1, N) handles the fan-out correctly.
+        // NOTE: Do NOT raise pipelines whose source is a serial operator
+        // (Exchange or scan) — they legitimately have 1 task, and raising
+        // them causes crashes (e.g., 4 Exchange tasks but only 1 receives
+        // data).  The correct fix for shared state injection across
+        // instances is handled by the FE: it inserts local exchange nodes
+        // between serial operators and their downstream consumers, creating
+        // proper pipeline boundaries with _num_instances tasks.
+
         // 3. Create sink operator
         if (!_params.fragment.__isset.output_sink) {
             return Status::InternalError("No output sink in this fragment!");
@@ -307,7 +333,7 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
         }
     }
     // 4. Build local exchanger
-    if (_runtime_state->enable_local_shuffle()) {
+    if (_runtime_state->plan_local_shuffle()) {
         SCOPED_TIMER(_plan_local_exchanger_timer);
         RETURN_IF_ERROR(_plan_local_exchange(_params.num_buckets,
                                              _params.bucket_seq_to_instance_idx,
@@ -444,6 +470,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
                     _params.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
             {
                 // Initialize runtime state for this task
+                task_runtime_state->set_external_file_report_state(
+                        _runtime_state->external_file_report_state());
                 task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
 
                 task_runtime_state->set_task_execution_context(shared_from_this());
@@ -690,6 +718,188 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool, const Descrip
     return Status::OK();
 }
 
+Status PipelineFragmentContext::_create_deferred_local_exchangers() {
+    for (auto& info : _deferred_exchangers) {
+        // DANGER ZONE — do not "fix" this line without reading the history.
+        //
+        // sender_count seeds Exchanger::_running_sink_operators, which the source side
+        // waits to reach 0 via sub_running_sink_operators on each sink LocalState close.
+        // The correct value is THIS pipeline-instance's sink task count, which is exactly
+        // info.upstream_pipe->num_tasks() — one PipelineTask per task, one close per task.
+        //
+        // Tempting wrong fix #1: `std::max(num_tasks, _num_instances)` to mirror the
+        //   BE-planned path in _add_local_exchange_impl (~line 1023).  THIS BREAKS the
+        //   common FE-planned shape of `serial scan → LE(PT) → ...`: upstream_pipe
+        //   genuinely has num_tasks=1, only 1 close arrives, but seed becomes
+        //   _num_instances so _running_sink_operators never reaches 0 — downstream
+        //   sources hang on SHUFFLE_DATA_DEPENDENCY (e.g. MTMV refresh from
+        //   mtmv_up_down_job_p0/load.groovy stays at Status=RUNNING and regressed
+        //   exactly this way).  BE-planned mode uses max() because its
+        //   `cur_pipe` is the source-side pipeline (always raised to _num_instances by
+        //   add_pipeline) — not analogous to our `upstream_pipe` here, which is the
+        //   sink-side pipeline that may legitimately stay at 1 for serial sources.
+        //
+        // Tempting wrong fix #2: multiply by _num_instances on the theory shared_state
+        //   is shared across all instances.  Same hang — each fragment-instance
+        //   PipelineFragmentContext has its OWN _op_id_to_shared_state map, so the
+        //   exchanger is per-instance, not per-BE.  num_tasks() is already the right
+        //   close-count for one instance.
+        //
+        // If a hang shows up with `_running_sink_operators < 0`, the bug is upstream:
+        // _propagate_local_exchange_num_tasks left num_tasks too low (or too high) for
+        // this fragment shape.  Fix THAT pass, not this seed value.
+        const int sender_count = info.upstream_pipe->num_tasks();
+        switch (info.partition_type) {
+        case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+        case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
+            info.shared_state->exchanger = ShuffleExchanger::create_unique(
+                    sender_count, _num_instances, info.num_partitions, info.free_blocks_limit,
+                    info.partition_type);
+            break;
+        case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
+            info.shared_state->exchanger = BucketShuffleExchanger::create_unique(
+                    sender_count, _num_instances, info.num_partitions, info.free_blocks_limit);
+            break;
+        case TLocalPartitionType::PASSTHROUGH:
+            info.shared_state->exchanger = PassthroughExchanger::create_unique(
+                    sender_count, _num_instances, info.free_blocks_limit);
+            break;
+        case TLocalPartitionType::BROADCAST:
+            info.shared_state->exchanger = BroadcastExchanger::create_unique(
+                    sender_count, _num_instances, info.free_blocks_limit);
+            break;
+        case TLocalPartitionType::PASS_TO_ONE:
+            if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
+                info.shared_state->exchanger = PassToOneExchanger::create_unique(
+                        sender_count, _num_instances, info.free_blocks_limit);
+            } else {
+                info.shared_state->exchanger = BroadcastExchanger::create_unique(
+                        sender_count, _num_instances, info.free_blocks_limit);
+            }
+            break;
+        case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
+            info.shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
+                    sender_count, _num_instances, info.free_blocks_limit);
+            break;
+        case TLocalPartitionType::NOOP:
+        case TLocalPartitionType::LOCAL_MERGE_SORT:
+            // FE-planned LocalExchangeNode currently never emits NOOP or LOCAL_MERGE_SORT
+            // through the deferred-exchanger path.  NOOP means "no exchange needed" and
+            // is filtered out before reaching here; LOCAL_MERGE_SORT is planned by the
+            // legacy BE path only.  Crash in debug to surface the protocol violation if
+            // that ever changes; return an error in release to avoid silently corrupting
+            // execution.
+            DCHECK(false) << "FE-planned local exchange should not emit partition_type="
+                          << static_cast<int>(info.partition_type);
+            return Status::InternalError("FE-planned local exchange emitted unsupported type: " +
+                                         std::to_string(static_cast<int>(info.partition_type)));
+        default:
+            // New TLocalPartitionType added on FE side without a BE handler here.
+            DCHECK(false) << "Unhandled TLocalPartitionType in deferred exchangers: "
+                          << static_cast<int>(info.partition_type);
+            return Status::InternalError("Unsupported FE-planned local exchange type: " +
+                                         std::to_string(static_cast<int>(info.partition_type)));
+        }
+    }
+    _deferred_exchangers.clear();
+    return Status::OK();
+}
+
+void PipelineFragmentContext::_propagate_local_exchange_num_tasks() {
+    // Only runs when FE has planned local exchanges and BE deferred their construction.
+    // In legacy mode (enable_local_shuffle_planner=false) BE plans LE itself via
+    // _plan_local_exchange and _deferred_exchangers stays empty — the legacy path
+    // already gets its num_tasks right at construction time, so the propagate passes
+    // would be no-ops and are skipped.  This is a transitional design: once the FE
+    // planner is the only planner, the propagation logic itself should degrade into
+    // a pure assertion that the FE plan already wired the right num_tasks everywhere.
+    if (_deferred_exchangers.empty()) {
+        return;
+    }
+    // Reconcile num_tasks across paired pipelines created by pipeline-splitting operators
+    // (AGG, SORT, JOIN): they share state via inject_shared_state and must agree, or
+    // instance 1+ tasks access null shared_state.  A pipeline's num_tasks is fully
+    // determined by its source operator plus its upstreams:
+    //   - LocalExchangeSource  -> _num_instances (the LE re-parallelizes)
+    //   - serial source        -> its reduced count (kept as-is, typically 1)
+    //   - otherwise (splitter) -> inherit from upstreams: raise to _num_instances if any
+    //                             upstream was raised by an LE, then lower to a serial
+    //                             upstream's count (lower wins).
+    // Visiting each pipeline only after all its upstreams (topological order over _dag) lets
+    // a single sweep reach the same fixpoint the previous two while-loops iterated to — those
+    // only existed to reconcile the top-down build's parent-inherited num_tasks guesses.
+    std::map<PipelineId, PipelinePtr> id_to_pipe;
+    std::map<PipelineId, std::vector<PipelineId>> downstreams_of;
+    std::map<PipelineId, int> in_degree;
+    for (auto& p : _pipelines) {
+        id_to_pipe[p->id()] = p;
+        in_degree.try_emplace(p->id(), 0);
+    }
+    for (const auto& [downstream_id, upstream_ids] : _dag) {
+        for (auto upstream_id : upstream_ids) {
+            downstreams_of[upstream_id].push_back(downstream_id);
+            in_degree[downstream_id]++;
+        }
+    }
+    std::vector<PipelineId> ready;
+    for (const auto& [id, deg] : in_degree) {
+        if (deg == 0) {
+            ready.push_back(id);
+        }
+    }
+    size_t visited = 0;
+    while (!ready.empty()) {
+        const auto id = ready.back();
+        ready.pop_back();
+        visited++;
+        auto pit = id_to_pipe.find(id);
+        if (pit != id_to_pipe.end()) {
+            auto& pipe = pit->second;
+            const auto& ops = pipe->operators();
+            const bool le_source =
+                    !ops.empty() && dynamic_cast<LocalExchangeSourceOperatorX*>(ops.front().get());
+            const bool serial_source = !ops.empty() && ops.front()->is_serial_operator();
+            if (le_source) {
+                pipe->set_num_tasks(_num_instances);
+            } else if (!serial_source) {
+                int target = pipe->num_tasks();
+                const auto up_it = _dag.find(id);
+                if (up_it != _dag.end()) {
+                    // raise: any upstream already at _num_instances (e.g. an LE source)
+                    for (auto upstream_id : up_it->second) {
+                        auto uit = id_to_pipe.find(upstream_id);
+                        if (uit != id_to_pipe.end() && uit->second->num_tasks() >= _num_instances) {
+                            target = _num_instances;
+                            break;
+                        }
+                    }
+                    // lower: a serial upstream with fewer tasks (wins over the raise above)
+                    for (auto upstream_id : up_it->second) {
+                        auto uit = id_to_pipe.find(upstream_id);
+                        if (uit != id_to_pipe.end() && uit->second->num_tasks() < target &&
+                            !uit->second->operators().empty() &&
+                            uit->second->operators().front()->is_serial_operator()) {
+                            target = uit->second->num_tasks();
+                        }
+                    }
+                }
+                pipe->set_num_tasks(target);
+            }
+        }
+        for (auto down : downstreams_of[id]) {
+            if (--in_degree[down] == 0) {
+                ready.push_back(down);
+            }
+        }
+    }
+    // The pipeline DAG is acyclic; if a future change introduces a back-edge, some pipelines
+    // stay unvisited (in_degree never reaches 0) — fail loudly rather than silently leaving
+    // their num_tasks unreconciled.
+    DCHECK_EQ(visited, in_degree.size())
+            << "pipeline num_tasks topological sweep visited " << visited << " of "
+            << in_degree.size() << " pipelines (cycle in _dag?)";
+}
+
 Status PipelineFragmentContext::_create_tree_helper(
         ObjectPool* pool, const std::vector<TPlanNode>& tnodes, const DescriptorTbl& descs,
         OperatorPtr parent, int* node_idx, OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
@@ -723,7 +933,7 @@ Status PipelineFragmentContext::_create_tree_helper(
         *root = op;
     }
     /**
-     * `ExchangeType::HASH_SHUFFLE` should be used if an operator is followed by a shuffled operator (shuffled hash join, union operator followed by co-located operators).
+     * `TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE` should be used if an operator is followed by a shuffled operator (shuffled hash join, union operator followed by co-located operators).
      *
      * For plan:
      * LocalExchange(id=0) -> Aggregation(id=1) -> ShuffledHashJoin(id=2)
@@ -743,7 +953,7 @@ Status PipelineFragmentContext::_create_tree_helper(
                                              : op->is_shuffled_operator())) &&
              Pipeline::is_hash_exchange(required_data_distribution.distribution_type)) ||
             (followed_by_shuffled_operator &&
-             required_data_distribution.distribution_type == ExchangeType::NOOP);
+             required_data_distribution.distribution_type == TLocalPartitionType::NOOP);
 
     current_require_bucket_distribution =
             ((require_bucket_distribution ||
@@ -751,7 +961,7 @@ Status PipelineFragmentContext::_create_tree_helper(
                                              : op->is_colocated_operator())) &&
              Pipeline::is_hash_exchange(required_data_distribution.distribution_type)) ||
             (require_bucket_distribution &&
-             required_data_distribution.distribution_type == ExchangeType::NOOP);
+             required_data_distribution.distribution_type == TLocalPartitionType::NOOP);
 
     if (num_children == 0) {
         _use_serial_source = op->is_serial_operator();
@@ -810,28 +1020,35 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
             sink_id, local_exchange_id, use_global_hash_shuffle ? _total_instances : _num_instances,
             data_distribution.partition_exprs, bucket_seq_to_instance_idx);
     if (bucket_seq_to_instance_idx.empty() &&
-        data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-        data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
+        data_distribution.distribution_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
+        data_distribution.distribution_type =
+                use_global_hash_shuffle ? TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE
+                                        : TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE;
+    }
+    if (!use_global_hash_shuffle &&
+        data_distribution.distribution_type == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE) {
+        data_distribution.distribution_type = TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE;
     }
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink()->init(_runtime_state.get(), data_distribution.distribution_type,
-                                          num_buckets, use_global_hash_shuffle,
-                                          shuffle_idx_to_instance_idx));
+                                          num_buckets, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =
             LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
-    case ExchangeType::HASH_SHUFFLE:
+    case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+    case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
                 use_global_hash_shuffle ? _total_instances : _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
+                        : 0,
+                data_distribution.distribution_type);
         break;
-    case ExchangeType::BUCKET_HASH_SHUFFLE:
+    case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -839,7 +1056,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
-    case ExchangeType::PASSTHROUGH:
+    case TLocalPartitionType::PASSTHROUGH:
         shared_state->exchanger = PassthroughExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -847,7 +1064,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
-    case ExchangeType::BROADCAST:
+    case TLocalPartitionType::BROADCAST:
         shared_state->exchanger = BroadcastExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -855,7 +1072,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
-    case ExchangeType::PASS_TO_ONE:
+    case TLocalPartitionType::PASS_TO_ONE:
         if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
             // If shared hash table is enabled for BJ, hash table will be built by only one task
             shared_state->exchanger = PassToOneExchanger::create_unique(
@@ -873,7 +1090,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                             : 0);
         }
         break;
-    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+    case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -984,9 +1201,9 @@ Status PipelineFragmentContext::_add_local_exchange(
         Pipeline::heavy_operations_on_the_sink(data_distribution.distribution_type)) {
         RETURN_IF_ERROR(_add_local_exchange_impl(
                 cast_set<int>(new_pip->operators().size()), pool, new_pip,
-                add_pipeline(new_pip, pip_idx + 2), DataDistribution(ExchangeType::PASSTHROUGH),
-                do_local_exchange, num_buckets, bucket_seq_to_instance_idx,
-                shuffle_idx_to_instance_idx));
+                add_pipeline(new_pip, pip_idx + 2),
+                DataDistribution(TLocalPartitionType::PASSTHROUGH), do_local_exchange, num_buckets,
+                bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
     }
     return Status::OK();
 }
@@ -1027,10 +1244,10 @@ Status PipelineFragmentContext::_plan_local_exchange(
         do_local_exchange = false;
         // Plan local exchange for each operator.
         for (; idx < ops.size();) {
-            if (ops[idx]->required_data_distribution(_runtime_state.get()).need_local_exchange()) {
+            auto _le_req = ops[idx]->required_data_distribution(_runtime_state.get());
+            if (_le_req.need_local_exchange()) {
                 RETURN_IF_ERROR(_add_local_exchange(
-                        pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip,
-                        ops[idx]->required_data_distribution(_runtime_state.get()),
+                        pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip, _le_req,
                         &do_local_exchange, num_buckets, bucket_seq_to_instance_idx,
                         shuffle_idx_to_instance_idx));
             }
@@ -1307,9 +1524,30 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     bool fe_with_old_version = false;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
+        if (enable_query_cache) {
+            if (_query_cache_runtime == nullptr) {
+                // The plan tree is built in pre-order and the cache source
+                // sits above the scan, so the runtime it created must already
+                // exist here. Running the scan with its own runtime instead
+                // would silently drop data on a HIT (the scan skips scanning
+                // while no cache source emits the entry), so a malformed plan
+                // shape must fail loudly.
+                return Status::InternalError(
+                        "query cache runtime is absent at the scan node, node_id={}, "
+                        "cache node_id={}",
+                        tnode.node_id, _params.fragment.query_cache_param.node_id);
+            }
+            if (tnode.olap_scan_node.__isset.read_row_binlog &&
+                tnode.olap_scan_node.read_row_binlog) {
+                // Row-binlog scans read a different data stream: they must
+                // neither serve nor fill the query cache.
+                _query_cache_runtime->disable_for_binlog_scan();
+            }
+        }
         op = std::make_shared<OlapScanOperatorX>(
                 pool, tnode, next_operator_id(), descs, _num_instances,
-                enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {});
+                enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {},
+                enable_query_cache ? _query_cache_runtime : nullptr);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
@@ -1348,8 +1586,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                   ? _params.per_exch_num_senders.find(tnode.node_id)->second
                                   : 0;
         DCHECK_GT(num_senders, 0);
-        op = std::make_shared<ExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs,
-                                                       num_senders);
+        auto exchange_op = std::make_shared<ExchangeSourceOperatorX>(
+                pool, tnode, next_operator_id(), descs, num_senders);
+        if (!_params.bucket_seq_to_instance_idx.empty()) {
+            // Lets bucket-routed exchanges detect orphan instances (owning no bucket) that
+            // no sender channel will ever address — their receivers must start at EOS.
+            exchange_op->set_bucket_dest_instances(_params.bucket_seq_to_instance_idx);
+        }
+        op = exchange_op;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
@@ -1365,8 +1609,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         auto create_query_cache_operator = [&](PipelinePtr& new_pipe) {
             auto cache_node_id = _params.local_params[0].per_node_scan_ranges.begin()->first;
             auto cache_source_id = next_operator_id();
+            if (_query_cache_runtime == nullptr) {
+                _query_cache_runtime =
+                        std::make_shared<QueryCacheRuntime>(_params.fragment.query_cache_param);
+            }
             op = std::make_shared<CacheSourceOperatorX>(pool, cache_node_id, cache_source_id,
-                                                        _params.fragment.query_cache_param);
+                                                        _params.fragment.query_cache_param,
+                                                        _query_cache_runtime);
             RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
             const auto downstream_pipeline_id = cur_pipe->id();
@@ -1796,6 +2045,88 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         break;
     }
+    case TPlanNodeType::LOCAL_EXCHANGE_NODE: {
+        op = std::make_shared<LocalExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        // The downstream pipeline (containing LocalExchangeSource) must have
+        // _num_instances tasks — matching BE-native _inherit_pipeline_properties
+        // which sets pipe_with_source.set_num_tasks(_num_instances).
+        // Without this, when the parent pipeline was reduced by a serial operator
+        // (e.g., serial Exchange with use_serial_exchange=true, or UNPARTITIONED
+        // Exchange), the downstream inherits the reduced num_tasks via
+        // add_pipeline(parent).  The deferred exchanger creates _num_instances
+        // channels but only fewer source tasks initialize mem_counters — the
+        // sink round-robins to all channels and crashes on uninitialized ones.
+        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+        // Restore downstream pipeline's num_tasks (mirroring _inherit_pipeline_properties:
+        // downstream keeps _num_instances, upstream gets the serial/reduced count)
+        cur_pipe->set_num_tasks(_num_instances);
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (!_dag.contains(downstream_pipeline_id)) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline(cur_pipe);
+        // If this local exchange was inserted because of a serial scan (is_serial_operator),
+        // the upstream pipeline (cur_pipe) should have num_tasks=1 (only 1 scan task).
+        // We set this now so the exchanger is created with the correct sender count.
+        // Child operators added later (serial scan) will also set num_tasks=1, which is
+        // consistent with this.
+        if (op->is_serial_operator() && _parallel_instances > 0) {
+            cur_pipe->set_num_tasks(_parallel_instances);
+        }
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+        int num_partitions = 0;
+        std::map<int, int> shuffle_id_to_instance_idx;
+        auto partition_type = tnode.local_exchange_node.partition_type;
+        switch (partition_type) {
+        case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
+            num_partitions = _params.num_buckets;
+            shuffle_id_to_instance_idx = _params.bucket_seq_to_instance_idx;
+            break;
+        case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+            for (int i = 0; i < _num_instances; i++) {
+                shuffle_id_to_instance_idx[i] = i;
+            }
+            num_partitions = _num_instances;
+            break;
+        case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
+            num_partitions = _total_instances;
+            shuffle_id_to_instance_idx = _params.shuffle_idx_to_instance_idx;
+            break;
+        default:
+            break;
+        }
+        auto local_exchange_id = op->operator_id();
+        auto sink_id = next_sink_operator_id();
+        DataSinkOperatorPtr sink = std::make_shared<LocalExchangeSinkOperatorX>(
+                sink_id, local_exchange_id, tnode, num_partitions, shuffle_id_to_instance_idx);
+        sink_ops.push_back(sink);
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
+
+        // For FE-planned local exchange, we need to:
+        // 1. Initialize the partitioner for hash shuffle types
+        // 2. Defer exchanger creation until after the full plan tree is built
+        //    (child operators like serial ExchangeNode may change cur_pipe->num_tasks())
+        // 3. Register shared state so pipeline tasks can find it
+        RETURN_IF_ERROR(static_cast<LocalExchangeSinkOperatorX*>(cur_pipe->sink())
+                                ->init_partitioner(_runtime_state.get()));
+
+        int free_blocks_limit =
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? cast_set<int>(
+                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
+                        : 0;
+        auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
+        shared_state->create_source_dependencies(_num_instances, local_exchange_id,
+                                                 local_exchange_id, "LOCAL_EXCHANGE_OPERATOR");
+        shared_state->create_sink_dependency(sink_id, local_exchange_id, "LOCAL_EXCHANGE_SINK");
+        _op_id_to_shared_state.insert({local_exchange_id, {shared_state, shared_state->sink_deps}});
+        // Defer exchanger creation: sender count depends on final upstream num_tasks
+        _deferred_exchangers.push_back({shared_state, cur_pipe, partition_type, num_partitions,
+                                        free_blocks_limit, local_exchange_id, sink_id});
+        break;
+    }
     default:
         return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(tnode.node_type));
@@ -2021,6 +2352,15 @@ std::string PipelineFragmentContext::_to_http_path(const std::string& file_name)
     return url.str();
 }
 
+void PipelineFragmentContext::_append_external_file_commit_data(
+        const ReportStatusRequest& req, TReportExecStatusParams* params) const {
+    // External-file cleanup remains BE-owned until the final report transfers commit metadata.
+    req.runtime_state->append_external_file_commit_data(params, req.done);
+    for (auto* rs : req.runtime_states) {
+        rs->append_external_file_commit_data(params, req.done);
+    }
+}
+
 void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& req) {
     DBUG_EXECUTE_IF("FragmentMgr::coordinator_callback.report_delay", {
         int random_seconds = req.status.is<ErrorCode::DATA_QUALITY_ERROR>() ? 8 : 2;
@@ -2032,6 +2372,11 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
     if (req.coord_addr.hostname == "external") {
         // External query (flink/spark read tablets) not need to report to FE.
+        if (req.done) {
+            // Without a coordinator acknowledgement no external-write file may escape rollback.
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
+        }
         return;
     }
     int callback_retries = 10;
@@ -2052,6 +2397,10 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         static_cast<void>(req.cancel_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
+        if (req.done) {
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
+        }
         return;
     }
 
@@ -2175,45 +2524,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             }
         }
     }
-    if (auto hpu = req.runtime_state->hive_partition_updates(); !hpu.empty()) {
-        params.__isset.hive_partition_updates = true;
-        params.hive_partition_updates.insert(params.hive_partition_updates.end(), hpu.begin(),
-                                             hpu.end());
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            if (auto rs_hpu = rs->hive_partition_updates(); !rs_hpu.empty()) {
-                params.__isset.hive_partition_updates = true;
-                params.hive_partition_updates.insert(params.hive_partition_updates.end(),
-                                                     rs_hpu.begin(), rs_hpu.end());
-            }
-        }
-    }
-    if (auto icd = req.runtime_state->iceberg_commit_datas(); !icd.empty()) {
-        params.__isset.iceberg_commit_datas = true;
-        params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(), icd.begin(),
-                                           icd.end());
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            if (auto rs_icd = rs->iceberg_commit_datas(); !rs_icd.empty()) {
-                params.__isset.iceberg_commit_datas = true;
-                params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
-                                                   rs_icd.begin(), rs_icd.end());
-            }
-        }
-    }
-
-    if (auto mcd = req.runtime_state->mc_commit_datas(); !mcd.empty()) {
-        params.__isset.mc_commit_datas = true;
-        params.mc_commit_datas.insert(params.mc_commit_datas.end(), mcd.begin(), mcd.end());
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            if (auto rs_mcd = rs->mc_commit_datas(); !rs_mcd.empty()) {
-                params.__isset.mc_commit_datas = true;
-                params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
-                                              rs_mcd.end());
-            }
-        }
-    }
+    _append_external_file_commit_data(req, &params);
 
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
@@ -2222,8 +2533,20 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         params.__set_backend_id(_exec_env->cluster_info()->backend_id);
     }
 
+    Status report_size_status = validate_report_exec_status_size(
+            params, req.runtime_state->coordinator_thrift_message_limit());
+    if (!report_size_status.ok()) {
+        if (req.done) {
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
+        }
+        req.cancel_fn(report_size_status);
+        return;
+    }
+
     TReportExecStatusResult res;
     Status rpc_status;
+    bool report_outcome_ambiguous = false;
 
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
@@ -2235,15 +2558,20 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     try {
         try {
             (*coord)->reportExecStatus(res, params);
-        } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
-#ifndef ADDRESS_SANITIZER
+        } catch (apache::thrift::transport::TTransportException& e) {
+            report_outcome_ambiguous = true;
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
-#endif
             rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
+                // The first request may have been consumed; keep files until metadata or orphan cleanup wins.
+                report_outcome_ambiguous = true;
+                if (req.done) {
+                    req.runtime_state->finalize_external_file_report_cleanup(
+                            ExternalFileReportOutcome::AMBIGUOUS);
+                }
                 req.cancel_fn(rpc_status);
                 return;
             }
@@ -2252,39 +2580,54 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
 
         rpc_status = Status::create<false>(res.status);
     } catch (apache::thrift::TException& e) {
+        report_outcome_ambiguous = true;
         rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
+    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    if (rpc_status.ok() && requires_external_file_ack &&
+        (!res.__isset.external_file_commit_data_accepted ||
+         !res.external_file_commit_data_accepted)) {
+        rpc_status = Status::InternalError(
+                "Coordinator did not accept ownership of the external-file report");
+    }
+
     if (!rpc_status.ok()) {
+        if (req.done && !report_outcome_ambiguous) {
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::REJECTED);
+        } else if (req.done) {
+            req.runtime_state->finalize_external_file_report_cleanup(
+                    ExternalFileReportOutcome::AMBIGUOUS);
+        }
         LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
                  print_id(req.query_id), rpc_status.to_string());
         req.cancel_fn(rpc_status);
+    } else if (req.done && req.status.ok()) {
+        // Files remain rollback-owned until the coordinator has acknowledged the final metadata report.
+        req.runtime_state->finalize_external_file_report_cleanup(
+                ExternalFileReportOutcome::ACKNOWLEDGED);
+    } else if (req.done) {
+        // An acknowledged error report confirms that FE will not publish this write's files.
+        req.runtime_state->finalize_external_file_report_cleanup(
+                ExternalFileReportOutcome::REJECTED);
     }
 }
 
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
-    // If plan is done successfully, but _is_report_success is false,
-    // no need to send report.
-    // Load will set _is_report_success to true because load wants to know
-    // the process.
-    if (!_is_report_success && done && exec_status.ok()) {
-        return Status::OK();
-    }
 
-    // If both _is_report_success and _is_report_on_cancel are false,
-    // which means no matter query is success or failed, no report is needed.
-    // This may happen when the query limit reached and
-    // a internal cancellation being processed
-    // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
-    // be set to false, to avoid sending fault report to FE.
-    if (!_is_report_success && !_is_report_on_cancel) {
-        if (done) {
-            // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
+    if (!_is_report_success) {
+        // _is_report_success means this is not a load job, do not need to report to fe periodically.
+        if (exec_status.is<ErrorCode::LIMIT_REACH>() || exec_status.is<ErrorCode::FINISHED>() ||
+            exec_status.ok()) {
             return Status::OK();
+        } else {
+            // else it means there is some error in processing the query, and we need to send report to FE to let FE know the error.
         }
-        return Status::NeedSendAgain("");
+    } else {
+        // This is a load job, need report the process status to FE periodly, so that FE can know the process of the load job.
     }
 
     std::vector<RuntimeState*> runtime_states;
@@ -2315,13 +2658,20 @@ Status PipelineFragmentContext::send_report(bool done) {
                              .first_error_msg = first_error_msg,
                              .cancel_fn = [this](const Status& reason) { cancel(reason); }};
     auto ctx = std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this());
-    return _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {
-        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
-        _coordinator_callback(req);
-        if (!req.done) {
-            ctx->refresh_next_report_time();
-        }
-    });
+    Status submit_status =
+            _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {
+                SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
+                _coordinator_callback(req);
+                if (!req.done) {
+                    ctx->refresh_next_report_time();
+                }
+            });
+    if (!submit_status.ok() && req.done) {
+        // A rejected final callback can never transfer ownership to the coordinator.
+        req.runtime_state->finalize_external_file_report_cleanup(
+                ExternalFileReportOutcome::REJECTED);
+    }
+    return submit_status;
 }
 
 size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const {

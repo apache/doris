@@ -103,8 +103,10 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _is_colocate ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                               _partition_exprs)
+                            : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                               _partition_exprs);
     }
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
@@ -130,5 +132,12 @@ private:
     std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
 };
+
+/// Instantiated once in set_probe_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class SetProbeSinkLocalState<true>;
+extern template class SetProbeSinkLocalState<false>;
+extern template class SetProbeSinkOperatorX<true>;
+extern template class SetProbeSinkOperatorX<false>;
 
 } // namespace doris

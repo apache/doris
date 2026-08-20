@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -120,7 +121,7 @@ public:
             rs_splits = std::move(read_source.rs_splits);
             delete_predicates = std::move(read_source.delete_predicates);
 #ifndef BE_TEST
-            if (tablet->enable_unique_key_merge_on_write() && !skip_delete_bitmap) {
+            if (!skip_delete_bitmap && tablet->need_read_delete_bitmap()) {
                 delete_bitmap = std::move(read_source.delete_bitmap);
             }
 #endif
@@ -129,6 +130,7 @@ public:
         BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
+        bool read_row_binlog = false;
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
@@ -156,8 +158,16 @@ public:
 
         // return_columns is init from query schema
         std::vector<ColumnId> return_columns;
+        // TSO predicate column that is absent from return_columns but must be read by storage.
+        std::optional<ColumnId> tso_predicate_column_id;
         // output_columns only contain columns in OrderByExprs and outputExprs
         std::set<int32_t> output_columns;
+        // Extra storage key columns that are present only for scan-schema alignment.
+        // Example: for AGG keys (k1, k2), a query that returns k2 can scan
+        // (k1, k2) and project away k1. Direct readers may avoid reading such
+        // columns only if the lower iterator proves their real values are not
+        // required by predicates, delete conditions, or expressions.
+        std::set<ColumnId> extra_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -209,8 +219,6 @@ public:
         int64_t batch_size = -1;
 
         std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
-        std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-        std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
         std::shared_ptr<ScoreRuntime> score_runtime;
         CollectionStatisticsPtr collection_statistics;
@@ -221,6 +229,11 @@ public:
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        // Binlog/snapshot incremental read TSO range (start_tso, end_tso]. Forced down to
+        // BetaRowsetReader, which builds the tso predicates directly on read options,
+        // bypassing the value/key predicate split in _init_conditions_param.
+        std::optional<int64_t> start_tso;
+        std::optional<int64_t> end_tso;
     };
 
     TabletReader() = default;
@@ -273,6 +286,13 @@ public:
             TabletSharedPtr tablet, ReaderType reader_type,
             const std::vector<RowsetSharedPtr>& input_rowsets,
             TabletReader::ReaderParams* reader_params, Block* block);
+
+    // Remove the delete-condition columns from `all_access_paths` so they fall back to a full
+    // read (a meta-only read would make the storage delete predicate match nothing and leak
+    // deleted rows).
+    static void remove_delete_columns_from_access_paths(
+            const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+            std::map<int32_t, TColumnAccessPaths>& all_access_paths);
 
 protected:
     friend class VCollectIterator;

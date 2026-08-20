@@ -20,11 +20,17 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "common/status.h"
 #include "core/block/block.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
@@ -33,6 +39,10 @@ class Block;
 namespace segment_v2 {
 class SegmentWriter;
 class VerticalSegmentWriter;
+class DerivedColumnGenerator;
+// Matches block_transform.h: at most one derived column (the row-store column)
+// for each flush, held as a {cid, generator} pair; null generator means none.
+using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
 } // namespace segment_v2
 
 struct SegmentStatistics;
@@ -97,6 +107,11 @@ public:
 
     ~SegmentFlusher();
 
+    // Runs the block transform chain on `block` and hands back the derived (row-store)
+    // column for the caller to feed into its writer.
+    Status transform_block(Block* block, int32_t segment_id,
+                           segment_v2::DerivedColumn* derived_column);
+
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const Block* block, int32_t segment_id,
@@ -120,7 +135,9 @@ public:
         ~Writer();
 
         Status add_rows(const Block* block, size_t row_offset, size_t input_row_num) {
-            return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
+            RETURN_IF_ERROR(_flusher->_add_rows(_writer, block, row_offset, input_row_num));
+            _flusher->_num_rows_written += input_row_num;
+            return Status::OK();
         }
 
         Status flush();
@@ -149,6 +166,9 @@ private:
                                  int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
+    void _record_segment_index_file_cache_preload(
+            uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info);
+    Status _preload_segment_indexes_to_file_cache();
 
 private:
     RowsetWriterContext& _context;
@@ -161,6 +181,8 @@ private:
     std::atomic<int64_t> _num_rows_new_added = 0;
     std::atomic<int64_t> _num_rows_deleted = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
+    std::mutex _segment_index_file_cache_preloads_lock;
+    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> _segment_index_file_cache_preloads;
 };
 
 class SegmentCreator {

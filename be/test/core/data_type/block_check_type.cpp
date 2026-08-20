@@ -19,7 +19,12 @@
 #include <gtest/gtest.h>
 
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
@@ -38,5 +43,40 @@ TEST(BlockCheckType, test1) {
     st = block.check_type_and_column();
     EXPECT_FALSE(st.ok());
     std::cout << st.msg() << std::endl;
+}
+
+TEST(BlockCheckType, CheckColumnAndTypeNotNull) {
+    auto block = Block {
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4}),
+            ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
+    };
+
+    EXPECT_TRUE(block.check_column_and_type_not_null());
+
+    block.get_by_position(0).column = nullptr;
+    auto st = block.check_column_and_type_not_null();
+    EXPECT_FALSE(st.ok());
+
+    block.get_by_position(0).column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
+    block.get_by_position(1).type = nullptr;
+    st = block.check_column_and_type_not_null();
+    EXPECT_FALSE(st.ok());
+}
+
+TEST(BlockCheckType, CheckNoColumnString64) {
+    Block block {{ColumnString::create(), std::make_shared<DataTypeString>(), "string"}};
+    EXPECT_TRUE(block.check_no_column_string64());
+
+    block.get_by_position(0).column = ColumnString64::create();
+    auto st = block.check_no_column_string64();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.msg().find("column index: 0, name: string"), std::string::npos);
+
+    block.get_by_position(0).column =
+            ColumnNullable::create(ColumnString64::create(), ColumnUInt8::create());
+    block.get_by_position(0).type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    st = block.check_no_column_string64();
+    EXPECT_FALSE(st.ok());
 }
 } // namespace doris

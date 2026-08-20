@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -44,6 +45,7 @@
 #include "core/value/large_int_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
@@ -51,6 +53,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "util/date_func.h"
 #include "util/unaligned.h"
 
@@ -60,6 +63,7 @@ class HybridSetBase;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
+class ZoneMapEvalContext;
 
 namespace segment_v2 {
 class IndexIterator;
@@ -79,6 +83,7 @@ struct AnnRangeSearchRuntime;
 // the relatioinship between threads and classes.
 
 using Selector = IColumn::Selector;
+using VExprCloneNodeOverride = std::function<Status(const VExpr&, VExprSPtr*)>;
 
 struct AnnRangeSearchEvaluationResult {
     // Indicates whether the expr row_bitmap has been updated.
@@ -169,10 +174,74 @@ public:
                                   uint8_t* __restrict result_filter_data, size_t rows,
                                   bool accept_null, bool* can_filter_all) const;
 
+    // Raw fixed-width evaluation is an optional expression capability used before a storage reader
+    // materializes a column. The capability query must validate the bound slot and logical type and
+    // remain stable for the reader lifetime. Execution receives `num_values` tightly packed,
+    // non-NULL logical values of `value_width` bytes; it ANDs decisions into the caller-owned
+    // `matches` array and must leave already rejected rows rejected. Callers handle NULL rows from
+    // definition levels because the physical value stream has no payload for them.
+    virtual bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                 int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                               size_t value_width, const DataTypePtr& data_type,
+                                               int column_id, uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
+    }
+
+    // Variable-width Parquet decoders expose `num_values` immutable, non-NULL slices rather than an
+    // IColumn. The capability query must validate the bound slot and logical type. Execution may
+    // borrow each slice only for the duration of the call and must AND its decisions into `matches`;
+    // expressions opt in only when Doris semantics are identical to comparing the decoded bytes.
+    virtual bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                  int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                const DataTypePtr& data_type, int column_id,
+                                                uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw binary values", expr_name());
+    }
+
+    // Returns the Boolean result for a logical NULL whose payload is absent from decoder value
+    // callbacks. Most raw predicates reject NULL; dynamic predicates override this hook when
+    // their current runtime state can admit it.
+    virtual bool raw_predicate_result_for_null() const { return false; }
+
+    // Parquet NULLs have no value payload. Level-aware predicates consume the definition-level
+    // null map directly instead of forcing the reader to fabricate a nullable Doris column.
+    virtual bool can_execute_on_null_map(const DataTypePtr& data_type, int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_null_map(const uint8_t* null_map, size_t num_values,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate a NULL map", expr_name());
+    }
+
+    // Typed reader evaluation is an optional capability for runtime-filter wrappers. It lets a
+    // storage reader consume converted logical values without scheduling the same expression on
+    // a materialized file block afterwards.
+    virtual bool can_execute_on_reader_values(const DataTypePtr& data_type, int column_id) const {
+        return false;
+    }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
                            [](VExprSPtr child) { return child->is_blockable(); });
+    }
+
+    [[nodiscard]] virtual bool is_deterministic() const {
+        return std::ranges::all_of(
+                _children, [](const VExprSPtr& child) { return child->is_deterministic(); });
+    }
+
+    [[nodiscard]] virtual bool is_safe_to_execute_on_selected_rows() const {
+        return is_deterministic() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                   return child->is_safe_to_execute_on_selected_rows();
+               });
     }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
@@ -180,10 +249,26 @@ public:
         return Status::OK();
     }
 
+    virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
+    virtual bool can_evaluate_zonemap_filter() const { return false; }
+    // Dictionary evaluation is an optional conservative pruning capability over non-NULL values.
+    // kNoMatch proves that no dictionary entry can satisfy the expression, kMayMatch means at least
+    // one entry may satisfy it (or pruning cannot currently disprove it), and kUnsupported means the
+    // context lacks a compatible binding. Capability must describe expression shape, not the
+    // current contents of a late-arriving runtime filter, because readers may cache it.
+    virtual ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const;
+    virtual bool can_evaluate_dictionary_filter() const { return false; }
+    virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const;
+    virtual bool can_evaluate_bloom_filter() const { return false; }
+
     // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {
         static const std::string empty;
         return empty;
+    }
+
+    [[nodiscard]] virtual const InvertedIndexAnalyzerCtx* query_analyzer_ctx() const {
+        return nullptr;
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
@@ -210,11 +295,13 @@ public:
 
     const DataTypePtr& data_type() const { return _data_type; }
 
-    bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
-    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
+    virtual bool is_virtual_slot_ref() const {
+        return _node_type == TExprNodeType::VIRTUAL_SLOT_REF;
+    }
 
-    bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
+    virtual bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
     virtual bool is_literal() const { return false; }
 
@@ -248,6 +335,10 @@ public:
 
     static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
 
+    Status deep_clone(VExprSPtr* cloned_expr,
+                      const VExprCloneNodeOverride& clone_node_override = {}) const;
+    virtual Status clone_node(VExprSPtr* cloned_expr) const;
+
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
@@ -262,6 +353,7 @@ public:
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
+    void reset_prepare_state();
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
@@ -269,7 +361,7 @@ public:
     static ColumnPtr filter_column_with_selector(const ColumnPtr& origin_column,
                                                  const Selector* selector, size_t count) {
         if (selector == nullptr) {
-            DCHECK_EQ(origin_column->size(), count);
+            DCHECK_EQ(origin_column->size(), count) << origin_column->get_name();
             return origin_column;
         }
         DCHECK_EQ(count, selector->size());
@@ -363,6 +455,8 @@ public:
     virtual uint64_t get_digest(uint64_t seed) const;
 
 protected:
+    TExprNode clone_texpr_node() const;
+
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;
@@ -612,8 +706,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
-        // the code use for runtime filter but we dont support timev2 as predicate now
-        // so this part not used
+        // Runtime filters preserve TIMEV2's microsecond carrier and scale in the literal node.
         const auto* origin_value = reinterpret_cast<const double*>(data);
         TTimeV2Literal timev2_literal;
         timev2_literal.__set_value(*origin_value);

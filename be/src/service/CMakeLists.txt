@@ -36,6 +36,24 @@ add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)
 
+# Unity build scoped to the http glue: ~60 small handlers re-parsing the same
+# header closure once per file, merged into one unity TU (batch 0). Widening
+# to the whole target at batch 8 was tried and measured slower: splitting the
+# single http jumbo into 8-file batches repays the shared-closure parse per
+# batch, and the heterogeneous non-http TUs gain too little to cover it
+# (service segment 104s -> 132s slot time). So non-http sources stay
+# individual. http_parser.cpp and be_thread_stack_action.cpp stay individual
+# because their file-scope macros (CR/LF, UNW_LOCAL_ONLY) must not leak into
+# unity siblings.
+set(SERVICE_UNITY_SKIP ${SRC_FILES})
+list(FILTER SERVICE_UNITY_SKIP EXCLUDE REGEX ".*/service/http/.*")
+list(APPEND SERVICE_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/http/http_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/http/action/be_thread_stack_action.cpp)
+doris_skip_unity_inclusion(${SERVICE_UNITY_SKIP})
+set_target_properties(Service PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                         UNITY_BUILD_BATCH_SIZE 0)
+
 if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     add_executable(doris_be
         doris_main.cpp
@@ -48,6 +66,30 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
+
+    # ...but not the symbols of the RocksDB we link statically. Exporting those makes this
+    # executable the definition every later-loaded library binds to, and a JNI library that
+    # carries its own RocksDB then runs half on ours: the fluss scanner bundles frocksdbjni,
+    # whose librocksdbjni.so defines 2576 rocksdb symbols under names identical to ours but
+    # was built against the pre-C++11 libstdc++ string ABI. Objects laid out by one and used
+    # by the other yield a garbage length, an std::bad_alloc that escapes the JNI frame, and
+    # an aborted BE. Hiding this archive lets that library bind to its own copy.
+    #
+    # Scoped to the archive rather than dropping ENABLE_EXPORTS: what needs the exports is
+    # native UDFs (runtime/user_function_cache.cpp dlopens them), and those use the Doris UDF
+    # ABI, which has nothing to do with RocksDB. Crash stacks do not need it either -- they are
+    # symbolized from debug info, which is why they name even anonymous-namespace functions.
+    #
+    # The same library also duplicates zstd, lz4, snappy, bzip2 and zlib symbols. Those are C
+    # ABIs, stable across versions and layout-free, so they are left alone until something
+    # shows otherwise -- unlike RocksDB, whose C++ objects are what actually corrupt.
+    #
+    # Linux-only: Apple's ld rejects --exclude-libs (a GNU ld option), and macOS does not
+    # need it -- dyld's two-level namespace already binds each loaded library to the copy
+    # it was linked against, so a JNI library carrying its own RocksDB never resolves to ours.
+    if (NOT OS_MACOSX)
+        target_link_options(doris_be PRIVATE "-Wl,--exclude-libs,librocksdb.a")
+    endif()
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}

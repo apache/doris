@@ -325,7 +325,6 @@ private:
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
                                size_t batch_size, size_t* read_rows, bool* eof,
                                bool is_dict_filter);
-    Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
 class ArrayColumnReader : public ParquetColumnReader {
@@ -457,6 +456,9 @@ public:
 private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
     std::vector<std::string> _read_column_names;
+    // Hold the resolved type with the one-row value so equivalent complex types reconstructed for
+    // later Blocks reuse the same Iceberg field-ID entry outside the batch path.
+    std::unordered_map<int32_t, std::pair<DataTypePtr, ColumnPtr>> _nested_initial_default_values;
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
 
@@ -543,5 +545,11 @@ public:
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
+
+/// Instantiated once in vparquet_column_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ScalarColumnReader<true, true>;
+extern template class ScalarColumnReader<true, false>;
+extern template class ScalarColumnReader<false, true>;
+extern template class ScalarColumnReader<false, false>;
 
 }; // namespace doris

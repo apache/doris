@@ -23,13 +23,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 
-#include "util/defer_op.h"
-
-#define private public
-#define protected public
 #include "io/cache/block_file_cache_test_common.h"
-#undef private
-#undef protected
+#include "util/defer_op.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -260,10 +255,10 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
         // then check the log replay
         ASSERT_EQ(cache.replay_lru_logs_once(), 20);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
 
         // do some REMOVE
         {
@@ -271,12 +266,13 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
 
         ASSERT_EQ(cache.replay_lru_logs_once(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 0);
-        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
         EXPECT_EQ(cache.replay_lru_logs_once(), 0);
         EXPECT_EQ(cache._lru_recorder_log_replay_idle_metrics->get_value(), 1);
+        cache.dump_lru_queues(true);
 
         // check the meta store to see the content
         {
@@ -312,8 +308,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             verify_meta_key(*meta_store, 50, "key4", 300000, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 400000, FileCacheType::DISPOSABLE, 0, 100000);
         }
-        std::this_thread::sleep_for(
-                std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
     }
 
     { // cache2
@@ -628,14 +622,16 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     context.tablet_id = 314;
     auto key = io::BlockFileCache::hash("meta_clear_key");
 
-    auto holder = cache.get_or_set(key, 0, 100000, context);
-    auto blocks = fromHolder(holder);
-    ASSERT_EQ(blocks.size(), 1);
-    assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
-    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-    download(blocks[0]);
-    assert_range(2, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::DOWNLOADED);
-    blocks.clear();
+    {
+        auto holder = cache.get_or_set(key, 0, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(0, 99999),
+                     io::FileBlock::State::DOWNLOADED);
+    }
 
     auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
     ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
@@ -645,15 +641,17 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     verify_meta_key(*meta_store, context.tablet_id, "meta_clear_key", 0, FileCacheType::NORMAL, 0,
                     100000);
 
-    cache.clear_file_cache_directly();
+    cache.clear_file_cache_sync();
 
     std::string meta_dir = cache.get_base_path() + "/meta";
     ASSERT_TRUE(fs::exists(meta_dir));
     ASSERT_TRUE(fs::is_directory(meta_dir));
 
     BlockMetaKey mkey(context.tablet_id, key, 0);
-    auto meta = meta_store->get(mkey);
-    ASSERT_FALSE(meta.has_value());
+    for (int i = 0; i < 100 && meta_store->get(mkey).has_value(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_FALSE(meta_store->get(mkey).has_value());
 
     auto iterator = meta_store->get_all();
     if (iterator != nullptr) {

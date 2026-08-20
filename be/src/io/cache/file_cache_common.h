@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "common/config.h"
 #include "core/uint128.h"
 #include "io/io_common.h"
 
@@ -42,6 +43,11 @@ enum FileCacheType {
     DISPOSABLE = 0,
     TTL = 3,
 };
+
+inline size_t file_cache_type_index(FileCacheType type) {
+    return static_cast<size_t>(type);
+}
+
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
@@ -74,6 +80,7 @@ struct ReadStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t bytes_read_from_peer = 0;
+    int64_t remote_physical_read_bytes = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
     int64_t peer_read_timer = 0;
@@ -163,19 +170,28 @@ struct CacheContext {
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
         is_warmup = io_context->is_warmup;
+        remote_scan_cache_write_limiter = io_context->remote_scan_cache_write_limiter;
+        admit_cache_write_by_remote_scan_limiter =
+                remote_scan_cache_write_limiter != nullptr &&
+                io_context->reader_type == ReaderType::READER_QUERY &&
+                (!io_context->is_index_data || io_context->is_inverted_index ||
+                 config::enable_file_cache_query_limit_segment_meta) &&
+                !io_context->is_warmup;
     }
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
         return query_id == rhs.query_id && cache_type == rhs.cache_type &&
                expiration_time == rhs.expiration_time && is_cold_data == rhs.is_cold_data;
     }
-    TUniqueId query_id;
-    FileCacheType cache_type;
+    TUniqueId query_id {};
+    FileCacheType cache_type {FileCacheType::NORMAL};
     int64_t expiration_time {0};
     bool is_cold_data {false};
-    ReadStatistics* stats;
+    ReadStatistics* stats {nullptr};
     bool is_warmup {false};
     int64_t tablet_id {0};
+    RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr;
+    bool admit_cache_write_by_remote_scan_limiter {false};
 };
 
 template <class Lock>
@@ -248,6 +264,8 @@ public:
     Iterator end() { return queue.end(); }
 
     void remove_all(std::lock_guard<std::mutex>& cache_lock);
+
+    bool pop_front(std::lock_guard<std::mutex>& cache_lock);
 
     Iterator get(const UInt128Wrapper& hash, size_t offset,
                  std::lock_guard<std::mutex>& /* cache_lock */) const;

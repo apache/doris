@@ -19,17 +19,47 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
 
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
+namespace {
+
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
+
+} // namespace
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -101,6 +131,36 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
     return state->get_query_ctx()->get_remote_scan_scheduler();
 }
 
+#ifdef BE_TEST
+bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                         bool is_load,
+                                                         const TFileScanRangeParams& scan_params) {
+    return _should_use_file_scanner_v2(query_options, is_load, scan_params);
+}
+#endif
+
+bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                     bool is_load,
+                                                     const TFileScanRangeParams& scan_params) {
+    // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
+    // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
+    // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
+    // with an undiagnosable NotSupported -- showing up in CI as a random failure. This is the same
+    // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
+    // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
+    // still cannot run.
+    if (!is_load && scan_params.__isset.table_format_params &&
+        scan_params.table_format_params.table_format_type == "adbc") {
+        return true;
+    }
+    const bool is_transactional_hive =
+            scan_params.__isset.table_format_params &&
+            scan_params.table_format_params.table_format_type == "transactional_hive";
+    return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
+           !is_load && scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
+           scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
+}
+
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
@@ -119,10 +179,44 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                      _max_scanners);
     shard_num = std::max(shard_num, 1U);
     _kv_cache = std::make_unique<ShardedKVCache>(shard_num);
+    const TFileScanRangeParams* scan_params = nullptr;
+    if (state()->get_query_ctx() != nullptr &&
+        state()->get_query_ctx()->file_scan_range_params_map.count(parent_id()) > 0) {
+        scan_params = &state()->get_query_ctx()->file_scan_range_params_map[parent_id()];
+    } else {
+        scan_params = _split_source->get_params();
+    }
+    const bool is_load =
+            state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
+    // TODO: Use scanner v2 for all queries.
+    const bool use_file_scanner_v2 =
+            _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
+    _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
+    const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+    DORIS_CHECK(output_tuple_desc != nullptr);
+    const bool metadata_only_count =
+            is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
+    if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
+        std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
+            return contains_variant_type(slot->get_data_type_ptr());
+        })) {
+        // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
+        // legacy scanner will emit metadata counts without decoding a Variant carrier.
+        return Status::NotSupported(
+                "External VARIANT columns require FileScannerV2; the legacy file scanner does "
+                "not support VARIANT");
+    }
     for (int i = 0; i < _max_scanners; ++i) {
-        std::unique_ptr<FileScanner> scanner = FileScanner::create_unique(
-                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
-                &p._colname_to_slot_id);
+        ScannerSPtr scanner;
+        if (use_file_scanner_v2) {
+            scanner = FileScannerV2::create_shared(state(), this, p._limit, _split_source,
+                                                   _scanner_profile.get(), _kv_cache.get(),
+                                                   &p._colname_to_slot_id);
+        } else {
+            scanner = FileScanner::create_shared(state(), this, p._limit, _split_source,
+                                                 _scanner_profile.get(), _kv_cache.get(),
+                                                 &p._colname_to_slot_id);
+        }
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }

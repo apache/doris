@@ -101,10 +101,10 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_require_bucket_distribution) {
-            return DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE);
+            return DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE);
         }
         if (_followed_by_shuffled_operator) {
-            return DataDistribution(ExchangeType::HASH_SHUFFLE);
+            return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
         }
         return Base::required_data_distribution(state);
     }
@@ -122,13 +122,6 @@ public:
     }
 
 private:
-    bool _has_data(RuntimeState* state) const {
-        auto& local_state = get_local_state(state);
-        if (_child_size == 0) {
-            return local_state._need_read_for_const_expr;
-        }
-        return local_state._shared_state->data_queue.remaining_has_data();
-    }
     bool has_more_const(RuntimeState* state) const {
         auto& local_state = get_local_state(state);
         return state->per_fragment_instance_idx() == 0 &&

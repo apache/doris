@@ -40,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
@@ -202,13 +203,14 @@ public class JdbcMySQLClient extends JdbcClient {
     public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
-        List<String> primaryKeys = Lists.newArrayList();
+        // getPrimaryKeys orders rows by COLUMN_NAME, not KEY_SEQ; reorder by the 1-based KEY_SEQ
+        // to keep the real composite-PK column order.
+        TreeMap<Short, String> primaryKeys = new TreeMap<>();
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             rs = databaseMetaData.getPrimaryKeys(remoteDbName, null, remoteTableName);
             while (rs.next()) {
-                String fieldName = rs.getString("COLUMN_NAME");
-                primaryKeys.add(fieldName);
+                primaryKeys.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME"));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
@@ -216,7 +218,7 @@ public class JdbcMySQLClient extends JdbcClient {
         } finally {
             close(rs, conn);
         }
-        return primaryKeys;
+        return Lists.newArrayList(primaryKeys.values());
     }
 
     protected String getCatalogName(Connection conn) throws SQLException {

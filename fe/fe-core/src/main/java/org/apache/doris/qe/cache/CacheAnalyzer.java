@@ -34,8 +34,8 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
@@ -150,7 +150,13 @@ public class CacheAnalyzer {
         public TableIf table;
         public long latestPartitionId;
         public long latestPartitionVersion;
+        // A version/order key: olap partition visible-version time (millis) or an external table's data-version
+        // token (hive/paimon: millis; iceberg: micros). Used as the BE PCache LastVersionTime and to sort/pick
+        // latestTable. NOT a reliable wall clock for external tables, so it is NOT used by the quiet-window gate.
         public long latestPartitionTime;
+        // A genuine wall-clock epoch-millis newest-update time (olap visible-version time / external table's
+        // connector-normalized update millis). Used ONLY by the quiet-window eligibility gate.
+        public long latestPartitionUpdateMillis;
         public long partitionNum;
         public long sumOfPartitionNum;
 
@@ -159,6 +165,7 @@ public class CacheAnalyzer {
             latestPartitionId = 0;
             latestPartitionVersion = 0;
             latestPartitionTime = 0;
+            latestPartitionUpdateMillis = 0;
             partitionNum = 0;
             sumOfPartitionNum = 0;
         }
@@ -249,20 +256,27 @@ public class CacheAnalyzer {
             allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
         }
 
+        // The quiet-window gate must subtract a genuine wall-clock time. latestPartitionTime is only a
+        // version/order key (an external token that is micros for iceberg), so use latestPartitionUpdateMillis
+        // (real epoch millis for every table type) and take the newest across all scanned tables — decoupled
+        // from latestTable, which stays token-sorted for the BE PCache version key.
+        long newestUpdateMillis = 0;
+        for (CacheTable cacheTable : tblTimeList) {
+            newestUpdateMillis = Math.max(newestUpdateMillis, cacheTable.latestPartitionUpdateMillis);
+        }
+
         if (now == 0) {
             now = nowtime();
 
             // the cloud meta service maybe has different time with fe, so we should make sure
-            // now >= latestPartitionTime, and let regression test become stable
-            for (CacheTable cacheTable : tblTimeList) {
-                now = Math.max(now, cacheTable.latestPartitionTime);
-            }
+            // now >= the newest wall-clock update time, and let regression test become stable
+            now = Math.max(now, newestUpdateMillis);
         }
 
         if (enableSqlCache()
-                && (now - latestTable.latestPartitionTime) >= Config.cache_last_version_interval_second * 1000L) {
+                && (now - newestUpdateMillis) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestPartitionTime,
+                LOG.debug("Query cache time :{},{},{}", now, newestUpdateMillis,
                         Config.cache_last_version_interval_second * 1000);
             }
 
@@ -301,24 +315,21 @@ public class CacheAnalyzer {
             // Check the last version time of the table
             MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
             long olapScanNodeSize = 0;
-            long hiveScanNodeSize = 0;
+            long externalCacheableSize = 0;
             for (ScanNode scanNode : scanNodes) {
                 if (scanNode instanceof OlapScanNode) {
                     olapScanNodeSize++;
-                } else if (scanNode instanceof HiveScanNode) {
-                    hiveScanNodeSize++;
+                } else if (isExternalCacheableScanNode(scanNode)) {
+                    externalCacheableSize++;
                 }
             }
             if (olapScanNodeSize > 0) {
                 MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
             }
-            if (hiveScanNodeSize > 0) {
-                MetricRepo.COUNTER_QUERY_HIVE_TABLE.increase(1L);
-            }
 
-            if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
+            if (!(olapScanNodeSize == scanNodes.size() || externalCacheableSize == scanNodes.size())) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("only support olap/hive table with non-federated query, "
+                    LOG.debug("only support olap/external table with non-federated query, "
                             + "other types are not supported now, queryId {}", DebugUtil.printId(queryId));
                 }
                 return Collections.emptyList();
@@ -329,7 +340,7 @@ public class CacheAnalyzer {
                 ScanNode node = scanNodes.get(i);
                 CacheTable cTable = node instanceof OlapScanNode
                         ? buildCacheTableForOlapScanNode((OlapScanNode) node)
-                        : buildCacheTableForHiveScanNode((HiveScanNode) node);
+                        : buildCacheTableForExternalScanNode(node);
                 tblTimeList.add(cTable);
             }
             Collections.sort(tblTimeList);
@@ -465,16 +476,40 @@ public class CacheAnalyzer {
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
                 cacheTable.latestPartitionVersion = partition.getCachedVisibleVersion();
             }
+            // For olap the version time IS a wall clock, so the gate value tracks the version key.
+            cacheTable.latestPartitionUpdateMillis =
+                    Math.max(cacheTable.latestPartitionUpdateMillis, partition.getVisibleVersionTime());
         }
         return cacheTable;
     }
 
-    private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
+    /**
+     * A non-Olap scan node is cacheable iff its target table exposes a stable data-version token
+     * (implements {@link MTMVRelatedTableIf}). Keying on the target-table capability rather than the scan
+     * node class is connector-agnostic and robust: it recognizes every lakehouse plugin table (hive /
+     * iceberg / paimon / hudi, whether scanned via {@code PluginDrivenScanNode} or a legacy
+     * {@code HudiScanNode}) while excluding token-less nodes such as {@code jdbc_query(...)} TVFs (backed by
+     * a {@code FunctionGenTable}) and system-table scans.
+     */
+    private boolean isExternalCacheableScanNode(ScanNode scanNode) {
+        return scanNode.getTupleDesc() != null
+                && scanNode.getTupleDesc().getTable() instanceof MTMVRelatedTableIf;
+    }
+
+    private CacheTable buildCacheTableForExternalScanNode(ScanNode node) {
         CacheTable cacheTable = new CacheTable();
-        cacheTable.table = node.getTargetTable();
+        TableIf tableIf = node.getTupleDesc().getTable();
+        cacheTable.table = tableIf;
         cacheTable.partitionNum = node.getSelectedPartitionNum();
-        cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
-        TableIf tableIf = cacheTable.table;
+        // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon: monotonic
+        // snapshot version). Gated to MTMVRelatedTableIf tables by isExternalCacheableScanNode above. This is
+        // the BE PCache version key; keep it as the raw token (do NOT normalize — iceberg's micros token is the
+        // full-precision staleness key).
+        cacheTable.latestPartitionTime = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
+        // The quiet-window gate value: a genuine wall-clock epoch-millis (iceberg normalizes its micros to
+        // millis here; hive/paimon already return millis). Kept separate from the token above so the gate never
+        // subtracts a non-wall-clock value.
+        cacheTable.latestPartitionUpdateMillis = ((MTMVRelatedTableIf) tableIf).getNewestUpdateTimeMillisForCache();
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(

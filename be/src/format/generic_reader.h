@@ -40,6 +40,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/segment/common.h"
+#include "storage/segment/condition_cache.h"
 #include "util/profile_collector.h"
 
 namespace doris {
@@ -50,16 +51,6 @@ namespace doris {
 
 class Block;
 class VSlotRef;
-
-// Context passed from FileScanner to readers for condition cache integration.
-// On MISS: readers populate filter_result per-granule during predicate evaluation.
-// On HIT: readers skip granules where filter_result[granule] == false.
-struct ConditionCacheContext {
-    bool is_hit = false;
-    std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
-    int64_t base_granule = 0; // global granule index of the first granule in filter_result
-    static constexpr int GRANULE_SIZE = 2048;
-};
 
 /// Base context for the unified init_reader(ReaderInitContext*) template method.
 /// Contains fields shared by ALL reader types. Format-specific readers define
@@ -261,10 +252,6 @@ protected:
 
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
-    // never let batch size be 0 because _do_get_next_block uses it as the
-    // upper bound of a `while (block->rows() < batch_size)` loop and a 0 would make the reader
-    // return without setting eof, causing the scanner to spin on empty blocks.
-    const size_t _DEFAULT_BATCH_SIZE = 4064; // 4094 - 32(padding)
     TPushAggOp::type _push_down_agg_type {};
 
 public:
@@ -299,6 +286,7 @@ protected:
     // ---- get_columns cache ----
     bool _get_columns_cached = false;
     std::unordered_map<std::string, DataTypePtr> _cached_name_to_type;
+    const TQueryOptions _default_query_options;
 };
 
 /// Provides an accessor for the current batch's row positions within the file.

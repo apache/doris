@@ -45,7 +45,6 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
 
@@ -224,6 +223,7 @@ echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_BE_MODULES    -- ${EXTRA_BE_MODULES}
 "
 echo "Build Backend UT"
@@ -251,13 +251,7 @@ update_submodule() {
     fi
 }
 
-echo "install datasketches-cpp to thirdparty path before build backend ut"
 update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-cd "${DORIS_HOME}/contrib/datasketches-cpp"
-"${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-"${CMAKE_CMD}" --build build/Release -t install
-cd "${DORIS_HOME}"
-
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
@@ -309,14 +303,6 @@ if [[ -z "${ARM_MARCH}" ]]; then
     ARM_MARCH='armv8-a+crc'
 fi
 
-if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_UNWIND='ON'
-    else
-        USE_UNWIND='OFF'
-    fi
-fi
-
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='ON'
 fi
@@ -341,7 +327,6 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
-    -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_JEMALLOC=OFF \
     -DUSE_AVX2="${USE_AVX2}" \
     -DARM_MARCH="${ARM_MARCH}" \
@@ -351,6 +336,7 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE_CXX:+${CMAKE_USE_CCACHE_CXX}} \
     ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
+    -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
     "${BE_EXTRA_CMAKE_ARGS[@]}" \
@@ -449,8 +435,8 @@ touch "${UT_TMP_DIR}/tmp_file"
 LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
-if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" "${LIB_DIR}/hadoop_hdfs"
 fi
 if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
     cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"

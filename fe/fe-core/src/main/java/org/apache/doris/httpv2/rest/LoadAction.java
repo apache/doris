@@ -38,6 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
@@ -46,6 +47,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
+import com.google.common.net.HostAndPort;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -62,6 +64,7 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
@@ -351,7 +354,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
+            RedirectView redirectView = redirectToBackend(request, redirectAddr);
             return redirectView;
 
         } catch (Exception e) {
@@ -366,7 +369,12 @@ public class LoadAction extends RestBaseController {
     }
 
     private String getCloudClusterName(HttpServletRequest request) {
-        String cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
+        String cloudClusterName = request.getHeader(SessionVariable.COMPUTE_GROUP);
+        if (!Strings.isNullOrEmpty(cloudClusterName)) {
+            return cloudClusterName;
+        }
+
+        cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
         if (!Strings.isNullOrEmpty(cloudClusterName)) {
             return cloudClusterName;
         }
@@ -422,8 +430,7 @@ public class LoadAction extends RestBaseController {
         policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
         List<Long> backendIds;
-        int number = groupCommit ? -1 : 1;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
             throw new LoadException(
                     SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy + ", compute group is "
@@ -434,12 +441,24 @@ public class LoadAction extends RestBaseController {
             backend = preSelectedBackend != null ? preSelectedBackend
                     : selectBackendForGroupCommit("", request, tableId);
         } else {
-            backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            backend = chooseRedirectBackendWithSelection(ctx, backendIds);
         }
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         return selectEndpointByRedirectPolicy(request, backend);
+    }
+
+    private Backend chooseRedirectBackendWithSelection(ConnectContext context, List<Long> backendIds)
+            throws LoadException {
+        List<Backend> candidates = new ArrayList<>();
+        for (Long backendId : backendIds) {
+            Backend candidate = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (candidate != null) {
+                candidates.add(candidate);
+            }
+        }
+        return BackendSelectionManager.chooseLoadBackend(context, candidates);
     }
 
     private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
@@ -504,14 +523,11 @@ public class LoadAction extends RestBaseController {
         }
 
         String reqHost = "";
-        String[] pair = reqHostStr.split(":");
-        if (pair.length == 1) {
-            reqHost = pair[0];
-        } else if (pair.length == 2) {
-            reqHost = pair[0];
-        } else {
+        try {
+            reqHost = HostAndPort.fromString(reqHostStr).getHost();
+        } catch (IllegalArgumentException e) {
             LOG.info("Invalid header host: {}", reqHostStr);
-            throw new LoadException("Invalid header host: " + reqHost);
+            throw new LoadException("Invalid header host: " + reqHostStr);
         }
 
         // User specified redirect policy
@@ -579,19 +595,26 @@ public class LoadAction extends RestBaseController {
             throw new AnalysisException("empty endpoint: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
+        String host;
+        int port;
+        try {
+            HostAndPort hp = HostAndPort.fromString(hostPort);
+            if (!hp.hasPort()) {
+                throw new IllegalArgumentException("No port found");
+            }
+            host = hp.getHost();
+            port = hp.getPort();
+        } catch (IllegalArgumentException e) {
             LOG.info("Invalid endpoint: {}", hostPort);
             throw new AnalysisException("Invalid endpoint: " + hostPort);
         }
 
-        int port = Integer.parseInt(pair[1]);
         if (port <= 0 || port >= 65536) {
-            LOG.info("Invalid endpoint port: {}", pair[1]);
-            throw new AnalysisException("Invalid endpoint port: " + pair[1]);
+            LOG.info("Invalid endpoint port: {}", port);
+            throw new AnalysisException("Invalid endpoint port: " + port);
         }
 
-        return Pair.of(pair[0], port);
+        return Pair.of(host, port);
     }
 
     // NOTE: This function can only be used for AuditlogPlugin stream load for now.
@@ -664,9 +687,10 @@ public class LoadAction extends RestBaseController {
     private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
             TNetworkAddress redirectAddr, boolean isStreamLoad, String dbName, String tableName, String label)
             throws IOException {
-        String redirectUrl = buildRedirectUrl(request, redirectAddr);
+        String redirectUrl = buildRedirectUrlToBackend(request, redirectAddr, request.getRequestURI(),
+                request.getQueryString());
         if (!shouldUseBoundedDrainForStreamLoad(isStreamLoad)) {
-            return redirectTo(request, redirectAddr);
+            return redirectToBackend(request, redirectAddr);
         }
         writeTemporaryRedirect(response, redirectUrl);
         DrainDecision drainDecision = decideDrainDecisionForStreamLoadRedirect(request);
@@ -741,31 +765,56 @@ public class LoadAction extends RestBaseController {
                 || "Cookie".equalsIgnoreCase(headerName)
                 || "Set-Cookie".equalsIgnoreCase(headerName)
                 || "token".equalsIgnoreCase(headerName)
-                || "Auth-Token".equalsIgnoreCase(headerName);
+                || "Auth-Token".equalsIgnoreCase(headerName)
+                || "auth_code".equalsIgnoreCase(headerName);
     }
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
             throws LoadException {
+        ConnectContext currentCtx = ConnectContext.get();
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setThreadLocalInfo();
         ctx.setRemoteIP(req.getRemoteAddr());
         // We set this variable to fulfill required field 'user' in
         // TMasterOpRequest(FrontendService.thrift)
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.setThreadLocalInfo();
+        inheritLoadSelectionContext(currentCtx, ctx);
         if (Config.isCloudMode()) {
             ctx.setCloudCluster(clusterName);
         }
 
         Backend backend = null;
         try {
+            ctx.setThreadLocalInfo();
             backend = Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);
+        } finally {
+            if (currentCtx != null) {
+                currentCtx.setThreadLocalInfo();
+            } else {
+                ConnectContext.remove();
+            }
         }
         return backend;
+    }
+
+    private static void inheritLoadSelectionContext(ConnectContext source, ConnectContext target) {
+        if (source == null) {
+            return;
+        }
+        UserIdentity sourceIdentity = source.getCurrentUserIdentity();
+        if (sourceIdentity != null) {
+            target.setCurrentUserIdentity(sourceIdentity);
+        }
+        target.getSessionVariable().enableLoadBackendSelection =
+                source.getSessionVariable().isEnableLoadBackendSelection();
+        target.getSessionVariable().preferredBackendSelectionKey =
+                source.getSessionVariable().getPreferredBackendSelectionKey();
+        target.getSessionVariable().backendSelectionMode =
+                source.getSessionVariable().getBackendSelectionMode();
+        target.setConnectingFeLocalResourceGroup(source.getConnectingFeLocalResourceGroup());
     }
 
     /*
@@ -803,7 +852,7 @@ public class LoadAction extends RestBaseController {
         if (!Strings.isNullOrEmpty(queryString)) {
             redirectQuery = queryString + "&" + redirectQuery;
         }
-        String redirectUrl = buildRedirectUrl(request, addr, modifiedPath, redirectQuery);
+        String redirectUrl = buildRedirectUrlToBackend(request, addr, modifiedPath, redirectQuery);
 
         LOG.info("Redirect stream load forward url: {}, forward_to: {}",
                 "http://" + addr.getHostname() + ":" + addr.getPort() + modifiedPath, forwardTarget);
@@ -821,7 +870,7 @@ public class LoadAction extends RestBaseController {
      * Problem:
      * Group commit requires that requests for the same table be sent to the same BE node
      * to achieve better batching efficiency. However, in cloud mode with Load Balancer (LB),
-     * the LB randomly selects a BE node for forwarding, which breaks the group commit strategy
+     * the LB selects a BE node by default for forwarding, which breaks the group commit strategy
      * and reduces batching effectiveness.
      *
      * Solution:

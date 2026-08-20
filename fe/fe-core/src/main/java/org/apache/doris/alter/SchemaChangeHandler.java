@@ -322,9 +322,9 @@ public class SchemaChangeHandler extends AlterHandler {
     private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
-        if (!newColumn.isVisible()) {
-            // row binlog schema is generated from visible columns only, so schema change must not
-            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+        if (!newColumn.isVisible() && !newColumn.isKey()) {
+            // Row-binlog writes visible columns plus hidden key columns. Skip hidden non-key
+            // system columns such as sequence/delete/version/skip-bitmap columns.
             return;
         }
 
@@ -371,8 +371,8 @@ public class SchemaChangeHandler extends AlterHandler {
             } else {
                 if (columnName.contains(Column.BINLOG_BEFORE_PREFIX)) {
                     lastBeforeValueCol = columnName;
-                } else if (columnName.equals(Column.BINLOG_LSN_COL) || columnName.equals(Column.BINLOG_OPERATION_COL)
-                        || columnName.equals(Column.BINLOG_TIMESTAMP_COL)) {
+                } else if (columnName.equals(Column.BINLOG_TSO_COL) || columnName.equals(Column.BINLOG_LSN_COL)
+                        || columnName.equals(Column.BINLOG_OPERATION_COL)) {
                     continue;
                 } else {
                     lastValueCol = columnName;
@@ -1434,6 +1434,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not enable sequence column support, already supported sequence column.");
             } else if (newColName.equalsIgnoreCase(Column.VERSION_COL)) {
                 throw new DdlException("Can not enable version column support, already supported version column.");
+            } else if (newColName.equalsIgnoreCase(Column.COMMIT_TSO_COL)) {
+                throw new DdlException(
+                        "Can not enable commit tso column support, already supported commit tso column.");
             } else {
                 if (ignoreSameColumn && newColumn.equals(foundColumn)) {
                     //for add columns rpc, allow add same type column.
@@ -2338,7 +2341,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true, true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -2852,13 +2855,6 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.readUnlock();
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
-                && !(olapTable.getPartitionInfo().enableAutomaticPartition()
-                        && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException("Only AUTO RANGE PARTITION table could set "
-                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
-        }
-
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
         int isInMemory = -1; // < 0 means don't update inMemory properties
         if (inMemory != null) {
@@ -2994,6 +2990,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         olapTable.writeLockOrDdlException();
         try {
+            checkPartitionRetentionCount(olapTable, properties);
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
@@ -3001,6 +2998,24 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // after modifyTableProperties, buildPartitionRetentionCount has been done.
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+    }
+
+    protected void checkPartitionRetentionCount(OlapTable olapTable, Map<String, String> properties)
+            throws UserException {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            return;
+        }
+        if (!(olapTable.getPartitionInfo().enableAutomaticPartition()
+                && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+        }
+        // Dynamic partition creation and retention-count cleanup are mutually exclusive scheduler modes.
+        if (olapTable.dynamicPartitionExists()
+                && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+            throw new UserException("Can not use partition.retention_count and "
+                    + "dynamic_partition properties at the same time");
+        }
     }
 
     /**
@@ -3499,7 +3514,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -3944,6 +3959,17 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
+        }
+
+        if (!oldBinlogConfig.isEnableForStreaming() && newBinlogConfig.isEnableForStreaming()) {
+            throw new DdlException("Do not support dynamically enabling binlog<Row> for table: "
+                    + olapTable.getName());
+        }
+
+        if (newBinlogConfig.isEnableForCCR()) {
+            if (Config.isCloudMode()) {
+                throw new DdlException("Binlog<CCR> is not supported in cloud mode");
+            }
         }
 
         // check db binlog config, if db binlog config is not same as table binlog config, throw exception

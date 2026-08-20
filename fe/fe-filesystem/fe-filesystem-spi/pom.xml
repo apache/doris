@@ -35,7 +35,7 @@ under the License.
     <description>
         Service Provider Interface (SPI) for Doris FE filesystem abstraction.
         Contains FileSystemProvider (ServiceLoader SPI entry point), the ObjStorage SPI layer
-        for object-storage backends, HadoopAuthenticator, and their supporting value types.
+        for object-storage backends, and their supporting value types.
         Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
         This is the ONLY filesystem artifact compiled into fe-core.
     </description>
@@ -56,6 +56,14 @@ under the License.
             <artifactId>fe-extension-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-foundation: bottom-layer shared utilities (e.g. KerberosTicketUtils) provided
+             to all filesystem provider plugins through the SPI platform, so individual
+             plugins do not declare it themselves. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -65,6 +73,20 @@ under the License.
 
     <build>
         <finalName>doris-fe-filesystem-spi</finalName>
+        <resources>
+            <!-- Default resource root, restated because declaring <resources> replaces the default. -->
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              plugin API version file and can never rewrite a service descriptor by accident.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

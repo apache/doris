@@ -31,41 +31,27 @@ under the License.
 
     <artifactId>fe-filesystem-hdfs</artifactId>
     <packaging>jar</packaging>
-    <name>Doris FE Filesystem - HDFS / ViewFS / OSS-HDFS</name>
-    <description>HDFS, ViewFS, JFS, OFS, and OSSHdfs filesystem implementation for Doris FE.</description>
+    <name>Doris FE Filesystem - HDFS / ViewFS</name>
+    <description>HDFS and ViewFS filesystem implementation for Doris FE.</description>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${revision}</version>
+            <!-- spi (and its transitive api) are host-provided, parent-first; not bundled. -->
+            <scope>provided</scope>
         </dependency>
-
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-client</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-filesystem-hdfs-base</artifactId>
+            <version>${revision}</version>
         </dependency>
-
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-auth</artifactId>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
         </dependency>
-
-        <dependency>
-            <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-api</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

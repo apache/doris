@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -46,11 +47,11 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
-import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -123,7 +124,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> backendConnectProperties = Maps.newHashMap();
-    protected StorageProperties storageProperties;
+    protected StorageAdapter storageAdapter;
     // Processed parameters derived from user input; includes normalization and default value filling.
     Map<String, String> processedParams;
     protected String filePath;
@@ -131,6 +132,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Optional<String> resourceName = Optional.empty();
 
     public FileFormatProperties fileFormatProperties;
+    private String hiveParquetTimeZone = "";
     private long tableId;
 
     public abstract TFileType getTFileType();
@@ -160,9 +162,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            StorageProperties sp = brokerDesc.getStorageProperties();
-            if (sp instanceof ObjectStorageProperties) {
-                S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
+            // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
+            // Ozone) — the exact implementor set of the legacy object-storage marker interface;
+            // Azure deliberately stays excluded, matching the legacy instanceof check.
+            StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
+            if (storageAdapter != null
+                    && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
+                S3Util.validateAndTestEndpoint(
+                        ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
@@ -224,6 +231,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
         fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
 
+        String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
+        try {
+            this.hiveParquetTimeZone = FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -253,6 +268,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
+    }
+
+    @Override
+    public String getHiveParquetTimeZone() {
+        return hiveParquetTimeZone;
     }
 
     public TFileAttributes getFileAttributes() {
@@ -478,6 +498,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (!hiveParquetTimeZone.isEmpty()) {
+            fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
@@ -486,8 +510,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
-                    storageProperties.getBackendConfigProperties());
-            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
+                    storageAdapter.getBackendConfigProperties());
+            String fsName = storageAdapter.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }

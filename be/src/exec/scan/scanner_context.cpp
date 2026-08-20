@@ -40,10 +40,13 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "exec/scan/task_executor/task_executor.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/tablet/tablet.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -51,6 +54,18 @@
 namespace doris {
 
 using namespace std::chrono_literals;
+
+// ==================== ScanTask ====================
+ScanTask::ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
+    _resource_ctx = thread_context()->resource_ctx();
+    DorisMetrics::instance()->scanner_task_cnt->increment(1);
+}
+
+ScanTask::~ScanTask() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    DorisMetrics::instance()->scanner_task_cnt->increment(-1);
+    cached_block.reset();
+}
 
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
@@ -186,6 +201,7 @@ Status ScannerContext::init() {
     if (auto* task_executor_scheduler =
                 dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
         std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
+        _task_executor = task_executor;
         TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
         _task_handle = DORIS_TRY(task_executor->create_task(
                 task_id, []() { return 0.0; },
@@ -272,11 +288,11 @@ ScannerContext::~ScannerContext() {
     }
 
     if (_task_handle) {
-        if (auto* task_executor_scheduler =
-                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
-            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        if (auto task_executor = _task_executor.lock()) {
+            static_cast<void>(task_executor->remove_task(_task_handle));
         }
         _task_handle = nullptr;
+        _task_executor.reset();
     }
 }
 
@@ -402,7 +418,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
 
     if (_completed_tasks.empty() &&
         (_num_finished_scanners == _all_scanners.size() ||
-         (_shared_scan_limit->load(std::memory_order_acquire) == 0 && _in_flight_tasks_num == 0))) {
+         (_is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
         _set_scanner_done();
         _is_finished = true;
     }
@@ -454,11 +470,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
     }
     _completed_tasks.clear();
     if (_task_handle) {
-        if (auto* task_executor_scheduler =
-                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
-            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        if (auto task_executor = _task_executor.lock()) {
+            static_cast<void>(task_executor->remove_task(_task_handle));
         }
         _task_handle = nullptr;
+        _task_executor.reset();
     }
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
@@ -541,6 +557,10 @@ std::string ScannerContext::debug_string() {
 
 void ScannerContext::_set_scanner_done() {
     _dependency->set_always_ready();
+}
+
+bool ScannerContext::_is_shared_scan_limit_exhausted() const {
+    return limit >= 0 && _shared_scan_limit->load(std::memory_order_acquire) <= 0;
 }
 
 void ScannerContext::update_peak_running_scanner(int num) {
@@ -659,9 +679,11 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
         if (first_pull) {
             task_to_run = _pull_next_scan_task(current_scan_task, current_concurrency);
             if (task_to_run == nullptr) {
-                // In two situations we will get nullptr.
+                // In three situations we will get nullptr.
                 // 1. current_concurrency already reached _max_scan_concurrency.
                 // 2. all scanners are finished.
+                // 3. The shared LIMIT is exhausted while completed or in-flight tasks can still
+                //    make progress.
                 if (current_scan_task) {
                     DCHECK(current_scan_task->cached_block == nullptr);
                     DCHECK(!current_scan_task->is_eos());
@@ -733,9 +755,11 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
-        // Skip submitting more pending scanners once the LIMIT budget is
-        // exhausted; they would only open and immediately EOF.
-        if (_shared_scan_limit->load(std::memory_order_acquire) == 0) {
+        // Do not submit more pending scanners after the shared LIMIT is exhausted while
+        // completed or in-flight tasks can still make progress. If neither exists, allow pending
+        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        if (_is_shared_scan_limit_exhausted() &&
+            (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;
         }
         std::shared_ptr<ScanTask> next_scan_task;

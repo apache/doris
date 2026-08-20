@@ -199,14 +199,17 @@ public:
             const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
             if (nullable_column == nullptr) {
                 this->data(place).add(
-                        i, static_cast<const ColumnString&>(*columns[i]).get_data_at(row_num));
+                        i,
+                        assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[i])
+                                .get_data_at(row_num));
             } else if (nullable_column->is_null_at(row_num)) {
                 // TODO create a null vector
                 this->data(place).add(i);
             } else {
-                this->data(place).add(
-                        i, static_cast<const ColumnString&>(nullable_column->get_nested_column())
-                                   .get_data_at(row_num));
+                this->data(place).add(i,
+                                      assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
+                                              nullable_column->get_nested_column())
+                                              .get_data_at(row_num));
             }
         }
     }
@@ -229,7 +232,26 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const std::string json_arr = this->data(place).get();
-        assert_cast<ColumnString&>(to).insert_data(json_arr.c_str(), json_arr.length());
+        assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(json_arr.c_str(),
+                                                                                json_arr.length());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        for (int i = 0; i < arg_count; i++) {
+            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*columns[i]);
+                nullable_column != nullptr) {
+                this->template check_argument_column_type<ColumnString>(
+                        &nullable_column->get_nested_column());
+            } else {
+                this->template check_argument_column_type<ColumnString>(columns[i]);
+            }
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        this->template check_result_column_type_as<ColumnString>(to);
     }
 
 private:

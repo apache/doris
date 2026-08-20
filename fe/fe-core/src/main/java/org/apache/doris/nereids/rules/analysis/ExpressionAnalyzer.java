@@ -58,6 +58,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -397,7 +400,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
 
-        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        List<Slot> scopeSlots = qualifier.isEmpty() ? getScope().getAsteriskSlots() : getScope().getSlots();
         ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
         for (Slot slot : scopeSlots) {
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
@@ -937,6 +940,24 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     TypeCoercionUtils.processComparisonPredicate(new GreaterThanEqual(compareExpr, lowerBound)),
                     TypeCoercionUtils.processComparisonPredicate(new LessThanEqual(compareExpr, upperBound)));
         }
+    }
+
+    @Override
+    public Expression visitIsTrue(IsTrue isTrue, ExpressionRewriteContext context) {
+        Expression child = isTrue.child().accept(this, context);
+        if (!child.getDataType().isBooleanType()) {
+            child = new Cast(child, BooleanType.INSTANCE);
+        }
+        return new And(child, new Not(new IsNull(child)));
+    }
+
+    @Override
+    public Expression visitIsFalse(IsFalse isFalse, ExpressionRewriteContext context) {
+        Expression child = isFalse.child().accept(this, context);
+        if (!child.getDataType().isBooleanType()) {
+            child = new Cast(child, BooleanType.INSTANCE);
+        }
+        return new And(new Not(child), new Not(new IsNull(child)));
     }
 
     @Override

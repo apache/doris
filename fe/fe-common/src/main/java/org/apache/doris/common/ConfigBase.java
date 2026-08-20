@@ -52,6 +52,10 @@ public class ConfigBase {
 
         boolean masterOnly() default false;
 
+        // If true, the value is a secret (e.g. a token or password) and is masked in every
+        // config dump API (Config.dump / getConfigInfo), so it is never returned in plaintext.
+        boolean sensitive() default false;
+
         String comment() default "";
 
         VariableAnnotation varType() default VariableAnnotation.NONE;
@@ -61,10 +65,7 @@ public class ConfigBase {
         String callbackClassString() default "";
 
         // description for this config item.
-        // There should be 2 elements in the array.
-        // The first element is the description in Chinese.
-        // The second element is the description in English.
-        String[] description() default {"待补充", "TODO"};
+        String description() default "TODO";
 
         // Enum options for this config item, if it has.
         String[] options() default {};
@@ -191,13 +192,26 @@ public class ConfigBase {
         }
     }
 
+    // Placeholder returned instead of a sensitive config's real value in any dump API.
+    public static final String SENSITIVE_CONF_MASK = "********";
+
+    // Mask the value of a sensitive config (a non-empty secret) so it is never dumped in plaintext.
+    // An empty value is left as-is: it reveals nothing and keeps "unset" visible.
+    private static String maskIfSensitive(Field field, String value) {
+        ConfField anno = field.getAnnotation(ConfField.class);
+        if (anno != null && anno.sensitive() && !Strings.isNullOrEmpty(value)) {
+            return SENSITIVE_CONF_MASK;
+        }
+        return value;
+    }
+
     public static HashMap<String, String> dump() {
         HashMap<String, String> map = new HashMap<>();
         Field[] fields = confClass.getFields();
         for (Field f : fields) {
             ConfField anno = f.getAnnotation(ConfField.class);
             if (anno != null) {
-                map.put(f.getName(), getConfValue(f));
+                map.put(f.getName(), maskIfSensitive(f, getConfValue(f)));
             }
         }
         return map;
@@ -441,6 +455,7 @@ public class ConfigBase {
                 if (confKey.equals("sys_log_dir") && Strings.isNullOrEmpty(value)) {
                     value = System.getenv("DORIS_HOME") + "/log";
                 }
+                value = maskIfSensitive(f, value);
                 config.add(value);
                 config.add(f.getType().getSimpleName());
                 config.add(String.valueOf(confField.mutable()));

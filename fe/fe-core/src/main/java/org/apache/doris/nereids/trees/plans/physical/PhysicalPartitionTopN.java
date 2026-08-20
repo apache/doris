@@ -104,8 +104,29 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         return partitionKeys;
     }
 
+    /**
+     * Executable sort keys sent to BE (PartitionSortNode.SortInfo): only the within-partition order keys.
+     * Order keys that duplicate a partition key are already pruned (constant within a partition, so sorting on
+     * them is redundant). For the order this node declares to its parent, use {@link #getOutputOrderKeys()}.
+     */
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
+    }
+
+    /**
+     * Output order property declared to the parent (for ChildOutputPropertyDeriver), NOT executed by BE:
+     * [partitionKeys, orderKeys]. Each partition key is wrapped as an ascending, nulls-last OrderKey and
+     * prepended to the executable {@link #getOrderKeys()}. This is the full order the (two-phase-global)
+     * PartitionTopN delivers, kept in lockstep with the parent window's required order so OrderSpec.satisfy
+     * passes without a redundant sort enforcer, even though BE only sorts by the pruned getOrderKeys().
+     */
+    public List<OrderKey> getOutputOrderKeys() {
+        return ImmutableList.<OrderKey>builder()
+                .addAll(partitionKeys.stream()
+                        .map(partitionKey -> new OrderKey(partitionKey, true, false))
+                        .collect(ImmutableList.toImmutableList()))
+                .addAll(orderKeys)
+                .build();
     }
 
     @Override

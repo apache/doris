@@ -228,16 +228,8 @@ public:
     Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
-        }
-        return (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
-                                _join_distribution == TJoinDistributionType::COLOCATE
-                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
-                                           _distribution_partition_exprs)
-                        : DataDistribution(ExchangeType::HASH_SHUFFLE,
-                                           _distribution_partition_exprs));
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        return _inner_probe_operator->required_data_distribution(state);
     }
 
     size_t revocable_mem_size(RuntimeState* state) const override;
@@ -285,8 +277,6 @@ private:
                                                 RuntimeState* state, Block* output_block,
                                                 bool* eos) const;
 
-    const TJoinDistributionType::type _join_distribution;
-
     std::shared_ptr<HashJoinBuildSinkOperatorX> _inner_sink_operator;
     std::shared_ptr<HashJoinProbeOperatorX> _inner_probe_operator;
 
@@ -304,5 +294,12 @@ private:
     // max repartition depth configured per-operator (default to static MAX_DEPTH)
     int _repartition_max_depth = SpillRepartitioner::MAX_DEPTH;
 };
+
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<PartitionedHashJoinProbeLocalState>;
+extern template class JoinProbeLocalState<PartitionedHashJoinSharedState,
+                                          PartitionedHashJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<PartitionedHashJoinProbeLocalState>;
 
 } // namespace doris

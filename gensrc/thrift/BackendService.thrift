@@ -40,8 +40,6 @@ struct TTabletStat {
     9: optional i64 local_segment_size = 0    // .dat
     10: optional i64 remote_index_size = 0    // .idx
     11: optional i64 remote_segment_size = 0  // .dat
-    12: optional i64 binlog_size = 0          // __row_binlog/xxx.dat
-    13: optional i64 binlog_file_num = 0
 }
 
 struct TTabletStatResult {
@@ -312,7 +310,9 @@ enum TWorkloadMetricType {
     BE_SCAN_ROWS = 1,
     BE_SCAN_BYTES = 2,
     QUERY_BE_MEMORY_BYTES = 3,
-    USERNAME = 4
+    USERNAME = 4,
+    // Append the new enum value to keep existing metric ids stable across versions.
+    BE_SCAN_BYTES_FROM_REMOTE_STORAGE = 5
 }
 
 enum TCompareOperator {

@@ -21,9 +21,11 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -36,6 +38,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -236,6 +239,12 @@ public final class CosFileSystemProperties
         kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put("use_path_style", usePathStyle);
+        // Mirror fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // anonymous access (no static credentials) emits ANONYMOUS; otherwise the key is omitted so
+        // BE uses SimpleAWSCredentialsProvider. COS never configures a provider type explicitly.
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
         return Collections.unmodifiableMap(kv);
     }
 
@@ -244,8 +253,10 @@ public final class CosFileSystemProperties
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         cfg.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        cfg.put("fs.s3.impl.disable.cache", "true");
-        cfg.put("fs.s3a.impl.disable.cache", "true");
+        // No blanket cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         cfg.put("fs.s3a.endpoint", endpoint);
         cfg.put("fs.s3a.endpoint.region", region);
         if (StringUtils.isNotBlank(accessKey)) {
@@ -332,11 +343,27 @@ public final class CosFileSystemProperties
         return usePathStyle;
     }
 
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return Set.of("cos", "cosn", "s3", "s3a");
+    }
+
     public String getForceParsingByStandardUrl() {
         return forceParsingByStandardUrl;
     }
 
     private void normalize() {
+        // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2 (inherited by fe-core
+        // COSProperties): derive the endpoint from the raw "uri" property when no endpoint key is
+        // set; parse failures are swallowed exactly like fe-core. Runs before region extraction so
+        // a uri-derived endpoint feeds it, matching the legacy ordering.
+        if (StringUtils.isBlank(endpoint)) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(rawProperties, usePathStyle,
+                    forceParsingByStandardUrl);
+            if (StringUtils.isNotBlank(derived)) {
+                endpoint = derived;
+            }
+        }
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
@@ -371,4 +398,10 @@ public final class CosFileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("cos", "cosn");
+    }
+
 }

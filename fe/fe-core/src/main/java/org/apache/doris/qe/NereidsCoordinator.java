@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -49,6 +50,8 @@ import org.apache.doris.qe.runtime.PipelineExecutionTaskBuilder;
 import org.apache.doris.qe.runtime.QueryProcessor;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.qe.runtime.ThriftPlansBuilder;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
@@ -101,6 +104,7 @@ public class NereidsCoordinator extends Coordinator {
             setForInsert(-1L);
         }
 
+        syncLocalShufflePlannerOption();
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -115,6 +119,7 @@ public class NereidsCoordinator extends Coordinator {
 
         // we don't need to check the dataSink, Because setting jobId means this must be a load operation
         setForInsert(jobId);
+        syncLocalShufflePlannerOption();
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -132,9 +137,18 @@ public class NereidsCoordinator extends Coordinator {
         // same reason in `setForInsert`
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.needEnqueue = false;
+        syncLocalShufflePlannerOption();
 
         Preconditions.checkState(!fragments.isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+    }
+
+    private void syncLocalShufflePlannerOption() {
+        coordinatorContext.queryOptions.setEnableLocalShufflePlanner(
+                coordinatorContext.distributedPlans != null
+                && !coordinatorContext.distributedPlans.isEmpty()
+                && coordinatorContext.connectContext != null
+                && coordinatorContext.connectContext.getSessionVariable().isEnableLocalShufflePlanner());
     }
 
     @Override
@@ -148,8 +162,6 @@ public class NereidsCoordinator extends Coordinator {
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragments
                 = ThriftPlansBuilder.plansToThrift(coordinatorContext);
         executionTask = PipelineExecutionTaskBuilder.build(coordinatorContext, workerToFragments);
-        waitForTimeBasedReadTransactionsVisible(coordinatorContext.connectContext, coordinatorContext.scanNodes,
-                coordinatorContext.queryGlobals);
         executionTask.execute();
     }
 
@@ -262,8 +274,8 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
-    public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        coordinatorContext.getJobProcessor().updateFragmentExecStatus(params);
+    public boolean updateFragmentExecStatus(TReportExecStatusParams params) {
+        return coordinatorContext.getJobProcessor().updateFragmentExecStatus(params);
     }
 
     @Override
@@ -458,8 +470,29 @@ public class NereidsCoordinator extends Coordinator {
 
     protected void processTopSink(
             CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) throws AnalysisException {
+        recordLoadSinkCoordinator(coordinatorContext, topPlan);
         setForArrowFlight(coordinatorContext, topPlan);
         setForBroker(coordinatorContext, topPlan);
+    }
+
+    private void recordLoadSinkCoordinator(
+            CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) {
+        ConnectContext connectContext = coordinatorContext.connectContext;
+        if (!(coordinatorContext.dataSink instanceof OlapTableSink)
+                || coordinatorContext.queryOptions.getQueryType() != TQueryType.LOAD
+                || !BackendSelectionManager.isLoadSelectionEnabled(connectContext)
+                || topPlan.getInstanceJobs().isEmpty()) {
+            return;
+        }
+        BackendSelection.SelectionHint hint = BackendSelectionManager.resolveLoadSelectionHint(connectContext);
+        if (!BackendSelectionManager.hasLoadSelectionPreference(hint)) {
+            return;
+        }
+        DistributedPlanWorker worker = topPlan.getInstanceJobs().get(0).getAssignedWorker();
+        if (worker instanceof BackendWorker) {
+            connectContext.getBackendSelectionProfile().recordLoadCoordinator(
+                    hint, ((BackendWorker) worker).getBackend());
+        }
     }
 
     private void setForArrowFlight(CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) {
@@ -495,6 +528,7 @@ public class NereidsCoordinator extends Coordinator {
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
         this.coordinatorContext.queryOptions.setNewVersionPercentile(true);
+        this.coordinatorContext.queryOptions.setNewVersionBitmapOpCount(true);
     }
 
     private void setForQuery() {

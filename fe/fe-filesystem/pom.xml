@@ -41,19 +41,42 @@ under the License.
         <!-- By default, skip env-dependent tests tagged @Tag("environment").
              Override on CLI: -Dtest.excludedGroups=none -->
         <test.excludedGroups>environment</test.excludedGroups>
+
+        <!--
+          The FILESYSTEM plugin API version, declared exactly once. Filtered into fe-filesystem-spi's
+          META-INF/doris/filesystem-plugin-api-version.properties (what the FE kernel expects) and
+          stamped into every filesystem plugin jar's MANIFEST below (what a plugin declares).
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the filesystem SPI
+          surface - additions included. Note fe-filesystem-api is also linked by connector plugins,
+          so a change there means bumping connector.plugin.api.version too; fe-extension-spi means
+          bumping all four families. See
+          plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
+        -->
+        <filesystem.plugin.api.version>1.0</filesystem.plugin.api.version>
     </properties>
 
     <modules>
         <module>fe-filesystem-api</module>
         <module>fe-filesystem-spi</module>
+        <module>fe-filesystem-s3-base</module>
         <module>fe-filesystem-s3</module>
+        <module>fe-filesystem-gcs</module>
+        <module>fe-filesystem-minio</module>
+        <module>fe-filesystem-ozone</module>
         <module>fe-filesystem-oss</module>
-        <module>fe-filesystem-cos</module>
-        <module>fe-filesystem-obs</module>
+        <!-- fe-filesystem-cos (Tencent COS) is built by the `cos` profile below;
+             disabled via -Ddisable.cos=true (build.sh exclude-cos-dependencies flag). -->
+        <!-- fe-filesystem-obs (Huawei OBS) is built by the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
         <module>fe-filesystem-local</module>
         <module>fe-filesystem-azure</module>
+        <module>fe-filesystem-hdfs-base</module>
         <module>fe-filesystem-hdfs</module>
+        <module>fe-filesystem-oss-hdfs</module>
+        <module>fe-filesystem-jfs</module>
         <module>fe-filesystem-broker</module>
+        <module>fe-filesystem-http</module>
     </modules>
 
     <build>
@@ -68,7 +91,60 @@ under the License.
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <!--
+              Stamps the declared FILESYSTEM plugin API version into every filesystem jar's MANIFEST.
+              Inherited by all child modules, so the fourteen filesystem plugin zips carry it without
+              a per-module pom change; the loader reads it back from the jar that defines the
+              FileSystemProvider. Merges with (does not replace) the ASF parent's maven-jar-plugin
+              <archive><manifest> configuration.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Filesystem-Plugin-Api-Version>${filesystem.plugin.api.version}</Doris-Filesystem-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
     </build>
+
+    <profiles>
+        <!-- Huawei OBS filesystem provider. Active by default; disabled by -Ddisable.obs=true
+             (build.sh exclude-obs-dependencies flag), which excludes fe-filesystem-obs from the
+             reactor so its Huawei dependencies (esdk-obs-java-bundle, huaweicloud-sdk-iam,
+             hadoop-huaweicloud) are never resolved and its OBS code is never compiled or bundled. -->
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <modules>
+                <module>fe-filesystem-obs</module>
+            </modules>
+        </profile>
+        <!-- Tencent COS filesystem provider. Active by default; disabled by -Ddisable.cos=true
+             (build.sh exclude-cos-dependencies flag), which excludes fe-filesystem-cos from the
+             reactor so its Tencent dependencies (cos_api, tencentcloud-sdk-java-sts) are never
+             resolved and its COS code is never compiled or bundled. -->
+        <profile>
+            <id>cos</id>
+            <activation>
+                <property>
+                    <name>!disable.cos</name>
+                </property>
+            </activation>
+            <modules>
+                <module>fe-filesystem-cos</module>
+            </modules>
+        </profile>
+    </profiles>
 
 
 </project>

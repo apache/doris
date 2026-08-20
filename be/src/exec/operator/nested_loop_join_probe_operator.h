@@ -277,9 +277,9 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::ADAPTIVE_PASSTHROUGH};
+        return {TLocalPartitionType::ADAPTIVE_PASSTHROUGH};
     }
 
     const RowDescriptor& row_desc() const override {
@@ -307,5 +307,11 @@ private:
     std::set<int> _lazy_eval_column_ids;
     std::set<int> _materialize_column_ids;
 };
+
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+extern template class JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<NestedLoopJoinProbeLocalState>;
 
 } // namespace doris

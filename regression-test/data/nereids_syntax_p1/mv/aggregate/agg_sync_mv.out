@@ -420,7 +420,7 @@
 11	1
 
 -- !select_group_array_intersect --
-\N	[]
+\N	[1]
 0	[1]
 1	[2]
 2	[3]
@@ -435,7 +435,7 @@
 11	[12]
 
 -- !select_group_array_intersect_mv --
-\N	[]
+\N	[1]
 0	[1]
 1	[2]
 2	[3]

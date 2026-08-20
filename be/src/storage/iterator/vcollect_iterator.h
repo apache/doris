@@ -182,7 +182,7 @@ private:
         bool _use_insert_order_when_same = false;
         // Ordering direction of the tie-break column when keys are equal:
         // - false : larger value sorts first (UNIQUE_KEYS sequence column).
-        // - true  : smaller value sorts first (row binlog LSN column).
+        // - true  : smaller value sorts first (row binlog TSO column).
         // The two cases are mutually exclusive (DCHECK at construction site).
         bool _small_seq_first = false;
     };
@@ -324,6 +324,13 @@ private:
         bool collected_enough_rows(const MutableColumns& columns, int rows_to_merge) const;
 
     private:
+        // Validate that every block position LevelIteratorComparator may touch exists in
+        // each child's current block and, for the default key-prefix comparison, that the
+        // read projection really starts with the full ordered key prefix. Called before
+        // any child is pushed into _heap, so a broken projection surfaces as an error
+        // instead of an out-of-bounds positional access (issue #66390).
+        Status _validate_merge_compare_contract(int sequence_loc) const;
+
         Status _merge_next(IteratorRowRef* ref);
 
         Status _normal_next(IteratorRowRef* ref);

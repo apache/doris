@@ -119,6 +119,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DECLARE_Bool(enable_arrow_input_validation);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 
@@ -330,12 +333,47 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 DECLARE_mInt32(download_low_speed_time);
 // whether to download small files in batch.
 DECLARE_mBool(enable_batch_download);
+// whether to enable stream load forward endpoint for cloud group commit
+DECLARE_mBool(enable_group_commit_streamload_be_forward);
 // whether to check md5sum when download
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
 DECLARE_mInt32(download_binlog_meta_timeout_ms);
 // the interval time(seconds) for agent report index policy to FE
 DECLARE_mInt32(report_index_policy_interval_seconds);
+
+// DNS cache: log the "Failed to resolve hostname ... use cached ip" warning
+// only once per N consecutive failures for the same hostname, to avoid
+// flooding be.WARNING. Set <= 1 to log every failure (legacy behavior).
+// Should be set <= dns_cache_max_consecutive_failures, otherwise only the
+// first-failure log is ever emitted before a host is evicted.
+DECLARE_mInt32(dns_cache_log_every_n_failures);
+
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+// At the default refresh interval of 60s, the default value of 30 means a
+// hostname that was once successfully resolved is evicted after ~30 minutes of
+// being un-resolvable.  Hostnames that have never been successfully resolved are
+// not tracked and are unaffected by this threshold.
+// Eviction additionally requires the most recent failure to be an authoritative
+// NXDOMAIN (getaddrinfo returning EAI_NONAME), i.e. the resolver positively
+// stating that the name does not exist. Transient failures such as EAI_AGAIN
+// (resolver unreachable or timed out) never evict, so a DNS-server outage
+// degrades to serving the last known IP instead of emptying the cache for every
+// hostname at once and turning a DNS incident into a cluster-wide RPC outage.
+// Set <= 0 to disable eviction (legacy behavior, kept for backward compatibility).
+DECLARE_mInt32(dns_cache_max_consecutive_failures);
+
+// DNS cache: seconds to suppress re-resolve attempts for a hostname that could
+// not be resolved -- either because it was evicted after repeated failures, or
+// because it never resolved in the first place.  During this window get()
+// returns an error immediately (no blocking getaddrinfo) so request threads are
+// not stalled while the backend is being drained or while a bad hostname is
+// being retried.
+// This also bounds recovery latency: the refresh thread does not retry hostnames
+// that are no longer in the cache, so a host comes back only when a caller's
+// get() runs after this TTL expires (one such retry per host per TTL).
+// Set <= 0 to disable the negative cache.
+DECLARE_mInt32(dns_cache_negative_ttl_seconds);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -469,6 +507,7 @@ DECLARE_String(storage_page_cache_limit);
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DECLARE_Int32(storage_page_cache_shard_size);
+DECLARE_mInt32(file_cache_mem_storage_shard_num);
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
@@ -530,6 +569,7 @@ DECLARE_mInt64(vertical_compaction_max_segment_size);
 DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 // Enable RLE batch Put optimization for compaction
 DECLARE_mBool(enable_rle_batch_put_optimization);
+DECLARE_Bool(enable_bmi2_optimizations);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -548,7 +588,6 @@ DECLARE_mInt32(binlog_compaction_task_num_per_disk);
 DECLARE_mInt32(binlog_compaction_file_count_threshold);
 DECLARE_mInt32(binlog_level_compaction_max_deltas);
 DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(binlog_compaction_permits_percent);
 DECLARE_mInt32(max_binlog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
@@ -695,10 +734,6 @@ DECLARE_Int32(webserver_num_workers);
 // 2. Client disconnects
 DECLARE_mInt32(async_reply_timeout_s);
 
-DECLARE_Bool(enable_single_replica_load);
-// Number of download workers for single replica load
-DECLARE_Int32(single_replica_load_download_num_workers);
-
 // Used for mini Load. mini load data file will be removed after this time.
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
@@ -710,9 +745,11 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
+DECLARE_Int32(brpc_peer_fetch_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
+DECLARE_Int32(brpc_peer_fetch_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
 DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
@@ -733,7 +770,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
-DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);
@@ -912,6 +948,11 @@ DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
 // Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
+
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DECLARE_mBool(enable_table_memtable_flush_backpressure);
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DECLARE_mInt32(table_memtable_flush_pending_count_limit);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1147,6 +1188,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
+
 DECLARE_Bool(enable_time_lut);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
@@ -1245,6 +1291,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit_segment_meta);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1316,6 +1363,15 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
+// Process-wide emergency switch for CommonGrams query plans.
+DECLARE_mBool(enable_common_grams_query_plan);
+// Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
+// it affects only writers created after the transition and never changes query/cache semantics.
+DECLARE_mBool(enable_common_grams_index_build);
+// Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
+DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
+DECLARE_mInt32(common_grams_position_verify_factor);
+
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
@@ -1327,6 +1383,68 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
+// default (false) drops the layout; scoring-config indexes always keep freq.
+// Write-side only; segments are self-describing either way.
+DECLARE_mBool(snii_positions_index_write_freq);
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
+// PROCESS-WIDE share for SNII index-build RAM, as a PERCENT of the process
+// memory limit -- the index-build analogue of
+// load_process_max_memory_limit_percent. The per-writer
+// inverted_index_ram_buffer_size is a reclaimable-buffer spill threshold, not a
+// hard cap on persistent vocabulary bytes: a concurrent load keeps (tablets x
+// concurrency) writers alive at once, none of which may reach that threshold,
+// while their SUM can still be large. Once live SNII index-build memory
+// (ingestion plus index-merge compaction) crosses this share, the writers
+// holding the largest reclaimable posting arenas are asked to spill early
+// (async-safe advisory requests, honored on each writer's own thread; output
+// stays byte-identical). Read at every decision, so a change takes effect
+// immediately for writers that are already running.
+//
+// 0 disables SNII's own share trigger; the process-level backstops (system
+// available memory below its warning water mark, process usage above the soft
+// limit) still apply.
+//
+// FLOORED AGAINST inverted_index_ram_buffer_size: the share is never less than
+// four writers' worth of the per-writer spill threshold. A smaller share would
+// put a small BE permanently over it as soon as two writers exist -- unrelievable
+// back-pressure rather than a limit -- because the per-writer threshold is what
+// one writer may hold before it spills on its own.
+DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
+// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
+// writer must hold before a process-wide forced-spill request is honored, and
+// before the global limiter selects it as a spill victim. A forced spill
+// reclaims ONLY the posting arena -- the persistent vocab / pair-map
+// structures survive it -- so honoring below a real floor degenerates into a
+// storm of tiny runs whenever the memory over the share is dominated by
+// persistent bytes (each run then costs a file, a sort and a merge-fd for
+// near-zero memory relief). THIS FLOOR, not any judgement about whether the
+// overage is reachable, is what bounds forced spilling: it caps the cost at one
+// >= floor-sized run per floor of arena growth per writer. Forced spilling
+// therefore reclaims SPILLABLE memory only, never persistent memory.
+// Default 64 MiB.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
+// on the next spill past the cap, the existing runs are merge-compacted into
+// a single run first (term stream unchanged). Bounds the final k-way merge's
+// fan-in and, decisively, its simultaneously-open file descriptors -- every
+// run of a buffer is reopened and held open for the whole merge, so unbounded
+// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
+// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
@@ -1377,6 +1495,10 @@ DECLARE_Bool(enable_feature_binlog);
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
 
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DECLARE_Bool(enable_row_store_compact_jsonb);
+
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
@@ -1401,8 +1523,6 @@ DECLARE_mString(kerberos_krb5_conf_path);
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
 
-// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
-DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
@@ -1506,6 +1626,10 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max WAL count for one table before rejecting async group commit loads. 0 means no limit.
+DECLARE_mInt32(group_commit_max_wal_num_per_table);
+// Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
+DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1594,6 +1718,23 @@ DECLARE_mInt64(s3_get_token_limit);
 DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
+DECLARE_mInt64(s3_rate_limiter_log_interval);
+
+// CPU-aware S3 rate limiter: GET/PUT QPS per CPU core. A negative value means unset and
+// falls back to the legacy absolute token configs above; 0 disables QPS limiting.
+DECLARE_mInt64(s3_get_requests_per_second_per_core);
+DECLARE_mInt64(s3_put_requests_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_requests_per_second_max);
+DECLARE_mInt64(s3_put_requests_per_second_max);
+// GET/PUT bytes per second per CPU core. A non-positive value disables byte-rate limiting.
+DECLARE_mInt64(s3_get_bytes_per_second_per_core);
+DECLARE_mInt64(s3_put_bytes_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_bytes_per_second_max);
+DECLARE_mInt64(s3_put_bytes_per_second_max);
+// Override for cores used to derive effective limits: a non-positive value means auto-detect.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
@@ -1638,7 +1779,7 @@ DECLARE_Strings(paimon_file_system_scheme_mappings);
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
-// http scheme in S3Client to use. E.g. http or https
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);
@@ -1735,6 +1876,9 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+// Max incremental merges on one query cache entry before forcing a full
+// recompute to compact the entry (see query_cache.h QueryCacheRuntime).
+DECLARE_mInt32(query_cache_max_incremental_merge_count);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 // Enable validation to check the correctness of table size.

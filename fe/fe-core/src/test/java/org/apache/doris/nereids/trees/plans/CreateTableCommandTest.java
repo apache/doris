@@ -689,6 +689,30 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateTableWithComplexMapKey() {
+        // MAP<ARRAY<INT>, INT> should be rejected - array key
+        checkThrow(AnalysisException.class, "MAP key type must be a primitive type",
+                () -> createTable("create table test.test_map_array_key(k1 INT, k2 Map<Array<int>, int>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+        // MAP<MAP<INT, INT>, INT> should be rejected - map key
+        checkThrow(AnalysisException.class, "MAP key type must be a primitive type",
+                () -> createTable("create table test.test_map_map_key(k1 INT, k2 Map<Map<int,int>, int>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+        // MAP<STRUCT<f1:INT>, INT> should be rejected - struct key
+        checkThrow(AnalysisException.class, "MAP key type must be a primitive type",
+                () -> createTable("create table test.test_map_struct_key(k1 INT, k2 Map<Struct<f1:int>, int>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+        // MAP<STRING, ARRAY<INT>> should still be accepted - complex value type is OK
+        Assertions.assertDoesNotThrow(
+                () -> createTable("create table test.test_map_complex_value(k1 INT, k2 Map<String, Array<int>>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+    }
+
+    @Test
     public void testCreateTableWithStructType() {
         Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
@@ -734,57 +758,31 @@ public class CreateTableCommandTest extends TestWithFeService {
                     e.getMessage());
         }
 
-        try {
-            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
-                    + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () "
-                    + "distributed by hash (id) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', "
-                            + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.",
-                    e.getMessage());
-        }
+        // NOTE: the iceberg DISTRIBUTE BY rejection moved off fe-core into IcebergConnectorMetadata.createTable
+        // (SPI cutover); it is covered by fe-connector-iceberg IcebergCreateTableValidationTest.
 
-        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
-                + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
+        // Writing ENGINE=iceberg while sitting in the internal catalog used to be how a test reached the
+        // external analysis arm: the nine-name whitelist accepted the name wherever it was written, and the
+        // statement only failed at execution. The target catalog now judges the name, so that shortcut is a
+        // rejection -- assert it, and exercise the external partition conversion where it actually lives.
+        AnalysisException wrongTarget = Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table tb1 (id int) ENGINE=iceberg properties (\"a\"=\"b\")"));
+        Assertions.assertEquals("Engine 'iceberg' does not match catalog 'internal'.", wrongTarget.getMessage());
+
+        par = externalPartitionDesc("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                + "partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
         Assertions.assertEquals(
                 "PARTITION BY LIST(`id`, func1(`id2`, '1'), func('3', `id1`), `id3`)\n" + "(\n" + "\n" + ")",
                 par.toSql());
 
-        try {
-            getCreateTableStmt(
-                    "create table tb1 (id int) "
-                    + "engine = iceberg rollup (ab (cd)) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "iceberg catalog doesn't support rollup tables.",
-                     e.getMessage());
-        }
-
-        try {
-            getCreateTableStmt("create table tb1 (id int) engine = hive rollup (ab (cd)) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "hive catalog doesn't support rollup tables.",
-                    e.getMessage());
-        }
-
         // test with empty partitions
-        LogicalPlan plan = new NereidsParser().parseSingle(
-                "create table tb1 (id int) engine = iceberg properties (\"a\"=\"b\")");
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
-        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
-        createTableInfo.validate(connectContext);
-        Assertions.assertNull(createTableInfo.getPartitionDesc());
+        Assertions.assertNull(
+                externalPartitionDesc("create table tb1 (id int) properties (\"a\"=\"b\")"),
+                "no partition clause must convert to no partition descriptor");
 
         // test with multi partitions
-        LogicalPlan plan2 = new NereidsParser().parseSingle(
-                "create table tb1 (id int) engine = iceberg "
+        PartitionDesc partitionDesc2 = externalPartitionDesc("create table tb1 (id int) "
                     + "partition by (val, bucket(2, id), par, day(ts), efg(a,b,c)) () properties (\"a\"=\"b\")");
-        Assertions.assertTrue(plan2 instanceof CreateTableCommand);
-        CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
-        createTableInfo2.validate(connectContext);
-        PartitionDesc partitionDesc2 = createTableInfo2.getPartitionDesc();
         List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
         Assertions.assertEquals(5, partitionFields2.size());
 
@@ -831,6 +829,18 @@ public class CreateTableCommandTest extends TestWithFeService {
                 partitionDesc2.toSql());
     }
 
+    /**
+     * The partition descriptor an EXTERNAL target produces. Exercised directly rather than through a
+     * CREATE TABLE aimed at the internal catalog: {@code isExternal} is now derived from the target catalog,
+     * so an engine name can no longer stand in for one.
+     */
+    private PartitionDesc externalPartitionDesc(String sql) {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo info = ((CreateTableCommand) plan).getCreateTableInfo();
+        return info.getPartitionTableInfo().convertToPartitionDesc(true);
+    }
+
     private PartitionDesc getCreateTableStmt(String sql) {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
@@ -839,72 +849,10 @@ public class CreateTableCommandTest extends TestWithFeService {
         return createTableInfo.getPartitionDesc();
     }
 
-    @Test
-    public void testPartitionCheckForHive() {
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `par1` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("Cannot set all columns as partitioning columns.", e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `par1` int,\n"
-                    + "    `c1` bigint\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "The partition field must be at the end of the schema.",
-                    e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par2` int,\n"
-                    + "    `par1` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "The order of partition fields in the schema "
-                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`",
-                    e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par2` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2, par3 ,par4\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("partition key par1 is not exists", e.getMessage());
-        }
-
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par1` int,\n"
-                    + "    `par2` int,\n"
-                    + "    `par3` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("The partition field must be at the end of the schema.", e.getMessage());
-        }
-    }
+    // NOTE: testPartitionCheckForHive removed. The hive external partition-column rules (not-all-columns,
+    // partition-fields-at-end, order-consistent, partition-key-exists, float/complex/nullable) moved off fe-core
+    // PartitionTableInfo.validatePartitionInfo into HiveConnectorMetadata.createTable (SPI cutover), and are now
+    // covered by fe-connector-hive HiveCreateTableValidationTest.
 
     @Test
     public void testConvertToPartitionTableInfo() throws Exception {

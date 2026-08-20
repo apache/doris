@@ -26,7 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -367,7 +367,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mpi.getPctTables()).thenReturn(pctTables);
 
         if (externalNoPrune) {
-            HMSExternalTable ext = Mockito.mock(HMSExternalTable.class);
+            PluginDrivenMvccExternalTable ext = Mockito.mock(PluginDrivenMvccExternalTable.class);
             Mockito.when(ext.supportInternalPartitionPruned()).thenReturn(false);
             Set<TableIf> tbls = new HashSet<>(pctTables);
             tbls.add(ext);
@@ -444,11 +444,12 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable1, relatedTable2));
         Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1, colInfo2));
         // All MV partitions contain data
-        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any())).thenReturn(ImmutableList.of(1L));
+        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(ImmutableList.of(1L));
 
         AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
-        Mockito.when(matCtx.calculatePartitionMappings()).thenReturn(partitionMappings);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
 
         // StatementContext: the MV's two valid partitions are available for rewrite
         Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
@@ -500,7 +501,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mtmv.getName()).thenReturn("mv1");
         Mockito.when(mtmv.getId()).thenReturn(100L);
         Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
-        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any()))
+        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(ImmutableList.of(1L));
 
         long mvP20260301Id = 101L;
@@ -538,7 +539,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
-        Mockito.when(matCtx.calculatePartitionMappings()).thenReturn(partitionMappings);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
 
         Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
         canRewriteMap.put(new BaseTableInfo(mtmv),

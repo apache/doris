@@ -65,6 +65,7 @@
 #include "exec/common/sip_hash.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -1152,6 +1153,37 @@ TEST(BlockTest, merge_impl) {
     block2.insert(ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
 
     EXPECT_ANY_THROW(st = mutable_block.merge_impl(std::move(block2)));
+}
+
+TEST(BlockTest, MergeMaterializesConstNullableDestination) {
+    for (bool ignore_overflow : {false, true}) {
+        auto nullable_type = make_nullable(std::make_shared<DataTypeInt64>());
+
+        auto const_data = nullable_type->create_column();
+        const_data->insert_default();
+        Block destination;
+        destination.insert(
+                {ColumnConst::create(std::move(const_data), 2), nullable_type, "lineage"});
+
+        auto source_column = nullable_type->create_column();
+        source_column->insert_default();
+        Block source;
+        source.insert({std::move(source_column), nullable_type, "lineage"});
+
+        {
+            ScopedMutableBlock scoped_destination(&destination);
+            auto status = ignore_overflow
+                                  ? scoped_destination.mutable_block().merge_ignore_overflow(source)
+                                  : scoped_destination.mutable_block().merge(source);
+            ASSERT_TRUE(status.ok()) << status.to_string();
+        }
+
+        ASSERT_EQ(destination.rows(), 3);
+        EXPECT_FALSE(is_column_const(*destination.get_by_position(0).column));
+        for (size_t i = 0; i < destination.rows(); ++i) {
+            EXPECT_TRUE(destination.get_by_position(0).column->is_null_at(i));
+        }
+    }
 }
 
 TEST(BlockTest, ctor) {

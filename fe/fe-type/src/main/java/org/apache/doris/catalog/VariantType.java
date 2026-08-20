@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.base.Preconditions;
@@ -187,6 +189,11 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
                                         .append(String.valueOf(Math.max(1, variantSparseHashShardCount))).append("\"");
         }
+        if (enableNestedGroup) {
+            sb.append(",");
+            sb.append("\"variant_enable_nested_group\" = \"")
+                    .append(String.valueOf(enableNestedGroup)).append("\"");
+        }
         sb.append(")>");
         return sb.toString();
     }
@@ -198,11 +205,11 @@ public class VariantType extends ScalarType {
     @Override
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
+        TScalarType scalarType = container.getTypes().get(container.getTypes().size() - 1).scalar_type;
         // set the count
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        scalarType.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantIsV2(Config.enable_variant_v2);
     }
 
     @Override
@@ -274,4 +281,5 @@ public class VariantType extends ScalarType {
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
     }
+
 }

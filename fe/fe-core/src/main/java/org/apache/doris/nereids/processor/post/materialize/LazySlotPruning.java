@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -43,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -146,8 +146,8 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
                         filter.child().accept(this, contextForScan));
                 filter = (PhysicalFilter<? extends Plan>) filter
                         .copyStatsAndGroupIdFrom(filter).resetLogicalProperties();
-                List<Slot> filterOutput = Lists.newArrayList(filter.getOutput());
-                filterOutput.removeAll(filter.getInputSlots());
+                // Predicate slots that are not lazy can still be required by TopN order keys.
+                List<Slot> filterOutput = computeFilterOutput(filter.getOutput(), context.lazySlots);
                 return new PhysicalProject<>(
                         filterOutput.stream().map(s -> (SlotReference) s).collect(Collectors.toList()),
                         Optional.empty(), null,
@@ -155,6 +155,13 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
             }
         }
         return visit(filter, context);
+    }
+
+    @VisibleForTesting
+    static List<Slot> computeFilterOutput(List<Slot> output, List<Slot> lazySlots) {
+        List<Slot> filterOutput = Lists.newArrayList(output);
+        filterOutput.removeAll(lazySlots);
+        return filterOutput;
     }
 
     @Override
@@ -202,12 +209,6 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     // stop pruning when meet OutputPrunable plan node
     @Override
     public Plan visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate, Context context) {
-        return aggregate;
-    }
-
-    @Override
-    public Plan visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> aggregate, Context context) {
         return aggregate;
     }
 

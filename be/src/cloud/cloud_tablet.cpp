@@ -187,7 +187,10 @@ Result<std::vector<Version>> CloudTablet::capture_versions_prefer_cache(
         const Version& spec_version) const {
     g_capture_prefer_cache_count << 1;
     Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    // Caller (capture_consistent_versions_unlocked) already holds shared
+    // `_meta_lock`; do NOT re-acquire it here. The lock is writer-preferring,
+    // so a recursive shared acquisition self-deadlocks if a writer queues in
+    // between the outer and inner lock.
     auto st = _timestamped_version_tracker.capture_consistent_versions_prefer_cache(
             spec_version, version_path,
             [&](int64_t start, int64_t end) { return rowset_is_warmed_up_unlocked(start, end); });
@@ -239,7 +242,10 @@ Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolera
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
     // find a version path where every edge(rowset) has been warmuped
     Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    // Caller (capture_consistent_versions_unlocked) already holds shared
+    // `_meta_lock`; do NOT re-acquire it here. The lock is writer-preferring,
+    // so a recursive shared acquisition self-deadlocks if a writer queues in
+    // between the outer and inner lock.
     if (enable_unique_key_merge_on_write()) {
         // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
@@ -265,7 +271,8 @@ Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolera
             std::ranges::any_of(std::views::values(_tablet_meta->all_rs_metas()), check_fn) ||
             std::ranges::any_of(std::views::values(_tablet_meta->all_stale_rs_metas()), check_fn);
     if (should_fallback) {
-        rlock.unlock();
+        // The outer caller still holds the shared `_meta_lock`; the base
+        // unlocked fallback below runs under that lock.
         g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
         // but has not been warmuped up yet, fallback to capture rowsets as usual
@@ -411,7 +418,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
 }
 
 void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
-                              std::unique_lock<std::shared_mutex>& meta_lock,
+                              std::unique_lock<BthreadSharedMutex>& meta_lock,
                               bool warmup_delta_data) {
     if (to_add.empty()) {
         return;
@@ -493,7 +500,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 }
 
 void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
-                                 std::unique_lock<std::shared_mutex>&) {
+                                 std::unique_lock<BthreadSharedMutex>&) {
     if (to_delete.empty()) {
         return;
     }
@@ -514,7 +521,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
-                                                   std::unique_lock<std::shared_mutex>&,
+                                                   std::unique_lock<BthreadSharedMutex>&,
                                                    bool recycle_deleted_rowsets) {
     if (to_delete.empty()) {
         return;
@@ -546,7 +553,7 @@ void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetShare
 
 void CloudTablet::replace_rowsets_with_schema_change_output(
         const std::vector<RowsetSharedPtr>& output_rowsets, int64_t alter_version,
-        std::unique_lock<std::shared_mutex>& meta_lock, const char* stage,
+        std::unique_lock<BthreadSharedMutex>& meta_lock, const char* stage,
         bool recycle_deleted_rowsets) {
     std::vector<RowsetSharedPtr> to_delete;
     for (auto& [v, rs] : _rs_version_map) {
@@ -832,6 +839,10 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+    if (context.write_binlog_opt().enable) {
+        context.write_binlog_opt().set_need_before(
+                tablet_meta()->binlog_config().need_historical_value());
+    }
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -856,6 +867,8 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
+    context.db_id = rowset.rowset_meta()->db_id();
+    context.table_id = rowset.rowset_meta()->table_id();
     // During a partial update, the extracted columns of a variant should not be included in the tablet schema.
     // This is because the partial update for a variant needs to ignore the extracted columns.
     // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
@@ -867,6 +880,11 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
+    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
+        context.write_binlog_opt().enable = true;
+        context.write_binlog_opt().set_need_before(
+                tablet_meta()->binlog_config().need_historical_value());
+    }
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();
     context.index_id = index_id();
@@ -895,7 +913,7 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
     if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         bool has_delete = false;
         int64_t point = cumulative_layer_point();
-        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        std::shared_lock rlock(_meta_lock);
         for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
             if (rs_meta->start_version() >= point) {
                 continue;
@@ -946,6 +964,12 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
 
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
+    rapidjson::Value compaction_policy_value;
+    auto compaction_policy = _tablet_meta->compaction_policy();
+    compaction_policy_value.SetString(compaction_policy.c_str(),
+                                      cast_set<uint32_t>(compaction_policy.length()),
+                                      root.GetAllocator());
+    root.AddMember("compaction policy", compaction_policy_value, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
@@ -1156,30 +1180,24 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_v
     return ret_rowset;
 }
 
-std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first != 0 && version.first < _cumulative_point &&
-                (_alter_version == -1 || version.second <= _alter_version)) {
-                candidate_rowsets.push_back(rs);
-            }
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first != 0 && version.first < _cumulative_point &&
+            (_alter_version == -1 || version.second <= _alter_version)) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction() {
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
-            if (v.first != 0) {
-                candidate_rowsets.push_back(rs);
-            }
+    for (auto& [v, rs] : _rs_version_map) {
+        // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
+        if (v.first != 0) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
@@ -1196,17 +1214,52 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                                        int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
+    const bool build_row_binlog = txn_info->attach_row_binlog.rowset != nullptr;
+    const RowsetId cur_build_rid = rowset->rowset_id();
+    const RowsetId binlog_rid =
+            build_row_binlog ? txn_info->attach_row_binlog.rowset->rowset_id() : cur_build_rid;
+    auto* row_binlog_delete_bitmap = txn_info->attach_row_binlog.delete_bitmap.get();
+    if (build_row_binlog) {
+        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta() != nullptr);
+        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta()->is_row_binlog());
+        DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
+        DCHECK(row_binlog_delete_bitmap != nullptr);
+    }
+
     // update delete bitmap info, in order to avoid recalculation when trying again
     RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
             txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
 
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update() &&
+    if (txn_info->partial_update_info != nullptr && rowset_writer != nullptr &&
         rowset_writer->num_rows() > 0) {
         DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.update_tmp_rowset.error", {
             return Status::InternalError<false>("injected update_tmp_rowset error.");
         });
         const auto& rowset_meta = rowset->rowset_meta();
-        RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
+        if (build_row_binlog) {
+            const auto& binlog_rowset_meta = txn_info->attach_row_binlog.rowset->rowset_meta();
+            RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id(),
+                                                                 binlog_rowset_meta.get()));
+        } else {
+            RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
+        }
+    }
+
+    if (build_row_binlog) {
+        for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+            if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID &&
+                std::get<0>(key) == cur_build_rid) {
+                row_binlog_delete_bitmap->merge(
+                        {binlog_rid, std::get<1>(key), cast_set<uint64_t>(cur_version)}, bitmap);
+            }
+        }
+        auto* binlog_tablet = static_cast<CloudTablet*>(txn_info->attach_row_binlog.tablet.get());
+        RETURN_IF_ERROR(binlog_tablet->save_delete_bitmap_to_ms(
+                cur_version, txn_id, txn_info->attach_row_binlog.delete_bitmap, lock_id,
+                next_visible_version, txn_info->attach_row_binlog.rowset));
+        RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+                txn_id, binlog_tablet->tablet_id(), txn_info->attach_row_binlog.delete_bitmap,
+                cur_rowset_ids, PublishStatus::SUCCEED, txn_info->publish_info));
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
@@ -1454,9 +1507,9 @@ void CloudTablet::agg_delete_bitmap_for_compaction(
 }
 
 Status CloudTablet::sync_meta() {
-    if (!config::enable_file_cache) {
-        return Status::OK();
-    }
+    // Keep tablet metadata refresh serialized with rowset sync and apply local metadata updates
+    // under _meta_lock. The lock order must stay _sync_meta_lock -> _meta_lock.
+    std::unique_lock lock(_sync_meta_lock);
 
     TabletMetaSharedPtr tablet_meta;
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
@@ -1468,57 +1521,64 @@ Status CloudTablet::sync_meta() {
     }
 
     auto new_compaction_policy = tablet_meta->compaction_policy();
-    if (_tablet_meta->compaction_policy() != new_compaction_policy) {
-        _tablet_meta->set_compaction_policy(new_compaction_policy);
-    }
+    auto new_ttl_seconds = tablet_meta->ttl_seconds();
     auto new_time_series_compaction_goal_size_mbytes =
             tablet_meta->time_series_compaction_goal_size_mbytes();
-    if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
-        new_time_series_compaction_goal_size_mbytes) {
-        _tablet_meta->set_time_series_compaction_goal_size_mbytes(
-                new_time_series_compaction_goal_size_mbytes);
-    }
     auto new_time_series_compaction_file_count_threshold =
             tablet_meta->time_series_compaction_file_count_threshold();
-    if (_tablet_meta->time_series_compaction_file_count_threshold() !=
-        new_time_series_compaction_file_count_threshold) {
-        _tablet_meta->set_time_series_compaction_file_count_threshold(
-                new_time_series_compaction_file_count_threshold);
-    }
     auto new_time_series_compaction_time_threshold_seconds =
             tablet_meta->time_series_compaction_time_threshold_seconds();
-    if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
-        new_time_series_compaction_time_threshold_seconds) {
-        _tablet_meta->set_time_series_compaction_time_threshold_seconds(
-                new_time_series_compaction_time_threshold_seconds);
-    }
     auto new_time_series_compaction_empty_rowsets_threshold =
             tablet_meta->time_series_compaction_empty_rowsets_threshold();
-    if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
-        new_time_series_compaction_empty_rowsets_threshold) {
-        _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
-                new_time_series_compaction_empty_rowsets_threshold);
-    }
     auto new_time_series_compaction_level_threshold =
             tablet_meta->time_series_compaction_level_threshold();
-    if (_tablet_meta->time_series_compaction_level_threshold() !=
-        new_time_series_compaction_level_threshold) {
-        _tablet_meta->set_time_series_compaction_level_threshold(
-                new_time_series_compaction_level_threshold);
-    }
-    // Sync disable_auto_compaction (stored in tablet_schema)
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
-    if (_tablet_meta->tablet_schema()->disable_auto_compaction() != new_disable_auto_compaction) {
-        _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
-                new_disable_auto_compaction);
-    }
-    // Sync vertical_compaction_num_columns_per_group
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
-    if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
-        new_vertical_compaction_num_columns_per_group) {
-        _tablet_meta->set_vertical_compaction_num_columns_per_group(
-                new_vertical_compaction_num_columns_per_group);
+
+    {
+        std::unique_lock wlock(_meta_lock);
+        if (_tablet_meta->compaction_policy() != new_compaction_policy) {
+            _tablet_meta->set_compaction_policy(new_compaction_policy);
+        }
+        if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
+            _tablet_meta->set_ttl_seconds(new_ttl_seconds);
+        }
+        if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
+            new_time_series_compaction_goal_size_mbytes) {
+            _tablet_meta->set_time_series_compaction_goal_size_mbytes(
+                    new_time_series_compaction_goal_size_mbytes);
+        }
+        if (_tablet_meta->time_series_compaction_file_count_threshold() !=
+            new_time_series_compaction_file_count_threshold) {
+            _tablet_meta->set_time_series_compaction_file_count_threshold(
+                    new_time_series_compaction_file_count_threshold);
+        }
+        if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
+            new_time_series_compaction_time_threshold_seconds) {
+            _tablet_meta->set_time_series_compaction_time_threshold_seconds(
+                    new_time_series_compaction_time_threshold_seconds);
+        }
+        if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
+            new_time_series_compaction_empty_rowsets_threshold) {
+            _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
+                    new_time_series_compaction_empty_rowsets_threshold);
+        }
+        if (_tablet_meta->time_series_compaction_level_threshold() !=
+            new_time_series_compaction_level_threshold) {
+            _tablet_meta->set_time_series_compaction_level_threshold(
+                    new_time_series_compaction_level_threshold);
+        }
+        if (_tablet_meta->tablet_schema()->disable_auto_compaction() !=
+            new_disable_auto_compaction) {
+            _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
+                    new_disable_auto_compaction);
+        }
+        if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
+            new_vertical_compaction_num_columns_per_group) {
+            _tablet_meta->set_vertical_compaction_num_columns_per_group(
+                    new_vertical_compaction_num_columns_per_group);
+        }
     }
 
     return Status::OK();
@@ -1539,14 +1599,14 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
     Status st = engine.txn_delete_bitmap_cache().get_delete_bitmap(
             txn_id, tablet_id(), &cached_delete_bitmap, nullptr, nullptr);
     if (st.ok()) {
-        bool res = (expected_delete_bitmap->cardinality() == cached_delete_bitmap->cardinality());
-        auto msg = fmt::format(
-                "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
-                "txn_id={}, tablet_id={}",
-                expected_delete_bitmap->cardinality(), cached_delete_bitmap->cardinality(), txn_id,
-                tablet_id());
-        if (!res) {
-            DCHECK(res) << msg;
+        const auto expected_cardinality = expected_delete_bitmap->cardinality();
+        const auto cached_cardinality = cached_delete_bitmap->cardinality();
+        if (expected_cardinality != cached_cardinality) {
+            auto msg = fmt::format(
+                    "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
+                    ", txn_id={}, tablet_id={}",
+                    expected_cardinality, cached_cardinality, txn_id, tablet_id());
+            DCHECK_EQ(expected_cardinality, cached_cardinality) << msg;
             return Status::InternalError<false>(msg);
         }
     }
@@ -1921,7 +1981,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                                                              expiration_time);
                     }
                 } else {
-                    if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
+                    if (schema_ptr->has_inverted_or_ann_index()) {
                         auto&& inverted_index_info = rowset_meta->inverted_index_file_info(seg_id);
                         int64_t idx_size = 0;
                         if (inverted_index_info.has_index_size()) {
@@ -1969,6 +2029,10 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
 
 void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
                                                 int64_t version_update_time_ms) {
+    if (tablet_schema()->is_tso_enabled()) {
+        return;
+    }
+
     if (enable_unique_key_merge_on_write()) {
         // for mow tablet, we get committed rowset from `CloudTxnDeleteBitmapCache` rather than `CommittedRowsetManager`
         try_make_committed_rs_visible_for_mow(txn_id, visible_version, version_update_time_ms);
@@ -2051,7 +2115,7 @@ void CloudTablet::apply_visible_pending_rowsets() {
     Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
 
     std::unique_lock lock(_sync_meta_lock);
-    std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
+    std::unique_lock meta_wlock(_meta_lock);
     int64_t next_version = _max_version + 1;
     std::vector<RowsetSharedPtr> to_add;
     std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);

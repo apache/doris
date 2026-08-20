@@ -60,13 +60,13 @@ import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -174,7 +174,8 @@ public class EditLog {
     private EditLogOutputStream editStream = null;
 
     private long txId = 0;
-
+    // This best-effort timer starts when EditLog is created and resets after every roll.
+    private volatile long lastEditLogRollTimeMs = System.currentTimeMillis();
 
     private AtomicLong numTransactions = new AtomicLong(0);
     private AtomicLong totalTimeTransactions = new AtomicLong(0);
@@ -270,9 +271,10 @@ public class EditLog {
 
         txId += batch.size();
         // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
@@ -829,6 +831,11 @@ public class EditLog {
                 case OperationType.OP_ADD_FUNCTION: {
                     final Function function = (Function) journal.getData();
                     Env.getCurrentEnv().replayCreateFunction(function);
+                    break;
+                }
+                case OperationType.OP_ADD_FUNCTIONS: {
+                    final CreateFunctionInfo info = (CreateFunctionInfo) journal.getData();
+                    Env.getCurrentEnv().replayCreateFunctions(info);
                     break;
                 }
                 case OperationType.OP_DROP_FUNCTION: {
@@ -1550,6 +1557,7 @@ public class EditLog {
      */
     public void rollEditLog() {
         journal.rollJournal();
+        lastEditLogRollTimeMs = System.currentTimeMillis();
     }
 
     // NOTICE: No guarantee atomicity of entries
@@ -1678,14 +1686,21 @@ public class EditLog {
         // get a new transactionId
         txId++;
 
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
 
         return logId;
+    }
+
+    private boolean exceedEditLogRollInterval() {
+        return Config.isCloudMode() && Config.cloud_edit_log_roll_interval_second > 0
+                && System.currentTimeMillis() - lastEditLogRollTimeMs
+                        >= TimeUnit.SECONDS.toMillis(Config.cloud_edit_log_roll_interval_second);
     }
 
     /**
@@ -2135,6 +2150,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddFunctions(List<Function> functions) {
+        logEdit(OperationType.OP_ADD_FUNCTIONS, new CreateFunctionInfo(functions));
+    }
+
     public void logAddGlobalFunction(Function function) {
         logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
     }
@@ -2403,10 +2422,6 @@ public class EditLog {
 
     public void logDropRoleMapping(DropRoleMappingOperationLog log) {
         logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
-    }
-
-    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
     public void logCreatePolicy(Policy policy) {

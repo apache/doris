@@ -13,16 +13,16 @@ PhysicalResultSink
 
 -- !no_push_down_1 --
 PhysicalResultSink
---PhysicalProject[a AS `b`, a AS `c`]
+--PhysicalProject[t.a AS `b`, t.a AS `c`]
 ----PhysicalUnion(constantExprsList=[[random() AS `a`], [200.0 AS `a`]])
 
 -- !no_push_down_2 --
 PhysicalResultSink
---PhysicalProject[((a + a) + 10.0) AS `b`]
+--PhysicalProject[((t.a + t.a) + 10.0) AS `b`]
 ----PhysicalUnion(constantExprsList=[[random() AS `a`], [200.0 AS `a`]])
 
 -- !no_push_down_3 --
 PhysicalResultSink
---PhysicalProject[(a + 10.0) AS `c`, a AS `b`]
+--PhysicalProject[(t.a + 10.0) AS `c`, t.a AS `b`]
 ----PhysicalUnion(constantExprsList=[[random() AS `a`], [200.0 AS `a`]])
 

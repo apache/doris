@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <pdqsort.h>
+
 #include <cmath>
 #include <cstddef>
 #include <functional>
@@ -314,6 +316,12 @@ public:
         }
     }
 
+    void insert_many(const double* values, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            insert(values[i]);
+        }
+    }
+
     void clear() {
         samples.clear();
         sorted = false;
@@ -446,7 +454,7 @@ private:
             return;
         }
         sorted = true;
-        std::sort(samples.begin(), samples.end(), std::less<double>());
+        pdqsort(samples.begin(), samples.end(), std::less<double>());
     }
 };
 

@@ -111,8 +111,9 @@ suite("test_remote_doris_variant_select", "p0,external") {
         sql """
             select * from `${catalog_arrow_name}`.`${db_name}`.`test_remote_doris_variant_select_t` order by id
         """
-        // check exception message contains
-        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type variant. cur path: /dummyPath"
+        // Keep the concatenation inside one DSL argument; a leading '+' starts a unary expression.
+        exception("External Variant is supported only for Parquet files in FileScannerV2; "
+                + "file format ARROW is not supported")
     }
 
     qt_sql """

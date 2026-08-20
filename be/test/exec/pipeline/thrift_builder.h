@@ -427,12 +427,10 @@ class TRuntimeFilterParamsBuilder {
 public:
     explicit TRuntimeFilterParamsBuilder(
             TNetworkAddress runtime_filter_merge_addr = TNetworkAddress(),
-            std::map<int, std::vector<TRuntimeFilterTargetParams>> rid_to_target_param = {},
             std::map<int, int> runtime_filter_builder_num = {},
             std::map<int, std::vector<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2 = {})
             : _params() {
         _params.__set_runtime_filter_merge_addr(runtime_filter_merge_addr);
-        _params.__set_rid_to_target_param(rid_to_target_param);
         _params.__set_runtime_filter_builder_num(runtime_filter_builder_num);
         _params.__set_rid_to_target_paramv2(rid_to_target_paramv2);
     }

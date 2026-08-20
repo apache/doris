@@ -66,7 +66,7 @@ public:
     bool is_serial_operator() const override { return true; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::NOOP};
+        return {TLocalPartitionType::NOOP};
     }
 
     Status terminate(RuntimeState* state) override {
@@ -120,5 +120,8 @@ private:
 
     bool _need_notify_rec_side_ready = true;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXSinkLocalState<RecCTESharedState>;
 
 } // namespace doris

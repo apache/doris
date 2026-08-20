@@ -68,4 +68,18 @@ public class AutoBucketCalculatorTest {
 
         Assertions.assertEquals(10, buckets);
     }
+
+    @Test
+    public void testAutoBucketContextConstructor() {
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getId()).thenReturn(1L);
+
+        // 5-param constructor
+        AutoBucketContext context = new AutoBucketContext(
+                table, "p3", "p4", true, 5);
+        Assertions.assertEquals("p3", context.getPartitionName());
+        Assertions.assertEquals("p4", context.getNowPartitionName());
+        Assertions.assertTrue(context.isExecuteFirstTime());
+        Assertions.assertEquals(5, context.getDefaultBuckets());
+    }
 }

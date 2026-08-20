@@ -89,13 +89,12 @@ public:
                 assert_cast<const ColumnNullable&>(key_column_array.get_data());
 
         auto result_data_column = src_nested_nullable_column.clone_empty();
-        auto result_offset_column =
-                src_column_array.get_offsets_column().clone_resized(input_rows_count);
-        MutableColumnPtr result_nullmap = nullptr;
+        ColumnPtr result_offset_column = src_column_array.get_offsets_ptr();
+        ColumnPtr result_nullmap = nullptr;
         const ColumnUInt8::Container* src_null_map_data = nullptr;
         if (argument_nullmap[0]) {
             const auto& src_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[0]);
-            result_nullmap = src_column_nullmap.clone_resized(input_rows_count);
+            result_nullmap = argument_nullmap[0];
             src_null_map_data = &(src_column_nullmap.get_data());
         }
         const ColumnUInt8::Container* key_null_map_data = nullptr;
@@ -151,11 +150,11 @@ public:
             block.replace_by_position(
                     result,
                     ColumnNullable::create(ColumnArray::create(std::move(result_data_column),
-                                                               std::move(result_offset_column)),
-                                           std::move(result_nullmap)));
+                                                               result_offset_column),
+                                           result_nullmap));
         } else {
             block.replace_by_position(result, ColumnArray::create(std::move(result_data_column),
-                                                                  std::move(result_offset_column)));
+                                                                  result_offset_column));
         }
         return Status::OK();
     }

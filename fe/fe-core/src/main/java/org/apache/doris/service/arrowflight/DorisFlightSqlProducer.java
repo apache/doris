@@ -189,6 +189,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
+            // Finalize the previous query's coordinator on this connection whose close was
+            // deferred (Arrow Flight keeps it alive across GetFlightInfo -> DoGet so the BE can
+            // fetch external-table splits during DoGet). By now the previous DoGet is done. #62259
+            connectContext.closeFlightSqlDeferredExecutors();
             // After the previous query was executed, there was no getStreamStatement to take away the result.
             connectContext.getFlightSqlChannel().reset();
             connectContext.clearFlightSqlEndpointsLocations();
@@ -280,6 +284,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 }
             }
         } catch (Throwable e) {
+            // GetFlightInfo failed (e.g. the BE Arrow schema fetch above timed out or returned an
+            // error) after this query's coordinator may already have been deferred during planning.
+            // No FlightInfo is returned, so no DoGet will ever pull this query's results; finalize
+            // the deferred coordinator now (releasing its external-table batch SplitSource, query
+            // queue slot and query registration) instead of leaking it until the next query starts
+            // or the connection is torn down. The previous query's deferred coordinator was already
+            // finalized at the top of this method, so this only closes this failed query. See #62259.
+            connectContext.closeFlightSqlDeferredExecutors();
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
@@ -356,14 +368,22 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 final ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
                 connectContext.addPreparedQuery(preparedStatementId, query);
 
-                VectorSchemaRoot emptyVectorSchemaRoot = new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>());
-                final Schema parameterSchema = emptyVectorSchemaRoot.getSchema();
+                // Close the temporary VectorSchemaRoot after extracting its Schema, otherwise the
+                // off-heap buffers backing its vectors are leaked on every prepare (FE direct memory leak).
+                final Schema parameterSchema;
+                try (VectorSchemaRoot emptyVectorSchemaRoot =
+                        new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>())) {
+                    parameterSchema = emptyVectorSchemaRoot.getSchema();
+                }
                 // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
                 // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
                 // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
                 // see: https://github.com/apache/arrow/issues/38911
-                Schema metaData = connectContext.getFlightSqlChannel()
-                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED").getSchema();
+                final Schema metaData;
+                try (VectorSchemaRoot metaSchemaRoot = connectContext.getFlightSqlChannel()
+                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED")) {
+                    metaData = metaSchemaRoot.getSchema();
+                }
                 listener.onNext(new Result(
                         Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
             } catch (Exception e) {

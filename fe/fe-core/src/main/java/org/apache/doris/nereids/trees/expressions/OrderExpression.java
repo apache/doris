@@ -91,6 +91,11 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
     }
 
     @Override
+    public String shapeInfo() {
+        return orderKey.shapeInfo();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

@@ -114,8 +114,10 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _is_colocate ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                               _partition_exprs)
+                            : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                               _partition_exprs);
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
@@ -146,5 +148,11 @@ private:
 
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
+
+/// Instantiated once in set_sink_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class SetSinkLocalState<true>;
+extern template class SetSinkLocalState<false>;
+extern template class SetSinkOperatorX<true>;
+extern template class SetSinkOperatorX<false>;
 
 } // namespace doris

@@ -355,9 +355,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
-        if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
-        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -414,7 +411,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 return false;
             }
             for (int i = 0; i < targetFields.size(); i++) {
-                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                // A nullable target can safely accept a required source, but the inverse would
+                // allow a possible NULL into a required nested field.
+                if (originalFields.get(i).isNullable() && !targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                // Non-strict conversion failures become NULL, while strict conversion failures abort the cast;
+                // only non-strict mode can therefore violate a required target through a failed conversion.
+                if (!isStrictMode && !targetFields.get(i).isNullable()
+                        && Cast.castNullable(false, originalFields.get(i).getDataType(),
+                                targetFields.get(i).getDataType())) {
                     return false;
                 }
                 if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType(), isStrictMode)) {

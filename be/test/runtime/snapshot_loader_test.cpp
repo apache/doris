@@ -45,6 +45,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -215,7 +216,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     int16_t c1 = value;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
     block.set_columns(std::move(columns));
-    Status res = delta_writer->write(&block, {0});
+    Status res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     EXPECT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -228,7 +229,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok()) << res;
 
     TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);

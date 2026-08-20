@@ -56,6 +56,19 @@ bool WorkloadConditionScanBytes::eval(std::string str_val) {
     return WorkloadCompareUtils::compare_signed_integer(_op, scan_bytes_args, _scan_bytes);
 }
 
+// remote scan bytes
+WorkloadConditionScanBytesFromRemoteStorage::WorkloadConditionScanBytesFromRemoteStorage(
+        WorkloadCompareOperator op, std::string str_val) {
+    _op = op;
+    _scan_bytes_from_remote_storage = std::stol(str_val);
+}
+
+bool WorkloadConditionScanBytesFromRemoteStorage::eval(std::string str_val) {
+    int64_t scan_bytes_from_remote_storage_args = std::stol(str_val);
+    return WorkloadCompareUtils::compare_signed_integer(_op, scan_bytes_from_remote_storage_args,
+                                                        _scan_bytes_from_remote_storage);
+}
+
 // query memory
 WorkloadConditionQueryMemory::WorkloadConditionQueryMemory(WorkloadCompareOperator op,
                                                            std::string str_val) {

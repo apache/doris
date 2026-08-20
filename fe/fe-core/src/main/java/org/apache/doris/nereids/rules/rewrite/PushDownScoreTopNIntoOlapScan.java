@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.ImmutableList;
@@ -127,6 +129,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
                             + " for score() push down optimization");
         }
 
+        CheckScoreUsage.checkScoringPolicyAdmission(
+                filter, scan, Env.getCurrentEnv().getIndexPolicyMgr());
+
         // 3. Check for score() predicates in WHERE clause and extract score range info
         List<Expression> scorePredicates = filter.getConjuncts().stream()
                 .filter(conjunct -> !conjunct.collect(e -> e instanceof Score).isEmpty())
@@ -186,6 +191,12 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
             throw new AnalysisException(
                     "ORDER BY expression must reference a score() function from SELECT clause"
                             + " for push down optimization");
+        }
+
+        // When limit + offset overflows the long range, the pushed scan limit would wrap to a
+        // negative value; skip the push-down and let the TopN above the scan apply limit/offset.
+        if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+            return null;
         }
 
         // All conditions met, perform the push down.

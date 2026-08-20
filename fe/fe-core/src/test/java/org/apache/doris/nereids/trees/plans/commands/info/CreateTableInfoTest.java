@@ -84,6 +84,13 @@ public class CreateTableInfoTest {
                 "partition expression literal is illegal!");
     }
 
+    // NOTE: the LIVE iceberg v3 reserved-row-lineage-column rejection moved off fe-core into the iceberg
+    // connector (IcebergConnectorMetadata.createTable); it is now covered by IcebergConnectorMetadataDdlTest
+    // (request-level + catalog table-default/override format-version precedence). CreateTableInfo's
+    // validateIcebergRowLineageColumns(int) is no longer on the live path (the engine gate was removed) and
+    // survives only for the legacy dead IcebergMetadataOps caller (deleted with it in the deletion phase), so
+    // the former fe-core unit tests that drove it directly were dropped.
+
     @Test
     public void testCheckPartitionNullity1() {
         List<ColumnDefinition> columnDefs = new ArrayList<>();

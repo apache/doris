@@ -23,7 +23,9 @@
 #include <lz4/lz4.h>
 #include <streamvbyte.h>
 
+#include <array>
 #include <cstddef>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <type_traits>
@@ -317,6 +319,42 @@ TEST_F(DataTypeStringSerDeTest, ArrowMemNotAlignedNestedArr) {
     auto serde_list = std::make_shared<DataTypeArraySerDe>(serde_nullable_str);
     auto st = serde_list->read_column_from_arrow(*ser_col, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
+}
+
+TEST_F(DataTypeStringSerDeTest, FixedSizeBinaryReadColumnFromArrowWithNonZeroStart) {
+    constexpr int64_t num_elements = 4;
+    constexpr int byte_width = 4;
+    auto data_buf_result = arrow::AllocateBuffer(num_elements * byte_width);
+    ASSERT_TRUE(data_buf_result.ok());
+    std::shared_ptr<arrow::Buffer> data_buf = std::move(data_buf_result.ValueOrDie());
+
+    auto* data = data_buf->mutable_data();
+    const std::array<std::string, num_elements> values = {"aaaa", "bbbb", "cccc", "dddd"};
+    for (int64_t i = 0; i < num_elements; ++i) {
+        memcpy(data + i * byte_width, values[i].data(), byte_width);
+    }
+
+    auto null_bitmap_result = arrow::AllocateBuffer(1);
+    ASSERT_TRUE(null_bitmap_result.ok());
+    std::shared_ptr<arrow::Buffer> null_bitmap = std::move(null_bitmap_result.ValueOrDie());
+    memset(null_bitmap->mutable_data(), 0, null_bitmap->size());
+    arrow::bit_util::ClearBit(null_bitmap->mutable_data(), 0);
+    arrow::bit_util::SetBit(null_bitmap->mutable_data(), 1);
+    arrow::bit_util::SetBit(null_bitmap->mutable_data(), 2);
+    arrow::bit_util::SetBit(null_bitmap->mutable_data(), 3);
+
+    auto type = std::make_shared<arrow::FixedSizeBinaryType>(byte_width);
+    auto arr = std::make_shared<arrow::FixedSizeBinaryArray>(type, num_elements, data_buf,
+                                                             null_bitmap, 1);
+
+    auto column = ColumnString::create();
+    cctz::time_zone tz;
+    auto st = serde_str->read_column_from_arrow(*column, arr.get(), 1, 4, tz);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(column->size(), 3);
+    EXPECT_EQ(column->get_data_at(0).to_string(), "bbbb");
+    EXPECT_EQ(column->get_data_at(1).to_string(), "cccc");
+    EXPECT_EQ(column->get_data_at(2).to_string(), "dddd");
 }
 
 } // namespace doris

@@ -17,22 +17,29 @@
 
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
+#include <algorithm>
+
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/sink/writer/iceberg/iceberg_partition_path.h"
+#include "exec/sink/writer/iceberg/iceberg_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
-#include "exec/sink/writer/vhive_utils.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/iceberg/partition_spec_parser.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "io/fs/file_system.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -43,11 +50,14 @@ VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
                                          std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_table_sink);
+    _active_writers.store(std::make_shared<ActiveWriterSnapshot>());
 }
 
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _operator_profile = profile;
+
+    RETURN_IF_ERROR(validate_iceberg_external_file_report_ack(state->query_options()));
 
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size
@@ -119,22 +129,104 @@ std::vector<VIcebergTableWriter::IcebergPartitionColumn>
 VIcebergTableWriter::_to_iceberg_partition_columns() {
     std::vector<IcebergPartitionColumn> partition_columns;
 
-    std::unordered_map<int, int> id_to_column_idx;
-    id_to_column_idx.reserve(_schema->columns().size());
-    for (int i = 0; i < _schema->columns().size(); i++) {
-        id_to_column_idx[_schema->columns()[i].field_id()] = i;
-    }
     for (const auto& partition_field : _partition_spec->fields()) {
-        int column_idx = id_to_column_idx[partition_field.source_id()];
+        const auto* field_path = _schema->find_field_path(partition_field.source_id());
+        if (field_path == nullptr || field_path->empty()) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Iceberg partition field {} references source field {} outside writer schema",
+                    partition_field.field_id(), partition_field.source_id());
+        }
+        int column_idx = -1;
+        for (int i = 0; i < _schema->columns().size(); ++i) {
+            if (_schema->columns()[i].field_id() == field_path->front()->field_id()) {
+                column_idx = i;
+                break;
+            }
+        }
+        DORIS_CHECK(column_idx >= 0);
+        std::vector<size_t> child_indices;
+        iceberg::Type* iceberg_type = field_path->front()->field_type();
+        DataTypePtr source_type = _vec_output_expr_ctxs[column_idx]->root()->data_type();
+        for (size_t depth = 1; depth < field_path->size(); ++depth) {
+            if (!iceberg_type->is_struct_type()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Iceberg partition source field {} has a non-struct ancestor",
+                                partition_field.source_id());
+            }
+            const auto& fields = iceberg_type->as_struct_type()->fields();
+            auto child = std::find_if(fields.begin(), fields.end(), [&](const auto& candidate) {
+                return candidate.field_id() == (*field_path)[depth]->field_id();
+            });
+            DORIS_CHECK(child != fields.end());
+            const size_t child_idx = std::distance(fields.begin(), child);
+            const auto* struct_type =
+                    check_and_get_data_type<DataTypeStruct>(remove_nullable(source_type).get());
+            if (struct_type == nullptr || child_idx >= struct_type->get_elements().size()) {
+                throw Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Iceberg nested partition source field {} does not match writer type",
+                        partition_field.source_id());
+            }
+            child_indices.push_back(child_idx);
+            iceberg_type = child->field_type();
+            source_type = struct_type->get_element(child_idx);
+        }
+        if (!iceberg_type->is_primitive_type()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Iceberg partition source field {} is not primitive",
+                            partition_field.source_id());
+        }
         std::unique_ptr<PartitionColumnTransform> partition_column_transform =
-                PartitionColumnTransforms::create(
-                        partition_field, _vec_output_expr_ctxs[column_idx]->root()->data_type());
+                PartitionColumnTransforms::create(partition_field, source_type);
         partition_columns.emplace_back(
-                partition_field,
-                _vec_output_expr_ctxs[column_idx]->root()->data_type()->get_primitive_type(),
-                column_idx, std::move(partition_column_transform));
+                partition_field, remove_nullable(source_type)->get_primitive_type(), column_idx,
+                std::move(child_indices), std::move(partition_column_transform));
     }
     return partition_columns;
+}
+
+ColumnWithTypeAndName VIcebergTableWriter::_nested_partition_source(
+        const Block& block, const IcebergPartitionColumn& partition_column) const {
+    ColumnWithTypeAndName source = block.get_by_position(partition_column.source_idx());
+    if (partition_column.child_indices().empty()) {
+        return source;
+    }
+    ColumnPtr column = source.column->convert_to_full_column_if_const();
+    DataTypePtr type = source.type;
+    auto combined_nulls = ColumnUInt8::create(block.rows(), 0);
+    bool nullable = false;
+    auto unwrap_nullable = [&]() {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column.get())) {
+            nullable = true;
+            const auto& nulls = nullable_column->get_null_map_data();
+            auto& combined = combined_nulls->get_data();
+            for (size_t row = 0; row < combined.size(); ++row) {
+                combined[row] |= nulls[row];
+            }
+            column = nullable_column->get_nested_column_ptr();
+            type = remove_nullable(type);
+        }
+    };
+    for (size_t child_idx : partition_column.child_indices()) {
+        unwrap_nullable();
+        const auto* struct_column = check_and_get_column<ColumnStruct>(column.get());
+        const auto* struct_type = check_and_get_data_type<DataTypeStruct>(type.get());
+        if (struct_column == nullptr || struct_type == nullptr ||
+            child_idx >= struct_column->tuple_size()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Iceberg nested partition source does not match writer block");
+        }
+        column = struct_column->get_column_ptr(child_idx);
+        type = struct_type->get_element(child_idx);
+    }
+    // Parent NULL masks the leaf even when the nested storage column contains a materialized value.
+    unwrap_nullable();
+    if (nullable) {
+        column = ColumnNullable::create(column, std::move(combined_nulls));
+        type = make_nullable(type);
+    }
+    return {std::move(column), std::move(type), source.name};
 }
 
 void VIcebergTableWriter::_init_static_partition_values() {
@@ -241,7 +333,8 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
 
-    std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Filter> writer_positions;
+    std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
+            writer_positions;
     _row_count += output_block.rows();
 
     // Case 1: Full static partition - all data goes to a single partition
@@ -258,6 +351,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 }
                 _partitions_to_writers.insert({_static_partition_path, writer});
                 RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                _publish_active_writers();
             } else {
                 if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
@@ -267,6 +361,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                         RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     _partitions_to_writers.erase(writer_iter);
+                    _publish_active_writers();
                     try {
                         writer = _create_partition_writer(nullptr, -1, &file_name,
                                                           file_name_index + 1);
@@ -275,6 +370,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     }
                     _partitions_to_writers.insert({_static_partition_path, writer});
                     RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                    _publish_active_writers();
                 } else {
                     writer = writer_iter->second;
                 }
@@ -283,7 +379,6 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -301,6 +396,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 }
                 _partitions_to_writers.insert({"", writer});
                 RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                _publish_active_writers();
             } else {
                 if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
@@ -310,6 +406,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                         RETURN_IF_ERROR(writer_iter->second->close(Status::OK()));
                     }
                     _partitions_to_writers.erase(writer_iter);
+                    _publish_active_writers();
                     try {
                         writer = _create_partition_writer(nullptr, -1, &file_name,
                                                           file_name_index + 1);
@@ -318,6 +415,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     }
                     _partitions_to_writers.insert({"", writer});
                     RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
+                    _publish_active_writers();
                 } else {
                     writer = writer_iter->second;
                 }
@@ -326,7 +424,6 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -349,9 +446,12 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 transformed_block.insert(
                         {std::move(col), result_type, iceberg_partition_columns.field().name()});
             } else {
+                Block source_block;
+                source_block.insert(
+                        _nested_partition_source(output_block, iceberg_partition_columns));
                 transformed_block.insert(
-                        iceberg_partition_columns.partition_column_transform().apply(
-                                output_block, iceberg_partition_columns.source_idx()));
+                        iceberg_partition_columns.partition_column_transform().apply(source_block,
+                                                                                     0));
             }
         }
         for (int i = 0; i < output_block.rows(); ++i) {
@@ -375,10 +475,8 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     auto writer = _create_partition_writer(&transformed_block, position, file_name,
                                                            file_name_index);
                     RETURN_IF_ERROR(writer->open(_state, _operator_profile, _row_desc));
-                    IColumn::Filter filter(output_block.rows(), 0);
-                    filter[position] = 1;
-                    writer_positions.insert({writer, std::move(filter)});
                     _partitions_to_writers.insert({partition_name, writer});
+                    _publish_active_writers();
                     writer_ptr = writer;
                 } catch (doris::Exception& e) {
                     return e.to_status();
@@ -387,8 +485,8 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             };
 
             auto writer_iter = _partitions_to_writers.find(partition_name);
+            std::shared_ptr<IPartitionWriterBase> writer;
             if (writer_iter == _partitions_to_writers.end()) {
-                std::shared_ptr<IPartitionWriterBase> writer;
                 if (_partitions_to_writers.size() + 1 >
                     config::table_sink_partition_write_max_partition_nums_per_writer) {
                     return Status::InternalError(
@@ -397,7 +495,6 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 }
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));
             } else {
-                std::shared_ptr<IPartitionWriterBase> writer;
                 if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
                     int file_name_index = writer_iter->second->file_name_index();
@@ -407,53 +504,53 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                     }
                     writer_positions.erase(writer_iter->second);
                     _partitions_to_writers.erase(writer_iter);
+                    _publish_active_writers();
                     RETURN_IF_ERROR(create_and_open_writer(partition_name, i, &file_name,
                                                            file_name_index + 1, writer));
                 } else {
                     writer = writer_iter->second;
                 }
-                auto writer_pos_iter = writer_positions.find(writer);
-                if (writer_pos_iter == writer_positions.end()) {
-                    IColumn::Filter filter(output_block.rows(), 0);
-                    filter[i] = 1;
-                    writer_positions.insert({writer, std::move(filter)});
-                } else {
-                    writer_pos_iter->second[i] = 1;
-                }
+            }
+            auto writer_pos_iter = writer_positions.find(writer);
+            if (writer_pos_iter == writer_positions.end()) {
+                IColumn::Permutation rows {static_cast<size_t>(i)};
+                writer_positions.insert({writer, std::move(rows)});
+            } else {
+                writer_pos_iter->second.push_back(static_cast<size_t>(i));
             }
         }
     }
     SCOPED_RAW_TIMER(&_partition_writers_write_ns);
     output_block.erase(_non_write_columns_indices);
     for (auto it = writer_positions.begin(); it != writer_positions.end(); ++it) {
-        Block filtered_block;
-        RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
-        RETURN_IF_ERROR(it->first->write(filtered_block));
-        _current_writer.store(it->first);
+        Block selected_block;
+        RETURN_IF_ERROR(_select_block(output_block, it->second, &selected_block));
+        RETURN_IF_ERROR(it->first->write(selected_block));
     }
     return Status::OK();
 }
 
-Status VIcebergTableWriter::_filter_block(doris::Block& block, const IColumn::Filter* filter,
+Status VIcebergTableWriter::_select_block(doris::Block& block, const IColumn::Permutation& rows,
                                           doris::Block* output_block) {
     const ColumnsWithTypeAndName& columns_with_type_and_name =
             block.get_columns_with_type_and_name();
     ColumnsWithTypeAndName result_columns;
+    result_columns.reserve(columns_with_type_and_name.size());
     for (const auto& col : columns_with_type_and_name) {
-        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
-                                    col.name);
+        // Across all partitions the permutations contain exactly one entry per input row, avoiding O(P*C*R).
+        result_columns.emplace_back(col.column->permute(rows, rows.size()), col.type, col.name);
     }
     *output_block = {std::move(result_columns)};
-
-    std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = output_block->columns();
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
-    }
-
-    Block::filter_block_internal(output_block, columns_to_filter, *filter);
     return Status::OK();
+}
+
+void VIcebergTableWriter::_publish_active_writers() {
+    auto snapshot = std::make_shared<ActiveWriterSnapshot>();
+    snapshot->reserve(_partitions_to_writers.size());
+    for (const auto& entry : _partitions_to_writers) {
+        snapshot->push_back(entry.second);
+    }
+    _active_writers.store(std::move(snapshot));
 }
 
 Status VIcebergTableWriter::close(Status status) {
@@ -473,6 +570,7 @@ Status VIcebergTableWriter::close(Status status) {
             }
         }
         _partitions_to_writers.clear();
+        _publish_active_writers();
     }
     if (status.ok()) {
         SCOPED_TIMER(_operator_profile->total_time_counter());
@@ -485,7 +583,47 @@ Status VIcebergTableWriter::close(Status status) {
         COUNTER_SET(_close_timer, _close_ns);
         COUNTER_SET(_write_file_counter, _write_file_count);
     }
+    if (!status.ok() || !result_status.ok()) {
+        _cleanup_closed_files();
+    } else if (!_defer_file_cleanup_until_outer_close) {
+        _transfer_closed_files_to_report_cleanup();
+    }
     return result_status;
+}
+
+void VIcebergTableWriter::finish_deferred_file_cleanup(Status outer_status) {
+    // A successful inner close does not publish MERGE files; the sibling delete close still
+    // decides whether these data objects must be removed or released to the transaction.
+    if (!outer_status.ok()) {
+        _cleanup_closed_files();
+    } else {
+        _transfer_closed_files_to_report_cleanup();
+    }
+    _defer_file_cleanup_until_outer_close = false;
+}
+
+void VIcebergTableWriter::_transfer_closed_files_to_report_cleanup() {
+    DCHECK(_state != nullptr);
+    for (auto& closed_file : _closed_files) {
+        _state->add_rejected_external_file_report_cleanup(
+                [cleanup_fs = std::move(closed_file.first),
+                 cleanup_path = std::move(closed_file.second)] {
+                    WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
+                                  "failed to delete an Iceberg file after report failure");
+                });
+    }
+    _closed_files.clear();
+}
+
+void VIcebergTableWriter::_cleanup_closed_files() {
+    for (const auto& [fs, path] : _closed_files) {
+        Status delete_status = fs->delete_file(path);
+        if (!delete_status.ok()) {
+            LOG(WARNING) << fmt::format("Delete rolled Iceberg file {} failed, reason: {}", path,
+                                        delete_status.to_string());
+        }
+    }
+    _closed_files.clear();
 }
 
 std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::StructLike& data) {
@@ -516,7 +654,7 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
 }
 
 std::string VIcebergTableWriter::_escape(const std::string& path) {
-    return VHiveUtils::escape_path_name(path);
+    return IcebergPartitionPath::escape(path);
 }
 
 std::vector<std::string> VIcebergTableWriter::_partition_values(
@@ -611,7 +749,10 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
                 &_t_sink.iceberg_table_sink.schema_json, column_names, write_info,
                 (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
                 iceberg_table_sink.file_format, iceberg_table_sink.compression_type,
-                iceberg_table_sink.hadoop_config);
+                iceberg_table_sink.hadoop_config,
+                [this](std::shared_ptr<io::FileSystem> fs, const std::string& path) {
+                    _closed_files.emplace_back(std::move(fs), path);
+                });
     };
     auto partition_write = create_writer_lambda(file_name, file_name_index);
     if (iceberg_table_sink.__isset.sort_info) {

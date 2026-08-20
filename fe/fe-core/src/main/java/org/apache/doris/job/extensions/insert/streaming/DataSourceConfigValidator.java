@@ -17,8 +17,12 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,6 +30,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -36,6 +43,7 @@ public class DataSourceConfigValidator {
     // PostgreSQL unquoted identifier: lowercase letters, digits, underscores, not starting with a digit.
     private static final Pattern PG_IDENTIFIER_PATTERN = Pattern.compile("^[a-z_][a-z0-9_]*$");
     private static final int PG_MAX_IDENTIFIER_LENGTH = 63;
+    private static final String MYSQL_JDBC_URL_PREFIX = "jdbc:mysql://";
 
     private static final Set<String> ALLOW_SOURCE_KEYS = Sets.newHashSet(
             DataSourceConfigKeys.JDBC_URL,
@@ -56,6 +64,12 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SLOT_NAME,
             DataSourceConfigKeys.PUBLICATION_NAME,
             DataSourceConfigKeys.SERVER_ID
+    );
+
+    private static final Set<String> OCEANBASE_UNSUPPORTED_KEYS = Sets.newHashSet(
+            DataSourceConfigKeys.SCHEMA,
+            DataSourceConfigKeys.SLOT_NAME,
+            DataSourceConfigKeys.PUBLICATION_NAME
     );
 
     private static final Set<String> ALLOW_SSL_MODES = Sets.newHashSet(
@@ -106,12 +120,70 @@ public class DataSourceConfigValidator {
                 throw new IllegalArgumentException("Unexpected key: '" + key + "'");
             }
 
+            if (DataSourceType.OCEANBASE.name().equalsIgnoreCase(dataSourceType)
+                    && OCEANBASE_UNSUPPORTED_KEYS.contains(key)) {
+                throw new IllegalArgumentException(
+                        "Property '" + key + "' is not supported for OceanBase");
+            }
+
             if (!isValidValue(key, value, dataSourceType)) {
                 throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
             }
         }
 
+        validateOceanBaseSource(input, dataSourceType);
         validateSslVerifyCaPair(input);
+    }
+
+    private static void validateOceanBaseSource(Map<String, String> input, String dataSourceType) {
+        if (!DataSourceType.OCEANBASE.name().equalsIgnoreCase(dataSourceType)) {
+            return;
+        }
+        if (input.containsKey(DataSourceConfigKeys.JDBC_URL)
+                && !input.get(DataSourceConfigKeys.JDBC_URL).startsWith(MYSQL_JDBC_URL_PREFIX)) {
+            throw new IllegalArgumentException(
+                    "OceanBase jdbc_url must start with '" + MYSQL_JDBC_URL_PREFIX + "'");
+        }
+    }
+
+    public static void validateSourceBeforeTableCreation(
+            DataSourceType sourceType, Map<String, String> sourceProperties) throws JobException {
+        if (sourceType == DataSourceType.OCEANBASE) {
+            validateOceanBaseCompatibilityMode(sourceProperties);
+        }
+    }
+
+    private static void validateOceanBaseCompatibilityMode(Map<String, String> sourceProperties)
+            throws JobException {
+        // jdbc:mysql routes through JdbcMySQLClient so Connector/J is initialized consistently.
+        JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(
+                DataSourceType.OCEANBASE, sourceProperties);
+        try (Connection connection = jdbcClient.getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery(
+                        "SHOW VARIABLES LIKE 'ob_compatibility_mode'")) {
+            if (!resultSet.next()) {
+                throw new JobException("Failed to determine OceanBase compatibility mode");
+            }
+            String compatibilityMode = resultSet.getString(2);
+            if ("MYSQL".equalsIgnoreCase(compatibilityMode)) {
+                return;
+            }
+            if ("ORACLE".equalsIgnoreCase(compatibilityMode)) {
+                throw new JobException(
+                        "OceanBase Oracle compatibility mode is not supported for streaming jobs");
+            }
+            throw new JobException(
+                    "Unsupported OceanBase compatibility mode: " + compatibilityMode);
+        } catch (JobException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new JobException(
+                    "Failed to validate OceanBase compatibility mode: "
+                            + JdbcClientException.getAllExceptionMessages(e), e);
+        } finally {
+            jdbcClient.closeClient();
+        }
     }
 
     // Cross-field: verify-ca must be paired with a CA cert; otherwise the reader will
@@ -294,7 +366,7 @@ public class DataSourceConfigValidator {
     /**
      * Check if the offset value is valid for the given data source type.
      * Supported: initial, snapshot, latest, JSON binlog/lsn position.
-     * earliest is only supported for MySQL.
+     * earliest is only supported for MySQL-compatible sources.
      */
     public static boolean isValidOffset(String offset, String dataSourceType) {
         if (offset == null || offset.isEmpty()) {
@@ -305,9 +377,10 @@ public class DataSourceConfigValidator {
                 || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset)) {
             return true;
         }
-        // earliest only for MySQL
+        // earliest only for MySQL-compatible sources
         if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(offset)) {
-            return DataSourceType.MYSQL.name().equalsIgnoreCase(dataSourceType);
+            return DataSourceType.MYSQL.name().equalsIgnoreCase(dataSourceType)
+                    || DataSourceType.OCEANBASE.name().equalsIgnoreCase(dataSourceType);
         }
         if (isJsonOffset(offset)) {
             return true;

@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -101,7 +100,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -846,11 +844,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalHudiScan(LogicalHudiScan fileScan, Void context) {
-        return computeCatalogRelation(fileScan);
-    }
-
-    @Override
     public Statistics visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
         return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
     }
@@ -1002,12 +995,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
-        return computeAggregate(agg, groupExpression.childStatistics(0));
-    }
-
-    @Override
-    public Statistics visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> agg, Void context) {
         return computeAggregate(agg, groupExpression.childStatistics(0));
     }
 

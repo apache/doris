@@ -25,6 +25,9 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -217,8 +220,20 @@ public class SortNode extends PlanNode {
 
     // If it's analytic sort or not merged by a followed exchange node, it must output the global ordered data.
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return !isAnalyticSort && !mergeByexchange;
+    }
+
+    /**
+     * Mirrors BE's {@code SortSinkOperatorX::is_shuffled_operator() = _is_analytic_sort}
+     * (be/src/exec/operator/sort_sink_operator.h:95). Analytic-sort requires partitioned
+     * input by analytic partition keys, so downstream UnionNode / SetOperationNode under
+     * us must pre-shuffle their branches to match — the framework propagates this through
+     * {@link PlanTranslatorContext#hasShuffleForCorrectnessAncestor}.
+     */
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        return isAnalyticSort;
     }
 
     public void setColocate(boolean colocate) {
@@ -244,5 +259,48 @@ public class SortNode extends PlanNode {
     public void setTopnFilterTargets(
             List<Pair<Integer, Integer>> topnFilterTargets) {
         this.topnFilterTargets = topnFilterTargets;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType = null;
+        if (isAnalyticSort) {
+            // BE: SortSink._is_analytic_sort=true → required_data_distribution() = HASH.
+            // This sort serves a parent AnalyticEvalNode (window function) and requires
+            // data partitioned by the analytic's partition exprs.
+            // requireHash() is the generic hash require: BUCKET_HASH_SHUFFLE satisfies it too,
+            // so a bucket-distributed child keeps its bucket placement and no local exchange is
+            // inserted. outputType must therefore stay null and be derived from enforceResult —
+            // hardcoding LOCAL_EXECUTION_HASH_SHUFFLE here would advertise a placement the data
+            // is not on, and a parent asking for exactly LOCAL_EXECUTION_HASH_SHUFFLE (a bucket
+            // join upgraded to local hash) would skip its realign local exchange.
+            requireChild = AddLocalExchange.isColocated(this)
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : parentRequire.autoRequireHash();
+        } else if (mergeByexchange) {
+            // BE: SortSink._merge_by_exchange=true → required_data_distribution() = PASSTHROUGH.
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else {
+            // BE: else → NOOP
+            requireChild = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceRequire(translatorContext, children.get(0), 0, requireChild);
+        this.children = Lists.newArrayList(enforceResult.first);
+        if (outputType == null) {
+            outputType = enforceResult.second;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

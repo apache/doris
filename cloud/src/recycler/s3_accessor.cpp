@@ -20,16 +20,12 @@
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
-#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
-#include <aws/core/platform/Environment.h>
-#include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
-#include <aws/sts/STSClient.h>
-#include <bvar/reducer.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+#include <cstdlib>
 
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
@@ -46,49 +42,32 @@
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
 #include "common/util.h"
+#include "cpp/obj-client/auth/aws_credential_factory.h"
+#ifdef USE_AZURE
+#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-client/azure_obj_storage_client.h"
+#endif
 #include "cpp/aws_logger.h"
-#include "cpp/custom_aws_credentials_provider_chain.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
-#ifdef USE_AZURE
-#include "recycler/azure_obj_client.h"
-#endif
-#include "recycler/obj_storage_client.h"
-#include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
+#include "recycler/sync_executor.h"
 
 namespace doris::cloud {
-namespace s3_bvar {
-bvar::LatencyRecorder s3_get_latency("s3_get");
-bvar::LatencyRecorder s3_put_latency("s3_put");
-bvar::LatencyRecorder s3_delete_object_latency("s3_delete_object");
-bvar::LatencyRecorder s3_delete_objects_latency("s3_delete_objects");
-bvar::LatencyRecorder s3_head_latency("s3_head");
-bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
-bvar::LatencyRecorder s3_list_latency("s3_list");
-bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
-bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
-bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
-}; // namespace s3_bvar
-
-bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
-bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
-bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
-bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
 
 AccessorRateLimiter::AccessorRateLimiter()
-        : _rate_limiters(
-                  {std::make_unique<S3RateLimiterHolder>(
-                           config::s3_get_token_per_second, config::s3_get_bucket_tokens,
-                           config::s3_get_token_limit,
-                           metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
-                   std::make_unique<S3RateLimiterHolder>(
-                           config::s3_put_token_per_second, config::s3_put_bucket_tokens,
-                           config::s3_put_token_limit,
-                           metric_func_factory(put_rate_limit_ns,
-                                               put_rate_limit_exceed_req_num))}) {}
+        : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                                  config::s3_get_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::GET)),
+                          std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                                  config::s3_put_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::PUT))}) {}
 
 S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
@@ -115,6 +94,78 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
     }
     return AccessorRateLimiter::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
+
+namespace {
+
+class RecyclerObjStorageRateLimitPolicy final : public ObjStorageRateLimitPolicy {
+public:
+    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
+        if (config::enable_s3_rate_limit_inject && type == S3RateLimitType::PUT &&
+            rand() % 100 < config::s3_rate_limit_inject_probility) {
+            return ObjStorageAdmission {
+                    .resp = ObjStorageResponse::rate_limit(
+                            TStatusCode::LIMIT_REACH, 429,
+                            "object storage PUT request rejected by recycler fault injection"),
+            };
+        }
+        if (config::enable_s3_rate_limiter &&
+            doris::apply_s3_rate_limit(type, AccessorRateLimiter::instance().rate_limiter(type),
+                                       config::s3_rate_limiter_log_interval) < 0) {
+            return ObjStorageAdmission {
+                    .resp = ObjStorageResponse::rate_limit(
+                            TStatusCode::LIMIT_REACH, 429,
+                            fmt::format(
+                                    "object storage {} request rejected by recycler rate limiter",
+                                    to_string(type))),
+            };
+        }
+        return ObjStorageAdmission {};
+    }
+};
+
+class RecyclerObjStorageDeleteExecutor final : public ObjStorageDeleteExecutor {
+public:
+    explicit RecyclerObjStorageDeleteExecutor(std::shared_ptr<SimpleThreadPool> pool)
+            : pool_(std::move(pool)) {
+        reset();
+    }
+
+    ObjStorageResponse submit(ObjStorageDeleteTask task) override {
+        executor_->add(std::move(task));
+        return ObjStorageResponse::OK();
+    }
+
+    ObjStorageResponse wait() override {
+        bool finished = false;
+        auto responses = executor_->when_all(&finished);
+        reset();
+        if (!finished) {
+            return {
+                    .status = {TStatusCode::INTERNAL_ERROR,
+                               "object storage batch deletion did not finish"},
+                    .http_code = 0,
+            };
+        }
+        for (auto& response : responses) {
+            if (!response.ok()) {
+                return response;
+            }
+        }
+        return ObjStorageResponse::OK();
+    }
+
+private:
+    void reset() {
+        executor_ = std::make_unique<SyncExecutor<ObjStorageResponse>>(
+                pool_, "delete object storage batches",
+                [](const ObjStorageResponse& response) { return !response.ok(); });
+    }
+
+    std::shared_ptr<SimpleThreadPool> pool_;
+    std::unique_ptr<SyncExecutor<ObjStorageResponse>> executor_;
+};
+
+} // namespace
 
 S3Environment::S3Environment() {
     LOG(INFO) << "Initializing S3 environment";
@@ -165,25 +216,26 @@ S3Environment::~S3Environment() {
 
 class S3ListIterator final : public ListIterator {
 public:
-    S3ListIterator(std::unique_ptr<ObjectListIterator> iter, size_t prefix_length)
+    S3ListIterator(std::unique_ptr<ObjStorageListIterator> iter, size_t prefix_length)
             : iter_(std::move(iter)), prefix_length_(prefix_length) {}
 
     ~S3ListIterator() override = default;
 
     bool is_valid() override { return iter_->is_valid(); }
 
-    bool has_next() override { return iter_->has_next(); }
+    bool has_next() override { return iter_->has_next().ok(); }
 
     std::optional<FileMeta> next() override {
-        std::optional<FileMeta> ret;
-        if (auto obj = iter_->next(); obj.has_value()) {
-            ret = FileMeta {
-                    .path = get_relative_path(obj->key),
-                    .size = obj->size,
-                    .mtime_s = obj->mtime_s,
-            };
+        auto result = iter_->next();
+        if (!result.object.has_value()) {
+            return std::nullopt;
         }
-        return ret;
+        auto& obj = *result.object;
+        return FileMeta {
+                .path = get_relative_path(obj.key),
+                .size = obj.size,
+                .mtime_s = obj.mtime_s,
+        };
     }
 
 private:
@@ -191,7 +243,7 @@ private:
         return key.substr(prefix_length_);
     }
 
-    std::unique_ptr<ObjectListIterator> iter_;
+    std::unique_ptr<ObjStorageListIterator> iter_;
     size_t prefix_length_;
 };
 
@@ -236,14 +288,14 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
                 s3_conf.sk = obj_info.sk();
             }
         }
+        if (obj_info.has_cred_provider_type()) {
+            s3_conf.cred_provider_type = cred_provider_type_from_pb(obj_info.cred_provider_type());
+        }
 
         if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
             s3_conf.role_arn = obj_info.role_arn();
             s3_conf.external_id = obj_info.external_id();
-            if (obj_info.has_cred_provider_type()) {
-                s3_conf.cred_provider_type =
-                        cred_provider_type_from_pb(obj_info.cred_provider_type());
-            } else {
+            if (!obj_info.has_cred_provider_type()) {
                 s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
             }
         }
@@ -287,97 +339,41 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 
 static std::shared_ptr<SimpleThreadPool> worker_pool;
 
-std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credentials_provider_v1(
-        const S3Conf& s3_conf) {
-    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
-        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
-        DCHECK(!aws_cred.IsExpiredOrEmpty());
-        return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
+ObjStorageRecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
+        int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool) {
+    const auto configured_max_tasks = config::recycler_max_tasks_per_batch;
+    size_t max_tasks_per_batch = 1000;
+    if (configured_max_tasks > 0) {
+        max_tasks_per_batch = static_cast<size_t>(configured_max_tasks);
+    } else {
+        LOG(WARNING) << "recycler_max_tasks_per_batch=" << configured_max_tasks
+                     << " is not positive, using default 1000";
     }
-
-    if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
-        if (s3_conf.role_arn.empty()) {
-            return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
-        }
-
-        Aws::Client::ClientConfiguration clientConfiguration =
-                S3Environment::getClientConfiguration();
-        if (_ca_cert_file_path.empty()) {
-            _ca_cert_file_path =
-                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
-        }
-        if (!_ca_cert_file_path.empty()) {
-            clientConfiguration.caFile = _ca_cert_file_path;
-        }
-
-        auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
-                clientConfiguration);
-
-        return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
-                s3_conf.role_arn, Aws::String(), s3_conf.external_id,
-                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
-    }
-    return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+    ObjStorageRecursiveDeleteOptions options {
+            .expiration_time = expiration_time,
+            .max_tasks_per_batch = max_tasks_per_batch,
+            .executor = std::make_shared<RecyclerObjStorageDeleteExecutor>(std::move(pool)),
+    };
+    return options;
 }
 
-std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_create_credentials_provider(
-        CredProviderType type) {
-    switch (type) {
-    case CredProviderType::Env:
-        return std::make_shared<Aws::Auth::EnvironmentAWSCredentialsProvider>();
-    case CredProviderType::SystemProperties:
-        return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>();
-    case CredProviderType::WebIdentity:
-        return std::make_shared<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>();
-    case CredProviderType::Container:
-        return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
-                Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
-    case CredProviderType::InstanceProfile:
-        return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
-    case CredProviderType::Anonymous:
-        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
-    case CredProviderType::Default:
-    default:
-        return std::make_shared<CustomAwsCredentialsProviderChain>();
+AwsCredentialResult S3Accessor::create_aws_credentials_provider(const S3Conf& s3_conf) {
+    auto sts_config = S3Environment::getClientConfiguration();
+    if (!_ca_cert_file_path.empty()) {
+        sts_config.caFile = _ca_cert_file_path;
     }
-}
-
-std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credentials_provider_v2(
-        const S3Conf& s3_conf) {
-    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
-        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
-        DCHECK(!aws_cred.IsExpiredOrEmpty());
-        return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
-    }
-
-    if (!s3_conf.role_arn.empty()) {
-        Aws::Client::ClientConfiguration clientConfiguration =
-                S3Environment::getClientConfiguration();
-        if (_ca_cert_file_path.empty()) {
-            _ca_cert_file_path =
-                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
-        }
-        if (!_ca_cert_file_path.empty()) {
-            clientConfiguration.caFile = _ca_cert_file_path;
-        }
-
-        auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                _create_credentials_provider(s3_conf.cred_provider_type), clientConfiguration);
-
-        return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
-                s3_conf.role_arn, Aws::String(), s3_conf.external_id,
-                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
-    }
-    return _create_credentials_provider(s3_conf.cred_provider_type);
-}
-
-std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentials_provider(
-        const S3Conf& s3_conf) {
-    if (config::aws_credentials_provider_version == "v2") {
-        return _get_aws_credentials_provider_v2(s3_conf);
-    }
-    return _get_aws_credentials_provider_v1(s3_conf);
+    return AwsCredentialFactory::create({
+            .version = config::aws_credentials_provider_version == "v2"
+                               ? AwsCredentialProviderVersion::V2
+                               : AwsCredentialProviderVersion::V1,
+            .access_key = s3_conf.ak,
+            .secret_key = s3_conf.sk,
+            .provider_type = s3_conf.cred_provider_type,
+            .role_arn = s3_conf.role_arn,
+            .external_id = s3_conf.external_id,
+            .empty_credentials = EmptyCredentialsBehavior::DEFAULT_CHAIN,
+            .sts_client_config = std::move(sts_config),
+    });
 }
 
 int S3Accessor::init() {
@@ -393,12 +389,7 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        if (config::s3_client_retry_slow_down) {
-            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
-        }
         options.Retry.MaxRetries = config::max_s3_client_retry;
-        auto cred =
-                std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
         uri_ = fmt::format("{}/{}", conf_.endpoint, conf_.bucket);
         if (uri_.find("://") == std::string::npos) {
             uri_ = "https://" + uri_;
@@ -409,11 +400,29 @@ int S3Accessor::init() {
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
         // Therefore, the policy can record retries after the RetryPolicy has handled the response.
         options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-        auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
-                uri_, cred, std::move(options));
+        auto built = AzureAuthFactory::create(uri_,
+                                              {
+                                                      .type = AzureCredentialType::SHARED_KEY,
+                                                      .account_name = conf_.ak,
+                                                      .account_key = conf_.sk,
+                                              },
+                                              std::move(options));
+        if (!built) {
+            LOG_WARNING("failed to create Azure client").tag("error", built.error);
+            return -1;
+        }
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
         uri_ = normalize_http_uri(uri_ + '/' + conf_.prefix);
-        obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
+        auto client =
+                std::make_shared<AzureObjStorageClient>(std::move(built.container_client),
+                                                        ObjStorageEndpointInfo {
+                                                                .endpoint = conf_.endpoint,
+                                                                .ak = conf_.ak,
+                                                                .sk = conf_.sk,
+                                                        },
+                                                        std::move(built.shared_key_credential));
+        obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
+                std::move(client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
         return 0;
 #else
         LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
@@ -437,11 +446,10 @@ int S3Accessor::init() {
                                                     config::instance_recycler_worker_pool_size),
                                              (long)aws_config.maxConnections);
 
-        if (config::s3_client_http_scheme == "http") {
-            aws_config.scheme = Aws::Http::Scheme::HTTP;
-        }
+        set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
+        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry, config::s3_client_retry_slow_down);
+                config::max_s3_client_retry, /*retry_slow_down=*/false);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
@@ -450,11 +458,28 @@ int S3Accessor::init() {
         if (!_ca_cert_file_path.empty()) {
             aws_config.caFile = _ca_cert_file_path;
         }
+        // Mirror BE PR #49315: default ClientConfiguration leaves requestTimeoutMs=3000,
+        // which the vendored aws-sdk-cpp maps to CURLOPT_LOW_SPEED_TIME=3 and causes
+        // curl error 28 on slow/large S3 DeleteObjects (OVH cold vault).
+        aws_config.requestTimeoutMs = 30000;
+        aws_config.connectTimeoutMs = 5000;
+        auto credentials = create_aws_credentials_provider(conf_);
+        if (!credentials) {
+            LOG(WARNING) << "failed to create AWS credential provider: " << credentials.error;
+            return -1;
+        }
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
-                get_aws_credentials_provider(conf_), std::move(aws_config),
+                std::move(credentials.provider), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 conf_.use_virtual_addressing /* useVirtualAddressing */);
-        obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);
+        auto client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
+                                                           ObjStorageEndpointInfo {
+                                                                   .endpoint = conf_.endpoint,
+                                                                   .ak = conf_.ak,
+                                                                   .sk = conf_.sk,
+                                                           });
+        obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
+                std::move(client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
         return 0;
     }
     }
@@ -462,10 +487,13 @@ int S3Accessor::init() {
 
 int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
     LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
-    return obj_client_
-            ->delete_objects_recursively({.bucket = conf_.bucket, .key = get_key(path_prefix)},
-                                         {.executor = worker_pool}, expiration_time)
-            .ret;
+    ObjStoragePath delete_path {
+            .bucket = conf_.bucket,
+            .prefix = get_key(path_prefix),
+    };
+    return delete_objects_recursively(obj_client_, delete_path,
+                                      make_recursive_delete_options(expiration_time, worker_pool))
+            .status.code;
 }
 
 int S3Accessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
@@ -506,29 +534,29 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
         keys.emplace_back(get_key(path));
     }
 
-    return obj_client_->delete_objects(conf_.bucket, std::move(keys), {.executor = worker_pool})
-            .ret;
+    return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(keys)).status.code;
 }
 
 int S3Accessor::delete_file(const std::string& path) {
     LOG_INFO("delete file").tag("uri", to_uri(path));
-    int ret = obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).ret;
-    static_assert(ObjectStorageResponse::OK == 0);
-    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+    int ret =
+            obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).status.code;
+    static_assert(ObjStorageStatus::OK == 0);
+    if (ret == ObjStorageStatus::OK || ret == ObjStorageStatus::NOT_FOUND) {
         return 0;
     }
     return ret;
 }
 
 int S3Accessor::put_file(const std::string& path, const std::string& content) {
-    return obj_client_->put_object({.bucket = conf_.bucket, .key = get_key(path)}, content).ret;
+    return obj_client_->put_object({.bucket = conf_.bucket, .key = get_key(path)}, content)
+            .status.code;
 }
 
 int S3Accessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
-    size_t prefix_length = conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1;
     *res = std::make_unique<S3ListIterator>(
-            obj_client_->list_objects({.bucket = conf_.bucket, .key = get_key(path_prefix)}),
-            prefix_length);
+            obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)}),
+            conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1);
     return 0;
 }
 
@@ -548,8 +576,14 @@ int S3Accessor::list_all(std::unique_ptr<ListIterator>* res) {
 }
 
 int S3Accessor::exists(const std::string& path) {
-    ObjectMeta obj_meta;
-    return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}, &obj_meta).ret;
+    auto response = obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}).resp;
+    if (response.ok()) {
+        return 0;
+    }
+    if (response.status.code == ObjStorageStatus::NOT_FOUND) {
+        return 1;
+    }
+    return -1;
 }
 
 int S3Accessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
@@ -557,9 +591,9 @@ int S3Accessor::abort_multipart_upload(const std::string& path, const std::strin
     int ret = obj_client_
                       ->abort_multipart_upload({.bucket = conf_.bucket, .key = get_key(path)},
                                                upload_id)
-                      .ret;
-    static_assert(ObjectStorageResponse::OK == 0);
-    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+                      .status.code;
+    static_assert(ObjStorageStatus::OK == 0);
+    if (ret == ObjStorageStatus::OK || ret == ObjStorageStatus::NOT_FOUND) {
         return 0;
     }
     LOG_WARNING("fail abort multipart upload")
@@ -569,12 +603,12 @@ int S3Accessor::abort_multipart_upload(const std::string& path, const std::strin
     return ret;
 }
 
-int S3Accessor::get_life_cycle(int64_t* expiration_days) {
-    return obj_client_->get_life_cycle(conf_.bucket, expiration_days).ret;
+int S3Accessor::get_lifecycle(int64_t* expiration_days) {
+    return obj_client_->get_lifecycle(conf_.bucket, expiration_days).status.code;
 }
 
 int S3Accessor::check_versioning() {
-    return obj_client_->check_versioning(conf_.bucket).ret;
+    return obj_client_->check_versioning(conf_.bucket).status.code;
 }
 
 int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
@@ -585,8 +619,17 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
     int skip = 0;
     int64_t del_nonexisted = 0;
     int del = 0;
-    auto iter = obj_client_->list_objects({conf_.bucket, get_key(path_prefix)});
-    for (auto obj = iter->next(); obj.has_value(); obj = iter->next()) {
+    auto iter = obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
+    for (;;) {
+        auto result = iter->next();
+        if (!result.object.has_value()) {
+            if (result.resp.status.code != ObjStorageStatus::NOT_FOUND &&
+                result.resp.status.code != ObjStorageStatus::OK) {
+                ret = result.resp.status.code;
+            }
+            break;
+        }
+        auto& obj = *result.object;
         if (!(++cnt % 100)) {
             LOG_INFO("loop delete prefix")
                     .tag("uri", to_uri(path_prefix))
@@ -595,17 +638,18 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
                     .tag("del_nonexisted", del_nonexisted)
                     .tag("skipped", skip);
         }
-        if (expiration_time > 0 && obj->mtime_s > expiration_time) {
+        if (expiration_time > 0 && obj.mtime_s > expiration_time) {
             skip++;
             continue;
         }
         del++;
 
         // FIXME(plat1ko): Delete objects by batch with genuine GCS client
-        int del_ret = obj_client_->delete_object({conf_.bucket, obj->key}).ret;
-        del_nonexisted += (del_ret == ObjectStorageResponse::NOT_FOUND);
-        static_assert(ObjectStorageResponse::OK == 0);
-        if (del_ret != ObjectStorageResponse::OK && del_ret != ObjectStorageResponse::NOT_FOUND) {
+        int del_ret =
+                obj_client_->delete_object({.bucket = conf_.bucket, .key = obj.key}).status.code;
+        del_nonexisted += (del_ret == ObjStorageStatus::NOT_FOUND);
+        static_assert(ObjStorageStatus::OK == 0);
+        if (del_ret != ObjStorageStatus::OK && del_ret != ObjStorageStatus::NOT_FOUND) {
             ret = del_ret;
         }
     }

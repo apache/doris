@@ -43,17 +43,28 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exprs/function_context.h"
-#include "storage/index/inverted/inverted_index_iterator.h" // IWYU pragma: keep
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "exprs/vexpr_fwd.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 
 namespace doris {
 struct InvertedIndexAnalyzerCtx;
+namespace expr_zonemap {
+struct DictionaryEvalContext;
+struct BloomFilterEvalContext;
+} // namespace expr_zonemap
+using DictionaryEvalContext = expr_zonemap::DictionaryEvalContext;
+using BloomFilterEvalContext = expr_zonemap::BloomFilterEvalContext;
+namespace segment_v2 {
+class IndexIterator;
+class InvertedIndexResultBitmap;
+} // namespace segment_v2
 } // namespace doris
 
 namespace doris {
 
 struct FunctionAttr {
     bool new_version_unix_timestamp {false};
+    bool new_version_bitmap_op_count {false};
 };
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
@@ -76,6 +87,7 @@ struct FunctionAttr {
 
 class Field;
 class VExpr;
+class ZoneMapEvalContext;
 
 // Only use dispose the variadic argument
 template <typename T>
@@ -226,6 +238,27 @@ public:
     virtual bool can_push_down_to_index() const { return false; }
 
     virtual bool is_blockable() const { return false; }
+
+    virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                        const VExprSPtrs& function_arguments) const;
+
+    virtual bool can_evaluate_zonemap_filter(const VExprSPtrs& /*function_arguments*/) const {
+        return false;
+    }
+
+    virtual ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const;
+
+    virtual bool can_evaluate_dictionary_filter(const VExprSPtrs& /*function_arguments*/) const {
+        return false;
+    }
+
+    virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                                      const VExprSPtrs& function_arguments) const;
+
+    virtual bool can_evaluate_bloom_filter(const VExprSPtrs& /*function_arguments*/) const {
+        return false;
+    }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -492,6 +525,33 @@ public:
 
     bool is_blockable() const override { return function->is_blockable(); }
 
+    ZoneMapFilterResult evaluate_zonemap_filter(
+            const ZoneMapEvalContext& ctx, const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_zonemap_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_zonemap_filter(function_arguments);
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_dictionary_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_dictionary_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_dictionary_filter(function_arguments);
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                              const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_bloom_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_bloom_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_bloom_filter(function_arguments);
+    }
+
 private:
     std::shared_ptr<IFunction> function;
     DataTypes arguments;
@@ -627,6 +687,9 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           size_t input_rows_count);
+ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           const NullableColumnInfos& nullable_column_infos,
                            size_t input_rows_count);
 
 } // namespace doris

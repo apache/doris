@@ -31,7 +31,8 @@ LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, 
           _num_incremental_streams(0),
           _pool(pool),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
-          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {
+          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()),
+          _close_wait_notifier(std::make_shared<CloseWaitNotifier>()) {
     DCHECK(num_streams > 0) << "stream num should be greater than 0";
     DCHECK(num_use > 0) << "use num should be greater than 0";
 }
@@ -45,9 +46,9 @@ std::shared_ptr<LoadStreamStubs> LoadStreamMap::get_or_create(int64_t dst_id, bo
     if (incremental) {
         _num_incremental_streams.fetch_add(1);
     }
-    streams = std::make_shared<LoadStreamStubs>(_num_streams, _load_id, _src_id,
-                                                _tablet_schema_for_index,
-                                                _enable_unique_mow_for_index, incremental);
+    streams = std::make_shared<LoadStreamStubs>(
+            _num_streams, _load_id, _src_id, _tablet_schema_for_index, _enable_unique_mow_for_index,
+            incremental, _close_wait_notifier);
     _streams_for_node[dst_id] = streams;
     return streams;
 }
@@ -127,6 +128,14 @@ void LoadStreamMap::close_load(bool incremental) {
                          << " streams failed: " << st << ", load_id=" << _load_id;
         }
     }
+}
+
+int64_t LoadStreamMap::close_wait_version() const {
+    return _close_wait_notifier->close_wait_version();
+}
+
+void LoadStreamMap::wait_for_close_event(int64_t observed_version, int64_t timeout_ms) {
+    _close_wait_notifier->wait_for_close_event(observed_version, timeout_ms);
 }
 
 LoadStreamMapPool::LoadStreamMapPool() = default;

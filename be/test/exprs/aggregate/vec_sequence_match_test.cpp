@@ -19,6 +19,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <vector>
 
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -29,6 +30,7 @@
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_sequence_match.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
 
@@ -60,6 +62,39 @@ public:
     }
 
     void TearDown() {}
+
+    template <typename ResultColumn>
+    void assert_invalid_pattern_returns_zero(const AggregateFunctionPtr& agg_function,
+                                             const std::string& pattern, size_t event_count) {
+        auto column_pattern = ColumnString::create();
+        column_pattern->insert(Field::create_field<TYPE_STRING>(pattern));
+
+        auto column_timestamp = ColumnDateTimeV2::create();
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(2024, 1, 1, 0, 0, 0);
+        column_timestamp->insert_data((char*)&time_value, 0);
+
+        std::vector<ColumnUInt8::MutablePtr> event_columns;
+        event_columns.reserve(event_count);
+        std::vector<const IColumn*> columns = {column_pattern.get(), column_timestamp.get()};
+        columns.reserve(event_count + 2);
+        for (size_t i = 0; i < event_count; ++i) {
+            auto column_event = ColumnUInt8::create();
+            column_event->insert(Field::create_field<TYPE_BOOLEAN>(1));
+            columns.push_back(column_event.get());
+            event_columns.push_back(std::move(column_event));
+        }
+
+        std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        agg_function->create(place);
+        EXPECT_NO_THROW(agg_function->add(place, columns.data(), 0, arena));
+
+        ResultColumn column_result;
+        agg_function->insert_result_into(place, column_result);
+        EXPECT_EQ(column_result.get_data()[0], 0);
+        agg_function->destroy(place);
+    }
 
     Arena arena;
 };
@@ -120,6 +155,34 @@ TEST_F(VSequenceMatchTest, testCountEmpty) {
 
     agg_function_sequence_count->destroy(place);
     agg_function_sequence_count->destroy(place2);
+}
+
+TEST_F(VSequenceMatchTest, testMatchInvalidEventNumber) {
+    assert_invalid_pattern_returns_zero<ColumnUInt8>(agg_function_sequence_match, "(?0)", 3);
+
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeDateTimeV2>()};
+    for (size_t i = 0; i < MAX_EVENTS; ++i) {
+        data_types.push_back(std::make_shared<DataTypeUInt8>());
+    }
+    auto agg_function = factory.get("sequence_match", data_types, nullptr, false, -1);
+    ASSERT_NE(agg_function, nullptr);
+    assert_invalid_pattern_returns_zero<ColumnUInt8>(agg_function, "(?33)", MAX_EVENTS);
+}
+
+TEST_F(VSequenceMatchTest, testCountInvalidEventNumber) {
+    assert_invalid_pattern_returns_zero<ColumnInt64>(agg_function_sequence_count, "(?0)", 3);
+
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeDateTimeV2>()};
+    for (size_t i = 0; i < MAX_EVENTS; ++i) {
+        data_types.push_back(std::make_shared<DataTypeUInt8>());
+    }
+    auto agg_function = factory.get("sequence_count", data_types, nullptr, false, -1);
+    ASSERT_NE(agg_function, nullptr);
+    assert_invalid_pattern_returns_zero<ColumnInt64>(agg_function, "(?33)", MAX_EVENTS);
 }
 
 TEST_F(VSequenceMatchTest, testMatchSerialize) {

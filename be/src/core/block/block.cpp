@@ -20,6 +20,7 @@
 
 #include "core/block/block.h"
 
+#include <concurrentqueue.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
@@ -89,17 +90,13 @@ bool is_recursively_exclusive(const IColumn& column) {
     }
 
     bool exclusive = true;
-    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
         if (!exclusive) {
             return;
         }
-        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        DCHECK(subcolumn_ptr);
-        exclusive = is_recursively_exclusive(*subcolumn_ptr);
+        exclusive = is_recursively_exclusive(subcolumn);
     };
-    // `for_each_subcolumn` only exposes a mutable callback type. This callback
-    // only reads the wrapped pointers and never calls the non-const accessors.
-    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    column.for_each_subcolumn(callback);
     return exclusive;
 }
 
@@ -340,6 +337,35 @@ Status Block::check_type_and_column() const {
         }
     }
 #endif
+    return Status::OK();
+}
+
+Status Block::check_column_and_type_not_null() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        if (!elem.column) {
+            return Status::InternalError("Column in block is nullptr, column index: {}, name: {}",
+                                         i, elem.name);
+        }
+        if (!elem.type) {
+            return Status::InternalError("Type in block is nullptr, column index: {}, name: {}", i,
+                                         elem.name);
+        }
+    }
+    return Status::OK();
+}
+
+Status Block::check_no_column_string64() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        DCHECK(elem.column);
+        if (elem.column->contains_column_string64()) {
+            return Status::InternalError(
+                    "ColumnString64 is not allowed at operator boundaries, column index: {}, "
+                    "name: {}, structure: {}",
+                    i, elem.name, elem.column->dump_structure());
+        }
+    }
     return Status::OK();
 }
 
@@ -803,6 +829,7 @@ void Block::clear() {
     data.clear();
 }
 
+// Both clear paths must preserve shared children even when a composite column is top-level exclusive.
 void Block::clear_column_data(int64_t column_size) {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
@@ -814,7 +841,7 @@ void Block::clear_column_data(int64_t column_size) {
     }
     for (auto& d : data) {
         if (d.column) {
-            if (d.column->is_exclusive()) {
+            if (is_recursively_exclusive(*d.column)) {
                 d.column->assert_mutable()->clear();
             } else {
                 d.column = d.column->clone_empty();
@@ -829,7 +856,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         DCHECK_LT(col, data.size());
         auto& column = data[col].column;
         if (column) {
-            if (column->is_exclusive()) {
+            if (is_recursively_exclusive(*column)) {
                 column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
@@ -1014,14 +1041,16 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
-    for (const auto& c : *this) {
-        PColumnMeta* pcm = pblock->add_column_metas();
-        c.to_pb_column_meta(pcm);
-        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
-        // get serialized size
-        content_uncompressed_size +=
-                c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            PColumnMeta* pcm = pblock->add_column_metas();
+            c.to_pb_column_meta(pcm);
+            DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
+            // get serialized size
+            content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
+                    *(c.column), pblock->be_exec_version());
+        }
+    });
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
@@ -1037,9 +1066,11 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     }
     char* buf = column_values.data();
 
-    for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
+        }
+    });
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;

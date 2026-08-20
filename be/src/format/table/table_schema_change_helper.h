@@ -17,9 +17,14 @@
 
 #pragma once
 
+#include <gen_cpp/ExternalTableSchema_types.h>
+
 #include <algorithm>
 #include <cstddef>
+#include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -67,6 +72,21 @@ public:
                     "children_column_exists should not be called on base TableInfoNode");
         }
 
+        virtual const schema::external::TField* get_missing_column_field(
+                std::string table_column_name) const {
+            return nullptr;
+        }
+
+        // Presence-only check (does NOT DCHECK). Distinct from children_column_exists, which asserts
+        // the key exists and then reports the file-side exists flag. Callers use this to reject a
+        // projected column that is absent from the table-side schema tree (an FE/BE schema-contract
+        // mismatch) BEFORE calling children_column_exists, turning a would-be process abort into a
+        // graceful per-query error.
+        virtual bool has_children_column(std::string table_column_name) const {
+            throw std::logic_error(
+                    "has_children_column should not be called on base TableInfoNode");
+        }
+
         virtual std::shared_ptr<Node> get_element_node() const {
             throw std::logic_error("get_element_node should not be called on base TableInfoNode");
         }
@@ -78,7 +98,9 @@ public:
             throw std::logic_error("get_value_node should not be called on base TableInfoNode");
         }
 
-        virtual void add_not_exist_children(std::string table_column_name) {
+        virtual void add_not_exist_children(
+                std::string table_column_name,
+                std::shared_ptr<const schema::external::TField> table_field = nullptr) {
             throw std::logic_error(
                     "add_not_exist_children should not be called on base TableInfoNode");
         };
@@ -108,6 +130,8 @@ public:
 
         bool children_column_exists(std::string table_column_name) const override { return true; }
 
+        bool has_children_column(std::string table_column_name) const override { return true; }
+
         std::shared_ptr<Node> get_element_node() const override { return get_instance(); }
 
         std::shared_ptr<Node> get_key_node() const override { return get_instance(); }
@@ -131,6 +155,7 @@ public:
             const std::shared_ptr<Node> node;
             const std::string column_name;
             const bool exists;
+            const std::shared_ptr<const schema::external::TField> table_field;
         };
 
         // table column name -> { node, file_column_name, exists_in_file}
@@ -167,14 +192,34 @@ public:
             return children.at(table_column_name).exists;
         }
 
-        void add_not_exist_children(std::string table_column_name) override {
-            children.emplace(table_column_name, StructChild {nullptr, "", false});
+        const schema::external::TField* get_missing_column_field(
+                std::string table_column_name) const override {
+            DCHECK(children.contains(table_column_name));
+            DCHECK(!children.at(table_column_name).exists);
+            return children.at(table_column_name).table_field.get();
+        }
+
+        bool has_children_column(std::string table_column_name) const override {
+            return children.contains(table_column_name);
+        }
+
+        void add_not_exist_children(
+                std::string table_column_name,
+                std::shared_ptr<const schema::external::TField> table_field = nullptr) override {
+            children.emplace(table_column_name,
+                             StructChild {.node = nullptr,
+                                          .column_name = "",
+                                          .exists = false,
+                                          .table_field = std::move(table_field)});
         }
 
         void add_children(std::string table_column_name, std::string file_column_name,
                           std::shared_ptr<Node> children_node) override {
             children.emplace(table_column_name,
-                             StructChild {children_node, file_column_name, true});
+                             StructChild {.node = std::move(children_node),
+                                          .column_name = std::move(file_column_name),
+                                          .exists = true,
+                                          .table_field = nullptr});
         }
 
         const std::map<std::string, StructChild>& get_children() const { return children; }
@@ -274,6 +319,17 @@ public:
     struct BuildTableInfoUtil {
         static const Status SCHEMA_ERROR;
 
+        // Match the unique physical wrapper whose own Iceberg field ID is absent but whose
+        // descendants prove its table-side identity. Equality-delete path discovery shares these
+        // helpers with the ordinary Iceberg column mapper.
+        static std::optional<size_t> find_unique_idless_parquet_wrapper_index(
+                const schema::external::TField& table_field,
+                const std::vector<FieldSchema>& parquet_fields_schema);
+
+        static std::optional<size_t> find_unique_idless_orc_wrapper_index(
+                const schema::external::TField& table_field, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key);
+
         // todo : Maybe I can use templates to implement this functionality.
 
         // for hive parquet : The table column names passed from fe are lowercase, so use lowercase file column names to match table column names.
@@ -325,10 +381,21 @@ public:
                 const FieldDescriptor& parquet_field_desc,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
+        static Status by_parquet_field_id_with_name_mapping(
+                const schema::external::TStructField& table_schema,
+                const FieldDescriptor& parquet_field_desc,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+                bool use_current_iceberg_semantics);
+
         // for iceberg parquet
         static Status by_parquet_field_id_with_name_mapping(
                 const schema::external::TField& table_schema, const FieldSchema& parquet_field,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+
+        static Status by_parquet_field_id_with_name_mapping(
+                const schema::external::TField& table_schema, const FieldSchema& parquet_field,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id,
+                bool use_current_iceberg_semantics);
 
         // for iceberg orc : Use the field id in the `table schema` and the orc file to match columns.
         static Status by_orc_field_id(const schema::external::TStructField& table_schema,
@@ -351,11 +418,29 @@ public:
                 const std::string& field_id_attribute_key,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TStructField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+                bool use_current_iceberg_semantics);
+
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TStructField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id,
+                bool use_current_iceberg_semantics);
+
         // for iceberg orc
         static Status by_orc_field_id_with_name_mapping(
                 const schema::external::TField& table_schema, const orc::Type* orc_root,
                 const std::string& field_id_attribute_key,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id,
+                bool use_current_iceberg_semantics);
     };
 };
 

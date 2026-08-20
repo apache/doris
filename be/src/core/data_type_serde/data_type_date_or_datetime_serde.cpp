@@ -20,10 +20,12 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
@@ -156,11 +158,10 @@ Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const 
         const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
         } else {
             RETURN_IF_ERROR(checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)),
-                                             column.get_name(), array_builder->type()->name()));
+                                             column, *array_builder));
         }
     }
     return Status::OK();
@@ -192,6 +193,9 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;

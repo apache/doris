@@ -167,7 +167,7 @@ io::FileSystemSPtr RowsetMeta::fs() {
 
 Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
     if (is_local()) {
-        return ResultError(Status::InternalError(
+        return ResultError(Status::InternalError<false>(
                 "local rowset has no storage resource. tablet_id={} rowset_id={}", tablet_id(),
                 _rowset_id.to_string()));
     }
@@ -186,8 +186,8 @@ Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
                     return &_storage_resource;
                 }
             }
-            return ResultError(Status::InternalError("cannot find storage resource. resource_id={}",
-                                                     resource_id()));
+            return ResultError(Status::InternalError<false>(
+                    "cannot find storage resource. resource_id={}", resource_id()));
         }
     }
     return &_storage_resource;

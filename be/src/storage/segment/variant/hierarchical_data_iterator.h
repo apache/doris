@@ -45,12 +45,17 @@
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/stream_reader.h"
+#include "storage/segment/variant/v2/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
 class ColumnReaderCache;
+
+namespace variant_v2 {
+class VariantAssembler;
+}
 
 struct PathWithColumnAndType {
     PathInData path;
@@ -72,7 +77,10 @@ public:
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
                          ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-                         ReadType read_type);
+                         ReadType read_type, bool use_variant_v2 = false,
+                         const io::IOContext* io_ctx = nullptr);
+
+    ~HierarchicalDataIterator() override;
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -86,7 +94,8 @@ public:
     ordinal_t get_current_ordinal() const override;
 
     Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
-                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
+                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
+                      const io::IOContext* io_ctx = nullptr);
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
@@ -101,8 +110,8 @@ private:
     PathInData _path;
     OlapReaderStatistics* _stats = nullptr;
     ReadType _read_type = ReadType::SUBCOLUMNS_AND_SPARSE;
-    HierarchicalDataIterator(const PathInData& path, ReadType read_type)
-            : _path(path), _read_type(read_type) {}
+    std::unique_ptr<variant_v2::VariantAssembler> _variant_v2_assembler;
+    HierarchicalDataIterator(const PathInData& path, ReadType read_type);
 
     template <typename NodeFunction>
     Status tranverse(NodeFunction&& node_func) {
@@ -134,51 +143,113 @@ private:
     Status _init_null_map_and_clear_columns(MutableColumnPtr& container, MutableColumnPtr& dst,
                                             size_t nrows);
 
+    Status _assemble_variant_v2(MutableColumnPtr& dst, size_t nrows, bool* has_null);
+    void _clear_read_columns();
+
     // process read
     template <typename ReadFunction>
-    Status process_read(ReadFunction&& read_func, MutableColumnPtr& dst, size_t nrows) {
+    Status process_read(ReadFunction&& read_func, MutableColumnPtr& dst, size_t requested_rows,
+                        bool allow_short_read, size_t* actual_rows, bool* has_null) {
+        const bool use_variant_v2 = _variant_v2_assembler != nullptr;
+        if (use_variant_v2) {
+            if (variant_v2::try_get_variant_v2_destination(*dst) == nullptr) {
+                return Status::InvalidArgument(
+                        "Variant V2 reader requires a ColumnVariantV2 destination");
+            }
+        } else {
+            IColumn* values = dst.get();
+            if (auto* nullable = check_and_get_column<ColumnNullable>(values)) {
+                values = &nullable->get_nested_column();
+            }
+            if (check_and_get_column<ColumnVariant>(values) == nullptr) {
+                return Status::InvalidArgument(
+                        "Variant V1 reader requires a ColumnVariant destination");
+            }
+        }
+
         dst = IColumn::mutate(std::move(dst));
-        // // Read all sub columns, and merge with root column
+        // Read all sub columns, and merge with root column.
         ColumnNullable* nullable_column = nullptr;
-        if (is_column_nullable(*dst)) {
+        if (!use_variant_v2 && is_column_nullable(*dst)) {
             nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
-        auto& variant = nullable_column == nullptr
-                                ? assert_cast<ColumnVariant&>(*dst)
-                                : assert_cast<ColumnVariant&>(nullable_column->get_nested_column());
-
-        // read data
-        // read root first if it is not read before
-        if (_root_reader) {
-            RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
+        ColumnVariant* variant = nullptr;
+        if (!use_variant_v2) {
+            variant = nullable_column == nullptr
+                              ? &assert_cast<ColumnVariant&>(*dst)
+                              : &assert_cast<ColumnVariant&>(nullable_column->get_nested_column());
         }
 
-        // read container columns
+        size_t observed_rows = 0;
+        bool has_observed_rows = false;
+        auto read_stream = [&](SubstreamIterator& reader, const PathInData& path,
+                               const DataTypePtr& type) -> Status {
+            bool ignored_physical_has_null = false;
+            RETURN_IF_ERROR(read_func(reader, path, type, &ignored_physical_has_null));
+            const size_t stream_rows = reader.column->size();
+            if (stream_rows > requested_rows ||
+                (!allow_short_read && stream_rows != requested_rows)) {
+                return Status::Corruption("Variant stream {} returned {} rows, expected {}",
+                                          path.get_path(), stream_rows, requested_rows);
+            }
+            if (has_observed_rows && stream_rows != observed_rows) {
+                return Status::Corruption(
+                        "Variant stream {} returned {} rows, previous streams returned {}",
+                        path.get_path(), stream_rows, observed_rows);
+            }
+            observed_rows = stream_rows;
+            has_observed_rows = true;
+            reader.rows_read += stream_rows;
+            return Status::OK();
+        };
+
+        // Read root first if it is not read before.
+        if (_root_reader) {
+            RETURN_IF_ERROR(read_stream(*_root_reader, {}, _root_reader->type));
+        }
+
+        // Read container columns.
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
-            RETURN_IF_ERROR(read_func(node.data, node.path, node.data.type));
+            RETURN_IF_ERROR(read_stream(node.data, node.path, node.data.type));
             return Status::OK();
         }));
 
-        // read sparse column
+        // Read sparse column.
         if (_binary_column_reader) {
             SCOPED_RAW_TIMER(&_stats->variant_scan_sparse_column_timer_ns);
             int64_t curr_size = _binary_column_reader->column->byte_size();
-            RETURN_IF_ERROR(read_func(*_binary_column_reader, {}, nullptr));
+            RETURN_IF_ERROR(read_stream(*_binary_column_reader, {}, nullptr));
             _stats->variant_scan_sparse_column_bytes +=
                     _binary_column_reader->column->byte_size() - curr_size;
         }
+        if (!has_observed_rows) {
+            return Status::InternalError("Variant hierarchical reader has no physical streams");
+        }
+
+        *actual_rows = observed_rows;
+        const size_t nrows = observed_rows;
+
+        if (use_variant_v2) {
+            RETURN_IF_ERROR(_assemble_variant_v2(dst, nrows, has_null));
+            _rows_read += nrows;
+            _clear_read_columns();
+            return Status::OK();
+        }
 
         MutableColumnPtr container;
-        RETURN_IF_ERROR(_init_container(container, nrows, variant.max_subcolumns_count(),
-                                        variant.enable_doc_mode()));
+        RETURN_IF_ERROR(_init_container(container, nrows, variant->max_subcolumns_count(),
+                                        variant->enable_doc_mode()));
         auto& container_variant = assert_cast<ColumnVariant&>(*container);
-        variant.insert_range_from(container_variant, 0, nrows);
+        variant->insert_range_from(container_variant, 0, nrows);
 
         _rows_read += nrows;
-        variant.finalize();
+        variant->finalize();
         RETURN_IF_ERROR(_init_null_map_and_clear_columns(container, dst, nrows));
+        if (has_null != nullptr) {
+            *has_null = dst->has_null(dst->size() - nrows, dst->size());
+        }
 #ifndef NDEBUG
-        variant.check_consistency();
+        variant->check_consistency();
 #endif
 
         return Status::OK();

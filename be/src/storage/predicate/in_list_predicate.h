@@ -58,6 +58,7 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
+
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -536,15 +537,16 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            // ptr_at safe: HybridSet::find consumes the pointer synchronously.
             ColumnElementView<Type> pred_col {*column};
-#define EVALUATE_WITH_NULL_IMPL(IDX) \
-    is_opposite ^ (!(*null_map)[IDX] && _operator(_values->find(pred_col.ptr_at(IDX)), false))
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
-    is_opposite ^ _operator(_values->find(pred_col.ptr_at(IDX)), false)
-            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
-#undef EVALUATE_WITH_NULL_IMPL
-#undef EVALUATE_WITHOUT_NULL_IMPL
+            auto with_null = [&](uint16_t idx) {
+                return is_opposite ^
+                       (!(*null_map)[idx] && _operator(_find_value(pred_col, idx), false));
+            };
+            auto without_null = [&](uint16_t idx) {
+                return is_opposite ^ _operator(_find_value(pred_col, idx), false);
+            };
+            evaluate_by_selector<is_nullable>(pred_col, size, sel, new_size, with_null,
+                                              without_null);
         }
         return new_size;
     }
@@ -592,7 +594,6 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            // ptr_at safe: HybridSet::find consumes the pointer synchronously.
             ColumnElementView<Type> view {*column};
             for (uint16_t i = 0; i < size; i++) {
                 if (is_and ^ flags[i]) {
@@ -607,7 +608,7 @@ private:
                         continue;
                     }
                 }
-                bool hit = _operator(_values->find(view.ptr_at(idx)), false);
+                bool hit = _operator(_find_value(view, idx), false);
                 if constexpr (!is_opposite) {
                     if (is_and ^ hit) {
                         flags[i] = !is_and;
@@ -627,6 +628,15 @@ private:
         }
         if (Compare::less(value, _min_value)) {
             _min_value = value;
+        }
+    }
+
+    ALWAYS_INLINE bool _find_value(const ColumnElementView<Type>& pred_col, size_t idx) const {
+        if constexpr (is_string_type(Type)) {
+            const auto value = pred_col.get_element(idx);
+            return _values->find(value.data, value.size);
+        } else {
+            return _values->find(pred_col.get_data() + idx, sizeof(T));
         }
     }
 

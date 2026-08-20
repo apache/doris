@@ -282,6 +282,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         set 'compress_type', 'gz'
         set 'group_commit', 'sync_mode'
         set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.001'
 
         time 10000 // limit inflight 10s
 

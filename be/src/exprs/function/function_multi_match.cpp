@@ -65,8 +65,12 @@ Status FunctionMultiMatch::evaluate_inverted_index(
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
     // type
-    auto query_type_value = arguments[0].column->get_data_at(0);
-    auto query_type = get_query_type(query_type_value.to_string());
+    Field query_type_value;
+    arguments[0].column->get(0, query_type_value);
+    if (query_type_value.is_null()) {
+        return Status::RuntimeError("query_type can not be NULL");
+    }
+    auto query_type = get_query_type(query_type_value.get<TYPE_STRING>());
     if (query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
         return Status::RuntimeError(
                 "parameter query type incorrect for function multi_match: query_type = {}",
@@ -74,7 +78,12 @@ Status FunctionMultiMatch::evaluate_inverted_index(
     }
 
     // query
-    auto query_str_ref = arguments[1].column->get_data_at(0);
+    Field query_str_value;
+    arguments[1].column->get(0, query_str_value);
+    if (query_str_value.is_null()) {
+        bitmap_result = segment_v2::InvertedIndexResultBitmap(roaring, null_bitmap);
+        return Status::OK();
+    }
     auto param_type = arguments[1].type->get_primitive_type();
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
@@ -82,7 +91,7 @@ Status FunctionMultiMatch::evaluate_inverted_index(
     }
     // search
     InvertedIndexParam param;
-    param.query_value = Field::create_field<TYPE_STRING>(query_str_ref.to_string());
+    param.query_value = query_str_value;
     param.query_type = query_type;
     param.num_rows = num_rows;
     for (size_t i = 0; i < data_type_with_names.size(); i++) {

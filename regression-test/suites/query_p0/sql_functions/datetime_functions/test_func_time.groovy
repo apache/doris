@@ -42,6 +42,7 @@ suite("test_func_time") {
     testFoldConst("select time(cast('2025-1-1 00:00:00.4321' as datetime(4)));")
     testFoldConst("select time(cast('2025-1-1 00:00:00.54321' as datetime(5)));")
     testFoldConst("select time(cast('2025-1-1 00:00:00.654321' as datetime(6)));")
+    testFoldConst("select maketime(1, 2, 3.9999995), maketime(1, 2, 59.9999995);")
 
     def tableName = "test_time_function"
 

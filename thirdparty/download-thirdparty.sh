@@ -23,6 +23,17 @@
 # Things will only be downloaded, unpacked and patched once.
 ################################################################
 
+# The shebang above only takes effect when this script is executed directly.
+# `sh download-thirdparty.sh` hands it to /bin/sh instead, which is dash on
+# Debian and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this
+# script is built on. It does not stop at the first of them either, it keeps
+# going and runs a mangled version of the script. Re-exec under bash so that the
+# way the script was invoked cannot decide whether the download works. Keep this
+# block POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -74,13 +85,30 @@ while [[ $# -gt 0 ]]; do
     )
 done
 if [[ "${SPEC_LIB}" != "" ]]; then
+    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
+    # package of its own: it has no build function, build_arrow_adbc() only copies
+    # the prebuilt driver out of it. Its name therefore never appears on a command
+    # line, so narrowing to the named entries alone leaves it unfetched and
+    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
+        SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
+    fi
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
 
 md5sum_bin='md5sum'
 if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
-    echo "Warn: md5sum is not installed"
+    # macOS ships BSD md5 rather than GNU md5sum. Giving up on verification there
+    # is not a neutral loss: `wget -O` creates its output file before the transfer,
+    # so a failed download leaves a 0-byte file behind, and an unverified retry
+    # then reports it as a valid cached archive and carries on.
+    md5sum_bin='md5'
+fi
+if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
+    echo "Warn: neither md5sum nor md5 is installed, archives will not be verified"
     md5sum_bin=""
 fi
 
@@ -92,13 +120,18 @@ md5sum_func() {
 
     if [[ "${md5sum_bin}" == "" ]]; then
         return 0
+    fi
+
+    # Compare the digest alone, the two tools disagree on everything around it.
+    if [[ "${md5sum_bin}" == 'md5' ]]; then
+        md5="$("${md5sum_bin}" -q "${DESC_DIR}/${FILENAME}")"
     else
-        md5="$(md5sum "${DESC_DIR}/${FILENAME}")"
-        if [[ "${md5}" != "${MD5SUM}  ${DESC_DIR}/${FILENAME}" ]]; then
-            echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
-            echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
-            return 1
-        fi
+        md5="$("${md5sum_bin}" "${DESC_DIR}/${FILENAME}" | awk '{ print $1 }')"
+    fi
+    if [[ "${md5}" != "${MD5SUM}" ]]; then
+        echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
+        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        return 1
     fi
     return 0
 }
@@ -334,6 +367,20 @@ echo "===== Patching thirdparty archives..."
 # This is to avoid duplicated patch.
 ###################################################################################
 PATCHED_MARK="patched_mark"
+ARROW_PAIMON_PATCH_FINGERPRINT_MARK="patched_mark_arrow_paimon_fingerprint"
+ARROW_PAIMON_BUILD_FINGERPRINT=""
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ||
+      " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
+    ARROW_PAIMON_BUILD_FINGERPRINT="$(arrow_paimon_build_fingerprint)"
+fi
+
+reset_arrow_paimon_source() {
+    local archive_name="$1"
+    local source_name="$2"
+    echo "Resetting ${source_name} because its patch state is incomplete or stale"
+    rm -rf "${TP_SOURCE_DIR:?}/${source_name}"
+    "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+}
 
 # glog patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
@@ -438,28 +485,42 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         fi
         cd -
     fi
-    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
-        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
+        arrow_fingerprint_mark="${TP_SOURCE_DIR}/${ARROW_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        if ! [[ -f "${TP_SOURCE_DIR}/${ARROW_SOURCE}/${PATCHED_MARK}" &&
+               -f "${arrow_fingerprint_mark}" ]] ||
+           [[ "$(<"${arrow_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
+            reset_arrow_paimon_source "${ARROW_NAME}" "${ARROW_SOURCE}"
+            cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-paimon.patch"
 
-            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
-            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+            # Introducing the parameter that forces writing INT96 timestamps for
+            # compatibility with the Doris Parquet writer.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-force-write-int96-timestamps.patch"
 
-            # apache-arrow-17.0.0-status-inline-static-fix.patch :
-            # Move Status::message()/detail() empty sentinels out of header
-            # inline function-local statics. Clang can place those weak inline
-            # std::string objects in RELRO, then crash while initializing them.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-status-inline-static-fix.patch"
-
+            # Add Parquet LZO page decompression support used by file scanner v2.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
+            printf '%s\n' "${ARROW_PAIMON_BUILD_FINGERPRINT}" \
+                >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+            cd -
         fi
-        cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
+fi
+
+# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
+# bridge needs no Maven. See the patch header for how to regenerate it.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ARROW_ADBC_SOURCE}"
 fi
 
 # patch librdkafka to avoid crash
@@ -486,6 +547,20 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC_DORIS " ]]; then
         cd -
     fi
     echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
+fi
+
+# patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
+# without changing ordinary dl_iterate_phdr callers.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUNWIND_SOURCE}"
 fi
 
 # patch hyperscan
@@ -721,17 +796,40 @@ fi
 
 # patch paimon-cpp
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
-    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
-            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
-        else
-            echo "Skip paimon-cpp patch: already applied or not applicable for current source"
-        fi
+    PAIMON_CPP_ARROW_24_PATCHED_MARK="patched_mark_arrow_24"
+    PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK="patched_mark_arrow_24_compute"
+    paimon_fingerprint_mark="${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    if ! [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PATCHED_MARK}" &&
+           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_PATCHED_MARK}" &&
+           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" &&
+           -f "${paimon_fingerprint_mark}" ]] ||
+       [[ "$(<"${paimon_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${PAIMON_CPP_NAME}" "${PAIMON_CPP_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch"
         touch "${PATCHED_MARK}"
+        touch "${PAIMON_CPP_ARROW_24_PATCHED_MARK}"
+        touch "${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}"
+        printf '%s\n' "${ARROW_PAIMON_BUILD_FINGERPRINT}" \
+            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        cd -
     fi
-    cd -
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
+fi
+
+# Patch lance-c for fragment-scoped nearest-neighbor search and row-ID-based fetching.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
+    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.6" ]]; then
+        cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.6-doris.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then

@@ -93,15 +93,18 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
-            auto submit_st = token->submit_func([tablet_id, tablet_calc_delete_bitmap_ptr, this]() {
-                auto st = tablet_calc_delete_bitmap_ptr->handle();
-                if (st.ok()) {
-                    add_succ_tablet_id(tablet_id);
-                } else {
-                    LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
-                    add_error_tablet_id(tablet_id, st);
-                }
-            });
+            const auto submit_time_us = MonotonicMicros();
+            auto submit_st = token->submit_func(
+                    [tablet_id, tablet_calc_delete_bitmap_ptr, this, submit_time_us]() {
+                        const auto queue_time_us = MonotonicMicros() - submit_time_us;
+                        auto st = tablet_calc_delete_bitmap_ptr->handle(queue_time_us);
+                        if (st.ok()) {
+                            add_succ_tablet_id(tablet_id);
+                        } else {
+                            LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
+                            add_error_tablet_id(tablet_id, st);
+                        }
+                    });
             VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
@@ -143,7 +146,7 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
     _ms_tablet_state = tablet_state;
 }
 
-Status CloudTabletCalcDeleteBitmapTask::handle() const {
+Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
                << ", txn_id=" << _transaction_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -154,6 +157,12 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     if (tablet == nullptr) {
         return Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
                 "can't get tablet when calculate delete bitmap. tablet_id={}", _tablet_id);
+    }
+    if (tablet->is_row_binlog_tablet()) {
+        VLOG_DEBUG << "skip calculating delete bitmap for row binlog tablet, tablet_id="
+                   << _tablet_id << ", txn_id=" << _transaction_id
+                   << ", it will be handled with its base tablet";
+        return Status::OK();
     }
     // After https://github.com/apache/doris/pull/50417, there may be multiple calc delete bitmap tasks
     // with different signatures on the same (txn_id, tablet_id) load in same BE. We use _rowset_update_lock
@@ -284,7 +293,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
     LOG(INFO) << "finish calculate delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
-              << ", tablet_id=" << tablet->tablet_id()
+              << ", tablet_id=" << tablet->tablet_id() << ", queue_time_us=" << queue_time_us
               << ", get_tablet_time_us=" << get_tablet_time_us
               << ", sync_rowset_time_us=" << sync_rowset_time_us
               << ", total_update_delete_bitmap_time_us=" << total_update_delete_bitmap_time_us
@@ -306,9 +315,10 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
     TxnPublishInfo previous_publish_info;
+    RowBinlogTxnInfo attach_row_binlog;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status, &previous_publish_info);
+            &partial_update_info, &publish_status, &previous_publish_info, &attach_row_binlog);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", " << txn_str
                      << ", status=" << status;
@@ -319,6 +329,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
     txn_info.delete_bitmap = delete_bitmap;
+    txn_info.attach_row_binlog = attach_row_binlog;
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;

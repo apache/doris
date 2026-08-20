@@ -68,7 +68,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private boolean keyColumnSampleTooManyRows = false;
     private boolean partitionColumnSampleTooManyRows = false;
-    private boolean scanFullTable = false;
     private static final long MAXIMUM_SAMPLE_ROWS = 1_000_000_000;
     public static final long NO_SKIP_TABLET_ID = -1;
 
@@ -123,16 +122,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         long tableRowCount = info.indexId == -1
                 ? tbl.getRowCount()
                 : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
-        getSampleParams(params, tableRowCount);
+        SampleCollectInfo collectInfo = getSampleCollectInfo(tableRowCount);
+        getSampleParams(params, tableRowCount, collectInfo);
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql;
-        if (useLinearAnalyzeTemplate()) {
-            sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
-        } else {
+        if (collectInfo.algorithm == AnalyzeSampleAlgorithm.DUJ1) {
             sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+        } else {
+            sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
         }
-        LOG.info("Analyze param: scanFullTable {}, partitionColumnTooMany {}, keyColumnTooMany {}",
-                scanFullTable, partitionColumnSampleTooManyRows, keyColumnSampleTooManyRows);
+        LOG.info("Analyze param: algorithm {}, partitionColumnTooMany {}, keyColumnTooMany {}",
+                collectInfo.algorithm, partitionColumnSampleTooManyRows, keyColumnSampleTooManyRows);
         LOG.debug(sql);
         runQuery(sql);
     }
@@ -234,9 +234,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             LOG.info("Add large tablet {} in table {} back, with rows {}",
                     largeTabletId, tbl.getName(), largeTabletRows);
         }
-        if (selectedRows < targetSampleRows) {
-            scanFullTable = true;
-        } else if (forPartitionColumn && selectedRows > MAXIMUM_SAMPLE_ROWS) {
+        // If sampled rows are not enough, the caller falls back to a full table scan.
+        if (forPartitionColumn && selectedRows > MAXIMUM_SAMPLE_ROWS) {
             // If the selected tablets for partition column contain too many rows, change to linear sample.
             partitionColumnSampleTooManyRows = true;
             sampleTabletIds.clear();
@@ -252,11 +251,57 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     /**
+     * Result of the sample analyze algorithm decision: the chosen algorithm and, when
+     * sampling is actually performed, the picked tablets used to build the {@code TABLET(...)}
+     * hint. Kept local to the sampling flow so the long-lived task holds no sampling state.
+     */
+    protected static class SampleCollectInfo {
+        public final AnalyzeSampleAlgorithm algorithm;
+        public final Pair<List<Long>, Long> sampleTablets;
+
+        public SampleCollectInfo(AnalyzeSampleAlgorithm algorithm, Pair<List<Long>, Long> sampleTablets) {
+            this.algorithm = algorithm;
+            this.sampleTablets = sampleTablets;
+        }
+    }
+
+    /**
+     * Decide which statistics algorithm to use and, when sampling is actually performed,
+     * collect the sample tablets. Call this before
+     * {@link #getSampleParams(Map, long, SampleCollectInfo)} so the params are always filled
+     * according to the algorithm used to pick the template.
+     */
+    protected SampleCollectInfo getSampleCollectInfo(long tableRowCount) {
+        // Debug point used by tests to force the DUJ1 algorithm. Check it before the
+        // row-count based FULL decision so tests are not affected by BE row count report
+        // timing (e.g. a small table whose row count is not fully reported yet).
+        if (DebugPointUtil.isEnable("OlapAnalysisTask.useDUJ1Template")) {
+            return new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1, getSampleTablets());
+        }
+        long targetSampleRows = getSampleRows();
+        // If table row count is less than the target sample row count, simple scan the full table.
+        if (tableRowCount <= targetSampleRows) {
+            return new SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null);
+        }
+        Pair<List<Long>, Long> sampleTablets = getSampleTablets();
+        if (sampleTablets.second < targetSampleRows) {
+            // Sampled tablets contain too few rows, fall back to a full table scan.
+            return new SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null);
+        }
+        if (useLinearAnalyzeTemplate()) {
+            return new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR, sampleTablets);
+        }
+        return new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1, sampleTablets);
+    }
+
+    /**
      * Get the sql params for this sample task.
      * @param params Sql params to use in analyze task.
      * @param tableRowCount BE reported table/index row count.
+     * @param info The analyze algorithm decision from {@link #getSampleCollectInfo(long)}.
      */
-    protected void getSampleParams(Map<String, String> params, long tableRowCount) {
+    protected void getSampleParams(Map<String, String> params, long tableRowCount,
+            SampleCollectInfo info) {
         long targetSampleRows = getSampleRows();
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
@@ -270,44 +315,51 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("preAggHint", "/*+PREAGGOPEN*/");
         }
 
-        // If table row count is less than the target sample row count, simple scan the full table.
-        if (tableRowCount <= targetSampleRows) {
+        // If the algorithm is FULL (table too small or sampled rows not enough), scan the full table.
+        if (info.algorithm == AnalyzeSampleAlgorithm.FULL) {
             params.put("scaleFactor", "1");
             params.put("sampleHints", "");
-            params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
             // For full table scan, use COUNT(1) for table row count.
             params.put("rowCount", "COUNT(1)");
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
-            scanFullTable = true;
-            return;
-        }
-        Pair<List<Long>, Long> sampleTabletsInfo = getSampleTablets();
-        String tabletStr = sampleTabletsInfo.first.stream()
-                .map(Object::toString)
-                .collect(Collectors.joining(", "));
-        String sampleHints = scanFullTable ? "" : String.format("TABLET(%s)", tabletStr);
-        params.put("sampleHints", sampleHints);
-        long selectedRows = sampleTabletsInfo.second;
-        long finalScanRows = selectedRows;
-        double scaleFactor = scanFullTable ? 1 : (double) tableRowCount / finalScanRows;
-        params.put("scaleFactor", String.valueOf(scaleFactor));
+        } else {
+            String tabletStr = info.sampleTablets.first.stream()
+                    .map(Object::toString)
+                    .collect(Collectors.joining(", "));
+            params.put("sampleHints", String.format("TABLET(%s)", tabletStr));
+            long selectedRows = info.sampleTablets.second;
+            long finalScanRows = selectedRows;
+            double scaleFactor = (double) tableRowCount / finalScanRows;
+            params.put("scaleFactor", String.valueOf(scaleFactor));
 
-        // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
-        // the scaleFactor.
-        if (needLimit()) {
-            finalScanRows = Math.min(targetSampleRows, selectedRows);
-            if (col.isKey() && keyColumnSampleTooManyRows) {
-                finalScanRows = MAXIMUM_SAMPLE_ROWS;
-            }
-            // Empty table doesn't need to limit.
-            if (finalScanRows > 0) {
-                scaleFactor = (double) tableRowCount / finalScanRows;
-                params.put("limit", "limit " + finalScanRows);
-                params.put("scaleFactor", String.valueOf(scaleFactor));
+            // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
+            // the scaleFactor.
+            if (needLimit()) {
+                finalScanRows = Math.min(targetSampleRows, selectedRows);
+                if (col.isKey() && keyColumnSampleTooManyRows) {
+                    finalScanRows = MAXIMUM_SAMPLE_ROWS;
+                }
+                // Empty table doesn't need to limit.
+                if (finalScanRows > 0) {
+                    scaleFactor = (double) tableRowCount / finalScanRows;
+                    params.put("limit", "limit " + finalScanRows);
+                    params.put("scaleFactor", String.valueOf(scaleFactor));
+                }
             }
         }
-        // Set algorithm related params.
-        if (useLinearAnalyzeTemplate()) {
+        setSampleParamsByAlgorithm(params, tableRowCount, info.algorithm);
+    }
+
+    /**
+     * Set the algorithm related params. Must be called with the same algorithm that the
+     * caller uses to pick the template, so the params always match the template.
+     */
+    protected void setSampleParamsByAlgorithm(Map<String, String> params, long tableRowCount,
+            AnalyzeSampleAlgorithm algorithm) {
+        if (algorithm == AnalyzeSampleAlgorithm.DUJ1) {
+            params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
+            params.put("dataSizeFunction", getDataSizeFunction(col, true));
+            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
+        } else {
             params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             // For single unique key, use count as ndv.
             if (isSingleUniqueKey()) {
@@ -315,10 +367,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             } else {
                 params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
             }
-        } else {
-            params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
-            params.put("dataSizeFunction", getDataSizeFunction(col, true));
-            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         }
     }
 
@@ -368,7 +416,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             if (partition == null) {
                 columnStats.partitionUpdateRows.remove(partId);
                 tableStats.partitionUpdateRows.remove(partId);
-                jobInfo.partitionUpdateRows.remove(partId);
+                // Skip the write when the task is cancelled: the job may already be in a
+                // terminal state and have cleared the shared map, so no write should touch
+                // it afterwards (a remove is a no-op on the cleared map, but keep the
+                // invariant that cancelled tasks never write to the shared map).
+                if (!killed) {
+                    jobInfo.partitionUpdateRows.remove(partId);
+                }
                 expiredPartition.add(partId);
                 if (expiredPartition.size() == Config.max_allowed_in_element_num_of_delete) {
                     String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";
@@ -504,9 +558,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * @return Return true when need to limit.
      */
     protected boolean needLimit() {
-        if (scanFullTable) {
-            return false;
-        }
         // Key column is sorted, use limit will cause the ndv not accurate enough, so skip key columns.
         if (col.isKey() && !keyColumnSampleTooManyRows) {
             return false;
@@ -537,7 +588,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (DebugPointUtil.isEnable("OlapAnalysisTask.useDUJ1Template")) {
             return false;
         }
-        if (partitionColumnSampleTooManyRows || scanFullTable) {
+        if (partitionColumnSampleTooManyRows) {
             return true;
         }
         if (isSingleUniqueKey()) {
@@ -589,15 +640,5 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @VisibleForTesting
     public void setPartitionColumnSampleTooManyRows(boolean value) {
         partitionColumnSampleTooManyRows = value;
-    }
-
-    @VisibleForTesting
-    public void setScanFullTable(boolean value) {
-        scanFullTable = value;
-    }
-
-    @VisibleForTesting
-    public boolean scanFullTable() {
-        return scanFullTable;
     }
 }

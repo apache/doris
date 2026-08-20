@@ -257,7 +257,9 @@ public class SchemaTable extends Table {
                             .column("INDEX_TYPE", ScalarType.createVarchar(16))
                             .column("COMMENT", ScalarType.createVarchar(16))
                             // for datagrip
-                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024)).build()))
+                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024))
+                            .column("IS_VISIBLE", ScalarType.createVarchar(3))
+                            .column("EXPRESSION", ScalarType.createVarchar(1024)).build()))
             // Compatible with mysql for mysqldump
             .put("column_statistics",
                     new SchemaTable(SystemIdGenerator.getNextId(), "column_statistics", TableType.SCHEMA,
@@ -706,6 +708,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("COMPUTE_GROUP", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
             .put("load_jobs",
@@ -862,6 +865,14 @@ public class SchemaTable extends Table {
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
                             .build()))
+            .put("extensions",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "extensions", TableType.SCHEMA,
+                        builder().column("EXTENSION_NAME", ScalarType.createStringType())
+                            .column("EXTENSION_TYPE", ScalarType.createStringType())
+                            .column("EXTENSION_VERSION", ScalarType.createStringType())
+                            .column("SOURCE", ScalarType.createStringType())
+                            .column("DESCRIPTION", ScalarType.createStringType())
+                            .build()))
             .put("table_streams",
                     new SchemaTable(SystemIdGenerator.getNextId(), "table_streams", TableType.SCHEMA,
                             builder().column("DB_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
@@ -888,6 +899,16 @@ public class SchemaTable extends Table {
                             .column("LAG", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("LAST_CONSUMPTION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("tso_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "tso_status", TableType.SCHEMA,
+                            builder().column("WINDOW_END_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_LOGICAL_COUNTER",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
                             builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))

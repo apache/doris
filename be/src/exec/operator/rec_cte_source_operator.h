@@ -158,16 +158,14 @@ private:
 //   │ final_close (=4)                   │
 //   │  • listen_wait_close(guard,        │
 //   │    need_send_report = true)        │
-//   │  • notify_close() on PFC           │
 //   │  • send final status report        │
-//   │  • clean up completely             │
+//   │  • remove saved rerunnable params  │
+//   │  • notify_close() on PFC           │
 //   └──────────────┬─────────────────────┘
 //                  │
 //                  ▼
 //   ┌────────────────────────────────────┐
 //   │       Fragment Destroyed           │
-//   │  rerunnable_params removed on      │
-//   │  query end                         │
 //   └────────────────────────────────────┘
 //
 class RecCTESourceOperatorX : public OperatorX<RecCTESourceLocalState> {
@@ -206,7 +204,7 @@ public:
     bool is_serial_operator() const override { return true; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::NOOP};
+        return {TLocalPartitionType::NOOP};
     }
 
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
@@ -325,5 +323,8 @@ private:
 
     bool _is_used_by_other_rec_cte = false;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXLocalState<RecCTESharedState>;
 
 } // namespace doris

@@ -67,6 +67,7 @@ public:
     size_t get_lru_queue_update_cnt_from_last_dump(FileCacheType type);
     void reset_lru_queue_update_cnt_from_last_dump(FileCacheType type);
     size_t lru_log_queue_size(FileCacheType type) const;
+    void update_shadow_queue_element_count_metrics();
 
     CacheLRULogQueue& get_lru_log_queue(FileCacheType type);
     LRUQueue& get_shadow_queue(FileCacheType type);
@@ -92,6 +93,9 @@ private:
 
     bool reserve_lru_log_queue_slot(FileCacheType type);
     void release_lru_log_queue_slot(FileCacheType type);
+    void limit_shadow_queue_size(LRUQueue& shadow_queue, std::lock_guard<std::mutex>& lru_log_lock);
+    void update_shadow_queue_element_count_metrics_unlocked(
+            std::lock_guard<std::mutex>& lru_log_lock);
 };
 
 } // namespace doris::io

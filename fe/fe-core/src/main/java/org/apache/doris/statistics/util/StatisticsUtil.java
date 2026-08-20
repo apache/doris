@@ -54,9 +54,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -78,7 +76,6 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
@@ -90,11 +87,6 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.TableScan;
-import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,17 +102,11 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 public class StatisticsUtil {
     private static final Logger LOG = LogManager.getLogger(StatisticsUtil.class);
-
-    private static final String TOTAL_SIZE = "totalSize";
-    private static final String NUM_ROWS = "numRows";
-    private static final String SPARK_NUM_ROWS = "spark.sql.statistics.numRows";
-    private static final String SPARK_TOTAL_SIZE = "spark.sql.statistics.totalSize";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     public static final int UPDATED_PARTITION_THRESHOLD = 3;
@@ -521,124 +507,6 @@ public class StatisticsUtil {
         return format.format(new Date(timeInMs));
     }
 
-    /**
-     * Estimate hive table row count.
-     * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
-     *
-     * @param table Hive HMSExternalTable to estimate row count.
-     * @return estimated row count
-     */
-    public static long getHiveRowCount(HMSExternalTable table) {
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (parameters == null) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        // Table parameters contains row count, simply get and return it.
-        long rows = getRowCountFromParameters(parameters);
-        if (rows > 0) {
-            LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
-            return rows;
-        }
-        if (!parameters.containsKey(TOTAL_SIZE) && !parameters.containsKey(SPARK_TOTAL_SIZE)) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
-        long totalSize = parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE))
-                : Long.parseLong(parameters.get(SPARK_TOTAL_SIZE));
-        long estimatedRowSize = 0;
-        for (Column column : table.getFullSchema()) {
-            estimatedRowSize += column.getDataType().getSlotSize();
-        }
-        if (estimatedRowSize == 0) {
-            LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        rows = totalSize / estimatedRowSize;
-        LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
-                rows, table.getName(), totalSize, estimatedRowSize);
-        return rows;
-    }
-
-    private static long getRowCountFromParameters(Map<String, String> parameters) {
-        if (parameters == null) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        // Table parameters contains row count, simply get and return it.
-        if (parameters.containsKey(NUM_ROWS)) {
-            long rows = Long.parseLong(parameters.get(NUM_ROWS));
-            if (rows <= 0 && parameters.containsKey(SPARK_NUM_ROWS)) {
-                rows = Long.parseLong(parameters.get(SPARK_NUM_ROWS));
-            }
-            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
-            if (rows > 0) {
-                return rows;
-            }
-        }
-        return TableIf.UNKNOWN_ROW_COUNT;
-    }
-
-    /**
-     * Get total size parameter from HMS.
-     * @param table Hive HMSExternalTable to get HMS total size parameter.
-     * @return Long value of table total size, return 0 if not found.
-     */
-    public static long getTotalSizeFromHMS(HMSExternalTable table) {
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (parameters == null) {
-            return 0;
-        }
-        return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
-    }
-
-    /**
-     * Get Iceberg column statistics.
-     *
-     * @param colName
-     * @param table Iceberg table.
-     * @return Optional Column statistic for the given column.
-     */
-    public static Optional<ColumnStatistic> getIcebergColumnStats(String colName, org.apache.iceberg.Table table) {
-        TableScan tableScan = table.newScan().includeColumnStats();
-        double totalDataSize = 0;
-        double totalDataCount = 0;
-        double totalNumNull = 0;
-        try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
-            for (FileScanTask task : fileScanTasks) {
-                int colId = getColId(task.spec(), colName);
-                totalDataSize += task.file().columnSizes().get(colId);
-                totalDataCount += task.file().recordCount();
-                totalNumNull += task.file().nullValueCounts().get(colId);
-            }
-        } catch (IOException e) {
-            LOG.warn("Error to close FileScanTask.", e);
-        }
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(totalDataCount);
-        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-        columnStatisticBuilder.setDataSize(totalDataSize);
-        columnStatisticBuilder.setAvgSizeByte(0);
-        columnStatisticBuilder.setNumNulls(totalNumNull);
-        if (columnStatisticBuilder.getCount() > 0) {
-            columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
-                    / columnStatisticBuilder.getCount());
-        }
-        return Optional.of(columnStatisticBuilder.build());
-    }
-
-    private static int getColId(PartitionSpec partitionSpec, String colName) {
-        int colId = -1;
-        for (Types.NestedField column : partitionSpec.schema().columns()) {
-            if (column.name().equals(colName)) {
-                colId = column.fieldId();
-                break;
-            }
-        }
-        if (colId == -1) {
-            throw new RuntimeException(String.format("Column %s not exist.", colName));
-        }
-        return colId;
-    }
-
     public static boolean isUnsupportedType(Type type) {
         if (ColumnStatistic.UNSUPPORTED_TYPE.contains(type)) {
             return true;
@@ -996,17 +864,14 @@ public class StatisticsUtil {
             return true;
         }
 
-        // Support Iceberg table
-        if (table instanceof IcebergExternalTable) {
+        // Support flipped plugin-driven external tables whose connector declares column auto-analyze
+        // (post-cutover iceberg/paimon). Additive to the legacy arms above so pre-cutover behavior is
+        // unchanged; the capability replaces the legacy iceberg-class discrimination once flipped.
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsColumnAutoAnalyze()) {
             return true;
         }
 
-        // Support HMS table (only HIVE and ICEBERG types)
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            DLAType dlaType = hmsTable.getDlaType();
-            return dlaType.equals(DLAType.HIVE) || dlaType.equals(DLAType.ICEBERG);
-        }
         return false;
     }
 
@@ -1213,10 +1078,11 @@ public class StatisticsUtil {
      * Used by shuffle key prune and skew detection rules.
      * Returns false when hotValues is null (not collected) or empty (collected but no hot values).
      */
-    public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount) {
+    public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount,
+            boolean strictWhenHotValueUnknow) {
         Map<Literal, Float> hotValues = columnStatistic.getHotValues();
         if (hotValues == null) {
-            return true;
+            return strictWhenHotValueUnknow;
         }
         return columnStatistic.numNulls / rowCount > minRatio
                 || hotValues.values().stream().anyMatch(ratio -> ratio >= minRatio);
@@ -1226,6 +1092,6 @@ public class StatisticsUtil {
             double rowCount) {
         double ndv = columnStatistic.ndv;
         return ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
-                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount);
+                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount, true);
     }
 }
