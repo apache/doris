@@ -23,8 +23,6 @@ on:
     branches:
       - master
   workflow_dispatch:
-  issue_comment:
-    types: [ created ]
 
 permissions:
   contents: read
@@ -36,11 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'pull_request') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
-      (github.event_name == 'issue_comment' &&
-       github.event.comment.body == 'run buildall' &&
-       github.actor == 'doris-robot' &&
-       github.event.issue.user.login == 'github-actions[bot]')
+      (github.event_name == 'push' && github.ref == 'refs/heads/master')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v7

@@ -30,6 +30,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/transform/partial_update_fill.h"
+#include "storage/transform/row_binlog_derive.h"
 #include "util/jsonb/serialize.h"
 
 namespace doris::segment_v2 {
@@ -187,9 +188,19 @@ BlockTransformChain build_transform_chain(const RowsetWriterContext& context) {
         return BlockTransformChain {};
     }
     if (context.write_binlog_opt().enable) {
-        // RowBinlogSegmentWriter still derives the binlog rows itself, so its
-        // chain stays empty until that derivation moves in here.
-        return BlockTransformChain {};
+        if (context.write_type != DataWriteType::TYPE_DIRECT) {
+            return BlockTransformChain {};
+        }
+        // binlog<row> sub-writer: only the source -> binlog-schema derivation.
+        // No parse or row-store stage is needed: FE rejects a VARIANT column on
+        // a binlog<row> table, and the hidden row-store column is a hidden
+        // non-key column, which the binlog schema drops. Plain (no probe) for
+        // DUP and no-BEFORE upserts; MoW (with probe) for partial update or the
+        // BEFORE image.
+        if (binlog_needs_historical_lookup(context)) {
+            return BlockTransformChain {{std::make_shared<MowRowBinlogDeriveStage>()}};
+        }
+        return BlockTransformChain {{std::make_shared<PlainRowBinlogDeriveStage>()}};
     }
     std::vector<std::shared_ptr<const BlockTransform>> stages;
     stages.push_back(std::make_shared<ValidateStage>());
