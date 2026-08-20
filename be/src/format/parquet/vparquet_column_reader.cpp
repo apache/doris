@@ -41,6 +41,7 @@
 #include "format/table/iceberg_default_value.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_profile.h"
+#include "util/defer_op.h"
 
 namespace doris {
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
@@ -543,6 +544,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         DCHECK_EQ(resolved_column.get(), doris_column.get());
         resolved_column = std::move(doris_column);
     }
+    // When reading directly into the dst column, doris_column has been moved out above and
+    // is only given back by _converter->convert() on the success path. If reading fails in
+    // between (e.g. EndOfFile returned when the query is cancelled), doris_column would stay
+    // nullptr. For nested readers doris_column aliases an inner sub-column (such as
+    // ColumnArray::data), so a nullptr here breaks the column invariant and crashes later in
+    // Block::clear_column_data() -> ColumnArray::is_exclusive(). Always move it back.
+    DEFER(if (doris_column.get() == nullptr && resolved_column.get() != nullptr) {
+        doris_column = std::move(resolved_column);
+    });
     DataTypePtr& resolved_type = _converter->get_physical_type();
 
     _def_levels.clear();
