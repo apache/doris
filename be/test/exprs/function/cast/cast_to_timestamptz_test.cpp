@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_test.h"
