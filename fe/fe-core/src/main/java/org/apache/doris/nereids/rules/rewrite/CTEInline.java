@@ -141,7 +141,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
     }
 
     /**
-     * Return true if the CTE producer's subtree is a LogicalOneRowRelation and its 
+     * Return true if the CTE producer's subtree is a LogicalOneRowRelation and its
      * final output slots are all compile-time constants.
      */
     private static boolean isConstantOneRowProducer(Plan producerRoot) {
