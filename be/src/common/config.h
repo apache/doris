@@ -1633,6 +1633,22 @@ DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
 DECLARE_mInt64(s3_rate_limiter_log_interval);
+
+// CPU-aware S3 rate limiter: GET/PUT QPS per CPU core. A negative value means unset and
+// falls back to the legacy absolute token configs above; 0 disables QPS limiting.
+DECLARE_mInt64(s3_get_requests_per_second_per_core);
+DECLARE_mInt64(s3_put_requests_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_requests_per_second_max);
+DECLARE_mInt64(s3_put_requests_per_second_max);
+// GET/PUT bytes per second per CPU core. A non-positive value disables byte-rate limiting.
+DECLARE_mInt64(s3_get_bytes_per_second_per_core);
+DECLARE_mInt64(s3_put_bytes_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_bytes_per_second_max);
+DECLARE_mInt64(s3_put_bytes_per_second_max);
+// Override for cores used to derive effective limits: a non-positive value means auto-detect.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
