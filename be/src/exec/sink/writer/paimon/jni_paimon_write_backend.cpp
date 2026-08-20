@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 
+#include <arrow/buffer.h>
 #include <arrow/c/bridge.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
