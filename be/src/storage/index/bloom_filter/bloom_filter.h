@@ -27,6 +27,8 @@
 #include <memory>
 
 #include "common/status.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "util/hash/murmur_hash3.h"
 
 namespace doris::segment_v2 {
@@ -89,7 +91,7 @@ public:
                 g_read_bloom_filter_num << -1;
             }
             g_total_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
-            delete[] _data;
+            _allocator.free(_data, _size);
         }
         g_total_bloom_filter_num << -1;
     }
@@ -112,8 +114,8 @@ public:
         _num_bytes = filter_size;
         DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
         _size = _num_bytes + 1;
-        // reserve last byte for null flag
-        _data = new char[_size];
+        DCHECK(_data == nullptr);
+        _data = reinterpret_cast<char*>(_allocator.alloc(_size));
         memset(_data, 0, _size);
         _has_null = (bool*)(_data + _num_bytes);
         *_has_null = false;
@@ -142,7 +144,8 @@ public:
         if (((size - 1) & (size - 2)) != 0) {
             return Status::InvalidArgument("size - 1 must be power of two");
         }
-        _data = new char[size];
+        DCHECK(_data == nullptr);
+        _data = reinterpret_cast<char*>(_allocator.alloc(size));
         memcpy(_data, buf, size);
         _size = size;
         _num_bytes = _size - 1;
@@ -239,6 +242,7 @@ protected:
     bool _is_write = false;
 
     std::function<void(const void*, const int64_t, const uint64_t, void*)> _hash_func;
+    Allocator<false> _allocator;
 };
 
 } // namespace doris::segment_v2
