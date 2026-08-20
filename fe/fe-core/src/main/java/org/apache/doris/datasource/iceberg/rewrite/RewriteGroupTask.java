@@ -125,9 +125,10 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             return;
         }
 
+        ConnectContext taskConnectContext = null;
         try {
             // Step 1: Create and customize a new ConnectContext for this task
-            ConnectContext taskConnectContext = buildConnectContext();
+            taskConnectContext = buildConnectContext();
             // Set target file size for Iceberg write
             taskConnectContext.getSessionVariable().setIcebergWriteTargetFileSizeBytes(targetFileSizeBytes);
             // Custom file scan tasks for rewrite operations
@@ -160,7 +161,14 @@ public class RewriteGroupTask implements TransientTaskExecutor {
 
             throw new JobException("Rewrite group execution failed: " + e.getMessage(), e);
         } finally {
-            isFinished.set(true);
+            try {
+                if (taskConnectContext != null && taskConnectContext.getStatementContext() != null) {
+                    taskConnectContext.getStatementContext().close();
+                }
+            } finally {
+                ConnectContext.remove();
+                isFinished.set(true);
+            }
         }
     }
 
