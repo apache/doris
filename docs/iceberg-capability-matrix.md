@@ -10,7 +10,7 @@
 - Databricks Unity Catalog 的 Iceberg REST Catalog；
 - Azure ADLS `abfss` 数据位置；
 - Databricks OAuth 与 vended credentials；
-- 2026-08-20 的本地 ASAN 构建和本 PR 当前工作树。
+- 2026-08-20 至 2026-08-21 的本地 ASAN 构建和本 PR 当前工作树。
 
 当前可以确认：Doris 已能通过 Databricks REST Catalog 获取 vended Azure 凭据，并使用 Hadoop ABFS reader 读写 Iceberg 表。Catalog、namespace、表发现、snapshot time travel、基本查询，以及 `INSERT`、`INSERT OVERWRITE`、format v3 `DELETE`、`UPDATE` 和 `MERGE INTO` 均已在隔离测试表跑通。
 
@@ -51,7 +51,7 @@
 | Position delete | E2E / REG / TODO | Azure v3 表的 `$position_deletes` 返回 3 条 Puffin deletion-vector 位置记录，`file_path`/`delete_file_path` 均为 `abfss://`；`test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 传统 v2 Parquet position-delete 文件仍需在兼容的远端表上验证 |
 | Equality delete | REG / TODO | `test_iceberg_equality_delete*.groovy` | 验证 schema evolution 后 equality delete 仍正确 |
 | Deletion vector / row lineage | E2E / REG | format v3 表先执行 `DELETE` 产生 DV，再执行 `UPDATE`、`MERGE INTO` 和 `$position_deletes` 读取，均正确处理已有 DV；deletion-vector 和 v3 row-lineage suites | 增加多 DV、并发提交和大批量删除场景 |
-| Iceberg system tables | E2E / REG / TODO | `$snapshots`、`$refs`、`$position_deletes` 可读；`$files` 在 Azure 表上因缺少 `org.apache.iceberg.azure.adlsv2.ADLSFileIO` 失败；`test_iceberg_sys_table*.groovy` | 补齐 Azure Iceberg system-table 插件依赖后验证 files、manifests、partitions |
+| Iceberg system tables | E2E / REG / TODO | `$snapshots`、`$refs`、`$position_deletes` 和 `$files` 可读；`$files` 返回 Parquet 数据文件及 Puffin 删除文件；`test_iceberg_sys_table*.groovy` | 继续验证 manifests、partitions |
 | `SHOW CREATE TABLE/DATABASE` | E2E / CODE / REG | `SUPPORTS_SHOW_CREATE_DDL`；当前 `SHOW CREATE TABLE` 返回 Iceberg LOCATION/PROPERTIES，未出现 OAuth token 或 SAS；`test_iceberg_show_create.groovy` | 单独验证 `SHOW CREATE DATABASE` 和敏感属性过滤 |
 | View | CODE / REG / TODO | `SUPPORTS_VIEW` | Databricks REST Catalog 是否暴露 view，需要单独确认 |
 | Metadata preload | CODE | `SUPPORTS_METADATA_PRELOAD` | 这是并发/锁延迟优化，不作为第一批功能 E2E |
@@ -65,7 +65,7 @@
 
 | 操作 | 当前状态 | 证据 |
 | --- | --- | --- |
-| `INSERT` | E2E / REG | `matrix_write_20260820` 通过 `VALUES` 写入 `id=13`、通过 `INSERT ... SELECT` 写入 `id=22`；保留的 v3 Azure 表 `matrix_dml_v3_20260820` 再写入 `(9001, 'insert_e2e_2304', 2304)`，按主键查询均得到完整行。 |
+| `INSERT` | E2E / REG | `matrix_write_20260820` 通过 `VALUES` 写入 `id=13`、通过 `INSERT ... SELECT` 写入 `id=22`；保留的 v3 Azure 表 `matrix_dml_v3_20260820` 还验证了 `id=9001`，以及修复后用 `VALUES` 写入 `id=99001`、用 `INSERT ... SELECT` 写入 `id=99002`，按主键查询均得到完整行。 |
 | `INSERT OVERWRITE` | E2E / REG | 同一隔离表 overwrite 后仅保留 `id=20/21`，结果符合替换语义。 |
 | `DELETE` | E2E / REG | format v3 表删除 `id=2` 后仅剩 `id=1/3`；format v2 被远端按“delete files 需要 v3”拒绝，属于表格式前置条件。 |
 | `UPDATE` | E2E / UT / REG | 新表 UPDATE 通过；已有 DELETE DV 的 `matrix_dml_v3_20260820` 更新 `id=1` 后得到 `alice_after_fix/28`。 |
@@ -75,6 +75,8 @@
 第一次在已有 v3 DV 上执行 `UPDATE`/`MERGE INTO` 时，BE 的 DV reader 退化为打开空 authority 的 `hdfs://`。普通 scan range 会单独携带 `fs_name`，但 sink 侧 DV helper 只能从 Hadoop 配置读取 `fs.defaultFS`；Databricks vended SAS 配置只包含 account，不包含 container，因此此前没有该键。本 PR 从实际数据位置提取 `abfss://container@account.dfs.core.windows.net` 写入 `fs.defaultFS`，新增 FE 单元测试，并用上述 DELETE -> UPDATE -> MERGE E2E 顺序验证修复。
 
 `$position_deletes` 的 native range 还需要显式携带 BE file type。此前 FE 没有把 Azure `abfss` 的 `FILE_HDFS` 传给 BE，`LocationPath` 默认按 S3 路由，导致 Puffin 文件报 `Invalid S3 URI`。现在 FE 按表位置和本次 vended token 解析 backend file type 写入每个 range；同一 Azure 表的 `$position_deletes` 已返回 3 条 DV 位置记录。
+
+`$files` 的 metadata scanner 通过父优先的 JNI classloader 使用共享 preload jar 中的 Iceberg 类。此前 Azure `ADLSFileIO` 只存在于 FE 依赖，BE scanner 和 preload jar 都没有打包该实现，运行时因此报 `ClassNotFoundException`。现在两个 BE 扩展均显式打包 Iceberg Azure FileIO；类路径单元测试和本地 E2E 均通过，写入后 `$files` 仍能列出新增数据文件。
 
 本轮保留了 `matrix_write_20260820`、`matrix_dml_v3_20260820`、`matrix_update_fresh_20260820` 和 `matrix_merge_fresh_20260820` 供复查，没有修改或清理现有 `managed_iceberg`。
 
@@ -124,7 +126,7 @@ remove_orphan_files
 
 为了不污染现有 Catalog，下一轮按下面顺序执行：
 
-1. 只读：position/equality delete，以及修复 Azure 依赖后的 system tables；静态/运行时 identity partition pruning 和 STRUCT/ARRAY/MAP nested pruning 已有 E2E 证据。
+1. 只读：传统 v2 position delete、equality delete，以及尚未覆盖的 manifests/partitions system tables；静态/运行时 identity partition pruning 和 STRUCT/ARRAY/MAP nested pruning 已有 E2E 证据。
 2. DDL：在独立 namespace 验证 schema evolution、partition evolution、branch/tag。
 3. 写入扩展：验证分区表、多 DV、并发提交和失败重试。
 4. 管理：最后验证 `EXECUTE` 操作，并在每一步保存 snapshot/metadata 结果。
