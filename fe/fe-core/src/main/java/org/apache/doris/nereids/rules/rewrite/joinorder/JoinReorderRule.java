@@ -106,12 +106,13 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
             Void context) {
         JoinCluster cluster = new JoinCluster(root.getOutput());
 
-        collectCluster(root, cluster, context);
+        // context没用，需要删除一下哈
+        collectAtomsAndPredicates(root, cluster, context);
         Plan res = reorder(cluster);
         return res == null ? root : res;
     }
 
-    private void collectCluster(
+    private void collectAtomsAndPredicates(
             Plan plan,
             JoinCluster cluster,
             Void context) {
@@ -122,8 +123,8 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
             cluster.addPredicates(join.getHashJoinConjuncts());
             cluster.addPredicates(join.getOtherJoinConjuncts());
 
-            collectCluster(join.left(), cluster, context);
-            collectCluster(join.right(), cluster, context);
+            collectAtomsAndPredicates(join.left(), cluster, context);
+            collectAtomsAndPredicates(join.right(), cluster, context);
             return;
         }
         if (plan instanceof LogicalProject
@@ -137,7 +138,7 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
              * Project 的列裁剪和输出顺序由 cluster root 上的
              * restoreOutputProject 统一恢复。
              */
-            collectCluster(project.child(), cluster, context);
+            collectAtomsAndPredicates(project.child(), cluster, context);
             return;
         }
 
