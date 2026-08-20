@@ -64,7 +64,11 @@ public class PaimonUtils {
 
     public static PaimonSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable,
             PaimonSnapshotCacheValue snapshotValue) {
-        if (snapshotValue.getTableGeneration() > 0L) {
+        if (snapshotValue.getSnapshot().getTable() != null) {
+            // Generation-zero fences (latest-fence loads, pinned historical projections) still
+            // retain the exact physical table; schema history must be read from that handle.
+            // Resolving by name could bind a same-name recreation's schema ids to this scan.
+            // The generation-zero path performs an authenticated uncached load.
             return paimonExternalMetaCache(dorisTable).getPaimonSchemaCacheValue(
                     dorisTable.getOrBuildNameMapping(), snapshotValue.getSnapshot().getSchemaId(),
                     snapshotValue.getTableGeneration(), snapshotValue.getSnapshot().getTable());

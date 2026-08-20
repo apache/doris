@@ -451,6 +451,40 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testGenerationZeroFenceResolvesSchemaFromRetainedTable() {
+        // Latest-fence loads and pinned historical projections leave the generation at zero but
+        // retain the exact physical table. A same-name recreation may reuse schema ids, so the
+        // schema must be read from the retained handle instead of a fresh base-table load.
+        MockedPaimonCatalog mocked = new MockedPaimonCatalog();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        org.apache.doris.datasource.ExternalMetaCacheMgr mgr =
+                Mockito.mock(org.apache.doris.datasource.ExternalMetaCacheMgr.class);
+        Mockito.when(mgr.paimon(1L)).thenReturn(cache);
+        Mockito.when(mocked.env.getExtMetaCacheMgr()).thenReturn(mgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            FileStoreTable retainedTable = Mockito.mock(FileStoreTable.class);
+            PaimonSnapshotCacheValue fence = new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(7L, 3L, retainedTable));
+            Assert.assertEquals(0L, fence.getTableGeneration());
+            PaimonExternalTable dorisTable = mocked.externalTable;
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mocked.mapping);
+            Mockito.doReturn(mocked.catalog).when(dorisTable).getCatalog();
+            Mockito.when(mocked.catalog.getId()).thenReturn(1L);
+
+            Assert.assertNotNull(PaimonUtils.getSchemaCacheValue(dorisTable, fence));
+            // Schema history came from the retained handle, not from a reloaded base table.
+            Mockito.verify(dorisTable).loadSchemaForCache(Mockito.same(retainedTable), Mockito.eq(3L));
+            Mockito.verify(mocked.catalog, Mockito.never()).getPaimonTable(mocked.mapping);
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testTableEstimateReservesFileIoAllowancePerOwner() throws Exception {
         // Each cached owner strongly retains the table's FileIO graph, including a REST vended
         // token that materializes and rotates after admission; the per-owner allowance must be
@@ -867,6 +901,7 @@ public class PaimonExternalMetaCacheTest {
         private final java.util.concurrent.atomic.AtomicLong latestSnapshotId =
                 new java.util.concurrent.atomic.AtomicLong(7L);
         private final NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+        private final PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         private final AtomicInteger partitionEnumerations = new AtomicInteger();
         private final AtomicInteger schemaLoads = new AtomicInteger();
         // When set, the next partition enumeration signals enumerationEntered and blocks on it.
@@ -876,7 +911,6 @@ public class PaimonExternalMetaCacheTest {
 
         private MockedPaimonCatalog() {
             PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
-            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
             CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.doReturn(catalog).when(catalogMgr)

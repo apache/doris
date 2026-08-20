@@ -1879,6 +1879,42 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testLocalEvictionStopsOnceTheDeficitIsReclaimed() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(1L << 20));
+        ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                1L, "test", "skewed-eviction", OptionalLong.empty(), OptionalLong.empty());
+        MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
+                "skewed-eviction", key -> new byte[1],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 16_384L),
+                refreshExecutor, false, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget);
+        try {
+            // One large cold value plus fifteen small warm ones; admitting a value that only
+            // needs the large value's headroom must not flush the whole cold batch.
+            entry.put("big", new byte[8192]);
+            for (int i = 0; i < 15; i++) {
+                entry.put("small_" + i, new byte[64]);
+            }
+            for (int i = 0; i < 15; i++) {
+                Assert.assertNotNull(entry.getIfPresent("small_" + i));
+            }
+
+            entry.put("incoming", new byte[4096]);
+
+            Assert.assertNotNull(entry.peekIfPresent("incoming"));
+            Assert.assertNull("the cold large value pays for the admission", entry.peekIfPresent("big"));
+            for (int i = 0; i < 15; i++) {
+                Assert.assertNotNull("small_" + i + " must survive a satisfied admission",
+                        entry.peekIfPresent("small_" + i));
+            }
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testQueuedRemovalNotificationsDoNotRetainRemovedValues() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         CountDownLatch listenerEntered = new CountDownLatch(1);

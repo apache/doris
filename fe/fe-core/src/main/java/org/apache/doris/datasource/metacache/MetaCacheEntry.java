@@ -47,6 +47,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -724,12 +725,21 @@ public class MetaCacheEntry<K, V> {
         }
         Optional<AdmissionReservation> reservation = entryBudget.tryReserve(bytes);
         while (!reservation.isPresent()) {
-            int evicted = evictLocalColdest(incomingKey, LOCAL_EVICTION_BATCH_SIZE);
+            AtomicReference<Optional<AdmissionReservation>> retried =
+                    new AtomicReference<>(Optional.empty());
+            int evicted = evictLocalColdest(incomingKey, LOCAL_EVICTION_BATCH_SIZE, () -> {
+                Optional<AdmissionReservation> attempt = entryBudget.tryReserve(bytes);
+                retried.set(attempt);
+                return attempt.isPresent();
+            });
+            reservation = retried.get();
+            if (reservation.isPresent()) {
+                break;
+            }
             if (evicted == 0) {
                 entryBudget.requestPeerReclaim(bytes);
                 break;
             }
-            reservation = entryBudget.tryReserve(bytes);
         }
         return reservation;
     }
@@ -742,18 +752,30 @@ public class MetaCacheEntry<K, V> {
             return true;
         }
         while (true) {
-            int evicted = evictLocalColdest(incomingKey, LOCAL_EVICTION_BATCH_SIZE);
+            AtomicBoolean resized = new AtomicBoolean();
+            int evicted = evictLocalColdest(incomingKey, LOCAL_EVICTION_BATCH_SIZE, () -> {
+                if (reservation.tryResize(newBytes)) {
+                    resized.set(true);
+                    return true;
+                }
+                return false;
+            });
+            if (resized.get()) {
+                return true;
+            }
             if (evicted == 0) {
                 entryBudget.requestPeerReclaim(Math.max(0L, newBytes - reservation.getBytes()));
                 return false;
             }
-            if (reservation.tryResize(newBytes)) {
-                return true;
-            }
         }
     }
 
-    private int evictLocalColdest(K incomingKey, int limit) {
+    /**
+     * Evict up to {@code limit} coldest values, retrying the caller's goal after every single
+     * eviction: a skewed cache where one large cold value creates all needed headroom must not
+     * discard the rest of the selected batch.
+     */
+    private int evictLocalColdest(K incomingKey, int limit, BooleanSupplier stopAfterEviction) {
         if (!data.policy().eviction().isPresent()) {
             return 0;
         }
@@ -773,6 +795,9 @@ public class MetaCacheEntry<K, V> {
                 localEvictionCount.incrementAndGet();
                 localEvictionWeight.accumulateAndGet(evictedWeight, MetaCacheWeightUtils::saturatedAdd);
                 evicted++;
+                if (stopAfterEviction.getAsBoolean()) {
+                    return evicted;
+                }
             }
         }
         return evicted;
@@ -786,7 +811,8 @@ public class MetaCacheEntry<K, V> {
             long before = entryBudget.getUsedWeight();
             long reclaimed = 0L;
             while (reclaimed < targetBytes
-                    && evictLocalColdest(null, LOCAL_EVICTION_BATCH_SIZE) > 0) {
+                    && evictLocalColdest(null, LOCAL_EVICTION_BATCH_SIZE, () ->
+                            Math.max(0L, before - entryBudget.getUsedWeight()) >= targetBytes) > 0) {
                 reclaimed = Math.max(0L, before - entryBudget.getUsedWeight());
             }
             return reclaimed;
