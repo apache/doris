@@ -218,13 +218,6 @@ public class PartitionCompensator {
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }
 
-    public static boolean needUnionRewrite(
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions,
-            CascadesContext cascadesContext) {
-        return invalidPartitions != null
-                && (!invalidPartitions.key().values().isEmpty() || !invalidPartitions.value().values().isEmpty());
-    }
-
     /**
      * Check if need union compensate or not
      * If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST, should not do union compensate
