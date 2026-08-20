@@ -31,11 +31,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.IdNameIndex;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -87,8 +87,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected long lastUpdateTime;
     protected ExternalCatalog extCatalog;
 
-    private MetaCacheEntry<String, NameCacheValue> tableNames;
-    private MetaCacheEntry<String, T> tables;
+    private FeMetaCacheEntry<String, NameCacheValue> tableNames;
+    private FeMetaCacheEntry<String, T> tables;
     private transient IdNameIndex tableIdNameIndex = new IdNameIndex("external table");
 
     private volatile boolean isInitializing = false;
@@ -168,13 +168,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 Config.external_cache_expire_time_seconds_after_access,
                 1);
         // Build one immutable names snapshot so list and lower-case index share the same cache version.
-        tableNames = new MetaCacheEntry<>(
+        tableNames = new FeMetaCacheEntry<>(
                 name + ".table_names",
                 ignored -> NameCacheValue.of(listTableNames()),
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 true,
-                MetaCacheEntry.singleKeyStripeCount());
+                FeMetaCacheEntry.singleKeyStripeCount());
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
@@ -182,7 +182,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 Math.max(Config.max_meta_object_cache_num, 1));
         // Keep table object entries on the normal manual-miss/refresh path because they do not need
         // the database-level reset callback used by catalog object caches.
-        tables = new MetaCacheEntry<>(
+        tables = new FeMetaCacheEntry<>(
                 name + ".tables",
                 localTableName -> buildTableForInit(
                         null,
@@ -194,7 +194,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 objectSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 false,
-                MetaCacheEntry.defaultObjectStripeCount());
+                FeMetaCacheEntry.defaultObjectStripeCount());
     }
 
     private List<Pair<String, String>> listTableNames() {
@@ -695,25 +695,26 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             boolean forceUpdateCacheState) {
         buildMetaCache();
         // Reject a pre-existing identity conflict before names/object caches can publish partial new state.
-        // The final put remains inside computeAndRun to keep the ID side effect ordered with object invalidation.
         tableIdNameIndex.checkCanPut(table.getId(), localTableName);
         // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         // By default, incremental updates keep cold names/object cache entries cold.
         // forceUpdateCacheState is only for paths that intentionally populate those cold entries.
-        if (forceUpdateCacheState) {
-            tableNames.compute("", (ignored, current) ->
-                    (current == null ? NameCacheValue.empty() : current).withName(remoteTableName, localTableName));
-        } else {
-            // Keep a cold names entry cold, but still advance its generation so an in-flight pre-event load cannot
-            // publish a stale snapshot after this incremental update.
-            tableNames.compute("", (ignored, current) ->
-                    current == null ? null : current.withName(remoteTableName, localTableName));
-        }
-        tables.computeAndRun(
-                localTableName,
-                (ignored, current) -> (forceUpdateCacheState || current != null) ? table : null,
-                () -> tableIdNameIndex.put(table.getId(), localTableName));
+        tableNames.computeAfterValidation(
+                "",
+                (ignored, current) -> {
+                    if (forceUpdateCacheState) {
+                        return (current == null ? NameCacheValue.empty() : current)
+                                .withName(remoteTableName, localTableName);
+                    }
+                    // Keep a cold names entry cold, but still advance its generation so an in-flight pre-event load
+                    // can not publish a stale snapshot after this incremental update.
+                    return current == null ? null : current.withName(remoteTableName, localTableName);
+                },
+                () -> tables.computeAfterValidation(
+                        localTableName,
+                        (ignored, current) -> (forceUpdateCacheState || current != null) ? table : null,
+                        () -> tableIdNameIndex.put(table.getId(), localTableName)));
     }
 
     protected void invalidateTableCache(String localTableName) {
@@ -852,7 +853,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
         tableIdNameIndex.checkCanPut(tbl.getId(), tbl.getName());
-        tables.computeAndRun(
+        tables.computeAfterValidation(
                 tbl.getName(),
                 (ignored, current) -> tbl,
                 () -> tableIdNameIndex.put(tbl.getId(), tbl.getName()));

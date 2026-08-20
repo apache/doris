@@ -18,12 +18,13 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -52,20 +53,27 @@ import java.util.function.Supplier;
  */
 final class IcebergCommentCache {
 
-    private final MetaCacheEntry<TableIdentifier, String> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableIdentifier, String> entry;
 
     IcebergCommentCache(long ttlSeconds, int maxSize) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+    }
+
+    IcebergCommentCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this.owner = owner;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         // Load-bearing here: a vended no-cache catalog builds this object but must NOT cache comments
         // (operator "no meta cache" intent).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-comment", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<TableIdentifier, String>builder("iceberg-comment", spec, IcebergCommentCache::scope)
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read the comment live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -80,29 +88,30 @@ final class IcebergCommentCache {
 
     /** Drops the cached comment for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.namespace().toString(), identifier.name());
     }
 
     /** Drops every cached comment for one database (REFRESH DATABASE / DROP DATABASE); match = namespace equality. */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(id -> id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached comments (REFRESH CATALOG). */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
     }
 
     /** Test-only: how many times the live loader (the remote comment load) actually ran — the metric gate. */
     long loadCountForTest() {
-        return entry.stats().getLoadSuccessCount();
+        return entry.loadSuccessCount();
+    }
+
+    private static ScopePath scope(TableIdentifier identifier) {
+        return ScopePath.table(identifier.namespace().toString(), identifier.name());
     }
 }

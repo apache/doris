@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -28,10 +30,8 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
-import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -81,8 +81,9 @@ public class RefreshManagerTest {
         engineCache = new RecordingExternalMetaCache();
         databaseObjectLoadCalls = new AtomicInteger();
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
-        ExternalMetaCacheRegistry cacheRegistry = Deencapsulation.getField(metaCacheMgr, "cacheRegistry");
-        cacheRegistry.resetForTest(Collections.singletonList(engineCache));
+        Map<String, ExternalMetaCache> cacheTypes = Deencapsulation.getField(metaCacheMgr, "cacheTypes");
+        cacheTypes.clear();
+        cacheTypes.put(engineCache.engine(), engineCache);
         constraintManager = new RecordingConstraintManager();
         testingCatalogMgr = new TestingCatalogMgr(catalog);
         originalEnv = replaceEnvSingleton(
@@ -290,7 +291,7 @@ public class RefreshManagerTest {
 
     private void disableDatabaseObjectCacheWithTtlZero(
             ExternalCatalog targetCatalog, ExternalDatabase<? extends ExternalTable> targetDatabase) {
-        MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledDatabases = new MetaCacheEntry<>(
+        FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledDatabases = new FeMetaCacheEntry<>(
                 "ttl_zero_databases",
                 ignored -> {
                     databaseObjectLoadCalls.incrementAndGet();
@@ -500,7 +501,7 @@ public class RefreshManagerTest {
         }
 
         @Override
-        public <K, V> MetaCacheEntry<K, V> entry(
+        public <K, V> MetaCache<K, V> entry(
                 long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
             throw new UnsupportedOperationException();
         }

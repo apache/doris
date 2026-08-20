@@ -18,13 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -58,18 +59,25 @@ import java.util.function.Supplier;
  */
 final class IcebergTableCache {
 
-    private final MetaCacheEntry<TableIdentifier, Table> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableIdentifier, Table> entry;
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+    }
+
+    IcebergTableCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this.owner = owner;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<TableIdentifier, Table>builder("iceberg-table", spec, IcebergTableCache::scope)
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -85,7 +93,7 @@ final class IcebergTableCache {
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.namespace().toString(), identifier.name());
     }
 
     /**
@@ -95,19 +103,20 @@ final class IcebergTableCache {
      * namespace equality — mirroring {@link IcebergLatestSnapshotCache#invalidateDb}.
      */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(id -> id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries. */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
+    }
+
+    private static ScopePath scope(TableIdentifier identifier) {
+        return ScopePath.table(identifier.namespace().toString(), identifier.name());
     }
 }

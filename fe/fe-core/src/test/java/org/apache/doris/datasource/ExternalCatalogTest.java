@@ -27,10 +27,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
-import org.apache.doris.datasource.metacache.CacheSpec;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
@@ -553,8 +553,8 @@ public class ExternalCatalogTest extends TestWithFeService {
             ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
             Assertions.assertNotNull(db);
 
-            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
-                    new MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
+            FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
+                    new FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
                             "database_hot_lookup_race",
                             ignored -> db,
                             CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
@@ -597,8 +597,8 @@ public class ExternalCatalogTest extends TestWithFeService {
             ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
             Assertions.assertNotNull(db);
 
-            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
-                    new MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
+            FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
+                    new FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
                             "database_skip_lock_when_mapped",
                             ignored -> db,
                             CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
@@ -642,7 +642,7 @@ public class ExternalCatalogTest extends TestWithFeService {
             ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
             Assertions.assertNotNull(db);
 
-            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry = new FeMetaCacheEntry<>(
                     "database_miss_load_race",
                     ignored -> {
                         loaderStarted.countDown();
@@ -672,6 +672,70 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testColdDatabaseIsNotVisibleByNameBeforeIdNavigationIsPublished() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        CountDownLatch publicationReady = new CountDownLatch(1);
+        CountDownLatch stripeHeld = new CountDownLatch(1);
+        CountDownLatch releaseStripe = new CountDownLatch(1);
+        try {
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+            Assertions.assertNotNull(db);
+
+            FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
+                    new FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
+                            "database_cold_publication",
+                            ignored -> {
+                                loaderStarted.countDown();
+                                awaitLatch(releaseLoader);
+                                return db;
+                            },
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false,
+                            FeMetaCacheEntry.singleKeyStripeCount()) {
+                        @Override
+                        protected void beforeCurrentValueActionForTest(
+                                String key, ExternalDatabase<? extends ExternalTable> value) {
+                            publicationReady.countDown();
+                        }
+                    };
+            catalog.setDatabasesEntryForTest(objectEntry);
+            catalog.clearDatabaseIdNamesForTest();
+
+            Future<ExternalDatabase<? extends ExternalTable>> lookup =
+                    workers.submit(() -> catalog.getDbNullable(db.getFullName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Future<ExternalDatabase<? extends ExternalTable>> blocker =
+                    workers.submit(() -> objectEntry.compute("blocker", (key, value) -> {
+                        stripeHeld.countDown();
+                        awaitLatch(releaseStripe);
+                        return db;
+                    }));
+            Assertions.assertTrue(stripeHeld.await(3L, TimeUnit.SECONDS));
+            releaseLoader.countDown();
+            Assertions.assertTrue(publicationReady.await(3L, TimeUnit.SECONDS));
+
+            Assertions.assertNull(objectEntry.getIfPresent(db.getFullName()));
+            Assertions.assertNull(catalog.getDbNullable(db.getId()));
+
+            releaseStripe.countDown();
+            Assertions.assertSame(db, blocker.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(db, catalog.getDbNullable(db.getId()));
+        } finally {
+            releaseLoader.countDown();
+            releaseStripe.countDown();
+            workers.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testUnrelatedSameStripeInvalidationKeepsDatabaseIdNavigation() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
@@ -683,7 +747,7 @@ public class ExternalCatalogTest extends TestWithFeService {
             ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
             Assertions.assertNotNull(db);
 
-            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry = new FeMetaCacheEntry<>(
                     "database_unrelated_invalidation_race",
                     ignored -> {
                         loaderStarted.countDown();
@@ -693,7 +757,7 @@ public class ExternalCatalogTest extends TestWithFeService {
                     CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
                     refreshExecutor,
                     false,
-                    MetaCacheEntry.singleKeyStripeCount());
+                    FeMetaCacheEntry.singleKeyStripeCount());
             catalog.setDatabasesEntryForTest(objectEntry);
             catalog.clearDatabaseIdNamesForTest();
 
@@ -704,7 +768,8 @@ public class ExternalCatalogTest extends TestWithFeService {
             releaseLoader.countDown();
 
             Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
-            Assertions.assertNull(objectEntry.getIfPresent(db.getFullName()));
+            // Exact-key generations do not reject this load merely because an unrelated key shares its FE stripe.
+            Assertions.assertSame(db, objectEntry.getIfPresent(db.getFullName()));
             Assertions.assertEquals(db.getFullName(), catalog.getCachedDatabaseNameByIdForTest(db.getId()));
         } finally {
             releaseLoader.countDown();
@@ -768,7 +833,7 @@ public class ExternalCatalogTest extends TestWithFeService {
             ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
             Assertions.assertNotNull(db);
 
-            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledEntry = new FeMetaCacheEntry<>(
                     "database_disabled_lookup_race",
                     ignored -> {
                         loaderStarted.countDown();
@@ -936,7 +1001,8 @@ public class ExternalCatalogTest extends TestWithFeService {
         try {
             env.getExtMetaCacheMgr().prepareCatalogByEngine(
                     catalog.getId(), "default", Maps.newHashMap());
-            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> schemaEntry = env.getExtMetaCacheMgr()
+            org.apache.doris.connector.cache.MetaCache<SchemaCacheKey, SchemaCacheValue> schemaEntry =
+                    env.getExtMetaCacheMgr()
                     .engine("default")
                     .entry(catalog.getId(), "schema",
                             SchemaCacheKey.class, SchemaCacheValue.class);
@@ -1418,7 +1484,7 @@ public class ExternalCatalogTest extends TestWithFeService {
                     ? namesSnapshot("db_base") : namesSnapshot("db_drop");
             NameCacheValue currentSnapshot = createEvent
                     ? namesSnapshot("db_base", "db_create") : NameCacheValue.empty();
-            MetaCacheEntry<String, NameCacheValue> namesEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, NameCacheValue> namesEntry = new FeMetaCacheEntry<>(
                     "database_names_event_test",
                     ignored -> {
                         if (loadCount.incrementAndGet() == 1) {
@@ -1431,7 +1497,7 @@ public class ExternalCatalogTest extends TestWithFeService {
                     CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L),
                     refreshExecutor,
                     false,
-                    MetaCacheEntry.singleKeyStripeCount());
+                    FeMetaCacheEntry.singleKeyStripeCount());
             catalog.setDatabaseNamesEntryForTest(namesEntry);
 
             Future<List<String>> staleLoad = queryExecutor.submit(catalog::getDbNames);
@@ -1541,12 +1607,12 @@ public class ExternalCatalogTest extends TestWithFeService {
             dbIdNameIndex.put(dbId, localDbName);
         }
 
-        void setDatabaseNamesEntryForTest(MetaCacheEntry<String, NameCacheValue> namesEntry) {
+        void setDatabaseNamesEntryForTest(FeMetaCacheEntry<String, NameCacheValue> namesEntry) {
             databaseNames = namesEntry;
         }
 
         void setDatabasesEntryForTest(
-                MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databasesEntry) {
+                FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databasesEntry) {
             databases = databasesEntry;
         }
 
@@ -1795,19 +1861,19 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(exception.getMessage().contains(secondRemoteName));
     }
 
-    private int extractStripeCount(MetaCacheEntry<?, ?> entry) throws Exception {
-        Field stripeCountField = MetaCacheEntry.class.getDeclaredField("stripeCount");
+    private int extractStripeCount(FeMetaCacheEntry<?, ?> entry) throws Exception {
+        Field stripeCountField = FeMetaCacheEntry.class.getDeclaredField("stripeCount");
         stripeCountField.setAccessible(true);
         return stripeCountField.getInt(entry);
     }
 
-    private MetaCacheEntry<?, ?> extractMetaCacheEntry(Object owner, String fieldName) throws Exception {
+    private FeMetaCacheEntry<?, ?> extractMetaCacheEntry(Object owner, String fieldName) throws Exception {
         Class<?> current = owner.getClass();
         while (current != null) {
             try {
                 Field field = current.getDeclaredField(fieldName);
                 field.setAccessible(true);
-                return (MetaCacheEntry<?, ?>) field.get(owner);
+                return (FeMetaCacheEntry<?, ?>) field.get(owner);
             } catch (NoSuchFieldException ignored) {
                 current = current.getSuperclass();
             }

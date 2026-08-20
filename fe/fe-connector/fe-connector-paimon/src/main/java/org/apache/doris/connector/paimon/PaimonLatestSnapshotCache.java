@@ -18,11 +18,13 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.paimon.catalog.Identifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.LongSupplier;
 
 /**
@@ -47,18 +49,26 @@ import java.util.function.LongSupplier;
  */
 final class PaimonLatestSnapshotCache {
 
-    private final MetaCacheEntry<Identifier, Long> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<Identifier, Long> entry;
 
     PaimonLatestSnapshotCache(long ttlSeconds, int maxSize) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+    }
+
+    PaimonLatestSnapshotCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this.owner = owner;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("paimon-latest-snapshot", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<Identifier, Long>builder("paimon-latest-snapshot", spec,
+                        id -> ScopePath.table(id.getDatabaseName(), id.getObjectName()))
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -74,7 +84,7 @@ final class PaimonLatestSnapshotCache {
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(Identifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.getDatabaseName(), identifier.getObjectName());
     }
 
     /**
@@ -84,18 +94,16 @@ final class PaimonLatestSnapshotCache {
      * db match is {@code getDatabaseName()} equality.
      */
     void invalidateDb(String dbName) {
-        entry.invalidateIf(id -> id.getDatabaseName().equals(dbName));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries. */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
     }
 }
