@@ -137,12 +137,25 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         TPaimonTableSink sink = new TPaimonTableSink();
         sink.setSerializedTable(binding.getSerializedTable());
         sink.setHadoopConfig(binding.getHadoopConfig());
-        // BE overwrites the projected block's column names BY POSITION from this list, so its order
-        // must equal the sink's output-expr order. For INSERT/OVERWRITE/DELETE that is the handle's
-        // column order. A MERGE stream is [operation, row locator, data columns...] — the shape the
-        // merge plan builders synthesize — so the two synthetic leaders are placed first and the
-        // locator is removed from wherever the handle carried it.
-        List<String> columnNames = new ArrayList<>(handle.getColumns().size() + 1);
+        // BE overwrites the projected block's column names BY POSITION from this list, so its size and
+        // order must equal the sink's output-expr order. For INSERT/OVERWRITE that is normally the
+        // handle's column order — EXCEPT a statically partitioned write: BindSink additionally
+        // materializes the PARTITION-clause literal into the row (requiresMaterializeStaticPartitionValues),
+        // so the actual projected block carries the FULL bound schema (handle.getBoundTargetColumns()),
+        // not the INSERT column list (handle.getColumns(), which is deliberately the partition-column-
+        // excluded subset — see ConnectorWriteHandle#getColumns). Using the subset here under-counts the
+        // static-partition write and trips BE's column-count DORIS_CHECK. DELETE carries [data
+        // columns..., locator] (PaimonRowLevelDeletePlanBuilder): the keyed writer re-tags the data row
+        // RowKind.DELETE and skips the locator, while the deletion-vector writer reads the locator and
+        // ignores the data columns. Same trailing position here so BE's by-position rename matches the
+        // plan's output order. A MERGE stream is [operation, row locator, data columns...] — the shape
+        // the merge plan builders synthesize — so the two synthetic leaders are placed first and the
+        // locator is removed from wherever the handle carried it. Static partitions are not reachable
+        // for DELETE/MERGE (Doris has no PARTITION(...) clause on those statements), so only the
+        // INSERT/OVERWRITE arm needs the bound-schema switch.
+        List<ConnectorColumn> insertColumns =
+                staticPartition.isEmpty() ? handle.getColumns() : handle.getBoundTargetColumns();
+        List<String> columnNames = new ArrayList<>(insertColumns.size() + 1);
         if (operation == WriteOperation.MERGE) {
             columnNames.add("operation");
             columnNames.add(DORIS_PAIMON_ROWID_COL);
@@ -152,10 +165,6 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                 }
             }
         } else if (operation == WriteOperation.DELETE) {
-            // A DELETE plan carries [data columns..., locator] (PaimonRowLevelDeletePlanBuilder):
-            // the keyed writer re-tags the data row RowKind.DELETE and skips the locator, while the
-            // deletion-vector writer reads the locator and ignores the data columns. Same trailing
-            // position here so BE's by-position rename matches the plan's output order.
             for (ConnectorColumn column : handle.getColumns()) {
                 if (!DORIS_PAIMON_ROWID_COL.equalsIgnoreCase(column.getName())) {
                     columnNames.add(column.getName());
@@ -163,7 +172,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
             }
             columnNames.add(DORIS_PAIMON_ROWID_COL);
         } else {
-            for (ConnectorColumn column : handle.getColumns()) {
+            for (ConnectorColumn column : insertColumns) {
                 columnNames.add(column.getName());
             }
         }
