@@ -481,14 +481,12 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                             FileContextRegistry* file_context_registry,
                              std::shared_ptr<const FileContext> file_context,
                              int64_t format_split_id, int64_t format_split_id_end)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
-          _file_context_registry(file_context_registry),
           _file_context(std::move(file_context)),
           _format_split_id(format_split_id),
           _format_split_id_end(format_split_id_end) {}
@@ -533,26 +531,15 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
         file_context_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context_registry,
-                _file_context);
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context);
     }
-    // Publish registry and physical-footer outcomes even when opening the file fails; otherwise a
-    // contended or failing footer path disappears from the profile that must diagnose it.
+    // Publish physical-footer outcomes even when opening the file fails so a failing footer path
+    // remains visible in the profile that must diagnose it.
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
                        _state->file_context.native_footer_read_calls);
         COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                        _state->file_context.native_footer_cache_hits);
-        COUNTER_UPDATE(_parquet_profile.file_context_registry_requests,
-                       _state->file_context.file_context_registry_requests);
-        COUNTER_UPDATE(_parquet_profile.file_context_registry_loads,
-                       _state->file_context.file_context_registry_loads);
-        COUNTER_UPDATE(_parquet_profile.file_context_registry_hits,
-                       _state->file_context.file_context_registry_hits);
-        COUNTER_UPDATE(_parquet_profile.file_context_registry_waits,
-                       _state->file_context.file_context_registry_waits);
-        COUNTER_UPDATE(_parquet_profile.file_context_registry_bypasses,
-                       _state->file_context.file_context_registry_bypasses);
     }
     RETURN_IF_ERROR(file_context_status);
     // Build file schema from parquet metadata.

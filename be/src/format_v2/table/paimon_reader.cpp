@@ -412,7 +412,6 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
-            .file_context_registry = _file_context_registry,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
     // runtime default until FileScannerV2 supplies the first positive prediction.

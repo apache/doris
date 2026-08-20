@@ -4544,7 +4544,6 @@ protected:
     std::unique_ptr<format::orc::OrcReader> create_reader_with_range(
             const std::string& file_path, int64_t range_start_offset, int64_t range_size,
             RuntimeProfile* profile = nullptr, int64_t mtime = 0,
-            FileContextRegistry* file_context_registry = nullptr,
             std::shared_ptr<const FileContext> file_context = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
@@ -4554,9 +4553,9 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         file_description->mtime = mtime;
-        return std::make_unique<format::orc::OrcReader>(
-                system_properties, file_description, nullptr, profile, std::nullopt, false,
-                file_context_registry, std::move(file_context));
+        return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
+                                                        nullptr, profile, std::nullopt, false,
+                                                        std::move(file_context));
     }
 
     Status scan_direct_in_filter(const std::string& file_path, int32_t in_list_size,
@@ -4743,7 +4742,7 @@ TEST_F(NewOrcReaderTest, PhysicalSplitPlanningReturnsOwnedStripes) {
     EXPECT_TRUE(splits.empty());
 }
 
-TEST_F(NewOrcReaderTest, PhysicalStripeChildrenReuseRegistryTailAndReadExactRows) {
+TEST_F(NewOrcReaderTest, PhysicalStripeChildrenReuseOnlyParentTailAndReadExactRows) {
     const auto multi_stripe_file_path = (_test_dir / "shared_physical_splits.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 2000});
     const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
@@ -4751,10 +4750,8 @@ TEST_F(NewOrcReaderTest, PhysicalStripeChildrenReuseRegistryTailAndReadExactRows
 
     constexpr int64_t TEST_MTIME = 838383;
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    FileContextRegistry registry;
     auto build_splits = [&](std::vector<format::PhysicalFileSplit>* splits) -> Status {
-        auto reader = create_reader_with_range(multi_stripe_file_path, 0, -1, nullptr, TEST_MTIME,
-                                               &registry);
+        auto reader = create_reader_with_range(multi_stripe_file_path, 0, -1, nullptr, TEST_MTIME);
         RETURN_IF_ERROR(reader->init(&state));
         RETURN_IF_ERROR(reader->open(std::make_shared<format::FileScanRequest>()));
         bool was_split = false;
@@ -4770,14 +4767,20 @@ TEST_F(NewOrcReaderTest, PhysicalStripeChildrenReuseRegistryTailAndReadExactRows
     ASSERT_EQ(parent_splits.size(), layout.size());
     const auto parent_context = parent_splits[0].file_context;
     ASSERT_NE(parent_context, nullptr);
+    for (const auto& split : parent_splits) {
+        EXPECT_EQ(split.file_context, parent_context);
+    }
     std::vector<format::PhysicalFileSplit> sibling_splits;
     ASSERT_TRUE(build_splits(&sibling_splits).ok());
     ASSERT_EQ(sibling_splits.size(), layout.size());
-    ASSERT_EQ(sibling_splits[0].file_context, parent_splits[0].file_context);
+    ASSERT_NE(sibling_splits[0].file_context, parent_splits[0].file_context);
+    for (const auto& split : sibling_splits) {
+        EXPECT_EQ(split.file_context, sibling_splits[0].file_context);
+    }
 
-    auto child = create_reader_with_range(multi_stripe_file_path, parent_splits[0].start_offset,
-                                          parent_splits[0].size, nullptr, TEST_MTIME, nullptr,
-                                          parent_context);
+    auto child =
+            create_reader_with_range(multi_stripe_file_path, parent_splits[0].start_offset,
+                                     parent_splits[0].size, nullptr, TEST_MTIME, parent_context);
     ASSERT_TRUE(child->init(&state).ok());
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(child->get_schema(&schema).ok());

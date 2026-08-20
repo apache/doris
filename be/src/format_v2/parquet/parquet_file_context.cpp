@@ -290,7 +290,6 @@ bool ParquetFileContext::can_refine_physical_splits() const {
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
                                 bool enable_page_cache, const io::FileDescription& file_description,
                                 bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                                FileContextRegistry* file_context_registry,
                                 std::shared_ptr<const FileContext> file_context) {
     DORIS_CHECK(input_file_reader != nullptr);
     contains_variant = false;
@@ -319,25 +318,24 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
         meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
     }
-    // The registry is scoped to one scan instance, whose splits describe one planned snapshot.
-    // Normalize optional FE identity fields with reader values so equivalent splits cannot miss
-    // single-flight merely because only one of them carried file size or mtime.
-    const int64_t registry_mtime =
+    // A child must never consume a context from another physical file. Normalize optional FE
+    // identity fields with reader values before validating the parent-provided context.
+    const int64_t identity_mtime =
             file_description.mtime != 0 ? file_description.mtime : native_file->mtime();
-    const int64_t registry_file_size = file_description.file_size >= 0
+    const int64_t identity_file_size = file_description.file_size >= 0
                                                ? file_description.file_size
                                                : cast_set<int64_t>(native_file->size());
-    const auto registry_path = native_file->path().native();
-    const std::string registry_key = fmt::format(
+    const auto identity_path = native_file->path().native();
+    const std::string file_identity = fmt::format(
             "fs[{}]={}::path[{}]={}::mtime={}::size={}::immutable={}::varbinary={}::timestamp_tz={"
             "}",
-            file_description.fs_name.size(), file_description.fs_name, registry_path.size(),
-            registry_path, registry_mtime, registry_file_size, file_description.is_immutable,
+            file_description.fs_name.size(), file_description.fs_name, identity_path.size(),
+            identity_path, identity_mtime, identity_file_size, file_description.is_immutable,
             enable_mapping_varbinary, enable_mapping_timestamp_tz);
     auto load_context = [&](std::shared_ptr<const FileContext>* result) -> Status {
         auto loaded = std::make_shared<ParquetSharedFileContext>();
         loaded->adaptive_scan_context = std::make_shared<ParquetAdaptiveContext>();
-        loaded->registry_key = registry_key;
+        loaded->file_identity = file_identity;
         loaded->has_stable_identity = has_stable_meta_cache_identity;
         if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&
             meta_cache->lookup(meta_cache_key, &loaded->metadata_cache_handle)) {
@@ -363,31 +361,15 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     };
 
     std::shared_ptr<const FileContext> resolved_context = std::move(file_context);
-    if (resolved_context != nullptr) {
-        ++file_context_registry_bypasses;
-    } else {
-        if (file_context_registry != nullptr && has_stable_meta_cache_identity) {
-            ++file_context_registry_requests;
-            FileContextRegistry::LookupResult lookup_result;
-            const auto registry_status = file_context_registry->get_or_create(
-                    registry_key, load_context, &resolved_context, &lookup_result);
-            file_context_registry_loads += lookup_result.loaded;
-            file_context_registry_hits += lookup_result.hit;
-            file_context_registry_waits += lookup_result.waited;
-            RETURN_IF_ERROR(registry_status);
-        } else {
-            // Keep uncacheable identities and scans without a registry visible separately from
-            // both physical footer reads and process-wide metadata-cache outcomes.
-            ++file_context_registry_bypasses;
-            RETURN_IF_ERROR(load_context(&resolved_context));
-        }
+    if (resolved_context == nullptr) {
+        RETURN_IF_ERROR(load_context(&resolved_context));
     }
     shared_file_context =
             std::dynamic_pointer_cast<const ParquetSharedFileContext>(resolved_context);
     if (shared_file_context == nullptr) {
         return Status::InvalidArgument("Parquet split has an incompatible file context");
     }
-    if (shared_file_context->registry_key != registry_key) {
+    if (shared_file_context->file_identity != file_identity) {
         return Status::InvalidArgument("Parquet split file context does not match file identity");
     }
     native_metadata = shared_file_context->metadata;

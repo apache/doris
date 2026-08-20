@@ -763,12 +763,11 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      std::optional<format::GlobalRowIdContext> global_rowid_context,
-                     bool enable_mapping_timestamp_tz, FileContextRegistry* file_context_registry,
+                     bool enable_mapping_timestamp_tz,
                      std::shared_ptr<const FileContext> file_context)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(std::move(global_rowid_context)),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
-          _file_context_registry(file_context_registry),
           _file_context(std::move(file_context)) {}
 
 OrcReader::~OrcReader() = default;
@@ -943,7 +942,7 @@ Status OrcReader::init(RuntimeState* state) {
                                                : cast_set<int64_t>(_file_reader->size());
     const bool has_stable_identity = resolved_mtime != 0 || _file_description->is_immutable;
     const auto reader_path = _file_reader->path().native();
-    const std::string registry_key = fmt::format(
+    const std::string file_identity = fmt::format(
             "orc::fs[{}]={}::path[{}]={}::mtime={}::size={}::immutable={}",
             _file_description->fs_name.size(), _file_description->fs_name, reader_path.size(),
             reader_path, resolved_mtime, resolved_file_size, _file_description->is_immutable);
@@ -951,7 +950,7 @@ Status OrcReader::init(RuntimeState* state) {
                              std::shared_ptr<const FileContext>* result) -> Status {
         DORIS_CHECK(result != nullptr);
         auto context = std::make_shared<OrcSharedFileContext>();
-        context->registry_key = registry_key;
+        context->file_identity = file_identity;
         context->has_stable_identity = has_stable_identity;
         try {
             if (has_stable_identity) {
@@ -978,14 +977,9 @@ Status OrcReader::init(RuntimeState* state) {
 
     std::shared_ptr<const FileContext> resolved_context = std::move(_file_context);
     std::unique_ptr<::orc::Reader> loaded_reader;
-    if (resolved_context == nullptr && _file_context_registry != nullptr && has_stable_identity) {
-        RETURN_IF_ERROR(_file_context_registry->get_or_create(
-                registry_key,
-                [&](std::shared_ptr<const FileContext>* result) -> Status {
-                    RETURN_IF_ERROR(create_reader(nullptr, &loaded_reader));
-                    return build_context(*loaded_reader, result);
-                },
-                &resolved_context));
+    if (resolved_context == nullptr) {
+        RETURN_IF_ERROR(create_reader(nullptr, &loaded_reader));
+        RETURN_IF_ERROR(build_context(*loaded_reader, &resolved_context));
     }
 
     if (resolved_context != nullptr) {
@@ -994,23 +988,17 @@ Status OrcReader::init(RuntimeState* state) {
         if (_state->file_context == nullptr) {
             return Status::InvalidArgument("ORC split has an incompatible file context");
         }
-        if (_state->file_context->registry_key != registry_key) {
+        if (_state->file_context->file_identity != file_identity) {
             return Status::InvalidArgument("ORC split file context does not match file identity");
         }
         if (loaded_reader != nullptr) {
-            // The single-flight owner can keep the reader that produced the context. Waiters and
-            // generated children rebuild independent readers from the shared serialized tail.
+            // The parent keeps the reader that produced the context. Generated children rebuild
+            // independent readers from the shared serialized tail.
             _state->reader = std::move(loaded_reader);
         } else {
             RETURN_IF_ERROR(
                     create_reader(&_state->file_context->serialized_file_tail, &_state->reader));
         }
-    } else {
-        RETURN_IF_ERROR(create_reader(nullptr, &_state->reader));
-        RETURN_IF_ERROR(build_context(*_state->reader, &resolved_context));
-        _state->file_context =
-                std::dynamic_pointer_cast<const OrcSharedFileContext>(resolved_context);
-        DORIS_CHECK(_state->file_context != nullptr);
     }
     _state->root_type = &_state->reader->getType();
     return Status::OK();

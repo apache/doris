@@ -245,7 +245,6 @@ private:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
-    FileContextRegistry* _file_context_registry = nullptr;
     int _constructed_scanners = 1;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;

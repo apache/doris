@@ -18,15 +18,12 @@
 #pragma once
 
 #include <atomic>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
-#include <unordered_map>
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -35,38 +32,11 @@ namespace doris {
 
 struct ConditionCacheSplitContext;
 
-// Opaque immutable metadata shared by all physical splits of one file. Concrete file formats own
-// the derived type so the scanner and split-source layers do not depend on format internals.
+// Opaque immutable metadata shared by physical children generated from one parent split. Concrete
+// file formats own the derived type so scanner and split-source layers do not depend on internals.
 class FileContext {
 public:
     virtual ~FileContext() = default;
-};
-
-class FileContextRegistry {
-public:
-    using Loader = std::function<Status(std::shared_ptr<const FileContext>*)>;
-
-    struct LookupResult {
-        bool loaded = false;
-        bool waited = false;
-        bool hit = false;
-    };
-
-    Status get_or_create(const std::string& key, const Loader& loader,
-                         std::shared_ptr<const FileContext>* context,
-                         LookupResult* lookup_result = nullptr);
-
-private:
-    struct Entry {
-        std::mutex lock;
-        std::condition_variable ready;
-        bool loading = true;
-        Status status;
-        std::weak_ptr<const FileContext> context;
-    };
-
-    std::mutex _lock;
-    std::unordered_map<std::string, std::shared_ptr<Entry>> _entries;
 };
 
 // Tracks completion of one FE source range after BE refinement. Generated children share this

@@ -124,8 +124,8 @@ size_t physical_leaf_set_build_count();
 #endif
 } // namespace detail
 
-// One instance follows a registry-scoped file context into every row-group child. Snapshots are
-// keyed by predicate digest because late runtime filters can change both order and selectivity.
+// Children of one parent split share this context. Snapshots are keyed by predicate digest because
+// late runtime filters can change both order and selectivity.
 class ParquetAdaptiveContext final {
 public:
     detail::ParquetAdaptiveSnapshot restore(uint64_t predicate_digest) const;

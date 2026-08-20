@@ -47,7 +47,7 @@ struct OrcStripeMetadata {
 // ORC readers keep independent row/stripe execution state. Only the immutable serialized tail and
 // stripe layout cross physical children, so concurrent scanners never share an ORC RowReader.
 struct OrcSharedFileContext final : public FileContext {
-    std::string registry_key;
+    std::string file_identity;
     bool has_stable_identity = false;
     std::string serialized_file_tail;
     std::vector<OrcStripeMetadata> stripes;
@@ -66,7 +66,6 @@ public:
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
               bool enable_mapping_timestamp_tz = false,
-              FileContextRegistry* file_context_registry = nullptr,
               std::shared_ptr<const FileContext> file_context = nullptr);
     ~OrcReader() override;
 
@@ -202,7 +201,6 @@ private:
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
-    FileContextRegistry* _file_context_registry = nullptr;
     std::shared_ptr<const FileContext> _file_context;
 };
 

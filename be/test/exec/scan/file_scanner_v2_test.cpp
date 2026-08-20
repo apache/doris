@@ -24,7 +24,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
-#include <latch>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -773,6 +772,9 @@ TEST(FileScannerV2Test, EosKeepsLastRangeIdentityForFinalAccounting) {
             std::make_shared<RemoteStyleSplitSourceConnector>(std::vector<TFileRangeDesc> {range});
     ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
     ASSERT_TRUE(has_next);
+    // EOS is observable only after the claimed source is retired; otherwise the connector must
+    // keep waiting for that source to publish generated children.
+    ASSERT_TRUE(scanner._split_source->finish_source_split(scanner._current_split, {}).ok());
     ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
     EXPECT_FALSE(has_next);
     EXPECT_TRUE(scanner._should_update_load_counters());
@@ -872,76 +874,6 @@ TEST(FileScannerV2Test, GeneratedChildrenKeepOneGlobalRowIdSourceMapping) {
     const auto second_id = id_file_map.get_file_mapping_id(
             std::make_shared<FileMapping>(7, second.source_identity_range(), false));
     EXPECT_EQ(first_id, second_id);
-}
-
-class TestFileContext final : public FileContext {};
-
-TEST(FileScannerV2Test, FileContextRegistryLoadsEachFileOnceConcurrently) {
-    FileContextRegistry registry;
-    std::mutex loader_lock;
-    std::condition_variable loader_cv;
-    bool release_loader = false;
-    std::atomic<int> loader_calls = 0;
-    auto expected = std::make_shared<const TestFileContext>();
-    std::latch ready(8);
-    std::latch start(1);
-
-    auto load = [&]() {
-        ready.count_down();
-        start.wait();
-        std::shared_ptr<const FileContext> context;
-        auto status = registry.get_or_create(
-                "fs::file.parquet::mtime=7::size=11",
-                [&](std::shared_ptr<const FileContext>* result) {
-                    ++loader_calls;
-                    std::unique_lock lock(loader_lock);
-                    loader_cv.wait(lock, [&]() { return release_loader; });
-                    *result = expected;
-                    return Status::OK();
-                },
-                &context);
-        return std::make_pair(status, std::move(context));
-    };
-
-    std::vector<std::future<std::pair<Status, std::shared_ptr<const FileContext>>>> futures;
-    for (int i = 0; i < 8; ++i) {
-        futures.push_back(std::async(std::launch::async, load));
-    }
-    ready.wait();
-    start.count_down();
-    while (loader_calls.load() == 0) {
-        std::this_thread::yield();
-    }
-    EXPECT_EQ(loader_calls.load(), 1);
-    {
-        std::lock_guard lock(loader_lock);
-        release_loader = true;
-    }
-    loader_cv.notify_one();
-
-    for (auto& future : futures) {
-        auto [status, context] = future.get();
-        ASSERT_TRUE(status.ok()) << status;
-        EXPECT_EQ(context, expected);
-    }
-    EXPECT_EQ(loader_calls.load(), 1);
-}
-
-TEST(FileScannerV2Test, FileContextRegistryDoesNotRetainInactiveContexts) {
-    FileContextRegistry registry;
-    std::shared_ptr<const FileContext> context;
-    ASSERT_TRUE(registry.get_or_create(
-                                "fs::inactive.parquet::mtime=7::size=11",
-                                [](std::shared_ptr<const FileContext>* result) {
-                                    *result = std::make_shared<const TestFileContext>();
-                                    return Status::OK();
-                                },
-                                &context)
-                        .ok());
-
-    std::weak_ptr<const FileContext> weak_context = context;
-    context.reset();
-    EXPECT_TRUE(weak_context.expired());
 }
 
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {

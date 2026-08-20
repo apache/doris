@@ -402,7 +402,6 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
         : Scanner(state, local_state, limit, profile),
           _split_source(std::move(split_source)),
           _kv_cache(kv_cache),
-          _file_context_registry(&local_state->_file_context_registry),
           _constructed_scanners(local_state->_max_scanners) {
     (void)colname_to_slot_id;
     if (state->get_query_ctx() != nullptr &&
@@ -746,7 +745,6 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
-            .file_context_registry = _file_context_registry,
     }));
     return Status::OK();
 }

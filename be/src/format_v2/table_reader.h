@@ -162,7 +162,6 @@ struct TableReadOptions {
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
-    FileContextRegistry* file_context_registry = nullptr;
 };
 
 struct SplitReadOptions {
@@ -1952,7 +1951,6 @@ protected:
     RuntimeProfile* _scanner_profile;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
-    FileContextRegistry* _file_context_registry = nullptr;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
     std::optional<uint64_t> _predicate_snapshot_digest;

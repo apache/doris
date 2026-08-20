@@ -864,7 +864,6 @@ Status TableReader::init(TableReadOptions&& options) {
     _push_down_count_columns = options.push_down_count_columns;
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
-    _file_context_registry = options.file_context_registry;
     _projected_columns = std::move(options.projected_columns);
     if (supports_iceberg_scan_semantics_v1(_scan_params)) {
         for (auto& projected_column : _projected_columns) {
@@ -1323,15 +1322,14 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                _file_context_registry, _current_task->file_context, _current_task->format_split_id,
+                _current_task->file_context, _current_task->format_split_id,
                 _current_task->format_split_id_end);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz, _file_context_registry,
-                _current_task->file_context);
+                _global_rowid_context, enable_mapping_timestamp_tz, _current_task->file_context);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {

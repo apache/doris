@@ -47,7 +47,6 @@ public:
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
-                  FileContextRegistry* file_context_registry = nullptr,
                   std::shared_ptr<const FileContext> file_context = nullptr,
                   int64_t format_split_id = -1, int64_t format_split_id_end = -1);
     ~ParquetReader() override;
@@ -102,7 +101,6 @@ private:
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
     bool _enable_mapping_varbinary = false;    // whether raw BYTE_ARRAY is mapped to VARBINARY
-    FileContextRegistry* _file_context_registry = nullptr;
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
     int64_t _format_split_id_end = -1;

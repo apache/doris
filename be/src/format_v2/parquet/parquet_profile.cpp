@@ -174,16 +174,6 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                           TUnit::UNIT, parquet_profile, 1);
     file_footer_hit_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileFooterHitCache", TUnit::UNIT,
                                                          parquet_profile, 1);
-    file_context_registry_requests = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "FileContextRegistryRequests", TUnit::UNIT, parquet_profile, 1);
-    file_context_registry_loads = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileContextRegistryLoads",
-                                                               TUnit::UNIT, parquet_profile, 1);
-    file_context_registry_hits = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileContextRegistryHits",
-                                                              TUnit::UNIT, parquet_profile, 1);
-    file_context_registry_waits = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileContextRegistryWaits",
-                                                               TUnit::UNIT, parquet_profile, 1);
-    file_context_registry_bypasses = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "FileContextRegistryBypasses", TUnit::UNIT, parquet_profile, 1);
     decompress_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "DecompressTime", parquet_profile, 1);
     decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecompressCount", TUnit::UNIT,
                                                   parquet_profile, 1);
