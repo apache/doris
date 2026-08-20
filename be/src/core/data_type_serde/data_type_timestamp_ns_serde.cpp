@@ -34,12 +34,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-namespace {
-
-constexpr int64_t NANOS_PER_MICROSECOND = 1000;
-
-} // namespace
-
 Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
                           const cctz::time_zone* local_time_zone) {
     std::string input(str.data, str.size);
@@ -102,9 +96,10 @@ Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
         }
         nanos = 0;
     }
-    datetime.set_microsecond(nanos / NANOS_PER_MICROSECOND);
+    datetime.set_microsecond(nanos / TimeStampNsValue::NANOS_PER_MICROSECOND);
     TimeStampNsValue value;
-    if (!value.from_datetime(datetime, static_cast<uint16_t>(nanos % NANOS_PER_MICROSECOND))) {
+    if (!value.from_datetime(
+                datetime, static_cast<uint16_t>(nanos % TimeStampNsValue::NANOS_PER_MICROSECOND))) {
         return Status::InvalidArgument(
                 "TIMESTAMP_NS value '{}' is outside [{}, {}]", std::string(str.data, str.size),
                 TimeStampNsValue(std::numeric_limits<int64_t>::min()).to_string(),
