@@ -129,6 +129,18 @@ public class JdbcSourceOffsetProviderLagTest {
     }
 
     @Test
+    public void testPostgresInitialOffsetTimestampIsUnavailable() {
+        JdbcSourceOffsetProvider provider = provider(DataSourceType.POSTGRES, DataSourceConfigKeys.OFFSET_LATEST);
+        Map<String, String> committedOffset = new HashMap<>();
+        committedOffset.put("lsn", "0");
+        committedOffset.put("ts_usec", String.valueOf(Long.MIN_VALUE));
+        provider.currentOffset =
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset)));
+
+        Assert.assertEquals(0L, provider.getLastSourceEventTimestampSeconds());
+    }
+
+    @Test
     public void testLastSourceEventTimestampUnavailableBeforeCommittedBinlogTimestamp() {
         JdbcSourceOffsetProvider provider = provider(DataSourceType.MYSQL, DataSourceConfigKeys.OFFSET_INITIAL);
         provider.currentOffset = new JdbcOffset(Collections.singletonList(

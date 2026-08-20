@@ -1015,11 +1015,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             try {
                 String timestampSeconds = offsetMap.get("ts_sec");
                 if (timestampSeconds != null) {
-                    return Long.parseLong(timestampSeconds);
+                    return Math.max(Long.parseLong(timestampSeconds), 0);
                 }
                 String timestampMicros = offsetMap.get("ts_usec");
                 if (timestampMicros != null) {
-                    return Long.parseLong(timestampMicros) / 1_000_000;
+                    return Math.max(Long.parseLong(timestampMicros) / 1_000_000, 0);
                 }
             } catch (NumberFormatException e) {
                 log.warn("Failed to parse source event timestamp from offset: {}", offsetMap, e);
