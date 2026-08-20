@@ -36,6 +36,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.security.InvalidParameterException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -77,6 +78,17 @@ public class SessionVariablesTest extends TestWithFeService {
                 sessionVariable.getInsertVisibleTimeoutReturnMode());
         Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
                 sessionVariable.getInsertVisibleTimeoutReturnModeEnum());
+    }
+
+    @Test
+    public void testSeqMapCandidateKeyMaxCountValidation() {
+        Assertions.assertDoesNotThrow(() -> sessionVariable.checkSeqMapCandidateKeyMaxCount("1"));
+        Assertions.assertThrows(InvalidParameterException.class,
+                () -> sessionVariable.checkSeqMapCandidateKeyMaxCount("0"));
+        Assertions.assertThrows(InvalidParameterException.class,
+                () -> sessionVariable.checkSeqMapCandidateKeyMaxCount("-1"));
+        Assertions.assertThrows(InvalidParameterException.class,
+                () -> sessionVariable.checkSeqMapCandidateKeyMaxCount("not-a-number"));
     }
 
     @Test

@@ -125,6 +125,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                   _read_context->is_upper_keys_included->at(i));
         }
     }
+    _read_options.point_keys = _read_context->point_keys;
 
     // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
     // or predicates when it is not inited.
@@ -151,9 +152,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         read_columns_set.find(*_read_context->tso_predicate_column_id) == read_columns_set.end()) {
         read_columns.push_back(*_read_context->tso_predicate_column_id);
     }
-    // disable condition cache if you have delete condition or forced pushed tso predicate
+    // Delete conditions and forced TSO predicates are not represented by the digest. Point keys
+    // are derived from visible rowsets and can grow when a new rowset becomes visible, so an entry
+    // built after point-key pruning is also unsafe to reuse on an older segment.
     _read_context->condition_cache_digest =
-            (delete_columns_set.empty() && !_read_context->tso_predicate_column_id.has_value())
+            (delete_columns_set.empty() && !_read_context->tso_predicate_column_id.has_value() &&
+             !_read_context->point_keys)
                     ? _read_context->condition_cache_digest
                     : 0;
     // create segment iterators
@@ -230,10 +234,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    if (_should_push_down_value_predicates()) {
-        // sequence mapping currently only support merge on read, so can not push down value predicates
+    if (_read_context->is_seq_map_candidate_scan || _should_push_down_value_predicates()) {
+        // A sequence-mapping candidate scan intentionally evaluates value predicates on
+        // physical rows. The resulting rows are used only to build a conservative key set;
+        // final query rows still go through the normal merge-on-read path and residual filter.
         if (_read_context->value_predicates != nullptr &&
-            !read_context->tablet_schema->has_seq_map()) {
+            (_read_context->is_seq_map_candidate_scan ||
+             !read_context->tablet_schema->has_seq_map())) {
             _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                    _read_context->value_predicates->begin(),
                                                    _read_context->value_predicates->end());

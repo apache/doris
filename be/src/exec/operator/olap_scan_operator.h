@@ -259,6 +259,23 @@ private:
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_driver_groups_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_driver_predicates_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_scan_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_scan_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_index_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_index_downgrades_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_index_lookup_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_cache_local_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_cache_remote_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_keys_before_intersect_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_keys_after_intersect_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_key_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_build_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_point_range_build_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_fallbacks_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_pruned_tablets_counter = nullptr;
 
     RuntimeProfile::Counter* _ann_topn_filter_counter = nullptr;
     // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs

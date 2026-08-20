@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/consts.h"
@@ -50,8 +51,15 @@ public:
     // Sets up the schema and copies Fields from the tuple.
     Status init(TabletSchemaSPtr schema, const OlapTuple& tuple);
 
+    // Initialize with a shared immutable schema. Point-key scans use this overload so every key
+    // shares one schema instead of allocating a table-width Schema per RowCursor.
+    Status init(SchemaSPtr schema, const OlapTuple& tuple);
+    Status init(SchemaSPtr schema, std::vector<Field>&& fields);
+
     // Initialize from typed Fields directly.
     Status init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fields);
+
+    static SchemaSPtr create_shared_schema(const TabletSchemaSPtr& schema, uint32_t column_count);
 
     const Field& field(uint32_t cid) const { return _fields[cid]; }
     Field& mutable_field(uint32_t cid) { return _fields[cid]; }
@@ -61,7 +69,7 @@ public:
     const TabletColumn* column(uint32_t cid) const { return _schema->column(cid); }
     const Schema* schema() const { return _schema.get(); }
 
-    // Returns a deep copy of this RowCursor with the same schema and field values.
+    // Returns a copy of the field values that shares the immutable schema.
     RowCursor clone() const;
 
     // Output row cursor content in string format
@@ -90,14 +98,22 @@ private:
     // Copy Fields from an OlapTuple into this cursor.
     Status _from_tuple(const OlapTuple& tuple);
 
-    void _init_schema(TabletSchemaSPtr schema, uint32_t column_count);
-
     // Helper: encode a single non-null field for the given column.
     // Converts the core::Field to storage format and calls KeyCoder.
     void _encode_column_value(const TabletColumn* column, const Field& value, bool full_encode,
                               std::string* buf) const;
 
-    std::unique_ptr<Schema> _schema;
+    SchemaSPtr _schema;
     std::vector<Field> _fields;
 };
+
+struct PointKeySet {
+    explicit PointKeySet(SchemaSPtr key_schema) : schema(std::move(key_schema)) {}
+
+    SchemaSPtr schema;
+    std::vector<RowCursor> keys;
+    size_t retained_bytes = 0;
+};
+
+using PointKeySetSPtr = std::shared_ptr<const PointKeySet>;
 } // namespace doris

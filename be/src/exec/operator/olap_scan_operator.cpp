@@ -292,6 +292,38 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexLookupTimer", 1);
+    _seq_map_candidate_driver_groups_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateDriverGroups", TUnit::UNIT);
+    _seq_map_candidate_driver_predicates_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateDriverPredicates", TUnit::UNIT);
+    _seq_map_candidate_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateRows", TUnit::UNIT);
+    _seq_map_candidate_scan_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateScanRows", TUnit::UNIT);
+    _seq_map_candidate_scan_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateScanBytes", TUnit::BYTES);
+    _seq_map_candidate_index_filtered_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateIndexFilteredRows", TUnit::UNIT);
+    _seq_map_candidate_index_downgrades_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateIndexDowngrades", TUnit::UNIT);
+    _seq_map_candidate_index_lookup_timer =
+            ADD_TIMER(_segment_profile, "SeqMapCandidateIndexLookupTime");
+    _seq_map_candidate_cache_local_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateCacheLocalBytes", TUnit::BYTES);
+    _seq_map_candidate_cache_remote_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateCacheRemoteBytes", TUnit::BYTES);
+    _seq_map_candidate_keys_before_intersect_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateKeysBeforeIntersect", TUnit::UNIT);
+    _seq_map_candidate_keys_after_intersect_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateKeysAfterIntersect", TUnit::UNIT);
+    _seq_map_candidate_key_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateKeyBytes", TUnit::BYTES);
+    _seq_map_candidate_build_timer = ADD_TIMER(_segment_profile, "SeqMapCandidateBuildTime");
+    _seq_map_point_range_build_timer = ADD_TIMER(_segment_profile, "SeqMapPointRangeBuildTime");
+    _seq_map_candidate_fallbacks_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateFallbacks", TUnit::UNIT);
+    _seq_map_candidate_pruned_tablets_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidatePrunedTablets", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);

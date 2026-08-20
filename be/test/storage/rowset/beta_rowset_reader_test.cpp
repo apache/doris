@@ -189,4 +189,24 @@ TEST_F(BetaRowsetReaderTsoInjectionTest, NotAppendTsoColumnWhenAlreadyInReturnCo
     EXPECT_EQ(_reader->_input_schema->num_column_ids(), 2);
 }
 
+TEST_F(BetaRowsetReaderTsoInjectionTest, PointKeysDisableConditionCache) {
+    RowsetReaderContext ctx = make_context();
+    ctx.condition_cache_digest = 123;
+
+    auto key_schema = RowCursor::create_shared_schema(_tablet_schema, 1);
+    auto point_keys = std::make_shared<PointKeySet>(key_schema);
+    RowCursor point_key;
+    std::vector<Field> fields {Field::create_field<TYPE_INT>(1)};
+    ASSERT_TRUE(point_key.init(key_schema, std::move(fields)).ok());
+    point_keys->keys.emplace_back(std::move(point_key));
+    ctx.point_keys = point_keys;
+
+    std::vector<RowwiseIteratorUPtr> iters;
+    ASSERT_TRUE(_reader->get_segment_iterators(&ctx, &iters).ok());
+
+    EXPECT_EQ(ctx.condition_cache_digest, 0);
+    EXPECT_EQ(_reader->_read_options.condition_cache_digest, 0);
+    EXPECT_EQ(_reader->_read_options.point_keys.get(), point_keys.get());
+}
+
 } // namespace doris
