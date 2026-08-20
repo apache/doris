@@ -65,6 +65,7 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.LocationUtil;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -730,7 +731,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Hadoop config: BE-canonical static catalog creds (AWS_*/dfs) plus the REST per-table vended overlay
         // (see buildHadoopConfig), mirroring legacy IcebergTableSink + the scan-side credential assembly.
-        tSink.setHadoopConfig(buildHadoopConfig(table));
+        tSink.setHadoopConfig(buildHadoopConfig(table, schemaContext.getDataLocation()));
 
         // Output location: normalized for the BE writer, raw kept as the original; the BE file type comes
         // from the engine (broker-aware). All vended-aware so a REST catalog's path still resolves.
@@ -801,7 +802,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setDeleteType(TFileContent.POSITION_DELETES);
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
         tSink.setCompressType(toTFileCompressType(schemaContext.getFileCompression()));
-        tSink.setHadoopConfig(buildHadoopConfig(table));
+        tSink.setHadoopConfig(buildHadoopConfig(table, schemaContext.getDataLocation()));
 
         LocationFields location = resolveLocationFields(table, schemaContext.getDataLocation());
         tSink.setOutputPath(location.outputPath);
@@ -874,7 +875,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
         tSink.setCompressionType(toTFileCompressType(schemaContext.getFileCompression()));
-        tSink.setHadoopConfig(buildHadoopConfig(table));
+        tSink.setHadoopConfig(buildHadoopConfig(table, schemaContext.getDataLocation()));
 
         LocationFields location = resolveLocationFields(table, schemaContext.getDataLocation());
         tSink.setOutputPath(location.outputPath);
@@ -1003,7 +1004,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
     }
 
-    private Map<String, String> buildHadoopConfig(Table table) {
+    private Map<String, String> buildHadoopConfig(Table table, String dataLocation) {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
             // Static catalog credentials in BE-canonical form (AWS_* for object stores, dfs/hadoop for HDFS),
@@ -1020,9 +1021,21 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             }
             // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a
             // vending catalog's static storage map is empty by design, so the vended creds are the only ones.
-            merged.putAll(storage().vendStorageCredentials(
-                    IcebergScanPlanProvider.extractVendedToken(
-                            table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties))));
+            Map<String, String> vendedToken = IcebergScanPlanProvider.extractVendedToken(
+                    table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
+            merged.putAll(storage().vendStorageCredentials(vendedToken));
+
+            // The row-level DML sink reuses this map to read existing v3 deletion vectors. Unlike a normal
+            // scan range, that helper has no per-file fs_name carrier and falls back to fs.defaultFS when the
+            // file type is FILE_HDFS. Azure vended SAS properties intentionally do not include a container,
+            // so derive the authority from the actual data location instead of letting the BE open hdfs://.
+            if (!merged.containsKey("fs.defaultFS")
+                    && TFileType.FILE_HDFS.name().equals(storage().getBackendFileType(dataLocation, vendedToken))) {
+                URI uri = URI.create(dataLocation);
+                if (uri.getScheme() != null && uri.getRawAuthority() != null) {
+                    merged.put("fs.defaultFS", uri.getScheme() + "://" + uri.getRawAuthority());
+                }
+            }
         }
         return merged;
     }

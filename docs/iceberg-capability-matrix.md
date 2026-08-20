@@ -10,9 +10,9 @@
 - Databricks Unity Catalog 的 Iceberg REST Catalog；
 - Azure ADLS `abfss` 数据位置；
 - Databricks OAuth 与 vended credentials；
-- 2026-08-20 的本地 ASAN 构建，commit `9791c4b5d64`。
+- 2026-08-20 的本地 ASAN 构建和本 PR 当前工作树。
 
-当前可以确认：Doris 已能通过 Databricks REST Catalog 获取 vended Azure 凭据，并使用 Hadoop ABFS reader 读取 Iceberg 表。Catalog、namespace、表发现，以及实际 `COUNT(*)` 和过滤排序查询均已跑通。
+当前可以确认：Doris 已能通过 Databricks REST Catalog 获取 vended Azure 凭据，并使用 Hadoop ABFS reader 读写 Iceberg 表。Catalog、namespace、表发现、snapshot time travel、基本查询，以及 `INSERT`、`INSERT OVERWRITE`、format v3 `DELETE`、`UPDATE` 和 `MERGE INTO` 均已在隔离测试表跑通。
 
 ## 2. 证据等级
 
@@ -50,8 +50,8 @@
 | Nested column pruning | CODE / REG / TODO | `SUPPORTS_NESTED_COLUMN_PRUNE`；nested schema suites | 使用 STRUCT/ARRAY/MAP 表，检查子字段结果和扫描行为 |
 | Position delete | REG / TODO | `test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 先验证读取，再验证 Azure 上写入产生的删除文件 |
 | Equality delete | REG / TODO | `test_iceberg_equality_delete*.groovy` | 验证 schema evolution 后 equality delete 仍正确 |
-| Deletion vector / row lineage | CODE / REG / TODO | deletion-vector 和 v3 row-lineage suites | 当前 Databricks 表版本和格式需要先确认 |
-| Iceberg system tables | E2E / REG | 当前 `$snapshots` 系统表可读并返回 snapshot、operation、committed_at；`test_iceberg_sys_table*.groovy` | 继续覆盖 manifests、files、partitions 等系统表 |
+| Deletion vector / row lineage | E2E / REG | format v3 表先执行 `DELETE` 产生 DV，再执行 `UPDATE` 和 `MERGE INTO`，均正确读取并合并已有 DV；deletion-vector 和 v3 row-lineage suites | 增加多 DV、并发提交和大批量删除场景 |
+| Iceberg system tables | E2E / REG / TODO | `$snapshots`、`$refs` 可读；`$files` 在 Azure 表上因缺少 `org.apache.iceberg.azure.adlsv2.ADLSFileIO` 失败；`test_iceberg_sys_table*.groovy` | 补齐 Azure Iceberg system-table 插件依赖后验证 files、manifests、partitions |
 | `SHOW CREATE TABLE/DATABASE` | E2E / CODE / REG | `SUPPORTS_SHOW_CREATE_DDL`；当前 `SHOW CREATE TABLE` 返回 Iceberg LOCATION/PROPERTIES，未出现 OAuth token 或 SAS；`test_iceberg_show_create.groovy` | 单独验证 `SHOW CREATE DATABASE` 和敏感属性过滤 |
 | View | CODE / REG / TODO | `SUPPORTS_VIEW` | Databricks REST Catalog 是否暴露 view，需要单独确认 |
 | Metadata preload | CODE | `SUPPORTS_METADATA_PRELOAD` | 这是并发/锁延迟优化，不作为第一批功能 E2E |
@@ -65,12 +65,16 @@
 
 | 操作 | 当前状态 | 证据 |
 | --- | --- | --- |
-| `INSERT` | CODE / REG / TODO | `ICEBERG_TABLE_SINK`；现有 DML regression 有覆盖，当前 Azure 未执行。 |
-| `INSERT OVERWRITE` | CODE / REG / TODO | 与 `INSERT` 共用 table sink，通过 overwrite 标记切换语义。 |
-| `DELETE` | CODE / REG / TODO | `ICEBERG_DELETE_SINK`；需要验证 position/equality delete 结果。 |
-| `UPDATE` | CODE / REG / TODO | `ICEBERG_MERGE_SINK`；需要确认 Databricks 表格式和行级 DML 前置条件。 |
-| `MERGE INTO` | CODE / REG / TODO | `ICEBERG_MERGE_SINK`；建议使用独立测试表，不修改当前 `managed_iceberg`。 |
+| `INSERT` | E2E / REG | 在 `matrix_write_20260820` 通过 `VALUES` 写入 `id=13`，再通过 `INSERT ... SELECT` 写入 `id=22`，查询均得到完整行。 |
+| `INSERT OVERWRITE` | E2E / REG | 同一隔离表 overwrite 后仅保留 `id=20/21`，结果符合替换语义。 |
+| `DELETE` | E2E / REG | format v3 表删除 `id=2` 后仅剩 `id=1/3`；format v2 被远端按“delete files 需要 v3”拒绝，属于表格式前置条件。 |
+| `UPDATE` | E2E / UT / REG | 新表 UPDATE 通过；已有 DELETE DV 的 `matrix_dml_v3_20260820` 更新 `id=1` 后得到 `alice_after_fix/28`。 |
+| `MERGE INTO` | E2E / UT / REG | 在同一张已有 DELETE 和 UPDATE DV 的表上更新 `id=3`、插入 `id=5`，最终得到三行预期结果。 |
 | `rewrite_data_files` | CODE / REG / TODO | 分布式 rewrite 路径；对应 action regression 已存在。 |
+
+第一次在已有 v3 DV 上执行 `UPDATE`/`MERGE INTO` 时，BE 的 DV reader 退化为打开空 authority 的 `hdfs://`。普通 scan range 会单独携带 `fs_name`，但 sink 侧 DV helper 只能从 Hadoop 配置读取 `fs.defaultFS`；Databricks vended SAS 配置只包含 account，不包含 container，因此此前没有该键。本 PR 从实际数据位置提取 `abfss://container@account.dfs.core.windows.net` 写入 `fs.defaultFS`，新增 FE 单元测试，并用上述 DELETE -> UPDATE -> MERGE E2E 顺序验证修复。
+
+本轮保留了 `matrix_write_20260820`、`matrix_dml_v3_20260820`、`matrix_update_fresh_20260820` 和 `matrix_merge_fresh_20260820` 供复查，没有修改或清理现有 `managed_iceberg`。
 
 ### 5.2 DDL 和表演进
 
@@ -118,9 +122,9 @@ remove_orphan_files
 
 为了不污染现有 Catalog，下一轮按下面顺序执行：
 
-1. 只读：snapshot time travel、partition pruning、nested column、position/equality delete、system tables。
-2. 写入：在独立测试表验证 `INSERT`、overwrite、`DELETE`、`UPDATE`、`MERGE`。
-3. DDL：在独立 namespace 验证 schema evolution、partition evolution、branch/tag。
+1. 只读：partition pruning、nested column、position/equality delete，以及修复 Azure 依赖后的 system tables。
+2. DDL：在独立 namespace 验证 schema evolution、partition evolution、branch/tag。
+3. 写入扩展：验证分区表、多 DV、并发提交和失败重试。
 4. 管理：最后验证 `EXECUTE` 操作，并在每一步保存 snapshot/metadata 结果。
 5. 安全：用过期凭据和不同用户会话验证 401 重认证及缓存隔离。
 

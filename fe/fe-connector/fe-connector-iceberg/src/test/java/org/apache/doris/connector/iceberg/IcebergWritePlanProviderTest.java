@@ -911,6 +911,43 @@ public class IcebergWritePlanProviderTest {
                 "static-only key must remain alongside the vended overlay");
     }
 
+    @Test
+    public void planWriteVendedAzureSetsDefaultFileSystemForRowLevelDml() {
+        InMemoryCatalog catalog = freshCatalog();
+        Map<String, String> tableProps = new HashMap<>();
+        String dataLocation = "abfss://container@account.dfs.core.windows.net/warehouse/db1/tazure/data";
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.data.path", dataLocation);
+        Table real = catalog.createTable(TableIdentifier.of("db1", "tazure"), SCHEMA,
+                PartitionSpec.unpartitioned(), tableProps);
+        Table vendedTable = new BaseTable(
+                new IcebergAuthenticatedTableOperations(
+                        ((HasTableOperations) real).operations(),
+                        new PropsFileIO(Map.of(
+                                "adls.sas-token.account.dfs.core.windows.net", "sas-token",
+                                "adls.sas-token-expires-at-ms.account.dfs.core.windows.net", "4102444800000"))),
+                real.name());
+
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.backendFileType = TFileType.FILE_HDFS;
+        ctx.vendedBeProps = Map.of(
+                "fs.azure.account.auth.type.account.dfs.core.windows.net", "SAS",
+                "fs.azure.sas.fixed.token.account.dfs.core.windows.net", "sas-token");
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = vendedTable;
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                IcebergCatalogProperties.of(restVendedProps()), ops, ctx);
+
+        ConnectorSinkPlan plan = provider.planWrite(
+                new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx)),
+                new WriteHandle(new IcebergTableHandle("db1", "tazure")).writeOperation(WriteOperation.UPDATE));
+        TIcebergMergeSink sink = plan.getDataSink().getIcebergMergeSink();
+
+        Assertions.assertEquals(dataLocation.substring(0, dataLocation.indexOf('/', "abfss://".length())),
+                sink.getHadoopConfig().get("fs.defaultFS"),
+                "Azure vended row-level DML must carry the authority used by the BE DV reader");
+    }
+
     private static Map<String, String> restVendedProps() {
         Map<String, String> props = new HashMap<>();
         props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
