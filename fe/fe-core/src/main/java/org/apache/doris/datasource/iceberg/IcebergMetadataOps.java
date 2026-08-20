@@ -74,7 +74,6 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
-import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -125,26 +124,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public Catalog getCatalog() {
         return catalog;
-    }
-
-    /**
-     * Returns the catalog-level FileIO for session catalogs that expose one internally (e.g. REST).
-     * Returns null when the catalog does not have a separate catalog-level FileIO or it cannot be determined.
-     */
-    public FileIO getCatalogFileIO() {
-        if (catalog == null) {
-            return null;
-        }
-        try {
-            if (catalog instanceof org.apache.iceberg.rest.RESTSessionCatalog) {
-                java.lang.reflect.Field field = org.apache.iceberg.rest.RESTSessionCatalog.class.getDeclaredField("io");
-                field.setAccessible(true);
-                return (FileIO) field.get(catalog);
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to get Iceberg catalog FileIO, table cache entries will not close shared FileIO", e);
-        }
-        return null;
     }
 
     public ExternalCatalog getExternalCatalog() {

@@ -373,6 +373,80 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void testDisabledEntryNotifiesRemovalForLoadedResource() throws Exception {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger removed = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test", key -> 7, CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
+                    false, false, (key, value, cause) -> removed.set(value));
+
+            Assert.assertEquals(Integer.valueOf(7), entry.get("k"));
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            Assert.assertEquals(7, removed.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testSuppressedRemovalFallsBackWhenExecutorRejects() {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger removed = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test", key -> 11, CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
+                    false, false, (key, value, cause) -> removed.set(value));
+            refreshExecutor.shutdownNow();
+
+            Assert.assertEquals(Integer.valueOf(11), entry.get("k"));
+            Assert.assertEquals(11, removed.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidatedInFlightLoadNotifiesRemoval() throws Exception {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger removed = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test", key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return 9;
+                    }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
+                    false, false, (key, value, cause) -> removed.set(value));
+
+            Future<Integer> loaded = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(9), loaded.get(3L, TimeUnit.SECONDS));
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            Assert.assertEquals(9, removed.get());
+            Assert.assertNull(entry.getIfPresent("k"));
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     // Keep the loader blocking helper in one place so concurrent tests stay readable.
     private void awaitLatch(CountDownLatch latch) {
         try {

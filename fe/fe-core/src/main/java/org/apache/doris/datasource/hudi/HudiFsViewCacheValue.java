@@ -19,8 +19,6 @@ package org.apache.doris.datasource.hudi;
 
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 /**
  * Reference-counted wrapper around a shared {@link HoodieTableFileSystemView}.
  *
@@ -30,33 +28,68 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class HudiFsViewCacheValue {
     private final HoodieTableFileSystemView fsView;
-    private final AtomicInteger refCount = new AtomicInteger(0);
-    private volatile boolean evicted = false;
-    private volatile boolean closed = false;
+    // The loader owns one transferable reference until getFsView hands this exact generation to its first caller.
+    private int refCount = 1;
+    private boolean loaderReferenceAvailable = true;
+    private boolean evicted = false;
+    private boolean closed = false;
 
     public HudiFsViewCacheValue(HoodieTableFileSystemView fsView) {
         this.fsView = fsView;
     }
 
-    public HoodieTableFileSystemView acquire() {
-        refCount.incrementAndGet();
-        return fsView;
+    public synchronized Lease tryAcquire() {
+        if (loaderReferenceAvailable) {
+            loaderReferenceAvailable = false;
+            return new Lease(this, fsView);
+        }
+        if (evicted) {
+            return null;
+        }
+        refCount++;
+        return new Lease(this, fsView);
     }
 
-    public void evict() {
+    public synchronized void evict() {
         evicted = true;
         maybeClose();
     }
 
-    public void release() {
-        refCount.decrementAndGet();
+    private synchronized void release() {
+        if (refCount <= 0) {
+            throw new IllegalStateException("Hudi fs view released without a matching acquisition");
+        }
+        refCount--;
         maybeClose();
     }
 
-    private synchronized void maybeClose() {
-        if (evicted && !closed && refCount.get() == 0) {
+    private void maybeClose() {
+        if (evicted && !closed && refCount == 0) {
             closed = true;
             fsView.close();
+        }
+    }
+
+    /** A lease pins the exact cache generation until split planning has finished using it. */
+    public static class Lease implements AutoCloseable {
+        private HudiFsViewCacheValue owner;
+        private final HoodieTableFileSystemView fsView;
+
+        private Lease(HudiFsViewCacheValue owner, HoodieTableFileSystemView fsView) {
+            this.owner = owner;
+            this.fsView = fsView;
+        }
+
+        public HoodieTableFileSystemView get() {
+            return fsView;
+        }
+
+        @Override
+        public synchronized void close() {
+            if (owner != null) {
+                owner.release();
+                owner = null;
+            }
         }
     }
 }

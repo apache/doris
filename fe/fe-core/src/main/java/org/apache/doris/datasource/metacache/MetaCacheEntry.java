@@ -24,10 +24,13 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -41,6 +44,7 @@ import javax.annotation.Nullable;
  * key/predicate/full invalidation, and lightweight runtime stats.
  */
 public class MetaCacheEntry<K, V> {
+    private static final Logger LOG = LogManager.getLogger(MetaCacheEntry.class);
     // Use striped locks to deduplicate slow external loads without managing per-key lock lifecycle.
     private static final int LOAD_LOCK_STRIPES = 128;
 
@@ -50,6 +54,9 @@ public class MetaCacheEntry<K, V> {
     private final CacheSpec cacheSpec;
     private final boolean effectiveEnabled;
     private final boolean autoRefresh;
+    @Nullable
+    private final RemovalListener<K, V> removalListener;
+    private final ExecutorService refreshExecutor;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
@@ -102,7 +109,8 @@ public class MetaCacheEntry<K, V> {
         this.loader = loader;
         this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
         this.autoRefresh = autoRefresh;
-        Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
+        this.refreshExecutor = Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
+        this.removalListener = removalListener;
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
         OptionalLong expireAfterAccessSec =
@@ -230,7 +238,9 @@ public class MetaCacheEntry<K, V> {
     private V getWithManualLoad(K key, Function<K, V> loadFunction) {
         if (!effectiveEnabled) {
             // Bypass cache entirely when the entry is disabled so manual miss load does not relax disable semantics.
-            return loadAndTrack(key, loadFunction);
+            V loaded = loadAndTrack(key, loadFunction);
+            notifySuppressedRemoval(key, loaded);
+            return loaded;
         }
 
         V value = data.getIfPresent(key);
@@ -247,6 +257,7 @@ public class MetaCacheEntry<K, V> {
             long generation = invalidateGeneration.get();
             V loaded = loadAndTrack(key, loadFunction);
             if (generation != invalidateGeneration.get()) {
+                notifySuppressedRemoval(key, loaded);
                 return loaded;
             }
 
@@ -262,6 +273,25 @@ public class MetaCacheEntry<K, V> {
                 removeLoadedValue(key, loaded);
             }
             return loaded;
+        }
+    }
+
+    private void notifySuppressedRemoval(K key, V value) {
+        if (value != null && removalListener != null) {
+            Runnable notifyRemoval = () -> {
+                try {
+                    removalListener.onRemoval(
+                            key, value, com.github.benmanes.caffeine.cache.RemovalCause.EXPLICIT);
+                } catch (RuntimeException e) {
+                    LOG.warn("Removal listener failed for suppressed value in cache entry {}", name, e);
+                }
+            };
+            try {
+                refreshExecutor.execute(notifyRemoval);
+            } catch (RejectedExecutionException e) {
+                // Resource retirement must not be dropped when the bounded cleanup executor is saturated or closing.
+                notifyRemoval.run();
+            }
         }
     }
 

@@ -27,7 +27,6 @@ import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.io.FileIO;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -38,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class IcebergExternalMetaCacheTest {
 
@@ -83,36 +81,6 @@ public class IcebergExternalMetaCacheTest {
             Assert.assertNotNull(viewEntry.getIfPresent(t2));
             Assert.assertNotNull(manifestEntry.getIfPresent(m1));
             Assert.assertNotNull(manifestEntry.getIfPresent(m2));
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    public void testInvalidateTableClosesOwnedFileIO() throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
-            long catalogId = 1L;
-            cache.initCatalog(catalogId, manifestCacheEnabledProperties());
-            NameMapping t1 = new NameMapping(catalogId, "db1", "tbl1", "rdb1", "rtbl1");
-            AtomicBoolean closed = new AtomicBoolean(false);
-            FileIO fileIO = newFileIOProxy(closed);
-            Table table = newTableWithIOProxy(fileIO);
-
-            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tableEntry = cache.entry(catalogId,
-                    IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class);
-            tableEntry.put(t1, new IcebergTableCacheValue(table,
-                    () -> new IcebergSnapshotCacheValue(IcebergPartitionInfo.empty(), new IcebergSnapshot(1L, 1L)),
-                    true));
-
-            cache.invalidateTable(catalogId, "db1", "tbl1");
-            // Removal listeners run asynchronously on the cache executor. Since this test uses a
-            // single-thread executor, this marker is a deterministic barrier for the close task.
-            executor.submit(() -> { }).get();
-
-            Assert.assertNull(tableEntry.getIfPresent(t1));
-            Assert.assertTrue("invalidateTable must close table-owned FileIO", closed.get());
         } finally {
             executor.shutdownNow();
         }
@@ -280,45 +248,6 @@ public class IcebergExternalMetaCacheTest {
             }
             return defaultValue(method.getReturnType());
         }));
-    }
-
-    private FileIO newFileIOProxy(AtomicBoolean closed) {
-        return (FileIO) Proxy.newProxyInstance(FileIO.class.getClassLoader(), new Class<?>[] {FileIO.class},
-                (proxy, method, args) -> {
-                    if (method.getDeclaringClass() == Object.class) {
-                        return defaultValue(method.getReturnType());
-                    }
-                    if ("close".equals(method.getName())) {
-                        closed.set(true);
-                        return null;
-                    }
-                    if ("properties".equals(method.getName())) {
-                        return Collections.emptyMap();
-                    }
-                    return defaultValue(method.getReturnType());
-                });
-    }
-
-    private Table newTableWithIOProxy(FileIO io) {
-        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
-                (proxy, method, args) -> {
-                    if (method.getDeclaringClass() == Object.class) {
-                        switch (method.getName()) {
-                            case "equals":
-                                return proxy == args[0];
-                            case "hashCode":
-                                return System.identityHashCode(proxy);
-                            case "toString":
-                                return "TableWithIOProxy";
-                            default:
-                                return null;
-                        }
-                    }
-                    if ("io".equals(method.getName()) && method.getParameterCount() == 0) {
-                        return io;
-                    }
-                    return defaultValue(method.getReturnType());
-                });
     }
 
     private Object defaultValue(Class<?> type) {
