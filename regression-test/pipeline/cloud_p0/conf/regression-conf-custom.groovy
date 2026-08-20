@@ -30,23 +30,16 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_dump_image," +
     "test_nereids_show_restore," +
-    "test_index_failure_injection," +
     "test_information_schema_external," +
-    "test_profile," +
     "test_publish_timeout," +
-    "test_refresh_mtmv," + // not supported yet
     "test_report_version_missing," +
     "test_set_partition_version," +
     "test_spark_load," +
     "test_index_lowercase_fault_injection," +
-    "test_index_compaction_failure_injection," +
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
     "test_insert," + // txn insert
     "test_nereids_show_snapshot," +
-    "test_full_compaction_run_status," +
-    "test_topn_fault_injection," +
-    "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "test_nereids_show_backup," +
     "check_meta,"+
@@ -71,15 +64,10 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "external_table_p0," + // run on external pipeline
-    "cloud/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
     "shape_check," + // run only in p0 is enough
     "nereids_p0/cache," + // run only in p0 is enough
-    "nereids_rules_p0/mv/increment_create," + // run only in p0 is enough
-    "nereids_rules_p0/mv/genera_constant_sql," + // run only in p0 is enough
-    "workload_manager_p1," +
-    "nereids_rules_p0/subquery," +
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +
@@ -87,8 +75,6 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "ccr_mow_syncer_p0," +
     "hdfs_vault_p2," +
     "inject_hdfs_vault_p0," +
-    "variant_p0/nested," +
-    "variant_p0/nested/sql," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
     "restore_p0," + // 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
