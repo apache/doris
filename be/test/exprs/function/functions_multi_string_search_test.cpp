@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/functions_multi_string_search.cpp"
+#include "exprs/function/functions_multi_string_search.h"
 
 #include <gtest/gtest.h>
 
