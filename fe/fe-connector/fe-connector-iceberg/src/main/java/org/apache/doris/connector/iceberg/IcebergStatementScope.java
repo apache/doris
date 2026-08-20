@@ -83,6 +83,39 @@ final class IcebergStatementScope {
                 () -> snapshotReadTable(loader.get()));
     }
 
+    /**
+     * Statement-scoped variant for a table borrowed from {@link IcebergTableCache}. The memoized holder is
+     * {@link AutoCloseable}, so the engine's statement-scope teardown releases the borrower only after scan
+     * pumps have quiesced. Cache eviction and statement completion may happen in either order; the underlying
+     * FileIO is closed only after both owners release it.
+     */
+    static Table sharedBorrowedTable(ConnectorSession session, String dbName, String tableName,
+            Supplier<IcebergTableCache.TableLease> loader, Supplier<Table> unscopedLoader) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            // NONE has no statement-end callback, so it cannot safely own a lease. Preserve its original direct
+            // load-every-time behavior; creating a lease here would drop its only close handle and leak forever.
+            return snapshotReadTable(unscopedLoader.get());
+        }
+        ScopedBorrow borrowed = ConnectorStatementScopes.resolveInStatement(
+                session, TABLE_NAMESPACE, dbName, tableName, () -> new ScopedBorrow(loader.get()));
+        return borrowed.table;
+    }
+
+    private static final class ScopedBorrow implements AutoCloseable {
+        private final IcebergTableCache.TableLease lease;
+        private final Table table;
+
+        private ScopedBorrow(IcebergTableCache.TableLease lease) {
+            this.lease = lease;
+            this.table = snapshotReadTable(lease.table());
+        }
+
+        @Override
+        public void close() {
+            lease.close();
+        }
+    }
+
     /** Loads the mutable table used only by write planning and transaction creation. */
     static Table sharedWritableTable(
             ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {

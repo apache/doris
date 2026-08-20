@@ -113,12 +113,43 @@ public class IcebergTableCacheTest {
     }
 
     @Test
-    public void invalidateCallsCleanerForEvictedTable() {
+    public void invalidateWaitsForActiveBorrowerBeforeCleaning() {
         AtomicInteger cleanerCalls = new AtomicInteger();
-        IcebergTableCache c = new IcebergTableCache(100, 1000, table -> cleanerCalls.incrementAndGet());
-        c.getOrLoad(id(), () -> table("first"));
+        IcebergTableCache c = new IcebergTableCache(100, 1000, table -> cleanerCalls::incrementAndGet);
+        IcebergTableCache.TableLease lease = c.borrow(id(), () -> table("first"));
         c.invalidate(id());
+        Assertions.assertEquals(0, cleanerCalls.get(), "invalidation must not close an active statement table");
+        Assertions.assertEquals("first", lease.table().name());
+        lease.close();
         Assertions.assertEquals(1, cleanerCalls.get(), "removing a cached table must release its resources");
+    }
+
+    @Test
+    public void disabledCacheCleansAfterBorrowerRelease() {
+        AtomicInteger cleanerCalls = new AtomicInteger();
+        IcebergTableCache c = new IcebergTableCache(0, 1000, table -> cleanerCalls::incrementAndGet);
+        IcebergTableCache.TableLease lease = c.borrow(id(), () -> table("uncached"));
+        Assertions.assertEquals(0, c.size());
+        Assertions.assertEquals(0, cleanerCalls.get(), "the returned uncached table is still borrowed");
+        lease.close();
+        Assertions.assertEquals(1, cleanerCalls.get());
+    }
+
+    @Test
+    public void capacityEvictionWaitsForActiveBorrower() {
+        AtomicInteger cleanerCalls = new AtomicInteger();
+        IcebergTableCache c = new IcebergTableCache(100, 1, table -> cleanerCalls::incrementAndGet);
+        IcebergTableCache.TableLease first = c.borrow(
+                TableIdentifier.of("db", "first"), () -> table("first"));
+        IcebergTableCache.TableLease second = c.borrow(
+                TableIdentifier.of("db", "second"), () -> table("second"));
+        Assertions.assertEquals(0, cleanerCalls.get(), "an evicted active table must remain usable");
+        Assertions.assertEquals("first", first.table().name());
+        Assertions.assertEquals("second", second.table().name());
+        first.close();
+        second.close();
+        c.invalidateAll();
+        Assertions.assertEquals(2, cleanerCalls.get());
     }
 
     @Test

@@ -25,7 +25,9 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 import java.util.concurrent.ForkJoinPool;
-import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -59,18 +61,20 @@ import java.util.function.Supplier;
  */
 final class IcebergTableCache {
 
-    private final MetaCacheEntry<TableIdentifier, Table> entry;
+    private final MetaCacheEntry<TableIdentifier, TableOwner> entry;
+    private final Function<Table, Runnable> cleanupFactory;
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
-        this(ttlSeconds, maxSize, table -> { });
+        this(ttlSeconds, maxSize, table -> () -> { });
     }
 
-    IcebergTableCache(long ttlSeconds, int maxSize, Consumer<Table> cleaner) {
+    IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory) {
+        this.cleanupFactory = cleanupFactory;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
                 ForkJoinPool.commonPool(), false, true, 0L, true,
-                (identifier, table, cause) -> cleaner.accept(table));
+                (identifier, owner) -> owner.release());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
@@ -85,8 +89,34 @@ final class IcebergTableCache {
      * (access-based). The loader runs OUTSIDE Caffeine's compute lock (single-flight per key) and its exception
      * propagates unwrapped.
      */
+    TableLease borrow(TableIdentifier identifier, Supplier<Table> loader) {
+        while (true) {
+            TableOwner[] loadedHere = {null};
+            TableOwner owner = entry.get(identifier, ignored -> {
+                Table table = loader.get();
+                TableOwner loaded = new TableOwner(table, cleanupFactory.apply(table), true);
+                loadedHere[0] = loaded;
+                return loaded;
+            });
+            try {
+                TableLease lease = owner.tryBorrow();
+                if (lease != null) {
+                    return lease;
+                }
+                // Removal won the race between lookup and retain. Retry against the current cache generation.
+            } finally {
+                if (loadedHere[0] != null) {
+                    loadedHere[0].release();
+                }
+            }
+        }
+    }
+
+    /** Test-only convenience for cache membership tests that do not model a live statement borrower. */
     Table getOrLoad(TableIdentifier identifier, Supplier<Table> loader) {
-        return entry.get(identifier, ignored -> loader.get());
+        try (TableLease lease = borrow(identifier, loader)) {
+            return lease.table();
+        }
     }
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
@@ -115,5 +145,59 @@ final class IcebergTableCache {
         int[] count = {0};
         entry.forEach((key, value) -> count[0]++);
         return count[0];
+    }
+
+    static final class TableLease implements AutoCloseable {
+        private final TableOwner owner;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private TableLease(TableOwner owner) {
+            this.owner = owner;
+        }
+
+        Table table() {
+            return owner.table;
+        }
+
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                owner.release();
+            }
+        }
+    }
+
+    private static final class TableOwner {
+        private final Table table;
+        private final Runnable cleanup;
+        // A newly loaded value starts with a cache reference and a temporary loader reference. The temporary
+        // reference bridges publication/discard to the first borrow, including invalidation-before-publication.
+        private final AtomicInteger references;
+
+        private TableOwner(Table table, Runnable cleanup, boolean loading) {
+            this.table = table;
+            this.cleanup = cleanup;
+            this.references = new AtomicInteger(loading ? 2 : 1);
+        }
+
+        private TableLease tryBorrow() {
+            int current = references.get();
+            while (current != 0) {
+                if (references.compareAndSet(current, current + 1)) {
+                    return new TableLease(this);
+                }
+                current = references.get();
+            }
+            return null;
+        }
+
+        private void release() {
+            int remaining = references.decrementAndGet();
+            if (remaining == 0) {
+                cleanup.run();
+            } else if (remaining < 0) {
+                throw new IllegalStateException("Iceberg table owner released too many times: " + table.name());
+            }
+        }
     }
 }

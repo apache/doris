@@ -669,11 +669,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * the sys-table path ({@link #loadSysTable}), which builds its metadata view from this same scoped base.
      */
     private Table resolveTableForRead(ConnectorSession session, IcebergTableHandle handle) {
+        if (tableCache != null) {
+            return IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
+                    () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                            () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName())),
+                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        }
         return IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                () -> tableCache != null
-                        ? tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                                () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
-                        : catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+                () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
     }
 
     /**

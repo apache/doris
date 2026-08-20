@@ -212,6 +212,28 @@ public class IcebergStatementScopeTest {
         Assertions.assertTrue(checked > 0, "expected at least one *_NAMESPACE constant to guard");
     }
 
+    @Test
+    public void nullAndNoneScopesBypassBorrowingWithoutDroppingALease() {
+        AtomicInteger borrows = new AtomicInteger();
+        AtomicInteger directLoads = new AtomicInteger();
+        Supplier<IcebergTableCache.TableLease> forbiddenBorrow = () -> {
+            borrows.incrementAndGet();
+            throw new AssertionError("an unscoped caller has no close locus for a lease");
+        };
+        Supplier<Table> direct = () -> {
+            directLoads.incrementAndGet();
+            return table("direct");
+        };
+
+        Assertions.assertEquals("direct", IcebergStatementScope.sharedBorrowedTable(
+                null, "db", "t", forbiddenBorrow, direct).name());
+        ScopeSession none = new ScopeSession(7L, "q1", ConnectorStatementScope.NONE);
+        Assertions.assertEquals("direct", IcebergStatementScope.sharedBorrowedTable(
+                none, "db", "t", forbiddenBorrow, direct).name());
+        Assertions.assertEquals(0, borrows.get());
+        Assertions.assertEquals(2, directLoads.get(), "NONE preserves load-every-time behavior");
+    }
+
     /** A scope that records the last key handed to {@link #computeIfAbsent}, for the byte-key parity assertion. */
     private static final class KeyCapturingScope implements ConnectorStatementScope {
         private String lastKey;

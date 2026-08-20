@@ -273,7 +273,7 @@ public class IcebergConnector implements Connector {
                 ? null
                 : new IcebergTableCache(
                         resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY,
-                        this::closeCachedTable);
+                        this::cachedTableCleanup);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
         // per-user resolveTableForRead today (so a hit cannot precede authz), but that safety rests entirely on
@@ -903,26 +903,36 @@ public class IcebergConnector implements Connector {
      * S3FileIO; REST tables are closed only when they do not share the catalog-level FileIO. Other catalog
      * flavors are left untouched because they may share a catalog-level FileIO.
      */
-    private void closeCachedTable(Table table) {
+    private Runnable cachedTableCleanup(Table table) {
+        return cachedTableCleanup(table, catalogProps.getFlavor(), getCatalogFileIO());
+    }
+
+    static Runnable cachedTableCleanup(Table table, String flavor, FileIO catalogFileIO) {
         if (table == null) {
-            return;
+            return () -> { };
         }
+        boolean tableOwned = false;
         try {
-            String flavor = catalogProps.getFlavor();
-            boolean tableOwned = false;
             if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
                     || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
                 tableOwned = true;
             } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)) {
-                FileIO catalogFileIO = getCatalogFileIO();
                 tableOwned = catalogFileIO != null && table.io() != catalogFileIO;
             }
-            if (tableOwned) {
-                table.io().close();
-            }
         } catch (Exception e) {
-            LOG.warn("Failed to close Iceberg table FileIO", e);
+            LOG.warn("Failed to determine Iceberg table FileIO ownership", e);
         }
+        if (!tableOwned) {
+            return () -> { };
+        }
+        FileIO tableFileIO = table.io();
+        return () -> {
+            try {
+                tableFileIO.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close Iceberg table FileIO", e);
+            }
+        };
     }
 
     private FileIO getCatalogFileIO() {
@@ -1571,6 +1581,10 @@ public class IcebergConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        // Release connector-owned cache references while the catalog objects are still available to classify
+        // and close per-table FileIO. Active statement borrowers retain their own references and defer the actual
+        // cleanup until their leases close.
+        invalidateAll();
         Catalog c = icebergCatalog;
         if (c != null) {
             if (c instanceof java.io.Closeable) {

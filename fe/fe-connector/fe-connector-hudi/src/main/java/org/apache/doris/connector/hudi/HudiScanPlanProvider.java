@@ -802,10 +802,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
                 .build();
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
-        HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
+        return listAllPartitionPaths(HoodieTableMetadata.create(
                 engineCtx, metaClient.getStorage(), metadataConfig,
-                metaClient.getBasePath().toString(), true);
-        return tableMetadata.getAllPartitionPaths();
+                metaClient.getBasePath().toString(), true));
+    }
+
+    static List<String> listAllPartitionPaths(HoodieTableMetadata tableMetadata) throws Exception {
+        try (HoodieTableMetadata owned = tableMetadata) {
+            return owned.getAllPartitionPaths();
+        }
     }
 
     /**
