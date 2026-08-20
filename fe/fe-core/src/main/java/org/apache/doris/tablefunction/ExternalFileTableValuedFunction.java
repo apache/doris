@@ -45,6 +45,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -138,7 +139,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public FileFormatProperties fileFormatProperties;
     private long tableId;
     private long lanceDatasetVersion = -1;
-    private List<LanceTableMetadata.LanceFragmentInfo> lanceFragments = Collections.emptyList();
+    private List<LanceFragmentInfo> lanceFragments = Collections.emptyList();
 
     public abstract TFileType getTFileType();
 
@@ -162,7 +163,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return lanceDatasetVersion;
     }
 
-    public List<LanceTableMetadata.LanceFragmentInfo> getLanceFragments() {
+    public List<LanceFragmentInfo> getLanceFragments() {
         return lanceFragments;
     }
 
@@ -358,10 +359,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Lance returned an invalid dataset version: "
                     + metadata.getVersion());
         }
-        List<LanceTableMetadata.LanceFragmentInfo> fragments =
+        List<LanceFragmentInfo> fragments =
                 new ArrayList<>(metadata.getFragments().size());
         Set<Long> uniqueIds = new HashSet<>();
-        for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
+        for (LanceFragmentInfo fragment : metadata.getFragments()) {
             long fragmentId = fragment.getId();
             if (fragmentId < 0) {
                 throw new AnalysisException("Lance returned an invalid fragment id: " + fragmentId);

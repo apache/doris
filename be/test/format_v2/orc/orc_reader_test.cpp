@@ -5159,8 +5159,8 @@ TEST_F(NewOrcReaderTest, ReadGlobalRowIdVirtualColumn) {
         std::memcpy(&location, rowid.data, sizeof(location));
         EXPECT_EQ(location.version, context.version);
         EXPECT_EQ(location.backend_id, context.backend_id);
-        EXPECT_EQ(location.file_id, context.file_id);
-        EXPECT_EQ(location.row_id, row);
+        EXPECT_EQ(location.file_local.file_id, context.file_id);
+        EXPECT_EQ(location.file_local.row_id, row);
     }
 }
 

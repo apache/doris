@@ -31,7 +31,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -193,16 +193,16 @@ public class TVFScanNode extends FileQueryScanNode {
             throw new UserException(
                     "S3 Lance TVF metadata was not initialized with a fixed dataset version");
         }
-        List<LanceTableMetadata.LanceFragmentInfo> fragments = tableValuedFunction.getLanceFragments();
+        List<LanceFragmentInfo> fragments = tableValuedFunction.getLanceFragments();
         // Mirror LanceScanNode: use the largest fragment as one standard split so smaller fragments
         // keep their relative physical-row weight, keeping the catalog and S3/file TVF paths in sync.
         long targetRows = 1;
-        for (LanceTableMetadata.LanceFragmentInfo fragment : fragments) {
+        for (LanceFragmentInfo fragment : fragments) {
             targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
         }
         List<Split> splits = new ArrayList<>(fragments.size());
-        for (LanceTableMetadata.LanceFragmentInfo fragment : fragments) {
-            LanceSplit split = new LanceSplit(tableValuedFunction.getFilePath(), version,
+        for (LanceFragmentInfo fragment : fragments) {
+            LanceSplit split = LanceSplit.forFragment(tableValuedFunction.getFilePath(), version,
                     fragment.getId(), fragment.getPhysicalRows());
             split.setTargetSplitSize(targetRows);
             splits.add(split);
@@ -239,8 +239,8 @@ public class TVFScanNode extends FileQueryScanNode {
             TLanceFileDesc lanceParams = new TLanceFileDesc();
             lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
             lanceParams.setVersion(lanceSplit.getVersion());
-            if (lanceSplit.hasFragmentId()) {
-                lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
+            if (lanceSplit.hasFragmentIds()) {
+                lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
             }
 
             TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();

@@ -36,8 +36,12 @@ row_id	bigint	No	false	\N
 4	odd	144.0
 6	odd	400.0
 
--- !post_search_filter --
+-- !post_search_filter_use_index_true --
 2	odd	16.0
+
+-- !post_search_filter_use_index_false --
+2	odd	16.0
+514	odd	4210704.0
 
 -- !boundary_single_probe --
 256	item-0256	0.0
@@ -60,4 +64,3 @@ row_id	bigint	No	false	\N
 259	item-0259	144.0
 252	item-0252	256.0
 260	item-0260	256.0
-

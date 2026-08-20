@@ -86,9 +86,9 @@ public class LanceSnapshotTest {
     }
 
     private static LanceTableMetadata metadata(long version, Field field) {
-        return new LanceTableMetadata("s3://bucket/table.lance", version,
+        return LanceTableMetadata.withoutIndexSegments("s3://bucket/table.lance", version,
                 new Schema(Collections.singletonList(field)),
-                Collections.singletonList(new LanceTableMetadata.LanceFragmentInfo(version, 1, 1)),
+                Collections.singletonList(new LanceFragmentInfo(version, 1, 1)),
                 Collections.singletonMap("s3.endpoint", "http://minio:9000"));
     }
 }

@@ -3631,8 +3631,8 @@ TEST_F(NewParquetReaderTest, GlobalRowIdSchemaAndSelectionUseFileRowPosition) {
         const auto location = decode_rowid(rowids, row);
         EXPECT_EQ(location.version, context.version);
         EXPECT_EQ(location.backend_id, context.backend_id);
-        EXPECT_EQ(location.file_id, context.file_id);
-        EXPECT_EQ(location.row_id, static_cast<uint32_t>(row + 2));
+        EXPECT_EQ(location.file_local.file_id, context.file_id);
+        EXPECT_EQ(location.file_local.row_id, static_cast<uint32_t>(row + 2));
     }
 }
 
