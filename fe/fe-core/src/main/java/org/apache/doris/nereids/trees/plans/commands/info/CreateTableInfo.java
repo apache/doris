@@ -803,9 +803,9 @@ public class CreateTableInfo {
         keysSet.addAll(keys);
         Set<String> orderKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
-        boolean isInternalSession = ctx.getState().isInternal();
+        boolean isSystemGeneratedTable = ctx.getState().isInternal();
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
-                keysType, isInternalSession));
+                keysType, isSystemGeneratedTable));
 
         // validate index
         if (!indexes.isEmpty()) {

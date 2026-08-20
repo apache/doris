@@ -111,12 +111,12 @@ public class ColumnDefinitionTest {
     }
 
     @Test
-    public void testInternalSessionAllowsStateTypesInNonAggregateTable() {
+    public void testSystemGeneratedTableAllowsStateTypesInNonAggregateTable() {
         for (KeysType keysType : ImmutableList.of(KeysType.DUP_KEYS, KeysType.UNIQUE_KEYS)) {
             for (DataType type : aggregateTableOnlyTypes()) {
                 ColumnDefinition column = new ColumnDefinition(
                         "v", type, false, null, false, Optional.empty(), "");
-                Assertions.assertDoesNotThrow(() -> validateInternalColumn(column, keysType));
+                Assertions.assertDoesNotThrow(() -> validateSystemGeneratedColumn(column, keysType));
             }
         }
     }
@@ -133,7 +133,7 @@ public class ColumnDefinitionTest {
         column.validate(true, ImmutableSet.of("k"), ImmutableSet.of(), true, keysType);
     }
 
-    private static void validateInternalColumn(ColumnDefinition column, KeysType keysType) {
+    private static void validateSystemGeneratedColumn(ColumnDefinition column, KeysType keysType) {
         column.validate(true, ImmutableSet.of("k"), ImmutableSet.of(), true, keysType, true);
     }
 }
