@@ -219,7 +219,7 @@ under the License.
         <dependency>
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
-            <version>0.16.0</version>
+            <version>0.23.0</version>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
