@@ -85,7 +85,7 @@ public class AlterStorageVaultCommandTest {
             AlterStorageVaultCommand command = new AlterStorageVaultCommand(VAULT_NAME, properties);
             AnalysisException exception = Assertions.assertThrows(
                     AnalysisException.class, () -> command.run(null, null));
-            Assertions.assertEquals(expectedMessage, exception.getMessage());
+            Assertions.assertEquals(expectedMessage, exception.getDetailMessage());
         }
         Mockito.verify(storageVaultMgr, Mockito.never()).alterStorageVault(
                 Mockito.any(), Mockito.anyMap(), Mockito.anyString());
