@@ -451,6 +451,32 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testDeepAndBroadContainerTreesAreBoundedAtAdmission() {
+        // A container-only chain deeper than the structural guard must reject weighted
+        // admission (fail closed) without failing the load or overflowing the stack.
+        FileStoreTable deepTable = newTableWithPayloadType("deep-chain", nestedArrayType(400));
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotCacheValue deepValue = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, deepTable.schema().id(), deepTable));
+        MetaCacheSizeEstimate deepEstimate = deepValue.prepareForCachePublication(
+                new PaimonSnapshotEntryKey(mapping, 1L, deepTable.schema().id(), 1L));
+        Assert.assertFalse(deepEstimate.isComplete());
+
+        // A broad container tree with few fields but far more nodes than the element budget
+        // must also reject admission instead of doing unbounded publication work.
+        DataType broad = new IntType();
+        for (int level = 0; level < 17; level++) {
+            broad = new MapType(broad.copy(true), broad);
+        }
+        FileStoreTable broadTable = newTableWithPayloadType("broad-tree", broad);
+        PaimonSnapshotCacheValue broadValue = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, broadTable.schema().id(), broadTable));
+        MetaCacheSizeEstimate broadEstimate = broadValue.prepareForCachePublication(
+                new PaimonSnapshotEntryKey(mapping, 1L, broadTable.schema().id(), 1L));
+        Assert.assertFalse(broadEstimate.isComplete());
+    }
+
+    @Test
     public void testTablePayloadAccountingWorkIsBounded() {
         FileStoreTable table = Mockito.mock(FileStoreTable.class);
         TableSchema schema = Mockito.mock(TableSchema.class);

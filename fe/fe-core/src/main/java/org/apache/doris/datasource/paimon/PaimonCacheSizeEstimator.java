@@ -165,7 +165,8 @@ final class PaimonCacheSizeEstimator {
         // The store graph the table lazily materializes derives several RowType copies of the
         // schema; the per-node constants absorb those copies instead of modeling store classes.
         NodeCounts nodes = new NodeCounts();
-        countFieldNodes(schema.fields(), 0, nodes);
+        countFieldNodes(schema.fields(), 0, nodes,
+                new AccountingBudget(MAX_TABLE_ACCOUNTING_ELEMENTS));
         bytes = addCount(bytes, nodes.fieldNodes, FIELD_NODE_WEIGHT);
         bytes = addCount(bytes, nodes.bareTypeNodes, TYPE_NODE_WEIGHT);
         bytes = addCount(bytes, nodes.rowContainers, ROW_CONTAINER_WEIGHT);
@@ -187,31 +188,35 @@ final class PaimonCacheSizeEstimator {
         private long rowContainers;
     }
 
-    private static void countFieldNodes(List<DataField> fields, int depth, NodeCounts counts) {
+    private static void countFieldNodes(
+            List<DataField> fields, int depth, NodeCounts counts, AccountingBudget budget) {
         if (depth > MAX_TYPE_ACCOUNTING_DEPTH) {
             throw new IllegalStateException("Paimon schema type nesting is too deep");
         }
         for (DataField field : fields) {
+            budget.charge(1L);
             counts.fieldNodes = MetaCacheWeightUtils.saturatedAdd(counts.fieldNodes, 1L);
-            countTypeNodes(field.type(), depth, counts);
+            countTypeNodes(field.type(), depth, counts, budget);
         }
     }
 
-    private static void countTypeNodes(DataType type, int depth, NodeCounts counts) {
+    private static void countTypeNodes(
+            DataType type, int depth, NodeCounts counts, AccountingBudget budget) {
         if (depth > MAX_TYPE_ACCOUNTING_DEPTH) {
             throw new IllegalStateException("Paimon schema type nesting is too deep");
         }
         if (type instanceof RowType) {
             counts.rowContainers = MetaCacheWeightUtils.saturatedAdd(counts.rowContainers, 1L);
-            countFieldNodes(((RowType) type).getFields(), depth + 1, counts);
+            countFieldNodes(((RowType) type).getFields(), depth + 1, counts, budget);
             return;
         }
         if (type != null) {
             // Known container types (array, map, multiset) contribute their children as nodes;
             // other types, including future implementations, are charged as a single node.
             for (DataType child : childTypes(type)) {
+                budget.charge(1L);
                 counts.bareTypeNodes = MetaCacheWeightUtils.saturatedAdd(counts.bareTypeNodes, 1L);
-                countTypeNodes(child, depth + 1, counts);
+                countTypeNodes(child, depth + 1, counts, budget);
             }
         }
     }
@@ -297,6 +302,10 @@ final class PaimonCacheSizeEstimator {
 
     private static long addChildPayload(
             long bytes, DataType type, AccountingBudget budget, int depth) {
+        if (depth > MAX_TYPE_ACCOUNTING_DEPTH) {
+            throw new IllegalStateException("Paimon schema type nesting is too deep");
+        }
+        budget.charge(1L);
         if (type instanceof RowType) {
             for (DataField nested : ((RowType) type).getFields()) {
                 bytes = addFieldPayload(bytes, nested, budget, depth + 1);
