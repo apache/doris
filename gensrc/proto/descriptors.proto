@@ -64,6 +64,9 @@ message PColumnAccessPath {
     required PAccessPathType type = 1;
     optional PDataAccessPath data_access_path = 2;
     optional PMetaAccessPath meta_access_path = 3;
+    // 0/absent is the legacy all-DATA encoding with special path components. Version 1 uses
+    // typed payloads and may carry meta_access_path.
+    optional int32 version = 4;
 }
 
 message PSlotDescriptor {
