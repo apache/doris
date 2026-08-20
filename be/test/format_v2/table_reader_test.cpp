@@ -364,7 +364,11 @@ private:
 class NonLocalizableInt32Predicate final : public VExpr {
 public:
     explicit NonLocalizableInt32Predicate(int column_id)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _column_id(column_id) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _column_id(column_id) {
+        // The production dependency collector walks slot children. Keep the input in the tree so
+        // a rejected file-local rewrite still marks its value as required by the residual filter.
+        add_child(table_int32_slot_ref(column_id, column_id, "non_localizable_input"));
+    }
 
     Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -2502,7 +2506,10 @@ TEST(TableReaderTest, FinalRuntimeFilterRefreshRestoresCountStarPlaceholder) {
                                          /*all_runtime_filters_applied=*/true)
                         .ok());
 
-    ASSERT_TRUE(reader.open_reader().ok());
+    // create_next_reader() establishes the concrete-reader lifecycle that open_reader() requires.
+    bool eos = false;
+    ASSERT_TRUE(reader.create_next_reader(&eos).ok());
+    ASSERT_FALSE(eos);
     ASSERT_NE(fake_state->last_request, nullptr);
     EXPECT_TRUE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));
     EXPECT_FALSE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(1)));
@@ -2547,7 +2554,10 @@ TEST(TableReaderTest, FinalRuntimeFilterKeepsResidualPredicateInputMaterialized)
     ASSERT_TRUE(reader.refresh_conjuncts(std::move(refreshed), std::nullopt,
                                          /*all_runtime_filters_applied=*/true)
                         .ok());
-    ASSERT_TRUE(reader.open_reader().ok());
+    // Keep the late-filter test on the same create/init/open lifecycle used by FileScannerV2.
+    bool eos = false;
+    ASSERT_TRUE(reader.create_next_reader(&eos).ok());
+    ASSERT_FALSE(eos);
     ASSERT_NE(fake_state->last_request, nullptr);
     EXPECT_FALSE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));
     EXPECT_FALSE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(1)));
