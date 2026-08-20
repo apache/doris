@@ -513,22 +513,12 @@ void apply_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
                     }
                     if (ctx.backpressure_handler->should_log_throttle(load_rpc,
                                                                       MonotonicMicros())) {
-                        if (decision.dry_run) {
-                            LOG(INFO) << "[ms-throttle] table-level rate limiter dry run would "
-                                         "throttle MS RPC request"
-                                      << ", rpc=" << load_related_rpc_name(load_rpc)
-                                      << ", table_id=" << ctx.table_id
-                                      << ", estimated_wait_us=" << wait_us
-                                      << ", current_qps=" << decision.current_qps
-                                      << ", qps_limit=" << decision.qps_limit;
-                        } else {
-                            LOG(INFO) << "[ms-throttle] table-level rate limiter throttled MS RPC "
-                                         "request"
-                                      << ", rpc=" << load_related_rpc_name(load_rpc)
-                                      << ", table_id=" << ctx.table_id << ", wait_us=" << wait_us
-                                      << ", current_qps=" << decision.current_qps
-                                      << ", qps_limit=" << decision.qps_limit;
-                        }
+                        LOG(INFO) << "[ms-throttle] table-level rate limiter triggered for MS RPC "
+                                     "request"
+                                  << ", rpc=" << load_related_rpc_name(load_rpc)
+                                  << ", table_id=" << ctx.table_id << ", wait_us=" << wait_us
+                                  << ", current_qps=" << decision.current_qps
+                                  << ", qps_limit=" << decision.qps_limit;
                     }
                     if (!decision.dry_run) {
                         bthread_usleep(wait_us);
