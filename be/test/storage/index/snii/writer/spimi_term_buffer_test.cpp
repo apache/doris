@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "storage/index/snii/writer/term_posting_test_utils.h"
+#include "util/defer_op.h"
 
 using doris::snii::writer::MemoryReporter;
 using doris::snii::writer::SpimiTermBuffer;
@@ -514,34 +515,46 @@ TEST(SniiSpimiTermBuffer, SpillOpenIoFailureLatched) {
     // Tiny threshold so the very first token triggers a spill_to_run().
     SpimiTermBuffer buf(/*has_positions=*/false, /*spill_threshold_bytes=*/1);
 
-    // Cap the soft limit low so we can exhaust the fd table cheaply, then hold it.
     struct rlimit saved {};
     ASSERT_EQ(getrlimit(RLIMIT_NOFILE, &saved), 0);
-    struct rlimit tight = saved;
-    tight.rlim_cur = 64; // small, but >= the few gtest/std fds already open
-    tight.rlim_cur = std::min(tight.rlim_cur, saved.rlim_max);
-    ASSERT_EQ(setrlimit(RLIMIT_NOFILE, &tight), 0);
+    {
+        std::vector<int> hogs;
+        // Restore on EVERY exit path, including a fatal assertion below. Leaving the
+        // process at the tight limit would break every later test in the binary, and
+        // gtest's death tests would abort the whole run when their pipe() hits EMFILE.
+        doris::Defer restore([&] {
+            for (int fd : hogs) {
+                ::close(fd);
+            }
+            EXPECT_EQ(setrlimit(RLIMIT_NOFILE, &saved), 0);
+        });
 
-    // Open /dev/null until the table is full: every free fd below the limit is now
-    // taken, so the next ::open (the spill's) cannot get one -> EMFILE.
-    std::vector<int> hogs;
-    for (;;) {
-        int fd = ::open("/dev/null", O_RDONLY);
-        if (fd < 0) {
-            break; // table exhausted
+        // Cap just above the descriptors this process already holds instead of a fixed
+        // number: how many are open depends on which tests ran first, and a cap below
+        // that leaves no free descriptor for the hog loop to take. dup() returns the
+        // lowest free descriptor, so every number under the cap is still available.
+        const int lowest_free = ::dup(STDIN_FILENO);
+        ASSERT_GE(lowest_free, 0);
+        ASSERT_EQ(::close(lowest_free), 0);
+        struct rlimit tight = saved;
+        tight.rlim_cur = std::min<rlim_t>(static_cast<rlim_t>(lowest_free) + 8, saved.rlim_max);
+        ASSERT_EQ(setrlimit(RLIMIT_NOFILE, &tight), 0);
+
+        // Open /dev/null until the table is full: every free fd below the limit is now
+        // taken, so the next ::open (the spill's) cannot get one -> EMFILE.
+        for (;;) {
+            int fd = ::open("/dev/null", O_RDONLY);
+            if (fd < 0) {
+                break; // table exhausted
+            }
+            hogs.push_back(fd);
         }
-        hogs.push_back(fd);
+        ASSERT_FALSE(hogs.empty());
+
+        buf.add_token("z", 0, 0); // triggers a spill whose RunWriter::open must fail
     }
-    ASSERT_FALSE(hogs.empty());
-
-    buf.add_token("z", 0, 0); // triggers a spill whose RunWriter::open must fail
-
-    // Release the hog fds and restore the limit before asserting (so gtest I/O works).
-    for (int fd : hogs) {
-        ::close(fd);
-    }
-    ASSERT_EQ(setrlimit(RLIMIT_NOFILE, &saved), 0);
-
+    // The hog fds are released and the limit restored here, before asserting, so gtest
+    // I/O works.
     EXPECT_FALSE(buf.status().ok()) << "spill open() failure must latch an error";
 }
 
