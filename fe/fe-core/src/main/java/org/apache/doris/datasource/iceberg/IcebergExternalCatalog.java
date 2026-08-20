@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -33,6 +34,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,6 +65,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
     protected String icebergCatalogType;
     protected Catalog catalog;
+    private final IcebergCatalogResourceTracker resourceTracker = new IcebergCatalogResourceTracker();
 
     private AbstractIcebergProperties msProperties;
 
@@ -151,6 +154,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return ((IcebergMetadataOps) metadataOps).getCatalog();
     }
 
+    synchronized TableLoadContext beginTableLoad() {
+        makeSureInitialized();
+        return new TableLoadContext((IcebergMetadataOps) metadataOps, executionAuthenticator, icebergCatalogType,
+                resourceTracker.beginLoad());
+    }
+
     public String getIcebergCatalogType() {
         makeSureInitialized();
         return icebergCatalogType;
@@ -173,17 +182,58 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onClose() {
+    public synchronized void onClose() {
         super.onClose();
-        if (null != catalog) {
-            try {
-                if (catalog instanceof AutoCloseable) {
-                    ((AutoCloseable) catalog).close();
-                }
-                catalog = null;
-            } catch (Exception e) {
-                LOG.warn("Failed to close iceberg catalog: {}", getName(), e);
+        Catalog retiredCatalog = catalog;
+        catalog = null;
+        if (retiredCatalog != null) {
+            resourceTracker.retireCurrent(() -> closeCatalog(retiredCatalog));
+        }
+    }
+
+    private void closeCatalog(Catalog retiredCatalog) {
+        try {
+            if (retiredCatalog instanceof AutoCloseable) {
+                ((AutoCloseable) retiredCatalog).close();
             }
+        } catch (Exception e) {
+            LOG.warn("Failed to close iceberg catalog: {}", getName(), e);
+        }
+    }
+
+    final class TableLoadContext implements AutoCloseable {
+        private final IcebergMetadataOps ops;
+        private final ExecutionAuthenticator authenticator;
+        private final String catalogType;
+        private final IcebergCatalogResourceTracker.LoadGuard guard;
+
+        private TableLoadContext(IcebergMetadataOps ops, ExecutionAuthenticator authenticator, String catalogType,
+                IcebergCatalogResourceTracker.LoadGuard guard) {
+            this.ops = ops;
+            this.authenticator = authenticator;
+            this.catalogType = catalogType;
+            this.guard = guard;
+        }
+
+        IcebergMetadataOps getOps() {
+            return ops;
+        }
+
+        Table loadTable(String dbName, String tableName) throws Exception {
+            return authenticator.execute(() -> ops.loadTable(dbName, tableName));
+        }
+
+        String getCatalogType() {
+            return catalogType;
+        }
+
+        IcebergCatalogResourceTracker.ResourceLease promote() {
+            return guard.promote();
+        }
+
+        @Override
+        public void close() {
+            guard.close();
         }
     }
 

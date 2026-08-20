@@ -111,6 +111,27 @@ class IcebergTableCacheValueTest {
         Assertions.assertEquals(1, cleanupCount.get());
     }
 
+    @Test
+    void catalogRetirementWaitsForTableEvictionAndBorrower() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergCatalogResourceTracker.LoadGuard guard = tracker.beginLoad();
+        IcebergCatalogResourceTracker.ResourceLease catalogLease = guard.promote();
+        guard.close();
+        AtomicInteger catalogCloseCount = new AtomicInteger();
+        IcebergTableCacheValue value = new IcebergTableCacheValue(newProxy(Table.class), () -> null,
+                catalogLease::close);
+        IcebergTableCacheValue.Lease borrower = value.tryAcquire();
+        Assertions.assertNotNull(borrower);
+        value.releaseLoaderReference();
+
+        tracker.retireCurrent(catalogCloseCount::incrementAndGet);
+        value.releaseCacheReference();
+        Assertions.assertEquals(0, catalogCloseCount.get());
+
+        borrower.close();
+        Assertions.assertEquals(1, catalogCloseCount.get());
+    }
+
     private IcebergTableCacheValue newValue(AtomicInteger cleanupCount) {
         Table table = newProxy(Table.class);
         return new IcebergTableCacheValue(table, () -> null, cleanupCount::incrementAndGet);
