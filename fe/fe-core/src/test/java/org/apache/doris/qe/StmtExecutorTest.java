@@ -166,6 +166,26 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testArrowFlightDefersStatementResourcesUntilDoGetCompletion() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        StatementContext statementContext = connectContext.getStatementContext();
+        AtomicInteger resourceCloseCount = new AtomicInteger();
+        statementContext.getOrRegisterStatementResource("hudi-batch-owner",
+                () -> resourceCloseCount::incrementAndGet);
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        stmtExecutor.setCoord(coord);
+
+        stmtExecutor.deferForArrowFlight();
+        statementContext.close();
+        Assert.assertEquals(0, resourceCloseCount.get());
+
+        stmtExecutor.finalizeArrowFlightQuery();
+        Assert.assertEquals(1, resourceCloseCount.get());
+        Mockito.verify(coord).close();
+    }
+
+    @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
