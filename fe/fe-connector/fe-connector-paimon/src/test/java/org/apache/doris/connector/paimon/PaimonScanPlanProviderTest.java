@@ -417,10 +417,16 @@ public class PaimonScanPlanProviderTest {
                 .options(Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "csv"))
                 .build();
         List<Split> plannedSplits = table.newReadBuilder().newScan().plan().splits();
-        Assertions.assertTrue(plannedSplits.size() >= 2,
+        List<String> plannedFileNames = new ArrayList<>();
+        for (Split split : plannedSplits) {
+            for (FormatDataSplit.FileMeta fileMeta : ((FormatDataSplit) split).files()) {
+                plannedFileNames.add(fileMeta.filePath().getName());
+            }
+        }
+        Assertions.assertTrue(plannedFileNames.contains("000-empty.csv")
+                        && plannedFileNames.contains("999-live.csv"),
                 "fixture must expose both the empty and live format files");
-        Assertions.assertEquals("000-empty.csv",
-                ((FormatDataSplit) plannedSplits.get(0)).filePath().getName(),
+        Assertions.assertEquals("000-empty.csv", plannedFileNames.get(0),
                 "the unsafe file-count limit must encounter the empty file first");
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
@@ -561,7 +567,7 @@ public class PaimonScanPlanProviderTest {
                 }
             }
 
-            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
             FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
                     pair, new AllGrantedPrivilegeChecker(), mainId);
             for (Table planningTable : Arrays.asList(pair, decorated)) {
