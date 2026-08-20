@@ -43,6 +43,12 @@ public:
     // guarded rowset is indeed no longer in use.
     void drop();
 
+    bool belongs_to_same_set(const PendingRowsetGuard& other) const {
+        return _pending_rowset_set == other._pending_rowset_set;
+    }
+
+    bool is_initialized() const { return _pending_rowset_set != nullptr; }
+
 private:
     friend class PendingRowsetSet;
     explicit PendingRowsetGuard(const std::vector<RowsetId>& rowset_ids, PendingRowsetSet* set);
