@@ -1061,6 +1061,30 @@ TEST(BlockTest, replace_by_position) {
     ASSERT_EQ(block.get_by_position(0).column->get_int(2), 6);
 }
 
+#ifndef NDEBUG
+TEST(BlockTest, InjectsNonemptyPayloadForNullStringRows) {
+    auto column = ColumnHelper::create_nullable_column<DataTypeString>({"", "existing", "value"},
+                                                                       {1, 1, 0});
+    auto original_column = column;
+    Block block({ColumnWithTypeAndName {
+            column, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+            "nullable_string"}});
+
+    block.debug_inject_nonempty_string_payload_for_null_rows();
+    block.debug_inject_nonempty_string_payload_for_null_rows();
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ(nullable.get_null_map_data(), (NullMap {1, 1, 0}));
+    EXPECT_EQ(nullable.get_nested_column().get_data_at(0).to_string(), "__DORIS_NULL_PAYLOAD_0__");
+    EXPECT_EQ(nullable.get_nested_column().get_data_at(1).to_string(), "__DORIS_NULL_PAYLOAD_1__");
+    EXPECT_EQ(nullable.get_nested_column().get_data_at(2).to_string(), "value");
+
+    const auto& original_nullable = assert_cast<const ColumnNullable&>(*original_column);
+    EXPECT_EQ(original_nullable.get_nested_column().get_data_at(0).to_string(), "");
+    EXPECT_EQ(original_nullable.get_nested_column().get_data_at(1).to_string(), "existing");
+}
+#endif
+
 TEST(BlockTest, compare_at) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
     auto ret = block.compare_at(0, 0, block, -1);

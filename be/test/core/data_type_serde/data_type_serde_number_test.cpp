@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_decimal.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
@@ -39,6 +40,7 @@
 #include "core/data_type_serde/data_type_date_or_datetime_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
+#include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
@@ -123,6 +125,32 @@ public:
 private:
     bool _old_value;
 };
+
+TEST(DataTypeNumberSerDeStandaloneTest, StrictBatchSkipsNullableStringPayloadByRow) {
+    auto strings = ColumnString::create();
+    strings->insert_data("-", 1);
+    strings->insert_data("-", 1);
+    strings->insert_data("2628", 4);
+    NullMap null_map = {1, 1, 0};
+
+    DataTypeNumberSerDe<TYPE_BIGINT> number_serde;
+    auto number_result = ColumnInt64::create();
+    ASSERT_TRUE(
+            number_serde
+                    .from_string_strict_mode_batch(*strings, *number_result, {}, null_map.data())
+                    .ok());
+    ASSERT_EQ(number_result->size(), 3);
+    EXPECT_EQ(number_result->get_element(2), 2628);
+
+    DataTypeDecimalSerDe<TYPE_DECIMAL64> decimal_serde(18, 0);
+    auto decimal_result = ColumnDecimal64::create(0, 0);
+    ASSERT_TRUE(
+            decimal_serde
+                    .from_string_strict_mode_batch(*strings, *decimal_result, {}, null_map.data())
+                    .ok());
+    ASSERT_EQ(decimal_result->size(), 3);
+    EXPECT_EQ(decimal_result->get_element(2), Decimal64(2628));
+}
 
 TEST_F(DataTypeNumberSerDeTest, serdes) {
     auto test_func = [](const auto& serde, const auto& source_column) {
