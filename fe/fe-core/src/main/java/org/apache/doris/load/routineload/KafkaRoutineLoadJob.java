@@ -545,7 +545,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties(false);
-        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
+        String computeGroupName = getComputeGroupName();
+        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties, computeGroupName);
+    }
+
+    private String getComputeGroupName() {
+        return Config.isCloudMode() ? getCloudCluster() : null;
     }
 
     public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
@@ -639,13 +644,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Integer kafkaPartition : newPartitions) {
             partitionOffsets.add(Pair.of(kafkaPartition, beginOffset));
         }
+        String computeGroupName = getComputeGroupName();
         try {
             if (isOffsetForTimes()) {
                 partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList,
-                        this.topic, convertedCustomProperties, partitionOffsets);
+                        this.topic, convertedCustomProperties, partitionOffsets, computeGroupName);
             } else {
                 partitionOffsets = KafkaUtil.getRealOffsets(this.brokerList,
-                        this.topic, convertedCustomProperties, partitionOffsets);
+                        this.topic, convertedCustomProperties, partitionOffsets, computeGroupName);
             }
         } catch (LoadException e) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -677,15 +683,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         List<Pair<Integer, Long>> kafkaPartitionOffsets = kafkaDataSourceProperties.getKafkaPartitionOffsets();
         boolean isForTimes = kafkaDataSourceProperties.isOffsetsForTimes();
+        String computeGroupName = getComputeGroupName();
         if (isForTimes) {
             // the offset is set by date time, we need to get the real offset by time
             kafkaPartitionOffsets = KafkaUtil.getOffsetsForTimes(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
-                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets(),
+                    computeGroupName);
         } else {
             kafkaPartitionOffsets = KafkaUtil.getRealOffsets(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
-                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets(),
+                    computeGroupName);
         }
 
         for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
@@ -783,11 +792,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (partitionOffsets.isEmpty()) {
             return;
         }
+        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
-            newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic, convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getOffsetsForTimes(
+                    brokerList, topic, convertedCustomProperties, partitionOffsets, computeGroupName);
         } else {
-            newOffsets = KafkaUtil.getRealOffsets(brokerList, topic, convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getRealOffsets(
+                    brokerList, topic, convertedCustomProperties, partitionOffsets, computeGroupName);
         }
         dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
@@ -943,8 +955,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             } finally {
                 writeUnlock();
             }
+            String computeGroupName = getComputeGroupName();
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
-                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()));
+                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()),
+                    computeGroupName);
             updateLatestOffsetsCache(tmp, taskId);
         } catch (Exception e) {
             // It needs to pause job when can not get partition meta.
@@ -1007,8 +1021,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             writeUnlock();
         }
         UUID taskId = UUID.randomUUID();
+        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> latestOffsets = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
-                topicSnapshot, customPropertiesSnapshot, partitionIds);
+                topicSnapshot, customPropertiesSnapshot, partitionIds, computeGroupName);
         updateLatestOffsetsCache(latestOffsets, taskId);
     }
 

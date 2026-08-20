@@ -293,7 +293,8 @@ public class RoutineLoadJobTest {
         new MockUp<KafkaUtil>() {
             @Mock
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-                    Map<String, String> convertedCustomProperties) throws UserException {
+                    Map<String, String> convertedCustomProperties, String cloudCluster) throws UserException {
+                Assert.assertNull(cloudCluster);
                 return Lists.newArrayList(1, 2, 3);
             }
         };
@@ -302,8 +303,10 @@ public class RoutineLoadJobTest {
             @Mock
             public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
                                                              Map<String, String> convertedCustomProperties,
-                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             List<Pair<Integer, Long>> offsetFlags,
+                                                             String cloudCluster)
                                                              throws LoadException {
+                Assert.assertNull(cloudCluster);
                 List<Pair<Integer, Long>> pairList = new ArrayList<>();
                 pairList.add(Pair.of(1, 0L));
                 return pairList;
