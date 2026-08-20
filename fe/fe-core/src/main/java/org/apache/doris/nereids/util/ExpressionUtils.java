@@ -1281,6 +1281,13 @@ public class ExpressionUtils {
         return expression;
     }
 
+    public static boolean isPureLiteralExpr(Expression e) {
+        if (e instanceof Alias) {
+            e = e.child(0);
+        }
+        return ExpressionUtils.getExpressionCoveredByCast(e) instanceof Literal;
+    }
+
     /**
      * Strip only casts that preserve distinctness of the child expression.
      */

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -141,8 +142,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
     }
 
     /**
-     * Return true if the CTE producer's subtree is a LogicalOneRowRelation and its
-     * final output slots are all compile-time constants.
+     * Return true if the CTE producer's output is provably one row of pure literals.
      */
     private static boolean isConstantOneRowProducer(Plan producerRoot) {
         if (!(producerRoot instanceof LogicalCTEProducer)) {
@@ -160,7 +160,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             if (project.arity() != 1) {
                 return false;
             }
-            if (!ExpressionUtils.allMatch(project.getProjects(), Expression::isConstant)) {
+            if (!ExpressionUtils.allMatch(project.getProjects(), ExpressionUtils::isPureLiteralExpr)) {
                 return false;
             }
             return project.child(0) instanceof LogicalOneRowRelation;
@@ -169,6 +169,6 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             return false;
         }
         return ExpressionUtils.allMatch(
-                ((LogicalOneRowRelation) node).getProjects(), Expression::isConstant);
+                ((LogicalOneRowRelation) node).getProjects(), ExpressionUtils::isPureLiteralExpr);
     }
 }

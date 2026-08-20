@@ -184,6 +184,24 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                 .matches(logicalCTEAnchor());
     }
 
+    /**
+     * `sleep(N)` is deterministic but has a runtime side effect (blocking for N seconds).
+     * Materialization runs it once and multicasts; inlining would run it once per consumer,
+     * changing observable behaviour. The strict literal-only check keeps such producers
+     * materialized even though Expression#isConstant() would return true for them.
+     */
+    @Test
+    public void testRuntimeOnlyConstantCteNotForcedInline() {
+        String sql = "WITH s AS (SELECT sleep(0) AS x) "
+                + "SELECT * FROM s s1 JOIN s s2 ON s1.x = s2.x";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .matches(logicalCTEAnchor());
+    }
+
     private static void assertNoCteNodes(LogicalPlan plan) {
         plan.foreach(p -> {
             if (p instanceof LogicalCTEAnchor || p instanceof LogicalCTEProducer) {
