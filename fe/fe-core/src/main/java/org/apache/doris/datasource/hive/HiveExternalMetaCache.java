@@ -211,8 +211,17 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         // A cache-policy ALTER rebuilds the catalog's cache group under the SAME catalog id, so
         // the generation counters must stay monotonic: statement-scoped file-task keys embed
         // these numbers, and restarting them at zero would let a statement planned before the
-        // rebuild reuse stale file tasks afterwards. The retained state is two counters per
-        // catalog id ever seen, which is bounded and negligible.
+        // rebuild reuse stale file tasks afterwards. Permanent drops release the counters
+        // through onCatalogPermanentlyRemoved.
+    }
+
+    @Override
+    public void onCatalogPermanentlyRemoved(long catalogId) {
+        // The id is never reused; without this, create/use/drop churn would accumulate counter
+        // map nodes for the FE lifetime. In-flight scans cannot recreate the records because
+        // the counter helpers only allocate while the catalog's entry group exists.
+        fileCacheInvalidationGenerations.remove(catalogId);
+        fileCacheValueGenerations.remove(catalogId);
     }
 
     @Override
@@ -241,15 +250,22 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     public long getFileCacheInvalidationGeneration(long catalogId) {
-        return fileCacheInvalidationGenerations
-                .computeIfAbsent(catalogId, ignored -> new AtomicLong())
-                .get();
+        AtomicLong generation = fileCacheInvalidationGenerations.get(catalogId);
+        return generation == null ? 0L : generation.get();
     }
 
     private void advanceFileCacheInvalidationGeneration(long catalogId) {
-        fileCacheInvalidationGenerations
-                .computeIfAbsent(catalogId, ignored -> new AtomicLong())
-                .incrementAndGet();
+        AtomicLong generation = fileCacheInvalidationGenerations.get(catalogId);
+        if (generation == null) {
+            if (fileEntry.getIfInitialized(catalogId) == null) {
+                // Never allocate for a catalog whose entry group is gone (permanently dropped):
+                // there is nothing cached whose staleness a new counter could fence.
+                return;
+            }
+            generation = fileCacheInvalidationGenerations.computeIfAbsent(
+                    catalogId, ignored -> new AtomicLong());
+        }
+        generation.incrementAndGet();
     }
 
     @Override
@@ -327,9 +343,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     private FileCacheValue loadFileCacheValue(FileCacheKey key) {
         FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null);
-        value.setCacheGeneration(fileCacheValueGenerations
-                .computeIfAbsent(key.catalogId, ignored -> new AtomicLong())
-                .incrementAndGet());
+        AtomicLong generation = fileCacheValueGenerations.get(key.catalogId);
+        if (generation == null && fileEntry.getIfInitialized(key.catalogId) != null) {
+            generation = fileCacheValueGenerations.computeIfAbsent(
+                    key.catalogId, ignored -> new AtomicLong());
+        }
+        // A stale in-flight load after a permanent drop must not recreate the counter record.
+        value.setCacheGeneration(generation == null ? 0L : generation.incrementAndGet());
         return value;
     }
 

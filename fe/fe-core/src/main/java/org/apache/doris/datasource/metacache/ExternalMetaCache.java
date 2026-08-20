@@ -113,6 +113,16 @@ public interface ExternalMetaCache {
     void invalidateCatalog(long catalogId);
 
     /**
+     * The catalog id was permanently dropped and will never be reused. Unlike
+     * {@link #invalidateCatalog}, which also serves same-id policy rebuilds, this hook lets an
+     * engine release side state (such as monotonic generation counters) that must survive
+     * rebuilds but would otherwise accumulate for the FE lifetime. It is invoked even when the
+     * engine's entry group was already retired.
+     */
+    default void onCatalogPermanentlyRemoved(long catalogId) {
+    }
+
+    /**
      * Invalidate cached data under one catalog but keep the catalog entry group initialized.
      * This is used by refresh flows where catalog lifecycle remains initialized.
      *

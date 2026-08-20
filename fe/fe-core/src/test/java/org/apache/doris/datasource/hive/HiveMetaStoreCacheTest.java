@@ -336,6 +336,41 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
+    public void testPermanentDropPrunesGenerationCounters() throws Exception {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            cache.initCatalog(0, new HashMap<>());
+            cache.invalidateTable(0L, "db", "table");
+            Assertions.assertTrue(cache.getFileCacheInvalidationGeneration(0L) >= 1L);
+            Assertions.assertEquals(1, generationMapSize(cache, "fileCacheInvalidationGenerations"));
+
+            // DROP CATALOG: the id is never reused, so create/use/drop churn must not
+            // accumulate counter records for the FE lifetime.
+            cache.invalidateCatalog(0L);
+            cache.onCatalogPermanentlyRemoved(0L);
+            Assertions.assertEquals(0, generationMapSize(cache, "fileCacheInvalidationGenerations"));
+            Assertions.assertEquals(0, generationMapSize(cache, "fileCacheValueGenerations"));
+
+            // An in-flight scan reading the generation after the drop must not recreate it.
+            Assertions.assertEquals(0L, cache.getFileCacheInvalidationGeneration(0L));
+            Assertions.assertEquals(0, generationMapSize(cache, "fileCacheInvalidationGenerations"));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    private static int generationMapSize(HiveExternalMetaCache cache, String fieldName) throws Exception {
+        java.lang.reflect.Field field = HiveExternalMetaCache.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return ((java.util.Map<?, ?>) field.get(cache)).size();
+    }
+
+    @Test
     public void testReplacementSizingWithAliasKeyPreservesRetainedKeyWidth() {
         // Drop/add partition events replace through an alias key whose type list is null but
         // that compares equal to the retained wide key; the estimate must keep charging the

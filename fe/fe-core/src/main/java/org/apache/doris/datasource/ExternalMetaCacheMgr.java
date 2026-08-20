@@ -402,6 +402,32 @@ public class ExternalMetaCacheMgr {
         }
     }
 
+    /**
+     * DROP CATALOG (or its replay): the id is never reused. Retires the cache groups like
+     * {@link #removeCatalog} and additionally releases engine side state that must survive
+     * same-id policy rebuilds; the hook reaches every engine even when its entry group is
+     * already retired.
+     */
+    public void removeCatalogPermanently(long catalogId) {
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "removeCatalogPermanently",
+                    () -> cache.invalidateCatalog(catalogId)));
+            for (ExternalMetaCache cache : cacheRegistry.allCaches()) {
+                try {
+                    cache.onCatalogPermanentlyRemoved(catalogId);
+                } catch (RuntimeException e) {
+                    LOG.warn("Failed to release engine '{}' state for dropped catalog {}",
+                            cache.engine(), catalogId, e);
+                }
+            }
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
     /** Restore catalog properties and retire any group initialized from the rejected candidate atomically. */
     public void rollbackCatalogProperties(ExternalCatalog catalog, Map<String, String> oldProperties) {
         long catalogId = catalog.getId();
