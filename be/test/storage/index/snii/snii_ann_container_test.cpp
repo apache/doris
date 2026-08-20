@@ -52,6 +52,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -70,7 +71,7 @@
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/snii_blob_staging_directory.h"
-#include "storage/index/snii/writer/temp_dir.h"
+#include "storage/index/snii/staged_file_probe.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
@@ -155,21 +156,14 @@ TabletIndex make_ivf_on_disk_index_meta() {
     return meta;
 }
 
-// The ANN staging files currently on the temp filesystem. StagedBlobFile names
-// them after the sub-file it was opened for, so "snii_bkdstage_ann." picks out
-// exactly the faiss ones and leaves the native BKD staging of other suites
-// alone. Counted on the filesystem rather than through the directory's own
+// Faiss opens its sub-files as ann.faiss / ann.ivfdata, so this tag selects
+// exactly the ANN staging and leaves the native BKD staging of other suites
+// alone. Observed on the filesystem rather than through the directory's own
 // bookkeeping: the bookkeeping is what the retention below disagrees with.
-size_t staged_ann_file_count() {
-    const std::string dir = doris::snii::writer::resolve_temp_dir();
-    size_t count = 0;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-        if (entry.path().filename().string().starts_with("snii_bkdstage_ann.")) {
-            ++count;
-        }
-    }
-    return count;
+constexpr const char* kAnnStageTag = "ann.";
+
+std::set<std::string> staged_ann_files() {
+    return doris::snii_test::snii_staged_files(kAnnStageTag);
 }
 
 TabletIndex make_fake_bkd_index_meta() {
@@ -585,7 +579,7 @@ TEST_F(SniiAnnContainerTest, AFailedSaveUnlinksItsStagingFile) {
 
     for (const auto& one : cases) {
         SCOPED_TRACE(one.what);
-        const size_t before = staged_ann_file_count();
+        const std::set<std::string> before = staged_ann_files();
         ScopedDebugPoints debug_points;
         debug_points.enable("StagedBlobFile::finalize_error");
 
@@ -602,8 +596,13 @@ TEST_F(SniiAnnContainerTest, AFailedSaveUnlinksItsStagingFile) {
         Status finish_status = Status::OK();
         ASSERT_NO_THROW({ finish_status = feed_and_finish(&ann); });
         ASSERT_FALSE(finish_status.ok()) << "the injected fault must fail the save";
+        // The specific fault, not just any error: a save that failed for some
+        // other reason would not prove anything about the staging file.
+        ASSERT_NE(finish_status.to_string().find("injected blob staging finalize failure"),
+                  std::string::npos)
+                << finish_status.to_string();
 
-        EXPECT_EQ(staged_ann_file_count(), before)
+        EXPECT_EQ(staged_ann_files(), before)
                 << "the failed save left its staging file on the temp filesystem while the ANN "
                    "writer and the IndexFileWriter are both still alive";
     }
@@ -623,7 +622,7 @@ TEST_F(SniiAnnContainerTest, SealingDrainsStagedFilesWhileProducersAreStillAlive
     };
     constexpr int kSegments = 3;
 
-    const size_t before = staged_ann_file_count();
+    const std::set<std::string> before = staged_ann_files();
     std::vector<Segment> segments;
     for (int seg_id = 0; seg_id < kSegments; ++seg_id) {
         const std::string prefix =
@@ -646,14 +645,14 @@ TEST_F(SniiAnnContainerTest, SealingDrainsStagedFilesWhileProducersAreStillAlive
     }
     // Sanity: their absence below must mean the seal drained them, not that they
     // were never staged.
-    ASSERT_EQ(staged_ann_file_count(), before + kSegments);
+    ASSERT_EQ(staged_ann_files().size(), before.size() + kSegments);
 
     for (auto& segment : segments) {
         assert_ok(segment.file_writer->begin_close());
     }
     // Every producer is STILL alive here, exactly as it is in IndexBuilder when
     // it runs its begin_close loop.
-    EXPECT_EQ(staged_ann_file_count(), before)
+    EXPECT_EQ(staged_ann_files(), before)
             << "sealing left the staged files pinned by the producers";
 
     for (auto& segment : segments) {
@@ -667,7 +666,7 @@ TEST_F(SniiAnnContainerTest, SealingDrainsStagedFilesWhileProducersAreStillAlive
 // already given up. Two ANN indexes, three sub-files (hnsw writes ann.faiss,
 // ivf_on_disk writes ann.faiss and ann.ivfdata).
 TEST_F(SniiAnnContainerTest, EveryAnnIndexInOneContainerIsDrainedBySealing) {
-    const size_t before = staged_ann_file_count();
+    const std::set<std::string> before = staged_ann_files();
     const std::string prefix = std::string(kTestDir) + "/multi_ann_seg";
     io::FileWriterPtr file_writer;
     assert_ok(io::global_local_filesystem()->create_file(
@@ -686,10 +685,10 @@ TEST_F(SniiAnnContainerTest, EveryAnnIndexInOneContainerIsDrainedBySealing) {
         assert_ok(finish_status);
         producers.push_back(std::move(producer));
     }
-    ASSERT_EQ(staged_ann_file_count(), before + 3);
+    ASSERT_EQ(staged_ann_files().size(), before.size() + 3);
 
     assert_ok(writer.begin_close());
-    EXPECT_EQ(staged_ann_file_count(), before)
+    EXPECT_EQ(staged_ann_files(), before)
             << "one container's seal did not drain every ANN index it sealed";
     assert_ok(writer.finish_close());
 }
