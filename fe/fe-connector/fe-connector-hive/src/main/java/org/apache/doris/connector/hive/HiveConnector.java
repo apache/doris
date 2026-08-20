@@ -129,6 +129,19 @@ public class HiveConnector implements Connector {
     // NEVER cast (a cast would CCE across the loader split).
     private volatile Connector hudiSibling;
 
+    // Set FIRST in close(), under the same monitor the getOrCreate* holders below take, and never cleared.
+    // Every one of those holders is a plain double-checked lazy build over a field close() nulls out, so
+    // without this flag a call that arrives AFTER close() does not fail and is not a no-op: it rebuilds. A
+    // rebuilt hudi sibling takes a hold on HudiConnector's static FS_SCOPES entry that no later close() can
+    // reach (this gateway is already detached from the catalog and PluginDrivenExternalCatalog has already
+    // nulled its own connector field), so the UGI, every FileSystem Hadoop cached under it, and those
+    // filesystems' SDK executor threads live to the end of the FE process. A rebuilt iceberg sibling or
+    // HmsClient leaks its own resources the same way. It takes no error to get here: a statement that
+    // resolved this catalog before an ALTER CATALOG and touches an iceberg/hudi-on-HMS table after it reaches
+    // the holders through the metadata instance PluginDrivenMetadata cached for the statement. Mirrors
+    // JdbcDorisConnector, which guards its data source the same way.
+    private volatile boolean closed;
+
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
@@ -500,12 +513,29 @@ public class HiveConnector implements Connector {
     private HmsClient getOrCreateClient() {
         if (hmsClient == null) {
             synchronized (this) {
+                // Re-checked INSIDE the monitor, which is what makes it exclusive with close(): either this
+                // build completes and close() (which takes the same monitor before it detaches anything)
+                // finds the client and closes it, or close() wins and this throws. See the `closed` field.
+                throwIfClosed();
                 if (hmsClient == null) {
                     hmsClient = createClient();
                 }
             }
         }
         return hmsClient;
+    }
+
+    /**
+     * Fails a lazy build that arrived after {@link #close()}. Called under {@code this} by every holder, so
+     * the check cannot pass while close() is detaching. The message is deliberately actionable: the only way
+     * to reach it is a statement that outlived the catalog definition it resolved against, and re-running it
+     * resolves the replacement connector.
+     */
+    private void throwIfClosed() {
+        if (closed) {
+            throw new DorisConnectorException("catalog '" + context.getCatalogName()
+                    + "' was closed (dropped or altered) while this statement was running; retry the statement");
+        }
     }
 
     /**
@@ -523,6 +553,7 @@ public class HiveConnector implements Connector {
     Connector getOrCreateIcebergSibling() {
         if (icebergSibling == null) {
             synchronized (this) {
+                throwIfClosed();
                 if (icebergSibling == null) {
                     Connector sibling = context.createSiblingConnector(
                             ICEBERG_CONNECTOR_TYPE, IcebergSiblingProperties.synthesize(properties));
@@ -567,6 +598,7 @@ public class HiveConnector implements Connector {
     Connector getOrCreateHudiSibling() {
         if (hudiSibling == null) {
             synchronized (this) {
+                throwIfClosed();
                 if (hudiSibling == null) {
                     Connector sibling = context.createSiblingConnector(
                             HUDI_CONNECTOR_TYPE, HudiSiblingProperties.synthesize(properties));
@@ -729,25 +761,80 @@ public class HiveConnector implements Connector {
         return conf;
     }
 
+    /**
+     * Releases everything this gateway owns: its HMS client, and the embedded iceberg / hudi sibling
+     * connectors whose lifecycle it owns (the engine closes only a catalog's PRIMARY connector, so a sibling
+     * is never reached from anywhere else). Idempotent, and a no-op for anything that was never built.
+     *
+     * <p><b>Every stage runs, even when an earlier one throws.</b> The iceberg stage tears down a live iceberg
+     * {@code Catalog} and {@code BaseViewSessionCatalog} — a REST session or an HMS catalog pool, real network
+     * teardown declared {@code throws IOException} — and the hudi stage is the ONLY release of that sibling's
+     * shared {@code FS_SCOPES} reference count. Letting one dead HTTP connection skip that release would
+     * strand the UGI, every FileSystem Hadoop cached under it, and those filesystems' AWS SDK executor
+     * threads for the life of the FE — the "OutOfMemoryError: unable to create native thread" this feature
+     * exists to prevent — with no second chance, because {@code PluginDrivenExternalCatalog.closeResources}
+     * swallows the throw and then nulls its connector field. So the stages are independent: each failure is
+     * named and folded into the first one as a suppressed exception (the {@code HiveConnectorTransaction}
+     * convention), rather than a nested try/finally whose finally-throw would drop the primary failure.
+     *
+     * <p><b>Detach under the monitor, close outside it.</b> The three fields are read and nulled inside
+     * {@code synchronized (this)} together with {@code closed}, so a concurrent lazy build either finishes
+     * first (and is closed here) or fails fast: it can never hand back a half-torn-down client, nor build a
+     * sibling that no later close() could reach. The closing itself is external IO and must NOT hold the
+     * monitor {@code getOrCreateClient()} needs — on the ALTER CATALOG path this runs on the FE's journal
+     * replay thread under the CatalogMgr write lock. Same shape, and the same reason, as
+     * {@code PluginDrivenExternalCatalog.closeResources}, which detaches every stage before invoking
+     * external code.
+     */
     @Override
     public void close() throws IOException {
-        HmsClient c = hmsClient;
-        if (c != null) {
-            c.close();
+        HmsClient client;
+        Connector iceberg;
+        Connector hudi;
+        synchronized (this) {
+            closed = true;
+            client = hmsClient;
             hmsClient = null;
-        }
-        // Forward close to the embedded iceberg sibling: the engine closes only a catalog's PRIMARY connector,
-        // so the gateway owns the sibling's lifecycle. No-op when the sibling was never built (dormant path).
-        Connector sibling = icebergSibling;
-        if (sibling != null) {
-            sibling.close();
+            iceberg = icebergSibling;
             icebergSibling = null;
-        }
-        // Same for the embedded hudi sibling — the gateway owns its lifecycle too. No-op when never built.
-        Connector hudi = hudiSibling;
-        if (hudi != null) {
-            hudi.close();
+            hudi = hudiSibling;
             hudiSibling = null;
+        }
+        IOException failure = closeStage(client, "hive metastore client", null);
+        failure = closeStage(iceberg, "iceberg-on-HMS sibling connector", failure);
+        failure = closeStage(hudi, "hudi-on-HMS sibling connector", failure);
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    /**
+     * Closes one stage of {@link #close()} and folds its failure into the running one, so that a failing
+     * stage never costs the stages after it. Returns {@code running} unchanged when the stage was never built
+     * or closed cleanly; otherwise the first failure, naming the stage, with every later one attached to it
+     * as suppressed.
+     *
+     * <p>{@code LinkageError} is caught alongside {@code Exception} for the same reason
+     * {@code HudiConnector.releaseFileSystemScope} catches it: a sibling closes classes loaded child-first by
+     * its own plugin loader, so a loader split surfaces as an {@code Error} rather than an exception, and
+     * that must not be the thing that strands a filesystem scope. Harder errors (OOM, StackOverflow) are left
+     * to propagate — at that point the FE has bigger problems than an orderly catalog teardown.
+     */
+    private IOException closeStage(AutoCloseable stage, String what, IOException running) {
+        if (stage == null) {
+            return running;
+        }
+        try {
+            stage.close();
+            return running;
+        } catch (Exception | LinkageError t) {
+            IOException named = new IOException("failed to close the " + what + " of hive catalog '"
+                    + context.getCatalogName() + "'", t);
+            if (running == null) {
+                return named;
+            }
+            running.addSuppressed(named);
+            return running;
         }
     }
 }

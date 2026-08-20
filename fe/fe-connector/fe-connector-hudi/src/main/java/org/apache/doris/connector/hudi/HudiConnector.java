@@ -53,6 +53,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -111,9 +115,9 @@ public class HudiConnector implements Connector {
     // closeResources directly, and PluginDrivenExternalCatalog.initLocalObjectsImpl closes the
     // throwaway connector CatalogFactory built for checkWhenCreating. REFRESH CATALOG does NOT - it
     // goes through RefreshManager -> onRefreshCache, which rebuilds no connector - so a refresh keeps
-    // the scope it had, with no eviction and no re-listing. The last holder of a scope closes the
-    // filesystems Hadoop cached under its UGI, each of which holds an SDK client whose scheduled
-    // executor keeps its own worker threads alive. Those threads are exactly
+    // the scope it had, with no eviction and no re-listing. The last holder of a scope hands the
+    // filesystems Hadoop cached under its UGI to FS_SCOPE_CLOSER below, each of which holds an SDK
+    // client whose scheduled executor keeps its own worker threads alive. Those threads are exactly
     // the resource this feature's own javadoc blames for "OutOfMemoryError: unable to create native
     // thread", so leaving them to the FE's lifetime is not an option - and neither is dropping the map
     // entry without closing them, because Hadoop's FileSystem.CACHE is a static strong reference and
@@ -131,6 +135,32 @@ public class HudiConnector implements Connector {
     // like "IOException: Filesystem closed" rather than a dead thrift socket. Fixing that properly
     // means the FE not closing a connector a statement still holds, which is above this class.
     private static final Map<String, ScopeEntry> FS_SCOPES = new HashMap<>();
+
+    // Where the last release's filesystem teardown runs. NEVER on the caller's thread: close() is reached
+    // from the FE's journal replay thread, and on the ALTER CATALOG path it arrives holding two coarse locks
+    // - CatalogMgr.writeLock(), one process-wide lock covering EVERY catalog, and the
+    // ExternalCatalog.resetToUninitialized synchronized(this) that is the very monitor
+    // makeSureInitialized() takes. DROP CATALOG holds neither (cleanupRemovedCatalog runs after
+    // writeUnlock()), but it is still the replay thread, which a follower must never let fall behind.
+    // The work is unbounded: FileSystem.closeAll(UGI) holds the process-wide FileSystem.CACHE monitor for
+    // its whole duration, and one S3AFileSystem.close() shuts three thread pools down through
+    // HadoopExecutors.shutdown - await, shutdownNow, await again, 30s apiece - so roughly 180s per
+    // filesystem, with a still-flying S3 transfer being enough to spend it.
+    //
+    // Handing it off is sound rather than merely convenient: the reference count has already established
+    // that no connector holds this UGI, so nothing about the close is ordered against the caller. It cannot
+    // race a later acquire of the same key either - UserGroupInformation.equals is Subject IDENTITY, and a
+    // later acquire builds a fresh createRemoteUser UGI, so the entries closed here are never the entries
+    // that acquire will cache under.
+    //
+    // One thread, unbounded queue (releases are catalog-lifecycle events - ALTER, DROP, CREATE validation -
+    // not query traffic, and they contend on the single FileSystem.CACHE monitor anyway), daemon, and
+    // allowCoreThreadTimeOut so an FE that never drops a hudi catalog never has this thread at all. Its
+    // TCCL is pinned to the hudi plugin loader: a worker thread created inside a child-first plugin would
+    // otherwise inherit whatever loader the replay thread happened to carry, which is the split-brain
+    // failure the fe-connector TCCL invariant exists to prevent.
+    private static final ExecutorService FS_SCOPE_CLOSER = newFileSystemScopeCloser();
+
     private volatile UserGroupInformation fsScope;
     private volatile boolean fsScopeComputed;
     // The key this connector acquired, so that close() releases its OWN entry. Guarded by `this`,
@@ -145,6 +175,19 @@ public class HudiConnector implements Connector {
         private ScopeEntry(UserGroupInformation ugi) {
             this.ugi = ugi;
         }
+    }
+
+    /** Builds {@link #FS_SCOPE_CLOSER}; see that field for why it is shaped this way. */
+    private static ExecutorService newFileSystemScopeCloser() {
+        ThreadPoolExecutor closer = new ThreadPoolExecutor(1, 1, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(), runnable -> {
+                    Thread thread = new Thread(runnable, "hudi-fs-scope-closer");
+                    thread.setDaemon(true);
+                    thread.setContextClassLoader(HudiConnector.class.getClassLoader());
+                    return thread;
+                });
+        closer.allowCoreThreadTimeOut(true);
+        return closer;
     }
 
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
@@ -394,8 +437,12 @@ public class HudiConnector implements Connector {
     }
 
     /**
-     * Gives up this connector's hold on its scope, and - when it was the last holder - closes the
-     * filesystems Hadoop cached under that UGI.
+     * Gives up this connector's hold on its scope, and - when it was the last holder - hands the
+     * filesystems Hadoop cached under that UGI to {@link #FS_SCOPE_CLOSER} to be closed.
+     *
+     * <p>Returns as soon as the count is settled: the teardown itself can take minutes and this runs on
+     * the FE's journal replay thread, on ALTER CATALOG under the CatalogMgr write lock. See
+     * {@link #FS_SCOPE_CLOSER} for why detaching it is sound.
      *
      * <p>Only ever the entry this connector acquired: the count is what decides, so a catalog sharing
      * a configuration with another one keeps its filesystems until both are gone, and a connector
@@ -431,12 +478,18 @@ public class HudiConnector implements Connector {
         if (orphaned == null) {
             return;
         }
-        try {
-            FileSystem.closeAllForUGI(orphaned);
-        } catch (Exception | LinkageError e) {
-            LOG.warn("failed to close the filesystems of the FileSystem scope of catalog '{}'",
-                    context.getCatalogName(), e);
-        }
+        // Both read on the calling thread: the task must not reach back into a connector this close() is
+        // dismantling, and the name is only ever used to say which catalog a failure came from.
+        final UserGroupInformation toClose = orphaned;
+        final String catalogName = context.getCatalogName();
+        FS_SCOPE_CLOSER.execute(() -> {
+            try {
+                FileSystem.closeAllForUGI(toClose);
+            } catch (Exception | LinkageError e) {
+                LOG.warn("failed to close the filesystems of the FileSystem scope of catalog '{}'",
+                        catalogName, e);
+            }
+        });
     }
 
     /** How many connectors hold a scope, or 0 when the key has none. For tests. */

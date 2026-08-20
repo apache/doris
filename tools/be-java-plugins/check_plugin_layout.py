@@ -159,14 +159,16 @@ _GUAVA_CHECKED_FUTURE = ("Futures.immediateFailedCheckedFuture, removed in Guava
                          "Guava that the rest of the tree has moved past.")
 _S3A_COMMITTER = ("hadoop-aws's S3A output committers, which extend hadoop-mapreduce-client-core "
                   "types. BE reads table formats; it never runs a MapReduce job, and nothing "
-                  "here resolves a committer.")
+                  "here resolves a committer. NOT in _BUNDLED_S3A on purpose: the prefix is far "
+                  "wider than the committers and covers "
+                  "org.apache.hadoop.mapreduce.lib.input.FileInputFormat, which paimon and hudi "
+                  "DO reach - see the per-plugin note in CLOSURE_ALLOWLIST.")
 _BUNDLED_S3A = [
     ("software.amazon.encryption.s3.", _S3A_CSE),
     ("software.amazon.awssdk.services.kms.", _S3A_CSE),
     ("software.amazon.awssdk.thirdparty.", _SDK_BUNDLE),
     ("com.amazonaws.", _SDK_V1),
     ("org.apache.log4j.", _LOG4J1),
-    ("org.apache.hadoop.mapreduce.", _S3A_COMMITTER),
 ]
 _BUNDLED_OBS = [
     ("android.", _OKHTTP_PLATFORM),
@@ -175,7 +177,15 @@ _BUNDLED_OBS = [
     ("com.google.common.util.concurrent.CheckedFuture", _GUAVA_CHECKED_FUTURE),
 ]
 CLOSURE_ALLOWLIST = {
-    "iceberg": [("it.unimi.dsi.fastutil.", _FASTUTIL)] + _BUNDLED_S3A + _BUNDLED_OBS,
+    # The mapreduce exemption is iceberg's ALONE. iceberg-metadata-scanner is the only plugin that
+    # bundles hadoop-aws WITHOUT hadoop-mapreduce-client-core, so it is the only one where the S3A
+    # committers' mapreduce references are genuinely unresolvable. paimon-scanner and
+    # hadoop-hudi-scanner declare that artifact on purpose (commit d50394e645d: every parquet read
+    # from a paimon catalog failed with NoClassDefFoundError on
+    # org.apache.hadoop.mapreduce.lib.input.FileInputFormat, which this prefix would wave through),
+    # so on those two the prefix stays guarded and dropping the jar again fails the build.
+    "iceberg": [("it.unimi.dsi.fastutil.", _FASTUTIL),
+                ("org.apache.hadoop.mapreduce.", _S3A_COMMITTER)] + _BUNDLED_S3A + _BUNDLED_OBS,
     "paimon": [("it.unimi.dsi.fastutil.", _FASTUTIL)] + _BUNDLED_S3A + _BUNDLED_OBS,
     "hudi": [("it.unimi.dsi.fastutil.", _FASTUTIL)] + _BUNDLED_S3A + _BUNDLED_OBS,
     "java-udf": [
