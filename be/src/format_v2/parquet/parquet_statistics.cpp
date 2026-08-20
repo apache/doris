@@ -75,7 +75,7 @@ Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
     }
     if (declared_length >= 0) {
         const uint64_t unsigned_declared_length = static_cast<uint64_t>(declared_length);
-        if (unsigned_declared_length < total_size ||
+        if (unsigned_declared_length != total_size ||
             unsigned_declared_length > file_size - unsigned_offset) {
             return Status::Corruption(
                     "Parquet Bloom filter requires {} bytes, metadata declares {}, file has {}",
@@ -190,15 +190,17 @@ Status read_native_bloom_filter(const tparquet::ColumnMetaData& metadata,
             metadata.__isset.bloom_filter_length ? metadata.bloom_filter_length : -1,
             file->size()));
 
-    std::vector<uint8_t> data(cast_set<size_t>(header.numBytes));
+    auto bloom_filter = std::make_unique<native::BlockSplitBloomFilter>();
+    // Read directly into one tracked allocation so maximum-size filters cannot bypass task
+    // admission or temporarily require a second payload-sized allocation.
+    RETURN_IF_ERROR(bloom_filter->init_for_read(cast_set<size_t>(header.numBytes),
+                                                segment_v2::HashStrategyPB::XX_HASH_64));
     RETURN_IF_ERROR(file->read_at(static_cast<size_t>(metadata.bloom_filter_offset) + header_size,
-                                  Slice(data.data(), data.size()), &bytes_read, io_ctx));
-    if (bytes_read != data.size()) {
+                                  Slice(bloom_filter->mutable_data(), bloom_filter->size()),
+                                  &bytes_read, io_ctx));
+    if (bytes_read != bloom_filter->size()) {
         return Status::Corruption("Truncated Parquet Bloom filter payload");
     }
-    auto bloom_filter = std::make_unique<native::BlockSplitBloomFilter>();
-    RETURN_IF_ERROR(bloom_filter->init(reinterpret_cast<const char*>(data.data()), data.size(),
-                                       segment_v2::HashStrategyPB::XX_HASH_64));
     *result = std::move(bloom_filter);
     return Status::OK();
 }

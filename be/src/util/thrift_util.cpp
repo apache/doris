@@ -20,16 +20,21 @@
 #include <gen_cpp/Types_types.h>
 #include <thrift/TOutput.h>
 #include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/protocol/TProtocolDecorator.h>
+#include <thrift/protocol/TProtocolException.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <limits>
 #include <string>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "runtime/thread_context.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet_info.h"
+#include "util/thrift_container_size.h"
 #include "util/thrift_server.h"
 
 namespace apache::thrift::protocol {
@@ -56,6 +61,82 @@ class TProtocol;
 #include <thread>
 
 namespace doris {
+namespace {
+
+class ScopedThreadContextHandle {
+public:
+    ScopedThreadContextHandle() { ThreadLocalHandle::create_thread_local_if_not_exits(); }
+    ~ScopedThreadContextHandle() { ThreadLocalHandle::del_thread_local_if_count_is_zero(); }
+};
+
+class MemoryBudgetProtocol final : public apache::thrift::protocol::TProtocolDecorator,
+                                   public ThriftContainerMemoryChecker {
+public:
+    explicit MemoryBudgetProtocol(std::shared_ptr<apache::thrift::protocol::TProtocol> protocol)
+            : TProtocolDecorator(std::move(protocol)) {
+        _memory_manager = thread_context()->thread_mem_tracker_mgr.get();
+        if (_memory_manager->limiter_mem_tracker()->label() == "Orphan") {
+            // Apache Thrift worker threads have no Doris task context. Attach a process-accounted
+            // limiter so reservation checks never run against the forbidden orphan tracker.
+            _fallback_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                                 "ThriftDeserialize");
+            _memory_manager->attach_limiter_tracker(_fallback_tracker);
+            _switched_tracker = true;
+        }
+        _prior_reservation = _memory_manager->take_reserved_memory();
+    }
+
+    ~MemoryBudgetProtocol() override {
+        _memory_manager->shrink_reserved();
+        _memory_manager->adopt_reserved_memory(std::move(_prior_reservation));
+        if (_switched_tracker) {
+            _memory_manager->detach_limiter_tracker();
+        }
+    }
+
+    std::shared_ptr<ThriftContainerMemoryCharge> reserve_container_memory(
+            uint32_t count, size_t element_size) override {
+        if (count > std::numeric_limits<size_t>::max() / element_size) {
+            throw apache::thrift::protocol::TProtocolException(
+                    apache::thrift::protocol::TProtocolException::SIZE_LIMIT,
+                    "Decoded Thrift container size overflows");
+        }
+        const size_t bytes = static_cast<size_t>(count) * element_size;
+        if (bytes > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+            throw apache::thrift::protocol::TProtocolException(
+                    apache::thrift::protocol::TProtocolException::SIZE_LIMIT,
+                    "Decoded Thrift container size exceeds reservation range");
+        }
+        const Status status = _memory_manager->try_reserve(static_cast<int64_t>(bytes));
+        if (!status.ok()) {
+            throw Exception(status);
+        }
+        return std::make_shared<ReservedMemoryCharge>(_memory_manager->take_reserved_memory());
+    }
+
+    void retain_temporary_container_charge(
+            std::shared_ptr<ThriftContainerMemoryCharge> charge) override {
+        _temporary_charges.emplace_back(std::move(charge));
+    }
+
+private:
+    class ReservedMemoryCharge final : public ThriftContainerMemoryCharge {
+    public:
+        explicit ReservedMemoryCharge(ReservedMemoryToken token) : _token(std::move(token)) {}
+
+    private:
+        ReservedMemoryToken _token;
+    };
+
+    ScopedThreadContextHandle _thread_context_handle;
+    ThreadMemTrackerMgr* _memory_manager = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _fallback_tracker;
+    ReservedMemoryToken _prior_reservation;
+    std::vector<std::shared_ptr<ThriftContainerMemoryCharge>> _temporary_charges;
+    bool _switched_tracker = false;
+};
+
+} // namespace
 
 ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
         : _mem_buffer(new apache::thrift::transport::TMemoryBuffer(initial_buffer_size)) {
@@ -71,16 +152,19 @@ ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
 }
 
 std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
-        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact) {
+        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact,
+        int32_t size_limit) {
+    std::shared_ptr<apache::thrift::protocol::TProtocol> protocol;
     if (compact) {
-        apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
-                tproto_factory;
-        return tproto_factory.getProtocol(mem);
+        protocol = std::make_shared<apache::thrift::protocol::TCompactProtocolT<
+                apache::thrift::transport::TMemoryBuffer>>(mem, size_limit, size_limit);
     } else {
-        apache::thrift::protocol::TBinaryProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
-                tproto_factory;
-        return tproto_factory.getProtocol(mem);
+        protocol = std::make_shared<apache::thrift::protocol::TBinaryProtocolT<
+                apache::thrift::transport::TMemoryBuffer>>(mem, size_limit, size_limit,
+                                                           /*strict_read=*/false,
+                                                           /*strict_write=*/true);
     }
+    return std::make_shared<MemoryBudgetProtocol>(std::move(protocol));
 }
 
 // Comparator for THostPorts. Thrift declares this (in gen-cpp/Types_types.h) but

@@ -22,14 +22,18 @@
 #include <thrift/TApplicationException.h>
 #include <thrift/transport/TBufferTransports.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
+#include "util/defer_op.h"
 
 namespace apache::thrift::protocol {
 class TProtocol;
@@ -122,7 +126,8 @@ private:
 
 // Utility to create a protocol (deserialization) object for 'mem'.
 std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
-        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact);
+        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact,
+        int32_t size_limit);
 
 // Deserialize a thrift message from buf/len.  buf/len must at least contain
 // all the bytes needed to store the thrift message.  On return, len will be
@@ -134,18 +139,27 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
     // transport. TMemoryBuffer is not const-safe, although we use it in
     // a const-safe way, so we have to explicitly cast away the const.
     auto conf = std::make_shared<apache::thrift::TConfiguration>();
-    // On Thrift 0.14.0+, need use TConfiguration to raise the max message size.
-    // max message size is 100MB default, so make it unlimited.
-    conf->setMaxMessageSize(std::numeric_limits<int>::max());
+    const int32_t size_limit =
+            *len == 0 ? 1
+                      : static_cast<int32_t>(std::min<uint32_t>(
+                                *len, static_cast<uint32_t>(std::numeric_limits<int32_t>::max())));
+    // Wire-size limits reject impossible prefixes, while the protocol wrapper separately reserves
+    // decoded container storage before generated readers resize their C++ containers.
+    conf->setMaxMessageSize(size_limit);
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
             new apache::thrift::transport::TMemoryBuffer(
                     const_cast<uint8_t*>(buf), *len,
                     apache::thrift::transport::TMemoryBuffer::OBSERVE, conf));
-    std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
-            create_deserialize_protocol(tmem_transport, compact);
-
     try {
+        // Thrift-generated standard containers can throw Doris memory exceptions through the
+        // allocation hooks; preserve their original status for callers that must not retry OOM.
+        enable_thread_catch_bad_alloc++;
+        Defer defer_catch_bad_alloc {[&]() { enable_thread_catch_bad_alloc--; }};
+        std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
+                create_deserialize_protocol(tmem_transport, compact, size_limit);
         deserialized_msg->read(tproto.get());
+    } catch (const doris::Exception& e) {
+        return e.to_status();
     } catch (std::exception& e) {
         return Status::InternalError<false>("Couldn't deserialize thrift msg:\n{}", e.what());
     } catch (...) {

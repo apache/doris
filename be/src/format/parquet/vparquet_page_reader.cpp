@@ -30,6 +30,7 @@
 #include "io/fs/buffered_reader.h"
 #include "runtime/runtime_profile.h"
 #include "storage/cache/page_cache.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/thrift_util.h"
 
@@ -41,6 +42,24 @@ struct IOContext;
 
 namespace doris {
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
+
+namespace {
+
+void inject_page_header_memory_failure(Status* status) {
+    DBUG_EXECUTE_IF("ParquetPageReader.parse_page_header.memory_failure", {
+        *status = Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                "Injected page header memory admission failure");
+    });
+}
+
+bool is_memory_failure(const Status& status) {
+    return status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>() ||
+           status.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>() ||
+           status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>() ||
+           status.is<ErrorCode::MEM_ALLOC_FAILED>() || status.is<ErrorCode::MEM_LIMIT_EXCEEDED>();
+}
+
+} // namespace
 
 void ParquetPageCacheKeyBuilder::init(const std::string& path, int64_t mtime) {
     _file_key_prefix = fmt::format("{}::{}", path, mtime);
@@ -167,8 +186,14 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         SCOPED_RAW_TIMER(&_page_statistics.decode_header_time);
         auto st =
                 deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
+        inject_page_header_memory_failure(&st);
         if (st.ok()) {
             break;
+        }
+        if (is_memory_failure(st)) {
+            // A larger input window cannot recover a memory admission failure and would only turn
+            // the actionable status into a generic page-header I/O error after repeated reads.
+            return st;
         }
         if (_offset + header_size >= _end_offset || real_header_size > MAX_PAGE_HEADER_SIZE) {
             return Status::IOError(

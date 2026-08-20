@@ -15,16 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arpa/inet.h>
 #include <cctz/time_zone.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/NetworkTestService.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/types.h>
+#include <thrift/Thrift.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TBufferTransports.h>
+#include <thrift/transport/TSocket.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -59,10 +70,119 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/slice.h"
+#include "util/thrift_container_size.h"
+#include "util/thrift_server.h"
+#include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace {
+
+struct LargeDecodedElement {
+    std::array<uint8_t, 1024> bytes {};
+};
+
+struct ThriftContainerProbe {
+    uint32_t read(apache::thrift::protocol::TProtocol* protocol) {
+        apache::thrift::protocol::TType element_type;
+        uint32_t size = 0;
+        uint32_t consumed = protocol->readListBegin(element_type, size);
+        reserve_thrift_container_memory(protocol, &elements, size);
+        elements.resize(size);
+        return consumed + protocol->readListEnd();
+    }
+
+    std::vector<LargeDecodedElement> elements;
+};
+
+struct ThriftStringProbe {
+    uint32_t read(apache::thrift::protocol::TProtocol* protocol) {
+        return protocol->readString(value);
+    }
+
+    std::string value;
+};
+
+struct ThriftSkipProbe {
+    uint32_t read(apache::thrift::protocol::TProtocol* protocol) {
+        return protocol->skip(apache::thrift::protocol::T_LIST);
+    }
+};
+
+std::vector<uint8_t> thrift_string_bytes(bool compact, std::string_view value);
+
+class ContextlessDeserializeService final : public doristest::NetworkTestServiceIf {
+public:
+    void Send(doristest::ThriftDataResult& result,
+              const doristest::ThriftDataParams& params) override {
+        contextless_before_deserialize = !pthread_context_ptr_init;
+        auto bytes = thrift_string_bytes(/*compact=*/true, params.data);
+        uint32_t length = bytes.size();
+        ThriftStringProbe probe;
+        const Status status = deserialize_thrift_msg(bytes.data(), &length, true, &probe);
+        context_cleaned_after_deserialize = !pthread_context_ptr_init;
+        if (!status.ok()) {
+            throw apache::thrift::TException(status.to_string());
+        }
+        result.__set_bytes_received(static_cast<int64_t>(probe.value.size()));
+    }
+
+    std::atomic_bool contextless_before_deserialize = false;
+    std::atomic_bool context_cleaned_after_deserialize = false;
+};
+
+int find_available_port() {
+    const int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_fd < 0) {
+        return -1;
+    }
+    sockaddr_in address {};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (bind(socket_fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+        close(socket_fd);
+        return -1;
+    }
+    socklen_t address_size = sizeof(address);
+    if (getsockname(socket_fd, reinterpret_cast<sockaddr*>(&address), &address_size) != 0) {
+        close(socket_fd);
+        return -1;
+    }
+    close(socket_fd);
+    return ntohs(address.sin_port);
+}
+
+std::vector<uint8_t> thrift_list_bytes(bool compact, uint32_t count, size_t total_size) {
+    std::vector<uint8_t> bytes;
+    if (compact) {
+        bytes = {0xfc, static_cast<uint8_t>(count)};
+    } else {
+        bytes = {static_cast<uint8_t>(apache::thrift::protocol::T_STRUCT),
+                 static_cast<uint8_t>(count >> 24), static_cast<uint8_t>(count >> 16),
+                 static_cast<uint8_t>(count >> 8), static_cast<uint8_t>(count)};
+    }
+    bytes.resize(std::max(bytes.size(), total_size));
+    return bytes;
+}
+
+std::vector<uint8_t> thrift_string_bytes(bool compact, std::string_view value) {
+    std::vector<uint8_t> bytes;
+    if (compact) {
+        bytes.push_back(static_cast<uint8_t>(value.size()));
+    } else {
+        const uint32_t size = value.size();
+        bytes = {static_cast<uint8_t>(size >> 24), static_cast<uint8_t>(size >> 16),
+                 static_cast<uint8_t>(size >> 8), static_cast<uint8_t>(size)};
+    }
+    bytes.insert(bytes.end(), value.begin(), value.end());
+    return bytes;
+}
+
+} // namespace
 
 class ParquetThriftReaderTest : public testing::Test {
 public:
@@ -70,6 +190,195 @@ public:
     void SetUp() override { TimezoneUtils::load_timezones_to_cache(); }
     void TearDown() override { TimezoneUtils::clear_timezone_caches(); }
 };
+
+TEST_F(ParquetThriftReaderTest, reject_compact_container_larger_than_input) {
+    // A tiny payload must not make generated Thrift code resize a container to an
+    // attacker-controlled length before the transport discovers that the bytes are absent.
+    std::vector<uint8_t> compact_metadata {0x29, 0xfc, 0x88, 0x27, 0x00};
+    uint32_t length = compact_metadata.size();
+    tparquet::FileMetaData metadata;
+
+    Status status = deserialize_thrift_msg(compact_metadata.data(), &length, true, &metadata);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(metadata.schema.empty());
+}
+
+TEST_F(ParquetThriftReaderTest, reject_decoded_container_that_exceeds_task_budget) {
+    constexpr uint32_t element_count = 64;
+    constexpr int64_t memory_limit = 4 * 1024;
+    for (const bool compact : {true, false}) {
+        auto bytes = thrift_list_bytes(compact, element_count, element_count + 8);
+        uint32_t length = bytes.size();
+        ThriftContainerProbe probe;
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                        "ThriftContainerProbe", memory_limit);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+        Status status = deserialize_thrift_msg(bytes.data(), &length, compact, &probe);
+
+        EXPECT_FALSE(status.ok()) << "compact=" << compact;
+        EXPECT_TRUE(probe.elements.empty()) << "compact=" << compact;
+    }
+}
+
+TEST_F(ParquetThriftReaderTest, retain_decoded_container_charge_until_output_is_destroyed) {
+    constexpr size_t element_count = 32;
+    tparquet::PageLocation page_location;
+    page_location.__set_offset(0);
+    page_location.__set_compressed_page_size(1);
+    page_location.__set_first_row_index(0);
+    tparquet::OffsetIndex source;
+    source.__set_page_locations(std::vector<tparquet::PageLocation>(element_count, page_location));
+    std::vector<uint8_t> bytes;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    ASSERT_TRUE(serializer.serialize(&source, &bytes).ok());
+
+    const auto one_container_bytes =
+            static_cast<int64_t>(element_count * sizeof(tparquet::PageLocation));
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "RetainedThriftContainers",
+                                                    one_container_bytes * 3 / 2);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+    {
+        tparquet::OffsetIndex first;
+        uint32_t first_length = bytes.size();
+        ASSERT_TRUE(deserialize_thrift_msg(bytes.data(), &first_length, true, &first).ok());
+        ASSERT_EQ(first.page_locations.size(), element_count);
+
+        tparquet::OffsetIndex second;
+        uint32_t second_length = bytes.size();
+        const Status second_status =
+                deserialize_thrift_msg(bytes.data(), &second_length, true, &second);
+        EXPECT_TRUE(second_status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << second_status;
+        EXPECT_TRUE(second.page_locations.empty());
+    }
+
+    // Destroying the retained output must return its charge so the same task can deserialize again.
+    tparquet::OffsetIndex after_release;
+    uint32_t after_release_length = bytes.size();
+    EXPECT_TRUE(
+            deserialize_thrift_msg(bytes.data(), &after_release_length, true, &after_release).ok());
+}
+
+TEST_F(ParquetThriftReaderTest, use_generated_target_type_for_container_budget) {
+    constexpr int64_t memory_limit = 4 * 1024;
+    // FileMetaData.schema is vector<SchemaElement>, but the forged compact wire tag advertises
+    // bool elements. Generated readers must budget the actual target vector before resizing it.
+    std::vector<uint8_t> compact_metadata {0x29, 0xf1, 0x40, 0x00};
+    compact_metadata.resize(72);
+    uint32_t length = compact_metadata.size();
+    tparquet::FileMetaData metadata;
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "GeneratedThriftTargetType", memory_limit);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+    Status status = deserialize_thrift_msg(compact_metadata.data(), &length, true, &metadata);
+
+    EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
+    EXPECT_TRUE(metadata.schema.empty());
+}
+
+TEST_F(ParquetThriftReaderTest, skip_unknown_container_without_phantom_reservation) {
+    constexpr uint32_t element_count = 64;
+    constexpr int64_t memory_limit = 4 * 1024;
+    for (const bool compact : {true, false}) {
+        auto bytes = thrift_list_bytes(compact, element_count, element_count + 8);
+        uint32_t length = bytes.size();
+        ThriftSkipProbe probe;
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                        "SkippedThriftContainer", memory_limit);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+        EXPECT_TRUE(deserialize_thrift_msg(bytes.data(), &length, compact, &probe).ok())
+                << "compact=" << compact;
+    }
+}
+
+TEST_F(ParquetThriftReaderTest, accept_small_message_from_large_readable_window) {
+    constexpr int64_t memory_limit = 16 * 1024;
+    for (const bool compact : {true, false}) {
+        auto bytes = thrift_string_bytes(compact, "valid");
+        bytes.resize(64 * 1024);
+        uint32_t length = bytes.size();
+        ThriftStringProbe probe;
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                        "ThriftReadableWindow", memory_limit);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+        EXPECT_TRUE(deserialize_thrift_msg(bytes.data(), &length, compact, &probe).ok())
+                << "compact=" << compact;
+        EXPECT_EQ(probe.value, "valid");
+        EXPECT_LT(length, bytes.size());
+    }
+}
+
+TEST_F(ParquetThriftReaderTest, deserialize_on_contextless_threaded_service_worker) {
+    const int port = find_available_port();
+    ASSERT_GT(port, 0);
+    auto handler = std::make_shared<ContextlessDeserializeService>();
+    auto processor = std::make_shared<doristest::NetworkTestServiceProcessor>(handler);
+    ThriftServer server("contextless-deserialize-test", processor, port,
+                        ThriftServer::DEFAULT_WORKER_THREADS, ThriftServer::THREADED);
+    ASSERT_TRUE(server.start().ok());
+
+    auto socket = std::make_shared<apache::thrift::transport::TSocket>("127.0.0.1", port);
+    auto transport = std::make_shared<apache::thrift::transport::TBufferedTransport>(socket);
+    auto protocol = std::make_shared<apache::thrift::protocol::TBinaryProtocol>(transport);
+    doristest::NetworkTestServiceClient client(protocol);
+    transport->open();
+    doristest::ThriftDataParams params;
+    params.__set_data("valid");
+    doristest::ThriftDataResult result;
+    client.Send(result, params);
+    transport->close();
+
+    EXPECT_EQ(result.bytes_received, params.data.size());
+    EXPECT_TRUE(handler->contextless_before_deserialize.load());
+    EXPECT_TRUE(handler->context_cleaned_after_deserialize.load());
+}
+
+TEST_F(ParquetThriftReaderTest, bound_strings_and_accept_valid_controls_for_both_protocols) {
+    for (const bool compact : {true, false}) {
+        auto malformed_container = thrift_list_bytes(compact, /*count=*/64, /*total_size=*/8);
+        uint32_t malformed_container_length = malformed_container.size();
+        ThriftContainerProbe malformed_container_probe;
+        EXPECT_FALSE(deserialize_thrift_msg(malformed_container.data(), &malformed_container_length,
+                                            compact, &malformed_container_probe)
+                             .ok())
+                << "compact=" << compact;
+        EXPECT_TRUE(malformed_container_probe.elements.empty()) << "compact=" << compact;
+
+        std::vector<uint8_t> malformed_string =
+                compact ? std::vector<uint8_t> {0xff, 0xff, 0xff, 0xff, 0x07}
+                        : std::vector<uint8_t> {0x7f, 0xff, 0xff, 0xff};
+        uint32_t malformed_length = malformed_string.size();
+        ThriftStringProbe malformed_probe;
+        EXPECT_FALSE(deserialize_thrift_msg(malformed_string.data(), &malformed_length, compact,
+                                            &malformed_probe)
+                             .ok())
+                << "compact=" << compact;
+
+        auto valid_string = thrift_string_bytes(compact, "valid");
+        uint32_t valid_string_length = valid_string.size();
+        ThriftStringProbe valid_string_probe;
+        EXPECT_TRUE(deserialize_thrift_msg(valid_string.data(), &valid_string_length, compact,
+                                           &valid_string_probe)
+                            .ok())
+                << "compact=" << compact;
+        EXPECT_EQ(valid_string_probe.value, "valid");
+
+        auto valid_container = thrift_list_bytes(compact, /*count=*/1, /*total_size=*/8);
+        uint32_t valid_container_length = valid_container.size();
+        ThriftContainerProbe valid_container_probe;
+        EXPECT_TRUE(deserialize_thrift_msg(valid_container.data(), &valid_container_length, compact,
+                                           &valid_container_probe)
+                            .ok())
+                << "compact=" << compact;
+        EXPECT_EQ(valid_container_probe.elements.size(), 1);
+    }
+}
 
 TEST_F(ParquetThriftReaderTest, normal) {
     auto local_fs = io::global_local_filesystem();
