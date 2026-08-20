@@ -23,10 +23,8 @@ namespace doris {
 
 inline bool hive_multipart_protocol_supported(io::ObjStorageProvider provider,
                                               bool supports_deferred_azure_multipart) {
-    if (provider == io::ObjStorageProvider::S3EXPRESS) {
-        return false;
-    }
-    return provider != io::ObjStorageProvider::AZURE || supports_deferred_azure_multipart;
+    return provider != io::ObjStorageProvider::S3EXPRESS &&
+           (provider != io::ObjStorageProvider::AZURE || supports_deferred_azure_multipart);
 }
 
 } // namespace doris
