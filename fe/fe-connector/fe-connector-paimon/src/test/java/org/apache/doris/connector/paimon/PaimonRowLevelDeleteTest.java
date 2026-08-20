@@ -103,7 +103,7 @@ public class PaimonRowLevelDeleteTest {
     }
 
     @Test
-    public void primaryKeyTablesCarryAllThreeOpsAndAppendOnlyOnlyDelete() {
+    public void primaryKeyTablesCarryAllThreeOpsAndSoDoDeletionVectorAppendOnly() {
         // A primary-key table carries all three ops: a delete cancels against the key, and an
         // UPDATE/MERGE arrives as an operation-tagged stream the writer maps to keyed upserts/deletes.
         for (WriteOperation op : new WriteOperation[] {
@@ -115,17 +115,18 @@ public class PaimonRowLevelDeleteTest {
                     .validateRowLevelDmlMode(null, pkHandle, op), op + " on a PK table must be allowed");
         }
 
-        // Append-only shapes carry DELETE only: an UPDATE/MERGE needs deletion-vector marks PLUS
-        // appended replacement rows in one write, which the writer does not implement.
-        // MUTATION: widening the append-only gate re-introduces the update-that-duplicates hazard.
-        for (WriteOperation op : new WriteOperation[] {WriteOperation.UPDATE, WriteOperation.MERGE}) {
+        // An unaware-bucket append-only table WITH deletion vectors now carries all three ops too. Every
+        // one removes the matched rows via the deletion vector; an UPDATE/MERGE additionally appends the
+        // replacement rows in the same operation-tagged write. The removal is what gates the shape, so
+        // UPDATE/MERGE need nothing beyond what DELETE needs — they pass the SAME gate.
+        // MUTATION: re-adding an "Only DELETE" rejection here breaks append-only UPDATE/MERGE.
+        for (WriteOperation op : new WriteOperation[] {
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE}) {
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             PaimonTableHandle h = handle(ops, Collections.emptyList(), deletionVectorsEnabled());
-            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> metadata(ops, new RecordingConnectorContext())
+            Assertions.assertDoesNotThrow(() -> metadata(ops, new RecordingConnectorContext())
                             .validateRowLevelDmlMode(null, h, op),
-                    op + " on an append-only table must be rejected even with deletion vectors");
-            Assertions.assertTrue(ex.getMessage().contains("Only DELETE is supported"), ex.getMessage());
+                    op + " on an unaware-bucket deletion-vector append-only table must be allowed");
         }
     }
 
