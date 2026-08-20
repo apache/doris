@@ -374,7 +374,9 @@ under the License.
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
-        <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
+        <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
+             CVE-2023-33202. Use the compatible jdk18on line at 1.78.1, which contains the fix. -->
+        <bcprov-jdk18on.version>1.78.1</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
@@ -613,11 +615,11 @@ under the License.
                 <artifactId>woodstox-core</artifactId>
                 <version>${woodstox.version}</version>
             </dependency>
-            <!-- bcprov-jdk15on -->
+            <!-- Replacement for Huawei IAM's vulnerable bcprov-jdk15on dependency. -->
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15on</artifactId>
-                <version>${bcprov-jdk15on.version}</version>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>

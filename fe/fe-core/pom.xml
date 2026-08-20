@@ -421,6 +421,10 @@ under the License.
             <artifactId>huaweicloud-sdk-iam</artifactId>
             <exclusions>
                 <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+                <exclusion>
                     <groupId>com.squareup.okhttp3</groupId>
                     <artifactId>okhttp</artifactId>
                 </exclusion>
@@ -429,6 +433,12 @@ under the License.
                     <artifactId>okio</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- Replace Huawei IAM's bcprov-jdk15on 1.69/1.70 with 1.78.1 from the maintained
+             jdk18on line; versions before 1.73 are affected by CVE-2023-33202. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
         </dependency>
         <!-- ICU4J for unicode normalization -->
         <dependency>
