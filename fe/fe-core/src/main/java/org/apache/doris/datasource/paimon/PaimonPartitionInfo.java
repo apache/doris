@@ -23,7 +23,9 @@ import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.paimon.partition.Partition;
 
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Snapshot-scoped Paimon partition metadata used by Doris.
@@ -112,28 +114,33 @@ public class PaimonPartitionInfo {
             return 0L;
         }
         long bytes = 0L;
+        // Spec keys are the schema-owned partition column names, shared by reference across
+        // partitions; charge each distinct reference once, exactly like the retained graph.
+        Set<String> seenSpecKeys = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Map.Entry<String, Partition> entry : partitions.entrySet()) {
             bytes = addString(bytes, entry.getKey());
             Partition partition = entry.getValue();
             if (partition == null) {
                 continue;
             }
-            bytes = addStrings(bytes, partition.spec());
+            bytes = addStrings(bytes, partition.spec(), seenSpecKeys);
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, partitionColumnBytes(
                     partition.spec() == null ? 0 : partition.spec().size()));
             bytes = addString(bytes, partition.createdBy());
             bytes = addString(bytes, partition.updatedBy());
-            bytes = addStrings(bytes, partition.options());
+            bytes = addStrings(bytes, partition.options(), null);
         }
         return bytes;
     }
 
-    private static long addStrings(long bytes, Map<String, String> values) {
+    private static long addStrings(long bytes, Map<String, String> values, Set<String> seenKeys) {
         if (values == null) {
             return bytes;
         }
         for (Map.Entry<String, String> entry : values.entrySet()) {
-            bytes = addString(bytes, entry.getKey());
+            if (seenKeys == null || seenKeys.add(entry.getKey())) {
+                bytes = addString(bytes, entry.getKey());
+            }
             bytes = addString(bytes, entry.getValue());
         }
         return bytes;

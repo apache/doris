@@ -888,6 +888,8 @@ public class PaimonExternalMetaCacheTest {
                 Assert.assertEquals("projections of an unpublished generation must be retired",
                         0L, snapshots.stats().getEstimatedSize());
                 Assert.assertEquals(0L, schemas.stats().getEstimatedSize());
+                Assert.assertEquals("rejected generations must not retain latest-fence owners",
+                        0, observedFenceOwnerCount(cache));
             }
             Assert.assertEquals(10L, tables.stats().getWeightAdmissionRejectedCount());
             Mockito.verify(mocked.catalog, Mockito.times(10)).getPaimonTable(mapping);
@@ -1025,6 +1027,8 @@ public class PaimonExternalMetaCacheTest {
             Assert.assertSame(rolledBack, cache.getSnapshotCache(dorisTable));
             Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
             Assert.assertEquals(5, mocked.partitionEnumerations.get());
+            Assert.assertEquals("the published generation keeps exactly one latest-fence owner",
+                    1, observedFenceOwnerCount(cache));
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -1648,6 +1652,12 @@ public class PaimonExternalMetaCacheTest {
             int partitionColumnCount) throws AnalysisException {
         Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new HashMap<>();
         Map<String, org.apache.paimon.partition.Partition> partitions = new HashMap<>();
+        // Production typed specs key the schema-owned column names: one shared String reference
+        // across every partition, so the fixture must share them too.
+        String[] columnNames = new String[partitionColumnCount];
+        for (int column = 0; column < partitionColumnCount; column++) {
+            columnNames[column] = new String(("part" + column).toCharArray());
+        }
         for (int index = 0; index < partitionCount; index++) {
             String value = partitionType == Type.INT
                     ? Integer.toString(index)
@@ -1658,10 +1668,10 @@ public class PaimonExternalMetaCacheTest {
             Map<String, String> spec = new java.util.LinkedHashMap<>();
             for (int column = 0; column < partitionColumnCount; column++) {
                 // Each loaded column owns its own value String.
-                String columnValue = new String(value);
+                String columnValue = new String(value.toCharArray());
                 values.add(columnValue);
                 types.add(partitionType);
-                spec.put("part" + column, columnValue);
+                spec.put(columnNames[column], columnValue);
             }
             partitionItems.put(name, PaimonUtil.toListPartitionItem(values, types));
             partitions.put(name, new org.apache.paimon.partition.Partition(
@@ -1677,6 +1687,15 @@ public class PaimonExternalMetaCacheTest {
         Map<K, V> map = Mockito.mock(Map.class);
         Mockito.when(map.size()).thenReturn(size);
         return map;
+    }
+
+    private int observedFenceOwnerCount(PaimonExternalMetaCache cache) {
+        try {
+            return ((java.util.Map<?, ?>) readField(
+                    cache, PaimonExternalMetaCache.class, "latestObservedFences")).size();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private Object readField(RowType rowType, String fieldName) throws Exception {

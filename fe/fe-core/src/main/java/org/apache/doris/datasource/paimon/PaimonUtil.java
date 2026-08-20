@@ -180,6 +180,14 @@ public class PaimonUtil {
         List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
         Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
         long retainedPayloadBytes = 0L;
+        if (!partitionEntries.isEmpty()) {
+            for (Column partitionColumn : partitionColumns) {
+                // Every partition's typed spec keys the same schema-owned name reference; the
+                // retained graph holds one string per column, not one per partition.
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionColumn.getName());
+            }
+        }
 
         for (PartitionEntry partitionEntry : partitionEntries) {
             Map<String, String> typedSpec = getPartitionInfoMap(
@@ -199,8 +207,6 @@ public class PaimonUtil {
                 String partitionValue = typedSpec.get(partitionColumnName);
                 partitionValues.add(partitionValue);
                 orderedTypedSpec.put(partitionColumnName, partitionValue);
-                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
-                        retainedPayloadBytes, partitionColumnName);
                 retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
                         retainedPayloadBytes, partitionValue);
             }

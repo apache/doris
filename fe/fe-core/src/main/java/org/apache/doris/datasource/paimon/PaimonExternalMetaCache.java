@@ -145,6 +145,11 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         }
         if (!isCurrentTableGeneration(nameMapping, tableValue.getGeneration())) {
             entry.invalidateKeyIfSame(key, snapshotValue);
+            // A generation that is not published (rejected admission, replaced or invalidated
+            // mid-load) can never be observed again; drop the owner this call registered so
+            // persistently rejected tables cannot grow the map, and so a delayed old-generation
+            // load cannot resurrect an owner that catalog cleanup already removed.
+            latestObservedFences.remove(owner);
         }
         return snapshotValue;
     }
