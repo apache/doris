@@ -22,6 +22,7 @@
 #include <mutex>
 #include <thread>
 
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache_test_common.h"
 #include "util/defer_op.h"
 

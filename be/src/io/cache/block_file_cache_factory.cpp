@@ -42,6 +42,7 @@
 #include "common/config.h"
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"

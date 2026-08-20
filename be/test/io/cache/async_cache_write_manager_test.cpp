@@ -38,6 +38,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/async_cache_write_manager_metrics.h"
 #include "io/cache/block_file_cache_test_common.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/time.h"

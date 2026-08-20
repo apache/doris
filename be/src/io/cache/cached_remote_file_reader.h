@@ -35,6 +35,7 @@
 #include "util/slice.h"
 
 namespace doris::io {
+struct AsyncCacheWriteEpoch;
 struct IOContext;
 struct FileCacheStatistics;
 struct PeerFetchResult;

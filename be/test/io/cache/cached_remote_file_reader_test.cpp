@@ -21,6 +21,7 @@
 #include "block_file_cache_test_common.h"
 #include "cloud/config.h"
 #include "io/cache/async_cache_write_manager_metrics.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "util/time.h"
 
 namespace doris::io {

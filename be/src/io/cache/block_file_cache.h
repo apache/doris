@@ -35,13 +35,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
-#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "runtime/runtime_profile.h"
 #include "util/threadpool.h"
@@ -82,7 +80,9 @@ private:
     }                                                                                             \
     LockScopedTimer cache_lock_timer;
 
+class AsyncCacheWriteManager;
 class FSFileCacheStorage;
+class InflightWriteBufferIndex;
 
 struct FileBlocksProbeResult {
     explicit FileBlocksProbeResult(std::vector<FileBlockSPtr> file_blocks_)
@@ -199,37 +199,7 @@ public:
 
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
-    virtual ~BlockFileCache() {
-        if (_async_write_manager) {
-            _async_write_manager->shutdown();
-        }
-        {
-            std::lock_guard lock(_close_mtx);
-            _close = true;
-        }
-        _close_cv.notify_all();
-        if (_cache_background_monitor_thread.joinable()) {
-            _cache_background_monitor_thread.join();
-        }
-        if (_cache_background_gc_thread.joinable()) {
-            _cache_background_gc_thread.join();
-        }
-        if (_cache_background_evict_in_advance_thread.joinable()) {
-            _cache_background_evict_in_advance_thread.join();
-        }
-        if (_cache_background_lru_dump_thread.joinable()) {
-            _cache_background_lru_dump_thread.join();
-        }
-        if (_cache_background_lru_log_replay_thread.joinable()) {
-            _cache_background_lru_log_replay_thread.join();
-        }
-        if (_cache_background_block_lru_update_thread.joinable()) {
-            _cache_background_block_lru_update_thread.join();
-        }
-        if (_ttl_mgr) {
-            _ttl_mgr.reset();
-        }
-    }
+    virtual ~BlockFileCache();
 
     /// Restore cache from local filesystem.
     Status initialize();

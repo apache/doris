@@ -47,10 +47,12 @@
 #include "common/logging.h"
 #include "core/uint128.h"
 #include "exec/common/sip_hash.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/mem_file_cache_storage.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
@@ -449,6 +451,38 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     }
 
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
+}
+
+BlockFileCache::~BlockFileCache() {
+    if (_async_write_manager) {
+        _async_write_manager->shutdown();
+    }
+    {
+        std::lock_guard lock(_close_mtx);
+        _close = true;
+    }
+    _close_cv.notify_all();
+    if (_cache_background_monitor_thread.joinable()) {
+        _cache_background_monitor_thread.join();
+    }
+    if (_cache_background_gc_thread.joinable()) {
+        _cache_background_gc_thread.join();
+    }
+    if (_cache_background_evict_in_advance_thread.joinable()) {
+        _cache_background_evict_in_advance_thread.join();
+    }
+    if (_cache_background_lru_dump_thread.joinable()) {
+        _cache_background_lru_dump_thread.join();
+    }
+    if (_cache_background_lru_log_replay_thread.joinable()) {
+        _cache_background_lru_log_replay_thread.join();
+    }
+    if (_cache_background_block_lru_update_thread.joinable()) {
+        _cache_background_block_lru_update_thread.join();
+    }
+    if (_ttl_mgr) {
+        _ttl_mgr.reset();
+    }
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
