@@ -181,6 +181,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     private static final String IGNORE_SPLIT_TYPE_JNI = "IGNORE_JNI";
     private static final String IGNORE_SPLIT_TYPE_NATIVE = "IGNORE_NATIVE";
+    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
 
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
     // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
@@ -279,7 +280,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * is a no-op. Package-private static for offline unit testing.
      */
     static String resolveIgnoreSplitType(ConnectorSession session) {
-        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+        if (session == null) {
             return "NONE";
         }
         return session.getSessionProperties().getOrDefault(IGNORE_SPLIT_TYPE, "NONE");
@@ -485,7 +486,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
-        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+        if (!isExternalScanTaskReuseEnabled(session)) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown());
         }
@@ -508,6 +509,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
                         request.getLimit(), request.isCountPushdown())));
+    }
+
+    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
+        return session != null && !"false".equalsIgnoreCase(
+                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**

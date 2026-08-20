@@ -81,6 +81,28 @@ public class TaskProcessorTest {
     }
 
     @Test
+    public void testRunQueryFinishCallbacksForTaskContext() {
+        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setStatementContext(new StatementContext());
+        TUniqueId queryId = new TUniqueId(1L, 1L);
+        connectContext.setQueryId(queryId);
+        connectContext.setThreadLocalInfo();
+        AtomicInteger callbackCount = new AtomicInteger();
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
+                DebugUtil.printId(queryId), callbackCount::incrementAndGet);
+        try {
+            Deencapsulation.invoke(taskProcessor, "closeTaskContext");
+            Assert.assertEquals(1, callbackCount.get());
+            Assert.assertNull(ConnectContext.get());
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            ConnectContext.remove();
+            taskProcessor.shutdown();
+        }
+    }
+
+    @Test
     public void testReleaseEveryMTMVExecutionContext() {
         AtomicInteger closeCount = new AtomicInteger();
         MTMVTask task = new MTMVTask();
