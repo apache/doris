@@ -186,6 +186,19 @@ Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::_open_snii_an
     return dir;
 }
 
+void IndexFileWriter::discard_ann_staging_directory(const TabletIndex* index_meta) {
+    // Only SNII stages an ANN index somewhere disposable. Branching here rather
+    // than in the caller keeps the format knowledge on the side that owns it,
+    // exactly as open_ann_directory() does.
+    if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
+        return;
+    }
+    DCHECK(index_meta != nullptr);
+    const auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
+    _indices_dirs.erase(key);
+    _snii_blob_dir_metas.erase(key);
+}
+
 Status IndexFileWriter::_seal_snii_blob_directories() {
     DORIS_CHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     for (const auto& [key, dir] : _indices_dirs) {
