@@ -1257,30 +1257,6 @@ struct OwnedShreddedPathSegment {
     bool operator==(const OwnedShreddedPathSegment&) const = default;
 };
 
-class ParquetVariantShreddedState;
-
-struct UnshreddedResultCacheEntry {
-    std::vector<OwnedShreddedPathSegment> path;
-    ColumnPtr result;
-    std::shared_ptr<ParquetVariantShreddedState> subtree_state;
-
-    size_t path_byte_size() const noexcept {
-        size_t bytes = path.size() * sizeof(OwnedShreddedPathSegment);
-        for (const auto& segment : path) {
-            bytes += segment.key.size();
-        }
-        return bytes;
-    }
-
-    size_t path_allocated_bytes() const noexcept {
-        size_t bytes = path.capacity() * sizeof(OwnedShreddedPathSegment);
-        for (const auto& segment : path) {
-            bytes += segment.key.capacity();
-        }
-        return bytes;
-    }
-};
-
 class ParquetVariantShreddedState final : public VariantShreddedState {
 public:
     ParquetVariantShreddedState(
@@ -1313,7 +1289,6 @@ public:
         return _physical->byte_size() +
                (_unshredded_path_cache ? _unshredded_path_cache->byte_size() : 0) +
                (_unshredded_metadata_index ? _unshredded_metadata_index->byte_size() : 0) +
-               unshredded_result_cache_byte_size() +
                (_normalized_prefix ? _normalized_prefix->byte_size() : 0) +
                (_materialized ? _materialized->byte_size() : 0) +
                (_serialized ? _serialized->byte_size() : 0);
@@ -1323,7 +1298,6 @@ public:
         return _physical->allocated_bytes() +
                (_unshredded_path_cache ? _unshredded_path_cache->allocated_bytes() : 0) +
                (_unshredded_metadata_index ? _unshredded_metadata_index->allocated_bytes() : 0) +
-               unshredded_result_cache_allocated_bytes() +
                (_normalized_prefix ? _normalized_prefix->allocated_bytes() : 0) +
                (_materialized ? _materialized->allocated_bytes() : 0) +
                (_serialized ? _serialized->allocated_bytes() : 0);
@@ -1342,11 +1316,6 @@ public:
                             dictionary_id < _unshredded_metadata_index->dictionaries.size());
             }
         }
-        for (const auto& cached : _unshredded_result_cache) {
-            DORIS_CHECK(static_cast<bool>(cached.result));
-            DORIS_CHECK_EQ(cached.result->size(), _physical->size());
-            cached.result->sanity_check();
-        }
         if (_normalized_prefix) {
             _normalized_prefix->sanity_check();
         }
@@ -1362,9 +1331,6 @@ public:
         // no metadata/value columns from which a canonical Variant could be reconstructed.
         // The projection schema is immutable and reader-scoped, so derived selections share it
         // instead of cloning the whole shredded tree for every filter operation.
-        auto select_column = [&](const ColumnPtr& column) {
-            return column->filter(filter, result_size_hint);
-        };
         auto select_path_cache = [&](const UnshreddedPathCache& source) {
             DORIS_CHECK_EQ(filter.size(), source.entries.size());
             auto selected = std::make_shared<UnshreddedPathCache>();
@@ -1378,12 +1344,10 @@ public:
             }
             return selected;
         };
-        return select_state(_physical->filter(filter, result_size_hint), select_column,
-                            select_path_cache);
+        return select_state(_physical->filter(filter, result_size_hint), select_path_cache);
     }
 
     std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
-        auto select_column = [&](const ColumnPtr& column) { return column->cut(start, length); };
         auto select_path_cache = [&](const UnshreddedPathCache& source) {
             DORIS_CHECK_LE(start, source.entries.size());
             DORIS_CHECK_LE(length, source.entries.size() - start);
@@ -1393,7 +1357,7 @@ public:
                                      source.entries.begin() + cast_set<ssize_t>(start + length));
             return selected;
         };
-        return select_state(_physical->cut(start, length), select_column, select_path_cache);
+        return select_state(_physical->cut(start, length), select_path_cache);
     }
 
     std::shared_ptr<VariantShreddedState> select_indices(
@@ -1412,7 +1376,7 @@ public:
             }
             return selected;
         };
-        return select_state(select_column(_physical), select_column, select_path_cache);
+        return select_state(select_column(_physical), select_path_cache);
     }
 
     bool can_materialize() const override { return _complete; }
@@ -1431,7 +1395,6 @@ public:
         std::lock_guard lock(_materialization_lock);
         _unshredded_path_cache.reset();
         _unshredded_metadata_index.reset();
-        _unshredded_result_cache.clear();
         _normalized_prefix.reset();
         _materialized.reset();
         _serialized.reset();
@@ -1629,45 +1592,22 @@ public:
     }
 
 private:
-    template <typename ColumnSelector, typename PathCacheSelector>
+    template <typename PathCacheSelector>
     std::shared_ptr<ParquetVariantShreddedState> select_state(
-            ColumnPtr selected_physical, const ColumnSelector& select_column,
-            const PathCacheSelector& select_path_cache) const {
+            ColumnPtr selected_physical, const PathCacheSelector& select_path_cache) const {
         std::shared_ptr<const UnshreddedPathCache> path_cache;
-        std::vector<UnshreddedResultCacheEntry> result_cache;
         {
             std::lock_guard lock(_materialization_lock);
             path_cache = _unshredded_path_cache;
-            result_cache = _unshredded_result_cache;
         }
 
         std::shared_ptr<const UnshreddedPathCache> selected_path_cache;
         if (path_cache) {
             selected_path_cache = select_path_cache(*path_cache);
         }
-        auto selected = std::make_shared<ParquetVariantShreddedState>(
+        return std::make_shared<ParquetVariantShreddedState>(
                 _schema, std::move(selected_physical), _complete, _profile, _unshredded_prefix,
                 std::move(selected_path_cache));
-        selected->_unshredded_result_cache.reserve(result_cache.size());
-        for (const auto& cached : result_cache) {
-            ColumnPtr selected_result;
-            std::shared_ptr<ParquetVariantShreddedState> selected_subtree;
-            if (cached.subtree_state) {
-                const auto& nullable = assert_cast<const ColumnNullable&>(*cached.result);
-                ColumnPtr selected_nulls = select_column(nullable.get_null_map_column_ptr());
-                selected_subtree = cached.subtree_state->select_state(
-                        selected->_physical, select_column, select_path_cache);
-                selected_result = ColumnNullable::create(
-                        ColumnVariantV2::create_shredded(selected_subtree), selected_nulls);
-            } else {
-                selected_result = select_column(cached.result);
-            }
-            selected->_unshredded_result_cache.push_back(
-                    {.path = cached.path,
-                     .result = std::move(selected_result),
-                     .subtree_state = std::move(selected_subtree)});
-        }
-        return selected;
     }
 
     std::vector<OwnedShreddedPathSegment> combined_unshredded_path(
@@ -1713,16 +1653,6 @@ private:
         const auto child_indices = unshredded_child_indices(*_schema);
         DORIS_CHECK(child_indices.has_value());
         std::vector<OwnedShreddedPathSegment> combined = combined_unshredded_path(suffix);
-        {
-            std::lock_guard lock(_materialization_lock);
-            for (const auto& cached : _unshredded_result_cache) {
-                if (cached.path == combined) {
-                    update_counter(_profile.variant_unshredded_result_cache_hit_rows,
-                                   static_cast<int64_t>(_physical->size()));
-                    return cached.result;
-                }
-            }
-        }
         const auto borrowed_combined = borrow_unshredded_path(combined);
         std::shared_ptr<const UnshreddedMetadataIndex> metadata_index;
         UnshreddedPathScan scan;
@@ -1756,54 +1686,7 @@ private:
             update_counter(_profile.variant_direct_subtree_rows, rows);
         }
         ColumnPtr result = ColumnNullable::create(std::move(values), std::move(scan.outer_nulls));
-        {
-            std::lock_guard lock(_materialization_lock);
-            for (const auto& cached : _unshredded_result_cache) {
-                if (cached.path == combined) {
-                    return cached.result;
-                }
-            }
-            _unshredded_result_cache.push_back({.path = std::move(combined),
-                                                .result = result,
-                                                .subtree_state = std::move(subtree_state)});
-        }
         return result;
-    }
-
-    size_t cached_result_byte_size(const UnshreddedResultCacheEntry& cached) const {
-        const size_t bytes = cached.result->byte_size();
-        if (!cached.subtree_state) {
-            return bytes;
-        }
-        const size_t shared_physical_bytes = cached.subtree_state->_physical->byte_size();
-        DORIS_CHECK_GE(bytes, shared_physical_bytes);
-        return bytes - shared_physical_bytes;
-    }
-
-    size_t cached_result_allocated_bytes(const UnshreddedResultCacheEntry& cached) const {
-        const size_t bytes = cached.result->allocated_bytes();
-        if (!cached.subtree_state) {
-            return bytes;
-        }
-        const size_t shared_physical_bytes = cached.subtree_state->_physical->allocated_bytes();
-        DORIS_CHECK_GE(bytes, shared_physical_bytes);
-        return bytes - shared_physical_bytes;
-    }
-
-    size_t unshredded_result_cache_byte_size() const {
-        size_t bytes = _unshredded_result_cache.size() * sizeof(UnshreddedResultCacheEntry);
-        for (const auto& cached : _unshredded_result_cache) {
-            bytes += cached.path_byte_size() + cached_result_byte_size(cached);
-        }
-        return bytes;
-    }
-
-    size_t unshredded_result_cache_allocated_bytes() const {
-        size_t bytes = _unshredded_result_cache.capacity() * sizeof(UnshreddedResultCacheEntry);
-        for (const auto& cached : _unshredded_result_cache) {
-            bytes += cached.path_allocated_bytes() + cached_result_allocated_bytes(cached);
-        }
-        return bytes;
     }
 
     static void update_counter(const std::shared_ptr<RuntimeProfile::Counter>& counter,
@@ -1821,7 +1704,6 @@ private:
     std::shared_ptr<const UnshreddedPathCache> _unshredded_path_cache;
     mutable std::mutex _materialization_lock;
     mutable std::shared_ptr<const UnshreddedMetadataIndex> _unshredded_metadata_index;
-    mutable std::vector<UnshreddedResultCacheEntry> _unshredded_result_cache;
     mutable ColumnPtr _normalized_prefix;
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;

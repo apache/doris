@@ -125,8 +125,6 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantUnshreddedDirectSeekBytes", TUnit::BYTES, parquet_profile);
     variant_unshredded_prefix_reuse_rows = add_persistent_counter(
             profile, "VariantUnshreddedPrefixReuseRows", TUnit::UNIT, parquet_profile);
-    variant_unshredded_result_cache_hit_rows = add_persistent_counter(
-            profile, "VariantUnshreddedResultCacheHitRows", TUnit::UNIT, parquet_profile);
     variant_direct_subtree_rows = add_persistent_counter(profile, "VariantDirectSubtreeRows",
                                                          TUnit::UNIT, parquet_profile);
     variant_direct_leaf_rows =
@@ -374,7 +372,6 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .variant_unshredded_direct_seek_rows = variant_unshredded_direct_seek_rows,
             .variant_unshredded_direct_seek_bytes = variant_unshredded_direct_seek_bytes,
             .variant_unshredded_prefix_reuse_rows = variant_unshredded_prefix_reuse_rows,
-            .variant_unshredded_result_cache_hit_rows = variant_unshredded_result_cache_hit_rows,
             .variant_direct_subtree_rows = variant_direct_subtree_rows,
             .variant_direct_leaf_rows = variant_direct_leaf_rows,
             .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,

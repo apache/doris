@@ -52,7 +52,6 @@ struct ParquetColumnReaderProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_bytes;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_prefix_reuse_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_result_cache_hit_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_subtree_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
@@ -201,7 +200,6 @@ struct ParquetProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_bytes;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_prefix_reuse_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_result_cache_hit_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_subtree_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;

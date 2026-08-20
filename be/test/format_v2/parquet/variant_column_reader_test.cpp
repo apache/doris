@@ -685,7 +685,6 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
 
     ColumnPtr commit_result = extract_key(root_variants, root_nullable, StringRef("commit"));
     EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 5);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 0);
     const auto& commit_nullable = assert_cast<const ColumnNullable&>(*commit_result);
     const auto& commit_variants =
             assert_cast<const ColumnVariantV2&>(commit_nullable.get_nested_column());
@@ -693,7 +692,6 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
     ColumnPtr collection_result =
             extract_key(commit_variants, commit_nullable, StringRef("collection"));
     EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 10);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 0);
     const auto& collection_nullable = assert_cast<const ColumnNullable&>(*collection_result);
     const auto& collection_variants =
             assert_cast<const ColumnVariantV2&>(collection_nullable.get_nested_column());
@@ -710,16 +708,14 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
 
     ColumnPtr repeated_commit_result =
             extract_key(root_variants, root_nullable, StringRef("commit"));
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 10);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 5);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 15);
     const auto& repeated_commit_nullable =
             assert_cast<const ColumnNullable&>(*repeated_commit_result);
     const auto& repeated_commit_variants =
             assert_cast<const ColumnVariantV2&>(repeated_commit_nullable.get_nested_column());
     ColumnPtr repeated_collection_result = extract_key(
             repeated_commit_variants, repeated_commit_nullable, StringRef("collection"));
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 10);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 10);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 20);
     const auto& repeated_collection_nullable =
             assert_cast<const ColumnNullable&>(*repeated_collection_result);
     const auto& repeated_collection_variants =
@@ -737,17 +733,15 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
     ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedDirectImportRows"), nullptr);
     EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
     ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows"), nullptr);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 10);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 20);
     ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedDirectSeekBytes"), nullptr);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekBytes")->value(), 18);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekBytes")->value(), 36);
     ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows"), nullptr);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows")->value(), 5);
-    ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows"), nullptr);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 10);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows")->value(), 10);
     ASSERT_NE(runtime_profile.get_counter("VariantDirectLeafRows"), nullptr);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectLeafRows")->value(), 5);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectLeafRows")->value(), 10);
     ASSERT_NE(runtime_profile.get_counter("VariantDirectSubtreeRows"), nullptr);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectSubtreeRows")->value(), 5);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectSubtreeRows")->value(), 10);
 
     IColumn::Filter keep_first_two {1, 1, 0, 0, 0};
     ColumnPtr filtered_root = root_nullable.filter(keep_first_two, 2);
@@ -764,8 +758,7 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
             filtered_commit_variants, filtered_commit_nullable, StringRef("collection"));
     EXPECT_EQ(assert_cast<const ColumnNullable&>(*filtered_collection_result).get_null_map_data(),
               (NullMap {0, 0}));
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 10);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 14);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 24);
 
     ColumnPtr filtered_operation_result =
             extract_key(filtered_commit_variants, filtered_commit_nullable, StringRef("operation"));
@@ -776,8 +769,8 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
                     .get_nested_column());
     EXPECT_EQ(filtered_operation_strings.get_data_at(0), StringRef("create"));
     EXPECT_EQ(filtered_operation_strings.get_data_at(1), StringRef("create"));
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 12);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows")->value(), 7);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 26);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows")->value(), 14);
 
     ColumnPtr ranged_root = root_nullable.cut(0, 2);
     const auto& ranged_nullable = assert_cast<const ColumnNullable&>(*ranged_root);
@@ -789,8 +782,7 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
     const auto& ranged_commit_variants =
             assert_cast<const ColumnVariantV2&>(ranged_commit_nullable.get_nested_column());
     (void)extract_key(ranged_commit_variants, ranged_commit_nullable, StringRef("collection"));
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 12);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 18);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 30);
 
     auto gathered_root = root_nullable.clone_empty();
     const std::array<uint32_t, 2> reversed_rows {1, 0};
@@ -805,8 +797,7 @@ TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstructi
     const auto& gathered_commit_variants =
             assert_cast<const ColumnVariantV2&>(gathered_commit_nullable.get_nested_column());
     (void)extract_key(gathered_commit_variants, gathered_commit_nullable, StringRef("collection"));
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 12);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedResultCacheHitRows")->value(), 22);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 34);
 }
 
 TEST(VariantColumnReaderTest, UnshreddedIntegerLeafSeeksAsTypedBigInt) {
