@@ -27,6 +27,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <climits>
 #include <cstdint>
@@ -39,6 +40,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/bvars.h"
@@ -82,6 +84,90 @@ extern bool enable_inverted_check;
 } // namespace config
 
 using namespace std::chrono;
+
+namespace {
+
+constexpr std::string_view kDeleteBitmapPathSuffix = "_delete_bitmap.db";
+
+// Classify a V2 delete bitmap storage record by the fields written by its producers. NOT_FOUND
+// means that the record does not contain the required storage discriminator; callers must report
+// it as an inconsistency rather than treating it as a valid storage type.
+//
+// DeleteBitmapStoragePB
+//  |
+//  +-- !has_store_in_fdb -------------------------------> log warning, NOT_FOUND
+//  |
+//  +-- store_in_fdb == true ----------------------------> IN_FDB
+//  |
+//  `-- store_in_fdb == false
+//       +-- no packed location or empty path -----------> STANDALONE_FILE
+//       `-- non-empty packed_file_path -----------------> PACKED_FILE
+DeleteBitmapStorageType classify_delete_bitmap_storage(const DeleteBitmapStoragePB& storage) {
+    if (!storage.has_store_in_fdb()) {
+        LOG(WARNING) << "invalid V2 delete bitmap storage: store_in_fdb is not set";
+        return DeleteBitmapStorageType::NOT_FOUND;
+    }
+
+    if (storage.store_in_fdb()) {
+        return DeleteBitmapStorageType::IN_FDB;
+    }
+
+    if (!storage.has_packed_slice_location() ||
+        storage.packed_slice_location().packed_file_path().empty()) {
+        return DeleteBitmapStorageType::STANDALONE_FILE;
+    }
+    return DeleteBitmapStorageType::PACKED_FILE;
+}
+
+void cache_tablet_resource_id(const doris::RowsetMetaCloudPB& rowset, std::string* resource_id) {
+    if (rowset.resource_id().empty()) {
+        return;
+    }
+    if (resource_id->empty()) {
+        *resource_id = rowset.resource_id();
+        return;
+    }
+    DCHECK_EQ(*resource_id, rowset.resource_id());
+}
+
+bool same_slice_location(const PackedSliceLocationPB& expected, const PackedSlicePB& actual) {
+    return expected.has_offset() && expected.has_size() && actual.has_offset() &&
+           actual.has_size() && expected.offset() == actual.offset() &&
+           expected.size() == actual.size();
+}
+
+std::optional<std::pair<int64_t, std::string>> parse_delete_bitmap_path(std::string_view path) {
+    constexpr std::string_view prefix = "data/";
+    if (!path.starts_with(prefix) || !path.ends_with(kDeleteBitmapPathSuffix)) {
+        return std::nullopt;
+    }
+
+    const std::string_view relative_path = path.substr(prefix.size());
+    const size_t separator = relative_path.find('/');
+    if (separator == std::string_view::npos || separator == 0 ||
+        relative_path.find('/', separator + 1) != std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    int64_t tablet_id = 0;
+    const std::string_view tablet_part = relative_path.substr(0, separator);
+    auto [tablet_end_ptr, tablet_err] =
+            std::from_chars(tablet_part.data(), tablet_part.data() + tablet_part.size(), tablet_id);
+    if (tablet_err != std::errc {} || tablet_end_ptr != tablet_part.data() + tablet_part.size() ||
+        tablet_id <= 0) {
+        return std::nullopt;
+    }
+
+    const std::string_view rowset_part = relative_path.substr(separator + 1);
+    std::string rowset_id =
+            std::string(rowset_part.substr(0, rowset_part.size() - kDeleteBitmapPathSuffix.size()));
+    if (rowset_id.empty()) {
+        return std::nullopt;
+    }
+    return std::pair {tablet_id, std::move(rowset_id)};
+}
+
+} // namespace
 
 TxnErrorCode collect_pending_table_stream_drops(
         const std::shared_ptr<TxnKv>& txn_kv, std::string_view instance_id,
@@ -264,6 +350,12 @@ int Checker::start() {
             if (config::enable_delete_bitmap_inverted_check) {
                 log_progress("do_delete_bitmap_inverted_check");
                 if (int ret = checker->do_delete_bitmap_inverted_check(); ret != 0) {
+                    success = false;
+                }
+
+                // Check V2 delete bitmap (DBM) metadata and object storage independently from V1.
+                log_progress("do_delete_bitmap_storage_v2_check");
+                if (int ret = checker->do_delete_bitmap_storage_v2_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -1213,7 +1305,6 @@ int InstanceChecker::collect_tablet_rowsets(
     auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
     auto end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
 
-    int64_t rowsets_num {0};
     while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         TxnErrorCode err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1231,7 +1322,6 @@ int InstanceChecker::collect_tablet_rowsets(
                 return -1;
             }
 
-            ++rowsets_num;
             collect_cb(rowset);
 
             if (!it->has_next()) {
@@ -1242,10 +1332,6 @@ int InstanceChecker::collect_tablet_rowsets(
         }
     }
 
-    LOG(INFO) << fmt::format(
-            "[delete bitmap checker] successfully collect rowsets for instance_id={}, "
-            "tablet_id={}, rowsets_num={}",
-            instance_id_, tablet_id, rowsets_num);
     return 0;
 }
 
@@ -1554,6 +1640,332 @@ int InstanceChecker::get_pending_delete_bitmap_keys(
         }
     }
     return 0;
+}
+
+int InstanceChecker::scan_delete_bitmap_storage_v2(
+        const std::function<int(int64_t, std::string_view, const DeleteBitmapStoragePB&)>&
+                callback) {
+    const std::string begin = versioned::meta_delete_bitmap_key({instance_id_, 0, ""});
+    const std::string end = versioned::meta_delete_bitmap_key(
+            {instance_id_, std::numeric_limits<int64_t>::max(), ""});
+    auto it = blob_get_range(txn_kv_, begin, end);
+    int ret = 0;
+    while (it->valid() && !stopped()) {
+        std::string_view key = it->key();
+        if (key.empty()) {
+            LOG(WARNING) << "empty versioned delete bitmap key";
+            return -1;
+        }
+
+        key.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> decoded;
+        if (decode_key(&key, &decoded) != 0) {
+            LOG(WARNING) << "failed to decode versioned delete bitmap key, key=" << hex(it->key());
+            return -1;
+        }
+
+        const auto tablet_id = std::get<int64_t>(std::get<0>(decoded[3]));
+        const auto rowset_id = std::get<std::string>(std::get<0>(decoded[4]));
+        if (tablet_id <= 0 || rowset_id.empty()) {
+            LOG(WARNING) << "invalid versioned delete bitmap key, key=" << hex(it->key());
+            return -1;
+        }
+        DeleteBitmapStoragePB storage;
+        if (!it->parse_value(&storage)) {
+            LOG(WARNING) << "failed to parse versioned delete bitmap storage, key="
+                         << hex(it->key());
+            return -1;
+        }
+
+        int callback_ret = callback(tablet_id, rowset_id, storage);
+        TEST_SYNC_POINT_CALLBACK("InstanceChecker::scan_delete_bitmap_storage_v2.callback",
+                                 &tablet_id, &rowset_id, &callback_ret);
+        if (callback_ret < 0 && ret >= 0) {
+            ret = callback_ret;
+        } else if (ret >= 0) {
+            ret = std::max(ret, callback_ret);
+        }
+        it->next();
+    }
+
+    if (it->error_code() != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to scan versioned delete bitmap storage, err=" << it->error_code();
+        return -1;
+    }
+    return ret;
+}
+
+int InstanceChecker::find_rowset(int64_t tablet_id, std::string_view rowset_id,
+                                 TabletRowsetCache* rowset_cache) {
+    if (rowset_cache->tablet_id != tablet_id) {
+        rowset_cache->tablet_id = tablet_id;
+        rowset_cache->active_rowset_ids.clear();
+        rowset_cache->resource_id.clear();
+        int ret = collect_tablet_rowsets(tablet_id, [&](const doris::RowsetMetaCloudPB& rowset) {
+            rowset_cache->active_rowset_ids.insert(rowset.rowset_id_v2());
+            cache_tablet_resource_id(rowset, &rowset_cache->resource_id);
+        });
+        if (ret != 0) {
+            return ret;
+        }
+    }
+
+    if (rowset_cache->active_rowset_ids.contains(std::string(rowset_id))) {
+        return 0;
+    }
+    return 1;
+}
+
+int InstanceChecker::get_delete_bitmap_storage(int64_t tablet_id, std::string_view rowset_id,
+                                               DeleteBitmapStoragePB* storage) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    ValueBuf value;
+    const std::string key =
+            versioned::meta_delete_bitmap_key({instance_id_, tablet_id, std::string(rowset_id)});
+    err = blob_get(txn.get(), key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return 1;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    if (!value.to_pb(storage)) {
+        LOG(WARNING) << "failed to parse V2 delete bitmap storage, key=" << hex(key);
+        return -1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_standalone_delete_bitmap_object(int64_t tablet_id,
+                                                           std::string_view rowset_id,
+                                                           std::string_view resource_id) {
+    auto* accessor = get_accessor(std::string(resource_id));
+    if (accessor == nullptr) {
+        LOG(WARNING) << "resource not found for standalone V2 delete bitmap, resource_id="
+                     << resource_id;
+        return -1;
+    }
+
+    const std::string path = delete_bitmap_path(tablet_id, std::string(rowset_id));
+    int exists = accessor->exists(path);
+    if (exists < 0) {
+        return -1;
+    }
+    if (exists != 0) {
+        LOG(WARNING) << "standalone V2 delete bitmap object not found, path=" << path;
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_packed_delete_bitmap_object(const DeleteBitmapStoragePB& storage,
+                                                       std::string_view resource_id) {
+    const std::string& packed_file_path = storage.packed_slice_location().packed_file_path();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    std::string value;
+    err = txn->get(packed_file_key({instance_id_, packed_file_path}), &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG(WARNING) << "packed file metadata not found for V2 delete bitmap, path="
+                     << packed_file_path;
+        return 1;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    PackedFileInfoPB packed_info;
+    if (!packed_info.ParseFromString(value)) {
+        LOG(WARNING) << "malformed packed file metadata, path=" << packed_file_path;
+        return -1;
+    }
+    if (packed_info.resource_id() != resource_id) {
+        LOG(WARNING) << "packed file resource mismatch for V2 delete bitmap, path="
+                     << packed_file_path << ", rowset_resource_id=" << resource_id
+                     << ", packed_file_resource_id=" << packed_info.resource_id();
+        return 1;
+    }
+
+    return check_packed_file_object(packed_file_path, packed_info);
+}
+
+int InstanceChecker::check_packed_file_object(const std::string& packed_file_path,
+                                              const PackedFileInfoPB& packed_info) {
+    auto* accessor = get_accessor(packed_info.resource_id());
+    if (accessor == nullptr) {
+        LOG(WARNING) << "accessor not found for packed file, resource_id="
+                     << packed_info.resource_id() << ", packed_file_path=" << packed_file_path;
+        return -1;
+    }
+
+    const int exists = accessor->exists(packed_file_path);
+    if (exists < 0) {
+        LOG(WARNING) << "failed to check packed file existence, packed_file_path="
+                     << packed_file_path << ", ret=" << exists;
+        return -1;
+    }
+    if (exists != 0 &&
+        !(packed_info.ref_cnt() == 0 && packed_info.state() == PackedFileInfoPB::RECYCLING)) {
+        LOG(WARNING) << "packed file not found in storage but metadata is invalid, "
+                        "packed_file_path="
+                     << packed_file_path << ", ref_cnt=" << packed_info.ref_cnt()
+                     << " (expected=0), state=" << packed_info.state()
+                     << " (expected=RECYCLING), ret=" << exists;
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_delete_bitmap_storage_entry(int64_t tablet_id,
+                                                       std::string_view rowset_id,
+                                                       const DeleteBitmapStoragePB& storage,
+                                                       TabletRowsetCache* rowset_cache) {
+    auto storage_type = classify_delete_bitmap_storage(storage);
+    if (storage_type == DeleteBitmapStorageType::NOT_FOUND) {
+        LOG(WARNING) << "invalid V2 delete bitmap storage, tablet_id=" << tablet_id
+                     << ", rowset_id=" << rowset_id;
+        return 1;
+    }
+
+    int ret = find_rowset(tablet_id, rowset_id, rowset_cache);
+    if (ret < 0) {
+        return ret;
+    }
+    if (ret > 0) {
+        DeleteBitmapStoragePB current_storage;
+        ret = get_delete_bitmap_storage(tablet_id, rowset_id, &current_storage);
+        if (ret != 0) {
+            return ret < 0 ? ret : 0;
+        }
+        LOG(WARNING) << "rowset not found for V2 delete bitmap, tablet_id=" << tablet_id
+                     << ", rowset_id=" << rowset_id;
+        return 1;
+    }
+    if (storage_type == DeleteBitmapStorageType::IN_FDB) {
+        return 0;
+    }
+    const std::string& resource_id = rowset_cache->resource_id;
+    if (resource_id.empty()) {
+        LOG(WARNING) << "resource id missing for external V2 delete bitmap, tablet_id=" << tablet_id
+                     << ", rowset_id=" << rowset_id;
+        return 1;
+    }
+    if (storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
+        return check_standalone_delete_bitmap_object(tablet_id, rowset_id, resource_id);
+    }
+    return check_packed_delete_bitmap_object(storage, resource_id);
+}
+
+int InstanceChecker::check_delete_bitmap_storage_from_kv() {
+    TabletRowsetCache rowset_cache;
+    return scan_delete_bitmap_storage_v2([&](int64_t tablet_id, std::string_view rowset_id,
+                                             const DeleteBitmapStoragePB& storage) {
+        return check_delete_bitmap_storage_entry(tablet_id, rowset_id, storage, &rowset_cache);
+    });
+}
+
+int InstanceChecker::check_delete_bitmap_storage_from_object() {
+    int check_result = 0;
+    TabletRowsetCache rowset_cache;
+    for (const auto& [resource_id, accessor] : accessor_map_) {
+        std::unique_ptr<ListIterator> list_iter;
+        if (accessor->list_directory("data", &list_iter) != 0) {
+            return -1;
+        }
+        for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            if (!file->path.ends_with(kDeleteBitmapPathSuffix)) {
+                continue;
+            }
+
+            auto parse_ret = parse_delete_bitmap_path(file->path);
+            if (!parse_ret.has_value()) {
+                LOG(WARNING) << "malformed delete bitmap object path, path=" << file->path;
+                check_result = 1;
+                continue;
+            }
+            const auto& [tablet_id, rowset_id] = *parse_ret;
+
+            DeleteBitmapStoragePB storage;
+            int ret = get_delete_bitmap_storage(tablet_id, rowset_id, &storage);
+            if (ret < 0) {
+                return ret;
+            }
+            auto storage_type = ret == 0 ? classify_delete_bitmap_storage(storage)
+                                         : DeleteBitmapStorageType::NOT_FOUND;
+            if (storage_type != DeleteBitmapStorageType::STANDALONE_FILE) {
+                if (ret > 0) {
+                    int exists = accessor->exists(file->path);
+                    if (exists < 0) {
+                        return -1;
+                    }
+                    if (exists != 0) {
+                        continue;
+                    }
+                }
+                LOG(WARNING) << "delete bitmap object has no standalone V2 metadata, path="
+                             << file->path;
+                check_result = 1;
+                continue;
+            }
+
+            ret = find_rowset(tablet_id, rowset_id, &rowset_cache);
+            if (ret < 0) {
+                return ret;
+            }
+            if (ret > 0) {
+                DeleteBitmapStoragePB current_storage;
+                ret = get_delete_bitmap_storage(tablet_id, rowset_id, &current_storage);
+                if (ret > 0) {
+                    int exists = accessor->exists(file->path);
+                    if (exists < 0) {
+                        return -1;
+                    }
+                    if (exists != 0) {
+                        continue;
+                    }
+                } else if (ret < 0) {
+                    return ret;
+                } else {
+                    ret = 1;
+                }
+            }
+            if (ret > 0 || rowset_cache.resource_id != resource_id) {
+                LOG(WARNING) << "delete bitmap object rowset or resource mismatch, path="
+                             << file->path << ", object_resource_id=" << resource_id
+                             << ", tablet_resource_id=" << rowset_cache.resource_id;
+                check_result = 1;
+            }
+        }
+        if (!list_iter->is_valid()) {
+            return -1;
+        }
+    }
+    return check_result;
+}
+
+int InstanceChecker::do_delete_bitmap_storage_v2_check() {
+    int kv_check_result = check_delete_bitmap_storage_from_kv();
+    if (kv_check_result < 0) {
+        return kv_check_result;
+    }
+    int object_check_result = check_delete_bitmap_storage_from_object();
+    if (object_check_result < 0) {
+        return object_check_result;
+    }
+
+    int check_result = std::max(kv_check_result, object_check_result);
+    LOG(INFO) << "finish V2 delete bitmap storage check, instance_id=" << instance_id_
+              << ", check_result=" << check_result;
+    return check_result;
 }
 
 int InstanceChecker::check_inverted_index_file_storage_format_v1(
@@ -1928,12 +2340,6 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
     if (!failed_versions.empty()) {
         print_failed_versions();
     }
-    LOG(INFO) << fmt::format(
-            "[delete bitmap checker] finish check delete bitmap storage optimize v2 for "
-            "instance_id={}, tablet_id={}, rowsets_num={}, "
-            "rowsets_with_useless_delete_bitmap_version={}",
-            instance_id_, tablet_id, tablet_rowsets_map.size(),
-            rowsets_with_useless_delete_bitmap_version);
     return (rowsets_with_useless_delete_bitmap_version > 1 ? 1 : 0);
 }
 
@@ -3239,6 +3645,161 @@ void InstanceChecker::get_all_accessor(std::vector<StorageVaultAccessor*>* acces
     }
 }
 
+int InstanceChecker::check_delete_bitmap_packed_slice_location(
+        std::string_view resource_id, std::string_view small_file_path,
+        const PackedSliceLocationPB& location, long* num_small_file_ref_mismatch) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    std::string packed_value;
+    const std::string packed_key = packed_file_key({instance_id_, location.packed_file_path()});
+    err = txn->get(packed_key, &packed_value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG(WARNING) << "packed file metadata not found, packed_file_path="
+                     << location.packed_file_path() << ", small_file_path=" << small_file_path;
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    PackedFileInfoPB packed_info;
+    if (!packed_info.ParseFromString(packed_value)) {
+        LOG(WARNING) << "malformed packed file metadata, packed_file_path="
+                     << location.packed_file_path();
+        return -1;
+    }
+    if (packed_info.resource_id() != resource_id) {
+        LOG(WARNING) << "packed file resource mismatch, packed_file_path="
+                     << location.packed_file_path() << ", expected_resource_id=" << resource_id
+                     << ", actual_resource_id=" << packed_info.resource_id();
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+
+    int matched_count = 0;
+    bool location_matches = false;
+    for (const auto& slice : packed_info.slices()) {
+        if (!slice.deleted() && slice.path() == small_file_path) {
+            ++matched_count;
+            location_matches = same_slice_location(location, slice);
+        }
+    }
+    if (matched_count != 1 || !location_matches) {
+        LOG(WARNING) << "packed slice reference mismatch, packed_file_path="
+                     << location.packed_file_path() << ", small_file_path=" << small_file_path
+                     << ", matched_count=" << matched_count
+                     << ", location_matches=" << location_matches;
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_delete_bitmap_packed_reference(int64_t tablet_id,
+                                                          std::string_view rowset_id,
+                                                          const DeleteBitmapStoragePB& storage,
+                                                          TabletRowsetCache* rowset_cache,
+                                                          long* num_small_file_ref_mismatch) {
+    auto storage_type = classify_delete_bitmap_storage(storage);
+    if (storage_type == DeleteBitmapStorageType::NOT_FOUND) {
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+    if (storage_type != DeleteBitmapStorageType::PACKED_FILE) {
+        return 0;
+    }
+
+    int ret = find_rowset(tablet_id, rowset_id, rowset_cache);
+    if (ret < 0) {
+        return ret;
+    }
+    if (ret > 0) {
+        DeleteBitmapStoragePB current_storage;
+        ret = get_delete_bitmap_storage(tablet_id, rowset_id, &current_storage);
+        if (ret > 0) {
+            return 0;
+        }
+        if (ret < 0) {
+            return ret;
+        }
+        ret = 1;
+    }
+    if (ret > 0 || rowset_cache->resource_id.empty()) {
+        LOG(WARNING) << "tablet resource missing for packed delete bitmap, tablet_id=" << tablet_id
+                     << ", rowset_id=" << rowset_id;
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+    const std::string small_file_path = delete_bitmap_path(tablet_id, std::string(rowset_id));
+    return check_delete_bitmap_packed_slice_location(rowset_cache->resource_id, small_file_path,
+                                                     storage.packed_slice_location(),
+                                                     num_small_file_ref_mismatch);
+}
+
+int InstanceChecker::check_delete_bitmap_slice_reference(std::string_view packed_file_path,
+                                                         const PackedSlicePB& slice,
+                                                         TabletRowsetCache* rowset_cache,
+                                                         std::string_view packed_file_resource_id,
+                                                         long* num_small_file_ref_mismatch) {
+    auto parse_ret = parse_delete_bitmap_path(slice.path());
+    if (!parse_ret.has_value()) {
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+    const auto& [tablet_id, rowset_id] = *parse_ret;
+    if (!slice.has_tablet_id() || !slice.has_rowset_id() || slice.tablet_id() != tablet_id ||
+        slice.rowset_id() != rowset_id) {
+        LOG(WARNING) << "delete bitmap slice identifier mismatch, packed_file_path="
+                     << packed_file_path << ", small_file_path=" << slice.path();
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+
+    DeleteBitmapStoragePB storage;
+    int ret = get_delete_bitmap_storage(tablet_id, rowset_id, &storage);
+    if (ret < 0) {
+        return ret;
+    }
+    auto storage_type =
+            ret == 0 ? classify_delete_bitmap_storage(storage) : DeleteBitmapStorageType::NOT_FOUND;
+    if (storage_type != DeleteBitmapStorageType::PACKED_FILE) {
+        LOG(WARNING) << "delete bitmap slice has no packed V2 metadata, packed_file_path="
+                     << packed_file_path << ", small_file_path=" << slice.path();
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+
+    ret = find_rowset(tablet_id, rowset_id, rowset_cache);
+    if (ret < 0) {
+        return ret;
+    }
+    if (ret > 0) {
+        DeleteBitmapStoragePB current_storage;
+        ret = get_delete_bitmap_storage(tablet_id, rowset_id, &current_storage);
+        if (ret > 0) {
+            return 0;
+        }
+        if (ret < 0) {
+            return ret;
+        }
+        ret = 1;
+    }
+    const auto& location = storage.packed_slice_location();
+    if (ret > 0 || rowset_cache->resource_id.empty() ||
+        rowset_cache->resource_id != packed_file_resource_id ||
+        location.packed_file_path() != packed_file_path || !same_slice_location(location, slice)) {
+        LOG(WARNING) << "delete bitmap slice metadata mismatch, packed_file_path="
+                     << packed_file_path << ", small_file_path=" << slice.path();
+        ++*num_small_file_ref_mismatch;
+        return 1;
+    }
+    return 0;
+}
+
 int InstanceChecker::do_packed_file_check() {
     LOG(INFO) << "begin to check packed files, instance_id=" << instance_id_;
     int check_ret = 0;
@@ -3377,6 +3938,37 @@ int InstanceChecker::do_packed_file_check() {
         }
     }
 
+    TabletRowsetCache delete_bitmap_rowset_cache;
+    int ret = scan_delete_bitmap_storage_v2([&](int64_t tablet_id, std::string_view rowset_id,
+                                                const DeleteBitmapStoragePB&) {
+        DeleteBitmapStoragePB current_storage;
+        int get_ret = get_delete_bitmap_storage(tablet_id, rowset_id, &current_storage);
+        if (get_ret != 0) {
+            return get_ret < 0 ? get_ret : 0;
+        }
+        auto storage_type = classify_delete_bitmap_storage(current_storage);
+        if (storage_type == DeleteBitmapStorageType::NOT_FOUND) {
+            ++num_small_file_ref_mismatch;
+            return 1;
+        }
+        if (storage_type != DeleteBitmapStorageType::PACKED_FILE) {
+            return 0;
+        }
+        const auto& location = current_storage.packed_slice_location();
+        const std::string small_file_path = delete_bitmap_path(tablet_id, std::string(rowset_id));
+        ++expected_ref_counts[location.packed_file_path()];
+        packed_file_small_files[location.packed_file_path()].insert(small_file_path);
+        return check_delete_bitmap_packed_reference(tablet_id, rowset_id, current_storage,
+                                                    &delete_bitmap_rowset_cache,
+                                                    &num_small_file_ref_mismatch);
+    });
+    if (ret < 0) {
+        return ret;
+    }
+    if (ret > 0) {
+        check_ret = 1;
+    }
+
     // Step 2: Scan all packed file metadata and verify
     // Also collect all packed file paths from metadata for Step 3
     // Map: resource_id -> set of packed_file_paths
@@ -3428,45 +4020,21 @@ int InstanceChecker::do_packed_file_check() {
                 continue;
             }
 
-            // Step 2.1: Verify packed file exists in storage
+            // Step 2.1: Verify packed file object and recycling state
             if (!packed_info.resource_id().empty()) {
                 // Collect packed file path for Step 3
                 packed_files_in_metadata[packed_info.resource_id()].insert(packed_file_path);
 
-                auto* accessor = get_accessor(packed_info.resource_id());
-                if (accessor == nullptr) {
-                    LOG(WARNING) << "accessor not found for packed file, resource_id="
-                                 << packed_info.resource_id()
-                                 << ", packed_file_path=" << packed_file_path;
+                int object_check_ret = check_packed_file_object(packed_file_path, packed_info);
+                if (object_check_ret < 0) {
                     check_ret = -1;
                     continue;
                 }
-
-                int ret = accessor->exists(packed_file_path);
-                if (ret < 0) {
-                    LOG(WARNING) << "failed to check packed file existence, packed_file_path="
-                                 << packed_file_path << ", ret=" << ret;
-                    check_ret = -1;
-                    continue;
+                if (object_check_ret > 0) {
+                    num_packed_file_loss++;
+                    check_ret = 1; // Data inconsistency identified
                 }
-
-                if (ret != 0) {
-                    // ret == 1 means file not found, ret > 1 means other error
-                    // When packed file doesn't exist in storage, ref_cnt must be 0 and state must be RECYCLING
-                    bool ref_cnt_valid = (packed_info.ref_cnt() == 0);
-                    bool state_valid = (packed_info.state() == cloud::PackedFileInfoPB::RECYCLING);
-                    if (!ref_cnt_valid || !state_valid) {
-                        LOG(WARNING) << "packed file not found in storage but metadata is invalid, "
-                                        "packed_file_path="
-                                     << packed_file_path << ", ref_cnt=" << packed_info.ref_cnt()
-                                     << " (expected=0), state=" << packed_info.state()
-                                     << " (expected=RECYCLING), ret=" << ret;
-                        num_packed_file_loss++;
-                        check_ret = 1; // Data inconsistency identified
-                    }
-                    // If ref_cnt == 0 and state == RECYCLING, this is expected (file is being recycled)
-                }
-                // ret == 0 means file exists, which is expected
+                // A zero result means the object exists or is in the expected recycling state.
             }
 
             // Step 2.2: Verify reference count matches expected count
@@ -3484,6 +4052,16 @@ int InstanceChecker::do_packed_file_check() {
             for (const auto& small_file : packed_info.slices()) {
                 if (!small_file.deleted()) {
                     small_files_in_meta.insert(small_file.path());
+                    if (small_file.path().ends_with(kDeleteBitmapPathSuffix)) {
+                        int delete_bitmap_ret = check_delete_bitmap_slice_reference(
+                                packed_file_path, small_file, &delete_bitmap_rowset_cache,
+                                packed_info.resource_id(), &num_small_file_ref_mismatch);
+                        if (delete_bitmap_ret < 0) {
+                            check_ret = -1;
+                        } else if (delete_bitmap_ret > 0) {
+                            check_ret = 1;
+                        }
+                    }
                 }
             }
 

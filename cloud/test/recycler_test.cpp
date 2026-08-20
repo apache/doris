@@ -38,6 +38,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -256,6 +257,98 @@ static int create_delete_bitmaps_v2(TxnKv* txn_kv, StorageVaultAccessor* accesso
         return -1;
     }
     return accessor->put_file(delete_bitmap_path(tablet_id, rowset_id), "");
+}
+
+static int put_delete_bitmap_storage_v2(TxnKv* txn_kv, int64_t tablet_id,
+                                        const std::string& rowset_id,
+                                        const DeleteBitmapStoragePB& storage) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    auto key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, rowset_id});
+    cloud::blob_put(txn.get(), key, storage, 0);
+    return txn->commit() == TxnErrorCode::TXN_OK ? 0 : -1;
+}
+
+static int put_packed_file_info(TxnKv* txn_kv, const std::string& packed_file_path,
+                                const PackedFileInfoPB& packed_info) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    auto key = packed_file_key({instance_id, packed_file_path});
+    txn->put(key, packed_info.SerializeAsString());
+    return txn->commit() == TxnErrorCode::TXN_OK ? 0 : -1;
+}
+
+static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAccessor* accessor,
+                                                  const std::string& resource_id, int64_t tablet_id,
+                                                  int64_t start_version, int64_t end_version,
+                                                  std::string rowset_id, bool segments_overlap,
+                                                  int num_segments, int64_t create_time);
+
+static std::pair<int, int> run_packed_delete_bitmap_check(
+        bool write_v2_metadata, bool write_slice, int64_t actual_offset, int64_t ref_cnt,
+        bool write_packed_object = true,
+        PackedFileInfoPB::PackedFileState state = PackedFileInfoPB::NORMAL) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    EXPECT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t tablet_id = 910005;
+    constexpr std::string_view rowset_id = "packed_dbm_rowset";
+    constexpr std::string_view packed_file_path = "data/packed_file/dbm-packed.bin";
+    constexpr int64_t slice_size = 16;
+
+    if (write_v2_metadata) {
+        EXPECT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                            tablet_id, 1, 1, std::string(rowset_id),
+                                                            false, 1, current_time));
+        DeleteBitmapStoragePB storage;
+        storage.set_store_in_fdb(false);
+        auto* location = storage.mutable_packed_slice_location();
+        location->set_packed_file_path(std::string(packed_file_path));
+        location->set_offset(0);
+        location->set_size(slice_size);
+        location->set_packed_file_size(slice_size);
+        EXPECT_EQ(0, put_delete_bitmap_storage_v2(txn_kv.get(), tablet_id, std::string(rowset_id),
+                                                  storage));
+    }
+
+    PackedFileInfoPB packed_info;
+    packed_info.set_ref_cnt(ref_cnt);
+    packed_info.set_total_slice_num(write_slice ? 1 : 0);
+    packed_info.set_total_slice_bytes(write_slice ? slice_size : 0);
+    packed_info.set_remaining_slice_bytes(write_slice ? slice_size : 0);
+    packed_info.set_state(state);
+    packed_info.set_resource_id("1");
+    if (write_slice) {
+        auto* slice = packed_info.add_slices();
+        const std::string slice_rowset_id =
+                write_v2_metadata ? std::string(rowset_id) : "orphan_dbm_rowset";
+        slice->set_path(delete_bitmap_path(tablet_id, slice_rowset_id));
+        slice->set_offset(actual_offset);
+        slice->set_size(slice_size);
+        slice->set_deleted(false);
+        slice->set_tablet_id(tablet_id);
+        slice->set_rowset_id(write_v2_metadata ? std::string(rowset_id) : "orphan_dbm_rowset");
+    }
+    EXPECT_EQ(0, put_packed_file_info(txn_kv.get(), std::string(packed_file_path), packed_info));
+    if (write_packed_object) {
+        EXPECT_EQ(0, accessor->put_file(std::string(packed_file_path), "packed"));
+    }
+
+    return {checker.do_delete_bitmap_storage_v2_check(), checker.do_packed_file_check()};
 }
 
 static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
@@ -6648,6 +6741,212 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
     ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
     ASSERT_EQ(expected_leaked_delete_bitmaps, real_leaked_delete_bitmaps);
     ASSERT_EQ(expected_abnormal_delete_bitmaps, real_abnormal_delete_bitmaps);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t fdb_tablet_id = 910001;
+    constexpr int64_t file_tablet_id = 910002;
+    ASSERT_EQ(0,
+              create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                     fdb_tablet_id, 1, 1, "fdb_rowset", false, 1));
+    ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                        fdb_tablet_id, 2, 2, "source_rowset", false,
+                                                        1));
+    ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                        file_tablet_id, 1, 1, "file_rowset", false,
+                                                        1));
+
+    DeleteBitmapStoragePB fdb_storage;
+    fdb_storage.set_store_in_fdb(true);
+    auto* delete_bitmap = fdb_storage.mutable_delete_bitmap();
+    delete_bitmap->add_rowset_ids("source_rowset");
+    delete_bitmap->add_segment_ids(0);
+    delete_bitmap->add_versions(1);
+    delete_bitmap->add_segment_delete_bitmaps("bitmap");
+    delete_bitmap->add_rowset_ids("source_rowset");
+    delete_bitmap->add_segment_ids(0);
+    delete_bitmap->add_versions(2);
+    delete_bitmap->add_segment_delete_bitmaps("bitmap2");
+    ASSERT_EQ(0,
+              put_delete_bitmap_storage_v2(txn_kv.get(), fdb_tablet_id, "fdb_rowset", fdb_storage));
+
+    DeleteBitmapStoragePB file_storage;
+    file_storage.set_store_in_fdb(false);
+    ASSERT_EQ(0, put_delete_bitmap_storage_v2(txn_kv.get(), file_tablet_id, "file_rowset",
+                                              file_storage));
+    ASSERT_EQ(0, accessor->put_file(delete_bitmap_path(file_tablet_id, "file_rowset"), "bitmap"));
+
+    ASSERT_EQ(0, checker.do_delete_bitmap_storage_v2_check());
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_missing_standalone_object) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t tablet_id = 910003;
+    constexpr std::string_view rowset_id = "missing_file_rowset";
+    ASSERT_EQ(0,
+              create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                     1, 1, std::string(rowset_id), false, 1));
+    DeleteBitmapStoragePB storage;
+    storage.set_store_in_fdb(false);
+    ASSERT_EQ(0, put_delete_bitmap_storage_v2(txn_kv.get(), tablet_id, std::string(rowset_id),
+                                              storage));
+
+    ASSERT_EQ(1, checker.do_delete_bitmap_storage_v2_check());
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_missing_store_flag) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t tablet_id = 910006;
+    constexpr std::string_view rowset_id = "missing_store_flag_rowset";
+    ASSERT_EQ(0,
+              create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                     1, 1, std::string(rowset_id), false, 1));
+    DeleteBitmapStoragePB storage;
+    auto* location = storage.mutable_packed_slice_location();
+    location->set_packed_file_path("data/packed_file/missing_store_flag.bin");
+    location->set_offset(0);
+    location->set_size(1);
+    ASSERT_EQ(0, put_delete_bitmap_storage_v2(txn_kv.get(), tablet_id, std::string(rowset_id),
+                                              storage));
+
+    ASSERT_EQ(1, checker.do_delete_bitmap_storage_v2_check());
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_continues_after_callback_failure) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t failed_tablet_id = 910007;
+    constexpr int64_t succeeding_tablet_id = 910008;
+    ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(),
+                                                        "missing_resource", failed_tablet_id, 1, 1,
+                                                        "failed_rowset", false, 1));
+    ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                        succeeding_tablet_id, 1, 1,
+                                                        "succeeding_rowset", false, 1));
+
+    DeleteBitmapStoragePB failed_storage;
+    failed_storage.set_store_in_fdb(false);
+    ASSERT_EQ(0, put_delete_bitmap_storage_v2(txn_kv.get(), failed_tablet_id, "failed_rowset",
+                                              failed_storage));
+    DeleteBitmapStoragePB succeeding_storage;
+    succeeding_storage.set_store_in_fdb(true);
+    ASSERT_EQ(0, put_delete_bitmap_storage_v2(txn_kv.get(), succeeding_tablet_id,
+                                              "succeeding_rowset", succeeding_storage));
+
+    std::vector<std::pair<int64_t, int>> callback_results;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::scan_delete_bitmap_storage_v2.callback",
+            [&callback_results](auto&& args) {
+                callback_results.emplace_back(*try_any_cast<const int64_t*>(args[0]),
+                                              *try_any_cast<int*>(args[2]));
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    ASSERT_EQ(-1, checker.do_delete_bitmap_storage_v2_check());
+    EXPECT_EQ((std::vector<std::pair<int64_t, int>> {{failed_tablet_id, -1},
+                                                     {succeeding_tablet_id, 0}}),
+              callback_results);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_orphan_standalone_object) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+    constexpr int64_t tablet_id = 910004;
+    ASSERT_EQ(0, accessor->put_file(delete_bitmap_path(tablet_id, "orphan_rowset"), "bitmap"));
+
+    ASSERT_EQ(1, checker.do_delete_bitmap_storage_v2_check());
+}
+
+TEST(CheckerTest, packed_file_check_delete_bitmap_v2_normal) {
+    EXPECT_EQ((std::pair<int, int> {0, 0}), run_packed_delete_bitmap_check(true, true, 0, 1));
+}
+
+TEST(CheckerTest, packed_file_check_delete_bitmap_v2_missing_slice) {
+    EXPECT_EQ((std::pair<int, int> {0, 1}), run_packed_delete_bitmap_check(true, false, 0, 1));
+}
+
+TEST(CheckerTest, packed_file_check_delete_bitmap_v2_location_mismatch) {
+    EXPECT_EQ((std::pair<int, int> {0, 1}), run_packed_delete_bitmap_check(true, true, 8, 1));
+}
+
+TEST(CheckerTest, packed_file_check_delete_bitmap_v2_ref_count_mismatch) {
+    EXPECT_EQ((std::pair<int, int> {0, 1}), run_packed_delete_bitmap_check(true, true, 0, 0));
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_missing_packed_object) {
+    EXPECT_EQ((std::pair<int, int> {1, 1}),
+              run_packed_delete_bitmap_check(true, true, 0, 1, false));
+}
+
+TEST(CheckerTest, delete_bitmap_storage_v2_check_recycling_packed_object) {
+    EXPECT_EQ((std::pair<int, int> {0, 1}),
+              run_packed_delete_bitmap_check(true, true, 0, 0, false, PackedFileInfoPB::RECYCLING));
+}
+
+TEST(CheckerTest, packed_file_check_recycling_missing_object) {
+    EXPECT_EQ(
+            (std::pair<int, int> {0, 0}),
+            run_packed_delete_bitmap_check(false, false, 0, 0, false, PackedFileInfoPB::RECYCLING));
+}
+
+TEST(CheckerTest, packed_file_check_delete_bitmap_v2_orphan_slice) {
+    EXPECT_EQ((std::pair<int, int> {0, 1}), run_packed_delete_bitmap_check(false, true, 0, 0));
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {

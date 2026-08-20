@@ -149,6 +149,13 @@ struct RowsetDeleteTask {
     std::string rowset_ref_count_key;
 };
 
+enum class DeleteBitmapStorageType {
+    NOT_FOUND,
+    IN_FDB,
+    STANDALONE_FILE,
+    PACKED_FILE,
+};
+
 class RecyclerMetricsContext {
 public:
     RecyclerMetricsContext() = default;
@@ -521,13 +528,6 @@ private:
     // Decrement packed file ref counts for rowset segments.
     // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
-
-    enum class DeleteBitmapStorageType {
-        NOT_FOUND,
-        IN_FDB,
-        STANDALONE_FILE,
-        PACKED_FILE,
-    };
 
     // Process delete bitmap storage and decrement packed file ref count when needed.
     // Returns 0 for success, -1 for error.
