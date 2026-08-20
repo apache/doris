@@ -306,6 +306,24 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The compute group explicitly declared on this MV, empty when the user did not declare one.
+     * An empty result keeps the existing implicit resolution (admin's group for auto refresh,
+     * the session's group for a manual REFRESH).
+     */
+    public Optional<String> getComputeGroup() {
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP) && !StringUtils
+                    .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP))) {
+                return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP));
+            }
+            return Optional.empty();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     public boolean isUseForRewrite() {
         readMvLock();
         try {
