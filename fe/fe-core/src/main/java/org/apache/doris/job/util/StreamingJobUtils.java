@@ -423,7 +423,7 @@ public class StreamingJobUtils {
                         Set<String> columnNames = jdbcClient.getJdbcColumnsInfo(database, table).stream()
                                 .map(field -> field.getColumnName())
                                 .collect(Collectors.toSet());
-                        validateExcludeColumnNames(excludeColumns, table, columnNames, primaryKeys);
+                        validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
                     }
                     createtblCmds.put(table, Optional.empty());
                     continue;
@@ -431,7 +431,8 @@ public class StreamingJobUtils {
 
                 List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
                 if (!excludeColumns.isEmpty()) {
-                    validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
+                    Set<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+                    validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
                     columns = columns.stream()
                             .filter(col -> !excludeColumns.contains(col.getName()))
                             .collect(Collectors.toList());
@@ -636,12 +637,6 @@ public class StreamingJobUtils {
     }
 
     private static void validateExcludeColumns(Set<String> excludeColumns, String tableName,
-            List<Column> columns, List<String> primaryKeys) throws JobException {
-        Set<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
-        validateExcludeColumnNames(excludeColumns, tableName, columnNames, primaryKeys);
-    }
-
-    private static void validateExcludeColumnNames(Set<String> excludeColumns, String tableName,
             Set<String> columnNames, List<String> primaryKeys) throws JobException {
         for (String col : excludeColumns) {
             if (!columnNames.contains(col)) {
@@ -650,11 +645,6 @@ public class StreamingJobUtils {
                         col, tableName));
             }
         }
-        validateExcludedPrimaryKeys(excludeColumns, tableName, primaryKeys);
-    }
-
-    private static void validateExcludedPrimaryKeys(Set<String> excludeColumns, String tableName,
-            List<String> primaryKeys) throws JobException {
         for (String col : excludeColumns) {
             if (primaryKeys.contains(col)) {
                 throw new JobException(String.format(
