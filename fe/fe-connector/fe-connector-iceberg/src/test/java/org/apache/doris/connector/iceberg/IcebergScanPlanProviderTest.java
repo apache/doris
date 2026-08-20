@@ -1871,7 +1871,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void metadataOnlyCountCapabilityUsesSnapshotSummary() {
+    public void metadataOnlyCountCapabilityUsesManifestAggregates() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend().appendFile(dataFile(
                 table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
@@ -1885,6 +1885,24 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertFalse(provider.canServeMetadataOnlyCount(
                 session, IcebergTableHandle.forSystemTable(
                         "db1", "t1", "snapshots", -1L, null, -1L), Optional.empty()));
+    }
+
+    @Test
+    public void metadataOnlyCountCapabilityFollowsTheDeleteGate() {
+        // The capability must follow the same delete gate as count planning: live deletes leave the row count
+        // unprovable from manifests alone. MUTATION: reporting the capability from data manifests only -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
+        table.newRowDelta().addDeletes(
+                positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap());
+
+        Assertions.assertFalse(provider.canServeMetadataOnlyCount(
+                session, new IcebergTableHandle("db1", "t1"), Optional.empty()));
     }
 
     @Test

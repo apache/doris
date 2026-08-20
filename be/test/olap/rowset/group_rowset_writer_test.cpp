@@ -250,6 +250,7 @@ protected:
         row_binlog_context.write_binlog_opt().enable = true;
         auto& cfg = row_binlog_context.write_binlog_opt().write_binlog_config();
         cfg.source.tablet_schema = _tablet->tablet_schema();
+        cfg.source.base_tablet = _tablet;
         cfg.source.is_transient_rowset_writer = true;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);

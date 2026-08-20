@@ -48,6 +48,7 @@
 #include "exprs/function/functions_logical.h"
 #include "exprs/vexpr.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 
 namespace doris {
 /** Comparison functions: ==, !=, <, >, <=, >=.

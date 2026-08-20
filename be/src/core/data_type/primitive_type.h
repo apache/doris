@@ -36,6 +36,7 @@
 #include "exec/common/template_helpers.hpp"
 
 namespace doris {
+class PathInData;
 template <typename T>
 class ColumnStr;
 class IColumnDummy;

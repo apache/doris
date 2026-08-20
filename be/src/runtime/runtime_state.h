@@ -340,7 +340,7 @@ public:
 
     std::string get_error_log_file_path();
 
-    std::string get_first_error_msg() const { return _first_error_msg; }
+    std::string get_first_error_msg() const;
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -1029,6 +1029,9 @@ private:
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    // Protects the load error log stream, paths, and first error message.
+    mutable std::mutex _load_error_log_lock;
+    // Serializes S3 upload and presigned URL publication.
     std::mutex _s3_error_log_file_lock;
 
     // used for encoding the global lazy materialize

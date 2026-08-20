@@ -2029,9 +2029,7 @@ int64_t CompactionMixin::calc_input_rowsets_total_size() const {
 int64_t CompactionMixin::calc_input_rowsets_row_num() const {
     int64_t input_rowsets_row_num = 0;
     for (const auto& rowset : _input_rowsets) {
-        const auto& rowset_meta = rowset->rowset_meta();
-        auto total_size = rowset_meta->total_disk_size();
-        input_rowsets_row_num += total_size;
+        input_rowsets_row_num += rowset->num_rows();
     }
     return input_rowsets_row_num;
 }
@@ -2087,6 +2085,26 @@ CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabl
     std::stringstream ss;
     ss << uuid;
     _uuid = ss.str();
+}
+
+bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
+        int64_t response_cumulative_compaction_cnt) {
+    int64_t local_cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
+    if (local_cumulative_compaction_cnt >= response_cumulative_compaction_cnt) {
+        // sync_rowsets or another compaction has already installed this result.
+        return false;
+    }
+    if (response_cumulative_compaction_cnt != local_cumulative_compaction_cnt + 1) {
+        // Only the current task's output is available locally. Sync all missing outputs instead.
+        cloud_tablet()->last_sync_time_s = 0;
+        LOG_INFO("defer applying cumulative compaction result until tablet sync")
+                .tag("tablet_id", _tablet->tablet_id())
+                .tag("job_id", _uuid)
+                .tag("local_cumulative_compaction_cnt", local_cumulative_compaction_cnt)
+                .tag("response_cumulative_compaction_cnt", response_cumulative_compaction_cnt);
+        return false;
+    }
+    return true;
 }
 
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {

@@ -20,6 +20,30 @@ name: Dependency License Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      # Dependency manifests scanned by dependency-review-action.
+      - 'thirdparty/**'
+      - 'env.sh'
+      - 'build.sh'
+      - '**/pom.xml'
+      - '**/go.mod'
+      - '**/go.sum'
+      - '**/Gemfile'
+      - '**/Gemfile.lock'
+      - '**/requirements*.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/poetry.lock'
+      - '**/Pipfile'
+      - '**/Pipfile.lock'
+      - '**/build.gradle'
+      - '**/composer.json'
+      - '**/composer.lock'
+      - '**/setup.py'
+      - '.github/workflows/third_party_review.yml'
 permissions:
   contents: read
 jobs:

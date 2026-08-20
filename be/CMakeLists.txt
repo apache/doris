@@ -159,6 +159,32 @@ endif()
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
+# Build-hygiene gates: seconds-level, zero-build-dependency text checks that
+# keep the backend's compile-time invariants from regressing (header layering
+# rules and budgets, extern-template pairing, unity-skip coverage for
+# test-included sources). Running them at configure time makes a violation a
+# build error on every path that builds the BE -- CI, build.sh, the UT build --
+# with no separate wiring, and it fails in the first seconds instead of
+# somewhere inside a long compile. Every failure message carries the mechanism
+# and the fix path; see build-support/check-build-hygiene.sh.
+option(ENABLE_BUILD_HYGIENE "Run the build-hygiene gates at configure time" ON)
+message(STATUS "ENABLE_BUILD_HYGIENE is ${ENABLE_BUILD_HYGIENE}")
+if (ENABLE_BUILD_HYGIENE)
+    execute_process(
+        COMMAND bash "${BASE_DIR}/../build-support/check-build-hygiene.sh"
+        ERROR_VARIABLE BUILD_HYGIENE_ERRORS
+        RESULT_VARIABLE BUILD_HYGIENE_RESULT
+    )
+    if (NOT BUILD_HYGIENE_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "build-hygiene gates failed (exit ${BUILD_HYGIENE_RESULT}):\n"
+            "${BUILD_HYGIENE_ERRORS}"
+            "Fix the violation (each message ends with its fix path), or "
+            "configure with -DENABLE_BUILD_HYGIENE=OFF to bypass in an "
+            "emergency.")
+    endif()
+endif()
+
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)

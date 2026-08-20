@@ -36,6 +36,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -70,6 +71,7 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -652,6 +654,79 @@ TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     };
     block_converter_test(cols, 7, true);
     block_converter_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
+    const auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+    std::shared_ptr<arrow::DataType> arrow_type;
+
+    auto status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai");
+    ASSERT_TRUE(status.ok()) << status;
+    auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_TRUE(timestamp_type->timezone().empty());
+
+    const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    const auto array_type = std::make_shared<DataTypeArray>(datetime_type);
+    status = convert_to_arrow_type(array_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_type);
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
+    EXPECT_TRUE(timestamp_type->timezone().empty());
+}
+
+TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
+    auto datetime_column = ColumnVector<TYPE_DATETIMEV2>::create();
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.unchecked_set_time(2026, 7, 2, 15, 0, 0, 123456);
+    datetime_column->insert(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+
+    auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+    Block block;
+    block.insert(ColumnWithTypeAndName(datetime_column->get_ptr(), datetime_type, "ts"));
+
+    const auto utc_plus_eight = cctz::fixed_time_zone(std::chrono::hours(8));
+    auto timezone_schema = arrow::schema(
+            {arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "+08:00"), false)});
+    std::shared_ptr<arrow::RecordBatch> timezone_batch;
+    auto status = convert_to_arrow_batch(block, timezone_schema, arrow::default_memory_pool(),
+                                         &timezone_batch, utc_plus_eight);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto timezone_type = std::static_pointer_cast<arrow::TimestampType>(
+            timezone_batch->schema()->field(0)->type());
+    EXPECT_EQ("+08:00", timezone_type->timezone());
+    const auto timezone_array =
+            std::static_pointer_cast<arrow::TimestampArray>(timezone_batch->column(0));
+    // 2026-07-02 15:00:00.123456+08:00 is 2026-07-02 07:00:00.123456 UTC.
+    EXPECT_EQ(1782975600123456, timezone_array->Value(0));
+
+    auto naive_schema =
+            arrow::schema({arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
+    std::shared_ptr<arrow::RecordBatch> naive_batch;
+    status = convert_to_arrow_batch(block, naive_schema, arrow::default_memory_pool(), &naive_batch,
+                                    utc_plus_eight);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto naive_type =
+            std::static_pointer_cast<arrow::TimestampType>(naive_batch->schema()->field(0)->type());
+    EXPECT_TRUE(naive_type->timezone().empty());
+    const auto naive_array =
+            std::static_pointer_cast<arrow::TimestampArray>(naive_batch->column(0));
+    // A timezone-naive Arrow timestamp preserves the 15:00:00.123456 wall-clock value.
+    EXPECT_EQ(1783004400123456, naive_array->Value(0));
 }
 
 } // namespace doris

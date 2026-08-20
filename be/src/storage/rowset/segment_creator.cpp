@@ -44,7 +44,6 @@
 #include "io/fs/file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
-#include "storage/segment/row_binlog_segment_writer.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
@@ -90,11 +89,11 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
         return Status::OK();
     }
     Block flush_block(*block);
+    const size_t input_rows = flush_block.rows();
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     segment_v2::DerivedColumn derived_column;
     RETURN_IF_ERROR(transform_block(&flush_block, segment_id, &derived_column));
-    bool use_vertical_segment_writer =
-            config::enable_vertical_segment_writer && !_context.write_binlog_opt().enable;
+    bool use_vertical_segment_writer = config::enable_vertical_segment_writer;
     if (use_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
@@ -111,6 +110,9 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     }
+    // The caller's row accounting checks against what it fed in, so count the
+    // input rows, not what survived the chain.
+    _num_rows_written += input_rows;
     return Status::OK();
 }
 
@@ -119,8 +121,8 @@ Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
     auto transform_ctx = make_transform_exec_context(_context, segment_id);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             segment_v2::build_transform_chain(_context).apply(transform_ctx, block));
-    // fold the fill stages' probe counters into the flusher totals; the horizontal
-    // writer no longer sees partial-update rows
+    // fold the fill stages' probe counters into the flusher totals; the segment
+    // writers no longer see partial-update rows
     _num_rows_updated += transform_ctx.partial_update_stats.num_rows_updated;
     _num_rows_deleted += transform_ctx.partial_update_stats.num_rows_deleted;
     _num_rows_new_added += transform_ctx.partial_update_stats.num_rows_new_added;
@@ -155,7 +157,6 @@ Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                                  const Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
-    _num_rows_written += num_rows;
     return Status::OK();
 }
 
@@ -163,7 +164,6 @@ Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWrit
                                  const Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(segment_writer->batch_block(block, row_pos, num_rows));
     RETURN_IF_ERROR(segment_writer->write_batch());
-    _num_rows_written += num_rows;
     return Status::OK();
 }
 
@@ -182,21 +182,13 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
-    writer_options.mow_ctx = _context.mow_context;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    if (_context.write_binlog_opt().enable) {
-        writer = std::make_unique<segment_v2::RowBinlogSegmentWriter>(
-                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-                _context.data_dir, writer_options,
-                _context.write_binlog_opt().write_binlog_config());
-    } else {
-        writer = std::make_unique<segment_v2::SegmentWriter>(
-                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-                _context.data_dir, writer_options, index_file_writer.get());
-    }
+    writer = std::make_unique<segment_v2::SegmentWriter>(
+            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+            _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
@@ -225,7 +217,6 @@ Status SegmentFlusher::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
-    writer_options.mow_ctx = _context.mow_context;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
@@ -256,11 +247,6 @@ Status SegmentFlusher::_flush_segment_writer(
     total_timer.start();
 
     uint32_t row_num = writer->num_rows_written();
-    _num_rows_updated += writer->num_rows_updated();
-    _num_rows_deleted += writer->num_rows_deleted();
-    _num_rows_new_added += writer->num_rows_new_added();
-    _num_rows_filtered += writer->num_rows_filtered();
-
     if (row_num == 0) {
         return Status::OK();
     }

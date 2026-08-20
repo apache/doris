@@ -2057,7 +2057,7 @@ class Suite implements GroovyInterceptable {
             }
         }
         if (status != "SUCCESS") {
-            logger.info("status is not success")
+            logger.info("status is ${status}")
         }
         Assert.assertEquals("SUCCESS", status)
         logger.info("waitingMTMVTaskFinished analyze mv name is " + mvName
@@ -2213,7 +2213,7 @@ class Suite implements GroovyInterceptable {
             }
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
         if (status != "SUCCESS") {
-            logger.info("status is not success")
+            logger.info("status is ${status}")
         }
         Assert.assertEquals("SUCCESS", status)
         // Need to analyze materialized view for cbo to choose the materialized view accurately

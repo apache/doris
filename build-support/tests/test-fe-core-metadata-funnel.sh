@@ -142,8 +142,10 @@ bash "${GATE}" "${FX}" >/dev/null 2>&1 && CLEAN_EC=0 || CLEAN_EC=$?
 [ "${CLEAN_EC}" -eq 0 ] || fail "expected exit 0 on clean tree (only funnel/marked/no-arg/comment), got ${CLEAN_EC}"
 
 # ---- run 3: the marker is load-bearing -> strip it and both write calls are flagged ----
-sed -i 's/getMetadata-funnel-exempt/marker-removed-here/' \
+# (-i.bak + rm: the in-place flag's argument form differs between GNU and BSD sed)
+sed -i.bak 's/getMetadata-funnel-exempt/marker-removed-here/' \
     "${SRC}/write/WriterTrailing.java" "${SRC}/write/WriterAbove.java"
+rm -f "${SRC}/write/WriterTrailing.java.bak" "${SRC}/write/WriterAbove.java.bak"
 OUT3="$(bash "${GATE}" "${FX}" 2>&1)"; EC3=$?
 REP3="$(printf '%s\n' "${OUT3}" | grep -E "^${FX}.*:[0-9]+:" || true)"
 N3="$(printf '%s\n' "${REP3}" | grep -c 'getMetadata' || true)"
