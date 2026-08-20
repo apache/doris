@@ -111,9 +111,9 @@ bool collect_variant_terminal_fallback_leaf_ids(const ParquetColumnSchema& schem
 
 namespace {
 
-bool variant_leaf_projection_is_safe_for_row_group_impl(
-        const tparquet::RowGroup& row_group, const ParquetColumnSchema& schema,
-        const format::LocalColumnIndex& projection) {
+bool variant_residual_columns_are_prunable_impl(const tparquet::RowGroup& row_group,
+                                                const ParquetColumnSchema& schema,
+                                                const format::LocalColumnIndex& projection) {
     if (schema.kind != ParquetColumnSchemaKind::VARIANT || schema.max_repetition_level != 0 ||
         !format::is_partial_projection(&projection)) {
         return false;
@@ -141,32 +141,73 @@ bool variant_leaf_projection_is_safe_for_row_group_impl(
 
 } // namespace
 
-bool detail::variant_leaf_projection_is_safe_for_row_group(
+bool detail::variant_residual_columns_are_prunable_for_row_group(
         const tparquet::RowGroup& row_group, const ParquetColumnSchema& schema,
         const format::LocalColumnIndex& projection) {
-    return variant_leaf_projection_is_safe_for_row_group_impl(row_group, schema, projection);
+    return variant_residual_columns_are_prunable_impl(row_group, schema, projection);
+}
+
+namespace {
+
+void remove_child_projection(format::LocalColumnIndex* projection, int32_t local_id) {
+    std::erase_if(projection->children, [local_id](const format::LocalColumnIndex& child) {
+        return child.local_id() == local_id;
+    });
+}
+
+void prune_variant_residual_columns_impl(const ParquetColumnSchema& schema,
+                                         format::LocalColumnIndex* projection) {
+    const auto* value = schema_child_by_name(schema, "value");
+    const auto* typed_value = schema_child_by_name(schema, "typed_value");
+    if (value != nullptr && typed_value != nullptr &&
+        typed_value->kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        // Terminal wrapper: statistics proved its residual is entirely NULL for this row group,
+        // so the shredded leaf alone answers every row.
+        remove_child_projection(projection, value->local_id);
+        return;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        // The root dictionary is only needed to decode a residual.
+        if (const auto* metadata = schema_child_by_name(schema, "metadata"); metadata != nullptr) {
+            remove_child_projection(projection, metadata->local_id);
+        }
+    }
+    for (auto& child_projection : projection->children) {
+        const auto* child = projected_schema_child(schema, child_projection.local_id());
+        if (child != nullptr) {
+            prune_variant_residual_columns_impl(*child, &child_projection);
+        }
+    }
+}
+
+} // namespace
+
+void detail::prune_variant_residual_columns(const ParquetColumnSchema& schema,
+                                            format::LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    if (format::is_partial_projection(projection)) {
+        prune_variant_residual_columns_impl(schema, projection);
+    }
 }
 
 size_t detail::finalize_variant_leaf_projection_for_row_group(const tparquet::RowGroup& row_group,
                                                               const ParquetColumnSchema& schema,
                                                               format::LocalColumnIndex* projection,
-                                                              size_t* full_projections) {
+                                                              size_t* residual_projections) {
     DORIS_CHECK(projection != nullptr);
     if (!format::is_partial_projection(projection)) {
         return 0;
     }
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
-        if (variant_leaf_projection_is_safe_for_row_group(row_group, schema, *projection)) {
-            return 1;
+        // The residual null_count is row-group scoped, so the decision is per reader. Either way
+        // the projection stays a leaf projection: a row group whose residual carries values just
+        // reads that residual too and lets the reader merge those rows.
+        if (variant_residual_columns_are_prunable_for_row_group(row_group, schema, *projection)) {
+            detail::prune_variant_residual_columns(schema, projection);
+        } else if (residual_projections != nullptr) {
+            ++*residual_projections;
         }
-        // The residual null_count is row-group scoped. Restore the complete Variant wrapper for
-        // only this reader so another row group can still keep the typed-leaf projection.
-        projection->project_all_children = true;
-        projection->children.clear();
-        if (full_projections != nullptr) {
-            ++*full_projections;
-        }
-        return 0;
+        return 1;
     }
 
     size_t retained = 0;
@@ -174,7 +215,7 @@ size_t detail::finalize_variant_leaf_projection_for_row_group(const tparquet::Ro
         const auto* child_schema = projected_schema_child(schema, child_projection.local_id());
         DORIS_CHECK(child_schema != nullptr);
         retained += finalize_variant_leaf_projection_for_row_group(
-                row_group, *child_schema, &child_projection, full_projections);
+                row_group, *child_schema, &child_projection, residual_projections);
     }
     return retained;
 }

@@ -1803,6 +1803,23 @@ public class AppendVariantEqualityDelete {
     assertTrue(counterSum(positionDeleteProfile, "VariantReconstructedRows") > 0,
                "Position-delete filtering did not reconstruct its Variant rows")
 
+    // A STRING path must build a physical leaf projection rather than falling back to rebuilding
+    // the complete Variant. Reading only the accessed leaves is the entire advantage shredded
+    // storage has over unshredded storage.
+    String stringLeafToken = "iceberg_variant_string_leaf_" + UUID.randomUUID().toString()
+    sql """
+        SELECT '${stringLeafToken}', COUNT(*)
+        FROM variant_values
+        WHERE CAST(v['name'] AS STRING) = 'name-40'
+    """
+    String stringLeafProfile = getProfileByToken(stringLeafToken,
+            ["VariantLeafProjections", "VariantDirectLeafRows",
+             "VariantReconstructedRows"]).toString()
+    assertTrue(counterSum(stringLeafProfile, "VariantLeafProjections") > 0,
+               "A STRING leaf predicate did not build a physical leaf projection")
+    assertTrue(counterSum(stringLeafProfile, "VariantDirectLeafRows") > 0,
+               "A STRING leaf predicate did not evaluate rows from the shredded typed leaf")
+
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.
     // Metadata-only MODIFY is valid on an existing Iceberg v3 ORC Variant table. Doris still

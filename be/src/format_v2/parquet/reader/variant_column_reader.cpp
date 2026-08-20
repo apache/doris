@@ -661,8 +661,8 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     if (schema.type == nullptr || schema.kind != ParquetColumnSchemaKind::PRIMITIVE) {
         return false;
     }
-    // ColumnVariantV2 typed state carries only a Doris type. Binary/UUID annotations, temporal
-    // units, and other Parquet-only identity must therefore reconstruct canonical Variant bytes.
+    // ColumnVariantV2 typed state carries only a Doris type, so any identity the Doris type does
+    // not pin down has to be rebuilt from the Parquet schema instead.
     switch (remove_nullable(schema.type)->get_primitive_type()) {
     case TYPE_BOOLEAN:
     case TYPE_TINYINT:
@@ -674,6 +674,13 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     case TYPE_DECIMAL128I:
     case TYPE_DATEV2:
         return true;
+    case TYPE_STRING:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+        // BYTE_ARRAY carries strings, raw binary and UUID alike; only the UTF-8 annotation makes
+        // the value a Variant string. Temporal identities stay excluded because the typed state
+        // cannot record a timestamp's unit or its UTC adjustment.
+        return schema.type_descriptor.is_string_annotation && !schema.type_descriptor.is_uuid;
     default:
         return false;
     }

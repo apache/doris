@@ -73,8 +73,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                             TUnit::UNIT, parquet_profile, 1);
     variant_leaf_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "VariantLeafProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
-    variant_full_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "VariantFullProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
+    variant_residual_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantResidualProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "PagesSkippedByDataPageFilter", TUnit::UNIT, parquet_profile, 1);
     data_page_filter_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DataPageFilterSkipBytes",
@@ -378,8 +378,7 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .variant_direct_leaf_rows = variant_direct_leaf_rows,
             .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,
             .variant_direct_leaf_residual_fallbacks = variant_direct_leaf_residual_fallbacks,
-            .variant_direct_leaf_residual_merged_rows =
-                    variant_direct_leaf_residual_merged_rows,
+            .variant_direct_leaf_residual_merged_rows = variant_direct_leaf_residual_merged_rows,
             .variant_direct_leaf_unsupported_fallbacks = variant_direct_leaf_unsupported_fallbacks,
             .hybrid_selection_batches = hybrid_selection_batches,
             .hybrid_selection_ranges = hybrid_selection_ranges,

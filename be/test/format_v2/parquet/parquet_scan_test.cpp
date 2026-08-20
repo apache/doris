@@ -2181,9 +2181,9 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
              .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
              .page_skip_plans = {},
              .offset_indexes = {},
-             .full_variant_projection_ordinals = {},
+             .prunable_variant_projection_ordinals = {},
              .variant_leaf_projection_columns = 0,
-             .variant_full_projection_columns = 0,
+             .variant_residual_projection_columns = 0,
              .expensive_pruning_pending = false});
 
     format::parquet::ParquetScanScheduler scheduler;

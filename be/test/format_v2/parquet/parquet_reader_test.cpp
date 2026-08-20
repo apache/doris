@@ -1898,51 +1898,128 @@ TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection
         row_group.columns.push_back(std::move(chunk));
     }
     auto row_group_projection = projection;
-    size_t full_projections = 0;
+    size_t residual_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &full_projections),
+                      row_group, *root, &row_group_projection, &residual_projections),
               1);
     EXPECT_FALSE(row_group_projection.project_all_children);
-    EXPECT_EQ(full_projections, 0);
+    EXPECT_EQ(residual_projections, 0);
 
     // A conforming partially shredded object keeps unrelated keys in the ancestor residual. The
     // requested field is still complete when its own value column is all null.
     row_group.columns[1].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
-    full_projections = 0;
+    residual_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &full_projections),
+                      row_group, *root, &row_group_projection, &residual_projections),
               1);
     EXPECT_FALSE(row_group_projection.project_all_children);
-    EXPECT_EQ(full_projections, 0);
+    EXPECT_EQ(residual_projections, 0);
     row_group.columns[1].meta_data.statistics.__set_null_count(10);
 
+    // A terminal residual that carries values no longer forfeits the leaf projection. The reader
+    // reads that residual beside the leaf and merges the affected rows, so the row group keeps
+    // reading leaves instead of the complete Variant.
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
-    full_projections = 0;
+    residual_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &full_projections),
-              0);
-    EXPECT_TRUE(row_group_projection.project_all_children);
-    EXPECT_EQ(full_projections, 1);
+                      row_group, *root, &row_group_projection, &residual_projections),
+              1);
+    EXPECT_FALSE(row_group_projection.project_all_children);
+    EXPECT_EQ(residual_projections, 1);
     row_group.columns[2].meta_data.__set_num_values(9);
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
-    full_projections = 0;
+    residual_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &full_projections),
-              0);
-    EXPECT_TRUE(row_group_projection.project_all_children);
-    EXPECT_EQ(full_projections, 1);
+                      row_group, *root, &row_group_projection, &residual_projections),
+              1);
+    EXPECT_FALSE(row_group_projection.project_all_children);
+    EXPECT_EQ(residual_projections, 1);
     row_group.columns[2].meta_data.__set_num_values(10);
     row_group.columns[2].meta_data.__isset.statistics = false;
     row_group_projection = projection;
-    full_projections = 0;
+    residual_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &full_projections),
-              0);
-    EXPECT_TRUE(row_group_projection.project_all_children);
-    EXPECT_EQ(full_projections, 1);
+                      row_group, *root, &row_group_projection, &residual_projections),
+              1);
+    EXPECT_FALSE(row_group_projection.project_all_children);
+    EXPECT_EQ(residual_projections, 1);
+}
+
+TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveThemNull) {
+    using format::parquet::ParquetColumnSchema;
+    using format::parquet::ParquetColumnSchemaKind;
+    auto node = [](std::string name, int32_t local_id, ParquetColumnSchemaKind kind,
+                   int leaf_id = -1) {
+        auto result = std::make_unique<ParquetColumnSchema>();
+        result->name = std::move(name);
+        result->local_id = local_id;
+        result->kind = kind;
+        result->leaf_column_id = leaf_id;
+        return result;
+    };
+    auto root = node("v", 0, ParquetColumnSchemaKind::VARIANT);
+    root->children.push_back(node("metadata", 0, ParquetColumnSchemaKind::PRIMITIVE, 0));
+    root->children.push_back(node("value", 1, ParquetColumnSchemaKind::PRIMITIVE, 1));
+    auto root_typed = node("typed_value", 2, ParquetColumnSchemaKind::STRUCT);
+    auto wrapper = node("n", 0, ParquetColumnSchemaKind::STRUCT);
+    wrapper->children.push_back(node("value", 0, ParquetColumnSchemaKind::PRIMITIVE, 2));
+    wrapper->children.push_back(node("typed_value", 1, ParquetColumnSchemaKind::PRIMITIVE, 3));
+    root_typed->children.push_back(std::move(wrapper));
+    root->children.push_back(std::move(root_typed));
+
+    // The projection the mapper now produces: root metadata beside typed_value, and the terminal
+    // wrapper's residual beside its typed leaf.
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::local(0));
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    auto& typed_projection = projection.children.back();
+    typed_projection.children.push_back(format::LocalColumnIndex::partial_local(0));
+    auto& wrapper_projection = typed_projection.children.back();
+    wrapper_projection.children.push_back(format::LocalColumnIndex::local(0));
+    wrapper_projection.children.push_back(format::LocalColumnIndex::local(1));
+
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(10);
+    for (int leaf = 0; leaf < 4; ++leaf) {
+        tparquet::Statistics statistics;
+        statistics.__set_null_count(leaf == 2 ? 10 : 0);
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_num_values(10);
+        column_metadata.__set_statistics(std::move(statistics));
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(std::move(column_metadata));
+        row_group.columns.push_back(std::move(chunk));
+    }
+
+    // The terminal residual is entirely NULL, so the shredded leaf alone answers every row and
+    // both the residual and the root dictionary can be dropped from the read.
+    auto pruned = projection;
+    EXPECT_TRUE(format::parquet::detail::variant_residual_columns_are_prunable_for_row_group(
+            row_group, *root, pruned));
+    format::parquet::detail::prune_variant_residual_columns(*root, &pruned);
+    ASSERT_EQ(pruned.children.size(), 1);
+    EXPECT_EQ(pruned.children[0].local_id(), 2);
+    ASSERT_EQ(pruned.children[0].children.size(), 1);
+    ASSERT_EQ(pruned.children[0].children[0].children.size(), 1);
+    EXPECT_EQ(pruned.children[0].children[0].children[0].local_id(), 1);
+
+    // One residual row is enough to keep the columns, but the projection stays a leaf projection:
+    // the reader merges those rows instead of rebuilding the complete Variant.
+    row_group.columns[2].meta_data.statistics.__set_null_count(9);
+    auto retained = projection;
+    EXPECT_FALSE(format::parquet::detail::variant_residual_columns_are_prunable_for_row_group(
+            row_group, *root, retained));
+    size_t residual_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &retained, &residual_projections),
+              1);
+    EXPECT_FALSE(retained.project_all_children);
+    EXPECT_EQ(residual_projections, 1);
+    ASSERT_EQ(retained.children.size(), 2);
+    EXPECT_EQ(retained.children[0].local_id(), 0);
 }
 
 TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPruning) {
@@ -2029,9 +2106,14 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
     thrift_metadata.__set_column_orders({order, order, order, order, order});
     format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
 
+    // The shape the mapper builds: the root dictionary and the terminal residual travel with the
+    // typed leaf so a row group whose residual carries values can still be served from leaves.
     auto leaf_projection = format::LocalColumnIndex::partial_local(1);
+    leaf_projection.children.push_back(format::LocalColumnIndex::local(0));
     leaf_projection.children.push_back(format::LocalColumnIndex::partial_local(2));
     leaf_projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    leaf_projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
     leaf_projection.children.back().children.back().children.push_back(
             format::LocalColumnIndex::local(1));
     format::FileScanRequest request;
@@ -2050,9 +2132,11 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
                                                          &plan, nullptr, nullptr, &file_context)
                         .ok());
     EXPECT_TRUE(plan.row_groups.empty());
-    // Footer accounting uses id plus all Variant leaves for the first row group (150 bytes), then
-    // id plus the retained typed leaf for the fully shredded row group (60 bytes).
-    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 210);
+    // Footer accounting uses id plus the projected Variant leaves - dictionary, residual and typed
+    // leaf - for the first row group (120 bytes). The fully shredded row group proves its residual
+    // is NULL, so it drops the dictionary and the residual and reads id plus the typed leaf
+    // (60 bytes).
+    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 180);
 
     request.conjuncts.clear();
     ASSERT_TRUE(format::parquet::plan_parquet_row_groups(metadata, schema, request,
@@ -2060,14 +2144,16 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
                                                          &plan, nullptr, nullptr, &file_context)
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 2);
-    EXPECT_TRUE(plan.row_groups[0].has_row_group_physical_projection());
-    EXPECT_EQ(plan.row_groups[0].full_variant_projection_ordinals, std::vector<size_t> {0});
-    EXPECT_EQ(plan.row_groups[0].variant_leaf_projection_columns, 0);
-    EXPECT_EQ(plan.row_groups[0].variant_full_projection_columns, 1);
-    EXPECT_FALSE(plan.row_groups[1].has_row_group_physical_projection());
-    EXPECT_TRUE(plan.row_groups[1].full_variant_projection_ordinals.empty());
+    // Both row groups keep a leaf projection. Only the fully shredded one can additionally drop
+    // the residual columns, so only it carries a row-group specific physical projection.
+    EXPECT_FALSE(plan.row_groups[0].has_row_group_physical_projection());
+    EXPECT_TRUE(plan.row_groups[0].prunable_variant_projection_ordinals.empty());
+    EXPECT_EQ(plan.row_groups[0].variant_leaf_projection_columns, 1);
+    EXPECT_EQ(plan.row_groups[0].variant_residual_projection_columns, 1);
+    EXPECT_TRUE(plan.row_groups[1].has_row_group_physical_projection());
+    EXPECT_EQ(plan.row_groups[1].prunable_variant_projection_ordinals, std::vector<size_t> {0});
     EXPECT_EQ(plan.row_groups[1].variant_leaf_projection_columns, 1);
-    EXPECT_EQ(plan.row_groups[1].variant_full_projection_columns, 0);
+    EXPECT_EQ(plan.row_groups[1].variant_residual_projection_columns, 0);
 }
 
 TEST(ParquetVariantProjectionTest, ReusesWideNonVariantLeafSetAcrossRowGroups) {
@@ -2249,8 +2335,8 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     EXPECT_EQ(profile.get_counter("VariantReconstructedRows")->value(), 0);
     ASSERT_NE(profile.get_counter("VariantLeafProjectionRowGroupColumns"), nullptr);
     EXPECT_EQ(profile.get_counter("VariantLeafProjectionRowGroupColumns")->value(), 1);
-    ASSERT_NE(profile.get_counter("VariantFullProjectionRowGroupColumns"), nullptr);
-    EXPECT_EQ(profile.get_counter("VariantFullProjectionRowGroupColumns")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantResidualProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantResidualProjectionRowGroupColumns")->value(), 0);
     const std::array missing_path {VariantShreddedPathSegment {
             .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("missing")}};
     EXPECT_FALSE(variants.find_shredded_typed_value(missing_path).has_value());
@@ -2367,8 +2453,8 @@ TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
     EXPECT_EQ(rows, 2);
     ASSERT_NE(profile.get_counter("VariantLeafProjectionRowGroupColumns"), nullptr);
     EXPECT_EQ(profile.get_counter("VariantLeafProjectionRowGroupColumns")->value(), 1);
-    ASSERT_NE(profile.get_counter("VariantFullProjectionRowGroupColumns"), nullptr);
-    EXPECT_EQ(profile.get_counter("VariantFullProjectionRowGroupColumns")->value(), 1);
+    ASSERT_NE(profile.get_counter("VariantResidualProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantResidualProjectionRowGroupColumns")->value(), 1);
 
     const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
