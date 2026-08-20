@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <string>
 
+#include "cpp/sync_point.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 
 namespace doris::io {
@@ -42,17 +43,170 @@ TEST(FileHandleCacheTest, CacheKeyIncludesHdfsFs) {
                                                           mtime + 1));
 }
 
-// Verify that init() with file_size > 0 does NOT open the file (lazy open).
-// The handle should know file_size but file() should be nullptr.
+// init(file_size>0) does not open the file.
 TEST(FileHandleCacheTest, InitWithKnownFileSizeDoesNotOpenFile) {
     auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
     ExclusiveHdfsFileHandle handle(mock_fs, "/nonexistent/file.parquet", 12345);
     auto st = handle.init(4096);
     ASSERT_TRUE(st.ok()) << st;
-    // file_size should be set from parameter
     EXPECT_EQ(handle.file_size(), 4096);
-    // file() should be nullptr — lazy open means no hdfsOpenFile was called
     EXPECT_EQ(handle.file(), nullptr);
+}
+
+// Destructor is safe when file was never opened.
+TEST(FileHandleCacheTest, DestructorSafeWithoutOpen) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    {
+        ExclusiveHdfsFileHandle handle(mock_fs, "/nonexistent/file.parquet", 12345);
+        ASSERT_TRUE(handle.init(4096).ok());
+        EXPECT_EQ(handle.file(), nullptr);
+    }
+}
+
+// Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsFreeFileInfo via SyncPoint to avoid JNI.
+struct MockHandleGuard {
+    SyncPoint::CallbackGuard open_guard;
+    SyncPoint::CallbackGuard close_guard;
+    SyncPoint::CallbackGuard info_guard;
+    SyncPoint::CallbackGuard free_guard;
+    static inline hdfsFileInfo mock_info;
+    MockHandleGuard(hdfsFile mock_file, int64_t file_size = 4096) {
+        mock_info.mSize = file_size;
+        auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
+        sp->set_call_back(
+                "HdfsFileHandle::ensure_open::hdfsOpenFile",
+                [mock_file](auto&& args) {
+                    auto* ret = try_any_cast_ret<hdfsFile>(args);
+                    ret->first = mock_file;
+                    ret->second = true;
+                },
+                &open_guard);
+        sp->set_call_back(
+                "HdfsFileHandle::close::hdfsCloseFile",
+                [](auto&& args) {
+                    auto* ret = try_any_cast_ret<int>(args);
+                    ret->first = 0;
+                    ret->second = true;
+                },
+                &close_guard);
+        sp->set_call_back(
+                "HdfsFileHandle::init::hdfsGetPathInfo",
+                [](auto&& args) {
+                    auto* ret = try_any_cast_ret<hdfsFileInfo*>(args);
+                    ret->first = &mock_info;
+                    ret->second = true;
+                },
+                &info_guard);
+        sp->set_call_back(
+                "HdfsFileHandle::init::hdfsFreeFileInfo",
+                [](auto&& args) {
+                    auto* ret = try_any_cast_ret<Status>(args);
+                    ret->first = Status::OK();
+                    ret->second = true;
+                },
+                &free_guard);
+    }
+};
+
+// ensure_open() succeeds via SyncPoint mock.
+TEST(FileHandleCacheTest, EnsureOpenSucceedsWithMock) {
+    MockHandleGuard mg(reinterpret_cast<hdfsFile>(static_cast<uintptr_t>(0xdeadbeef)));
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
+    ASSERT_TRUE(handle.init(4096).ok());
+    EXPECT_EQ(handle.file(), nullptr);
+
+    ASSERT_TRUE(handle.ensure_open().ok());
+    EXPECT_NE(handle.file(), nullptr);
+}
+
+// ensure_open() fails when mock returns nullptr.
+TEST(FileHandleCacheTest, EnsureOpenFailsWithMock) {
+    MockHandleGuard mg(nullptr);
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
+    ASSERT_TRUE(handle.init(4096).ok());
+
+    auto st = handle.ensure_open();
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(handle.file(), nullptr);
+}
+
+// ensure_open() is idempotent via call_once.
+TEST(FileHandleCacheTest, EnsureOpenIsIdempotentWithMock) {
+    MockHandleGuard mg(reinterpret_cast<hdfsFile>(static_cast<uintptr_t>(0xdeadbeef)));
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
+    ASSERT_TRUE(handle.init(4096).ok());
+
+    ASSERT_TRUE(handle.ensure_open().ok());
+    ASSERT_TRUE(handle.ensure_open().ok());
+}
+
+// init(-1) fetches file_size via mocked hdfsGetPathInfo.
+TEST(FileHandleCacheTest, InitWithUnknownFileSizeWithMock) {
+    MockHandleGuard mg(nullptr, 8192);
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
+
+    ASSERT_TRUE(handle.init(-1).ok());
+    EXPECT_EQ(handle.file_size(), 8192);
+    EXPECT_EQ(handle.file(), nullptr);
+}
+
+// init(-1) fails when hdfsGetPathInfo returns nullptr.
+TEST(FileHandleCacheTest, InitFailsWhenGetPathInfoReturnsNull) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "HdfsFileHandle::init::hdfsGetPathInfo",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<hdfsFileInfo*>(args);
+                ret->first = nullptr;
+                ret->second = true;
+            },
+            &guard);
+
+    auto st = handle.init(-1);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::INTERNAL_ERROR);
+}
+
+// ensure_open() returns NotFound when error contains "No such file or directory".
+TEST(FileHandleCacheTest, EnsureOpenReturnsNotFoundForMissingFile) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/missing.parquet", 12345);
+    ASSERT_TRUE(handle.init(4096).ok());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    SyncPoint::CallbackGuard open_guard;
+    sp->set_call_back(
+            "HdfsFileHandle::ensure_open::hdfsOpenFile",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<hdfsFile>(args);
+                ret->first = nullptr;
+                ret->second = true;
+            },
+            &open_guard);
+    SyncPoint::CallbackGuard err_guard;
+    sp->set_call_back(
+            "HdfsFileHandle::ensure_open::hdfs_error",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<std::string>(args);
+                ret->first = "No such file or directory";
+                ret->second = true;
+            },
+            &err_guard);
+
+    auto st = handle.ensure_open();
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::NOT_FOUND);
 }
 
 } // namespace doris::io
