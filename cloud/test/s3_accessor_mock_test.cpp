@@ -25,8 +25,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "recycler/s3_obj_client.h"
 
 using namespace doris;
 using namespace Aws::S3::Model;
@@ -69,18 +69,21 @@ TEST_F(S3AccessorMockTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
     // should return an error.
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+    auto s3_obj_client = std::make_shared<S3ObjStorageClient>(
+            mock_s3_client, ObjStorageEndpointInfo {.endpoint = "dummy-endpoint"});
 
     ListObjectsV2Result result;
     result.SetIsTruncated(true);
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
 
-    auto response = s3_obj_client.list_objects(
-            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"});
+    std::vector<ObjectMeta> objects;
+    auto response = s3_obj_client->list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"},
+            &objects);
 
-    EXPECT_FALSE(response->has_next());
-    EXPECT_FALSE(response->is_valid());
+    EXPECT_FALSE(response.ok());
+    EXPECT_TRUE(objects.empty());
 }
 
 } // namespace doris::cloud

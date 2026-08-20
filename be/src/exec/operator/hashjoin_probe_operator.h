@@ -20,6 +20,7 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
+#include "exec/operator/join/process_hash_table_probe.h"
 #include "exec/operator/join_probe_operator.h"
 #include "exec/operator/operator.h"
 
@@ -218,5 +219,11 @@ private:
     // Index of column(slot) from right table in the `_intermediate_row_desc`.
     size_t _right_col_idx;
 };
+
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<HashJoinProbeLocalState>;
+extern template class JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<HashJoinProbeLocalState>;
 
 } // namespace doris

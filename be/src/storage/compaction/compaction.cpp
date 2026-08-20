@@ -22,9 +22,12 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -32,6 +35,7 @@
 #include <nlohmann/json.hpp>
 #include <numeric>
 #include <ostream>
+#include <ranges>
 #include <set>
 #include <shared_mutex>
 #include <utility>
@@ -41,6 +45,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
@@ -53,7 +58,6 @@
 #include "io/io_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "storage/compaction/collection_statistics.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
@@ -65,6 +69,11 @@
 #include "storage/index/inverted/inverted_index_compaction.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
+#include "storage/index/snii/compaction/eligibility.h"
+#include "storage/index/snii/compaction/snii_index_compaction.h"
+#include "storage/index/snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/snii_build_memory_tracker.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
@@ -84,6 +93,7 @@
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
 #include "util/pretty_printer.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -118,6 +128,8 @@ bool should_enable_compaction_cache_index_only(bool write_file_cache, ReaderType
 }
 
 namespace {
+
+constexpr size_t kSniiCompactionReadAheadBudgetBytes = 64ULL << 20;
 
 bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
                     const RowsetSharedPtr& rhs) {
@@ -284,9 +296,10 @@ Status Compaction::merge_input_rowsets() {
 
     // write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
-    // if ctx.columns_to_do_index_compaction.size() > 0, it means we need to do inverted index compaction.
-    // the row ID conversion matrix needs to be used for inverted index compaction.
-    if (!ctx.columns_to_do_index_compaction.empty() ||
+    // A non-empty index compaction set (per-column for V2/V3, per-index for
+    // SNII) means inverted index compaction runs and needs the row ID
+    // conversion matrix.
+    if (!ctx.columns_to_do_index_compaction.empty() || !ctx.snii_indexes_to_do_compaction.empty() ||
         (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
          _tablet->enable_unique_key_merge_on_write())) {
         _stats.rowid_conversion = _rowid_conversion.get();
@@ -800,10 +813,36 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
+// Iteration domain of inverted index compaction: V2/V3 merge EVERY index of
+// each column in columns_to_do_index_compaction (their per-column CLucene
+// directories move as a unit); SNII merges exactly the (column, index) pairs
+// the preflight proved eligible -- the segment writer already raw-built the
+// rest.
+static std::map<int32_t, std::vector<const TabletIndex*>> collect_index_compaction_domain(
+        const TabletSchema& schema, const RowsetWriterContext& ctx) {
+    std::map<int32_t, std::vector<const TabletIndex*>> column_index_metas;
+    if (schema.get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::SNII) {
+        for (const auto& [column_uniq_id, index_id] : ctx.snii_indexes_to_do_compaction) {
+            const auto& col = schema.column_by_uid(column_uniq_id);
+            for (const TabletIndex* index_meta : schema.inverted_indexs(col)) {
+                if (index_meta->index_id() == index_id) {
+                    column_index_metas[column_uniq_id].push_back(index_meta);
+                }
+            }
+        }
+        return column_index_metas;
+    }
+    for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
+        const auto& col = schema.column_by_uid(column_uniq_id);
+        column_index_metas.emplace(column_uniq_id, schema.inverted_indexs(col));
+    }
+    return column_index_metas;
+}
+
 Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!_enable_inverted_index_compaction || _input_row_num <= 0 ||
-        ctx.columns_to_do_index_compaction.empty()) {
+        (ctx.columns_to_do_index_compaction.empty() && ctx.snii_indexes_to_do_compaction.empty())) {
         return Status::OK();
     }
 
@@ -833,6 +872,7 @@ Status Compaction::do_inverted_index_compaction() {
     }
 
     OlapStopWatch inverted_watch;
+    ThreadCpuStopWatch inverted_cpu_watch(true);
 
     // translation vec
     // <<dest_idx_num, dest_docId>>
@@ -858,7 +898,8 @@ Status Compaction::do_inverted_index_compaction() {
     if (dest_segment_num <= 0) {
         LOG(INFO) << "skip doing index compaction due to no output segments"
                   << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
-                  << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+                  << ". elapsed time=" << inverted_watch.get_elapse_second()
+                  << "s. thread cpu time=" << inverted_cpu_watch.elapsed_time() / 1e9 << "s.";
         return Status::OK();
     }
 
@@ -924,6 +965,7 @@ Status Compaction::do_inverted_index_compaction() {
 
     // src index dirs
     std::vector<std::unique_ptr<IndexFileReader>> index_file_readers(src_segment_num);
+    std::vector<Rowset*> source_rowsets(src_segment_num, nullptr);
     for (const auto& m : src_seg_to_id_map) {
         const auto& [rowset_id, seg_id] = m.first;
 
@@ -988,6 +1030,7 @@ Status Compaction::do_inverted_index_compaction() {
                     _tablet->tablet_id(), rowset_id.to_string(), seg_id);
         }
         index_file_readers[m.second] = std::move(index_file_reader);
+        source_rowsets[m.second] = rowset;
     }
 
     // dest index files
@@ -1017,9 +1060,28 @@ Status Compaction::do_inverted_index_compaction() {
               << ", destination index size=" << dest_segment_num << ".";
 
     Status status = Status::OK();
-    for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
+    std::shared_ptr<snii::writer::MemoryReporter> snii_merge_memory_reporter;
+    std::unique_ptr<snii::compaction::ValidatedRowIdConversion> validated_snii_rowid_conversion;
+    if (_cur_tablet_schema->get_inverted_index_storage_format() ==
+        InvertedIndexStorageFormatPB::SNII) {
+        const size_t spill_threshold =
+                static_cast<size_t>(config::inverted_index_ram_buffer_size * 1024 * 1024);
+        // Mirror the merge's live build bytes into the process-wide SNII
+        // index-build observation tracker, the same line ingestion feeds: index
+        // merge builds the same structures and must be visible in the same
+        // place. Classified kUnregistered: this path holds Reservation scratch
+        // only and never registers a SpimiTermBuffer, so no forced spill can
+        // reclaim any of it -- the decision layer must not charge these bytes
+        // against ingestion writers' arenas. The kHardLimit cap policy is what
+        // bounds them instead; the tracker only observes.
+        snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
+                snii::writer::snii_build_consume_release(
+                        snii::writer::BuildMemoryPopulation::kUnregistered),
+                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
+    }
+    for (auto&& [column_uniq_id, index_metas] :
+         collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
-        auto index_metas = _cur_tablet_schema->inverted_indexs(col);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_can_not_find_index_meta",
                         { index_metas.clear(); })
         if (index_metas.empty()) {
@@ -1032,6 +1094,152 @@ Status Compaction::do_inverted_index_compaction() {
             break;
         }
         for (const auto& index_meta : index_metas) {
+            if (_cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::SNII) {
+                std::vector<std::unique_ptr<snii::reader::LogicalIndexReader>> source_indexes;
+                std::vector<const snii::reader::LogicalIndexReader*> plan_sources;
+                std::vector<snii::compaction::PlainT2CompactionSource> eligibility_sources;
+                source_indexes.reserve(src_segment_num);
+                plan_sources.reserve(src_segment_num);
+                eligibility_sources.reserve(src_segment_num);
+                Status merge_status = Status::OK();
+                for (size_t source_ordinal = 0; source_ordinal < src_segment_num;
+                     ++source_ordinal) {
+                    DORIS_CHECK(source_rowsets[source_ordinal] != nullptr);
+                    const auto source_index_metas =
+                            source_rowsets[source_ordinal]->tablet_schema()->inverted_indexs(
+                                    column_uniq_id);
+                    const auto source_index_it = std::find_if(
+                            source_index_metas.begin(), source_index_metas.end(),
+                            [&index_meta](const TabletIndex* source_index) {
+                                return source_index->index_id() == index_meta->index_id();
+                            });
+                    if (source_index_it == source_index_metas.end()) {
+                        merge_status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                                "source SNII index metadata disappeared after eligibility");
+                        break;
+                    }
+                    const TabletIndex* source_index_meta = *source_index_it;
+                    auto source_index = index_file_readers[source_ordinal]->open_snii_index(
+                            source_index_meta, nullptr,
+                            snii::reader::LogicalIndexOpenMode::kCompaction);
+                    if (!source_index.has_value()) {
+                        merge_status = source_index.error();
+                        break;
+                    }
+                    source_indexes.push_back(std::move(source_index.value()));
+                    plan_sources.push_back(source_indexes.back().get());
+                    eligibility_sources.push_back({.reader = std::cref(*source_indexes.back()),
+                                                   .index_meta = std::cref(*source_index_meta)});
+                }
+
+                snii::compaction::SniiCompactionEligibility merge_eligibility;
+                if (merge_status.ok()) {
+                    merge_status = snii::compaction::validate_snii_compaction_eligibility(
+                            eligibility_sources, *index_meta, &merge_eligibility);
+                }
+
+                if (merge_status.ok() && validated_snii_rowid_conversion == nullptr) {
+                    std::vector<uint32_t> source_segment_doc_counts;
+                    source_segment_doc_counts.reserve(plan_sources.size());
+                    for (const snii::reader::LogicalIndexReader* source : plan_sources) {
+                        DORIS_CHECK(source != nullptr);
+                        if (source->stats().doc_count > std::numeric_limits<uint32_t>::max()) {
+                            merge_status = Status::Error<INVERTED_INDEX_FILE_CORRUPTED>(
+                                    "source doc count exceeds the SNII uint32 docid domain");
+                            break;
+                        }
+                        source_segment_doc_counts.push_back(
+                                static_cast<uint32_t>(source->stats().doc_count));
+                    }
+                    if (merge_status.ok()) {
+                        merge_status = snii::compaction::ValidatedRowIdConversion::create(
+                                &trans_vec, source_segment_doc_counts, dest_segment_num_rows,
+                                &validated_snii_rowid_conversion);
+                        if (merge_status.ok()) {
+                            DBUG_EXECUTE_IF("Compaction::snii_validated_rowid_conversion_created",
+                                            DBUG_RUN_CALLBACK());
+                        }
+                    }
+                }
+
+                std::unique_ptr<snii::compaction::SniiPlainT2MergePlan> merge_plan;
+                if (merge_status.ok()) {
+                    DORIS_CHECK(validated_snii_rowid_conversion != nullptr);
+                    merge_status = snii::compaction::SniiPlainT2MergePlan::prepare(
+                            std::move(plan_sources), *validated_snii_rowid_conversion,
+                            merge_eligibility, kSniiCompactionReadAheadBudgetBytes,
+                            snii_merge_memory_reporter, &merge_plan);
+                }
+
+                std::vector<snii::writer::SniiStreamedIndexSession*> destination_sessions(
+                        dest_segment_num, nullptr);
+                if (merge_status.ok()) {
+                    DORIS_CHECK(snii_merge_memory_reporter != nullptr);
+                    for (size_t destination_ordinal = 0; destination_ordinal < dest_segment_num;
+                         ++destination_ordinal) {
+                        DBUG_EXECUTE_IF("Compaction::before_add_snii_destination_session",
+                                        DBUG_RUN_CALLBACK(destination_ordinal, &merge_status));
+                        if (!merge_status.ok()) {
+                            break;
+                        }
+                        auto* destination_writer =
+                                inverted_index_file_writers[cast_set<int>(destination_ordinal)]
+                                        .get();
+                        if (merge_eligibility.kind ==
+                            snii::compaction::SniiStreamedMergeKind::kCommonGramsT3) {
+                            merge_status = destination_writer->add_snii_index_streamed(
+                                    index_meta, dest_segment_num_rows[destination_ordinal],
+                                    merge_plan->take_destination_null_docids(destination_ordinal),
+                                    merge_plan->take_destination_encoded_norms(destination_ordinal),
+                                    merge_plan->destination_common_grams_metadata(
+                                            destination_ordinal),
+                                    merge_plan->destination_common_grams_posting_policy(),
+                                    merge_plan->destination_index_config(),
+                                    snii_merge_memory_reporter,
+                                    &destination_sessions[destination_ordinal]);
+                        } else {
+                            merge_status = destination_writer->add_snii_index_streamed(
+                                    index_meta, dest_segment_num_rows[destination_ordinal],
+                                    merge_plan->take_destination_null_docids(destination_ordinal),
+                                    merge_plan->destination_index_config(),
+                                    snii_merge_memory_reporter,
+                                    &destination_sessions[destination_ordinal]);
+                        }
+                        if (!merge_status.ok()) {
+                            break;
+                        }
+                    }
+                }
+                if (merge_status.ok()) {
+                    DBUG_EXECUTE_IF("Compaction::before_execute_snii_merge",
+                                    DBUG_RUN_CALLBACK(&merge_status));
+                }
+                if (!merge_status.ok()) {
+                    for (size_t destination_ordinal = 0;
+                         destination_ordinal < destination_sessions.size(); ++destination_ordinal) {
+                        snii::writer::SniiStreamedIndexSession* session =
+                                destination_sessions[destination_ordinal];
+                        if (session != nullptr) {
+                            session->abort(merge_status);
+                            DBUG_EXECUTE_IF("Compaction::snii_destination_session_aborted",
+                                            DBUG_RUN_CALLBACK(destination_ordinal));
+                        }
+                    }
+                } else {
+                    merge_status = merge_plan->execute(destination_sessions);
+                }
+                if (!merge_status.ok()) {
+                    if (merge_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>() ||
+                        merge_status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>() ||
+                        merge_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+                        error_handler(index_meta->index_id(), column_uniq_id);
+                    }
+                    return merge_status;
+                }
+                continue;
+            }
+
             std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
             try {
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> src_idx_dirs(
@@ -1095,7 +1303,8 @@ Status Compaction::do_inverted_index_compaction() {
     }
     LOG(INFO) << "succeed to do index compaction"
               << ". tablet=" << _tablet->tablet_id()
-              << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+              << ". elapsed time=" << inverted_watch.get_elapse_second()
+              << "s. thread cpu time=" << inverted_cpu_watch.elapsed_time() / 1e9 << "s.";
 
     return Status::OK();
 }
@@ -1103,6 +1312,9 @@ Status Compaction::do_inverted_index_compaction() {
 void Compaction::mark_skip_index_compaction(
         const RowsetWriterContext& context,
         const std::function<void(int64_t, int64_t)>& error_handler) {
+    for (const auto& [column_uniq_id, index_id] : context.snii_indexes_to_do_compaction) {
+        error_handler(index_id, column_uniq_id);
+    }
     for (auto&& column_uniq_id : context.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
         auto index_metas = _cur_tablet_schema->inverted_indexs(col);
@@ -1233,6 +1445,154 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
 }
 
 void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
+    if (_cur_tablet_schema->get_inverted_index_storage_format() ==
+        InvertedIndexStorageFormatPB::SNII) {
+        std::map<std::string, std::unique_ptr<IndexFileReader>> source_file_readers;
+        for (const auto& destination_index : _cur_tablet_schema->inverted_indexes()) {
+            const auto& col_unique_ids = destination_index->col_unique_ids();
+            if (col_unique_ids.empty()) {
+                LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index["
+                             << destination_index->index_id()
+                             << "] has no column unique id, will rebuild its SNII index";
+                continue;
+            }
+            const int32_t col_unique_id = col_unique_ids[0];
+            if (!_cur_tablet_schema->has_column_unique_id(col_unique_id) ||
+                !field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
+                continue;
+            }
+
+            bool eligible = true;
+            size_t source_segment_count = 0;
+            for (const auto& rowset : _input_rowsets) {
+                source_segment_count += rowset->num_segments();
+            }
+            if (source_segment_count == 0 ||
+                source_segment_count > kSniiCompactionReadAheadBudgetBytes /
+                                               snii::compaction::SniiPlainT2MergePlan::
+                                                       kMinReadAheadBudgetPerSource) {
+                eligible = false;
+            }
+
+            Status eligibility_status =
+                    eligible ? Status::OK()
+                             : Status::Error<INVERTED_INDEX_NOT_SUPPORTED>(
+                                       "source index unavailable or read-ahead budget gate failed");
+            std::optional<snii::compaction::SniiCompactionEligibility> merge_eligibility;
+            size_t source_ordinal = 0;
+
+            for (const auto& rowset : _input_rowsets) {
+                if (!eligible) {
+                    break;
+                }
+                auto* beta_rowset = static_cast<BetaRowset*>(rowset.get());
+                if (beta_rowset->is_skip_index_compaction(col_unique_id)) {
+                    eligible = false;
+                    break;
+                }
+                const auto source_index_metas =
+                        rowset->tablet_schema()->inverted_indexs(col_unique_id);
+                const auto source_index_it = std::find_if(
+                        source_index_metas.begin(), source_index_metas.end(),
+                        [&destination_index](const TabletIndex* source_index) {
+                            return source_index->index_id() == destination_index->index_id();
+                        });
+                if (source_index_it == source_index_metas.end()) {
+                    eligible = false;
+                    break;
+                }
+                const TabletIndex* source_index_meta = *source_index_it;
+                const auto fs = rowset->rowset_meta()->fs();
+                if (fs == nullptr) {
+                    eligible = false;
+                    break;
+                }
+
+                for (uint32_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
+                    auto segment_path = rowset->segment_path(segment_id);
+                    if (!segment_path.has_value()) {
+                        eligible = false;
+                        break;
+                    }
+                    const std::string index_file_path_prefix =
+                            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                                    segment_path.value())};
+                    auto source_file_reader_it = source_file_readers.find(index_file_path_prefix);
+                    if (source_file_reader_it == source_file_readers.end()) {
+                        auto source_file_reader = std::make_unique<IndexFileReader>(
+                                fs, index_file_path_prefix, InvertedIndexStorageFormatPB::SNII,
+                                rowset->rowset_meta()->inverted_index_file_info(segment_id),
+                                _tablet->tablet_id());
+                        const Status init_status =
+                                source_file_reader->init(config::inverted_index_read_buffer_size);
+                        if (!init_status.ok()) {
+                            eligible = false;
+                            break;
+                        }
+                        DBUG_EXECUTE_IF("Compaction::snii_eligibility_reader_initialized",
+                                        DBUG_RUN_CALLBACK());
+                        source_file_reader_it = source_file_readers
+                                                        .emplace(index_file_path_prefix,
+                                                                 std::move(source_file_reader))
+                                                        .first;
+                    }
+                    auto source_index = source_file_reader_it->second->open_snii_index(
+                            source_index_meta, nullptr,
+                            snii::reader::LogicalIndexOpenMode::kCompaction);
+                    if (!source_index.has_value()) {
+                        eligible = false;
+                        break;
+                    }
+                    if (!merge_eligibility.has_value()) {
+                        const std::array<snii::compaction::PlainT2CompactionSource, 1> source = {
+                                snii::compaction::PlainT2CompactionSource {
+                                        .reader = std::cref(*source_index.value()),
+                                        .index_meta = std::cref(*source_index_meta)}};
+                        snii::compaction::SniiCompactionEligibility eligibility;
+                        eligibility_status = snii::compaction::validate_snii_compaction_eligibility(
+                                source, *destination_index, &eligibility);
+                        if (eligibility_status.ok()) {
+                            merge_eligibility = std::move(eligibility);
+                        }
+                    } else if (source_index_meta->index_id() != destination_index->index_id() ||
+                               source_index_meta->get_index_suffix() !=
+                                       destination_index->get_index_suffix() ||
+                               source_index_meta->properties() != destination_index->properties()) {
+                        eligibility_status = Status::Error<INVERTED_INDEX_NOT_SUPPORTED>(
+                                "source SNII index identity or properties differ from destination");
+                    } else {
+                        eligibility_status = snii::compaction::validate_snii_source_eligibility(
+                                *source_index.value(), source_ordinal, *merge_eligibility);
+                    }
+                    if (!eligibility_status.ok()) {
+                        eligible = false;
+                        break;
+                    }
+                    ++source_ordinal;
+                }
+            }
+
+            if (!eligible && eligibility_status.ok()) {
+                eligibility_status = Status::Error<INVERTED_INDEX_NOT_SUPPORTED>(
+                        "source SNII index file or metadata is unavailable");
+            }
+            // Per-(column, index) granularity: an eligible index merges natively
+            // even when a sibling on the SAME column must be rebuilt from the
+            // raw column -- eligibility is a property of the logical index, not
+            // of the column.
+            if (eligible) {
+                ctx.snii_indexes_to_do_compaction.emplace(col_unique_id,
+                                                          destination_index->index_id());
+            } else {
+                LOG(INFO) << "tablet[" << _tablet->tablet_id() << "] index["
+                          << destination_index->index_id()
+                          << "] is not eligible for SNII postings compaction; rebuild from raw "
+                             "column. reason="
+                          << eligibility_status;
+            }
+        }
+        return;
+    }
     for (const auto& index : _cur_tablet_schema->inverted_indexes()) {
         auto col_unique_ids = index->col_unique_ids();
         // check if column unique ids is empty to avoid crash
@@ -1669,9 +2029,7 @@ int64_t CompactionMixin::calc_input_rowsets_total_size() const {
 int64_t CompactionMixin::calc_input_rowsets_row_num() const {
     int64_t input_rowsets_row_num = 0;
     for (const auto& rowset : _input_rowsets) {
-        const auto& rowset_meta = rowset->rowset_meta();
-        auto total_size = rowset_meta->total_disk_size();
-        input_rowsets_row_num += total_size;
+        input_rowsets_row_num += rowset->num_rows();
     }
     return input_rowsets_row_num;
 }
@@ -1727,6 +2085,26 @@ CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabl
     std::stringstream ss;
     ss << uuid;
     _uuid = ss.str();
+}
+
+bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
+        int64_t response_cumulative_compaction_cnt) {
+    int64_t local_cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
+    if (local_cumulative_compaction_cnt >= response_cumulative_compaction_cnt) {
+        // sync_rowsets or another compaction has already installed this result.
+        return false;
+    }
+    if (response_cumulative_compaction_cnt != local_cumulative_compaction_cnt + 1) {
+        // Only the current task's output is available locally. Sync all missing outputs instead.
+        cloud_tablet()->last_sync_time_s = 0;
+        LOG_INFO("defer applying cumulative compaction result until tablet sync")
+                .tag("tablet_id", _tablet->tablet_id())
+                .tag("job_id", _uuid)
+                .tag("local_cumulative_compaction_cnt", local_cumulative_compaction_cnt)
+                .tag("response_cumulative_compaction_cnt", response_cumulative_compaction_cnt);
+        return false;
+    }
+    return true;
 }
 
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {

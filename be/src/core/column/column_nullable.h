@@ -31,7 +31,7 @@
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
-#include "storage/olap_common.h"
+#include "storage/rowset_id.h"
 
 class SipHash;
 

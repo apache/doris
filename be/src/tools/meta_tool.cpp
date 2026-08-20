@@ -53,6 +53,7 @@
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/common.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/storage_engine.h"
@@ -288,9 +289,8 @@ Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* f
     RETURN_IF_ERROR(file_reader->read_at(file_size - 12, slice, &bytes_read));
 
     // validate magic number
-    const char* k_segment_magic = "D0R1";
-    const uint32_t k_segment_magic_length = 4;
-    if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
+    if (memcmp(fixed_buf + 8, doris::segment_v2::k_segment_magic,
+               doris::segment_v2::k_segment_magic_length) != 0) {
         return Status::Corruption("Bad segment file {}: magic number not match", file_name);
     }
 
@@ -1034,9 +1034,8 @@ void gen_empty_segment() {
     footer_slices.push_back(Slice(footer_checksum_buf, 4));
 
     // Magic number (4 bytes): "D0R1"
-    const char* k_segment_magic = "D0R1";
-    const uint32_t k_segment_magic_length = 4;
-    footer_slices.push_back(Slice(k_segment_magic, k_segment_magic_length));
+    footer_slices.push_back(
+            Slice(doris::segment_v2::k_segment_magic, doris::segment_v2::k_segment_magic_length));
 
     // Write index page first, then footer
     for (const auto& slice : index_body) {

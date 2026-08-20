@@ -49,6 +49,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
@@ -67,8 +68,6 @@ namespace doris {
 using namespace ErrorCode;
 
 namespace {
-
-constexpr size_t MEBIBYTE = 1024 * 1024;
 
 bool is_compressed_file_scan(const TPipelineFragmentParams& params) {
     if (!params.__isset.file_scan_params) {
@@ -92,10 +91,10 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_requests_total, MetricUnit::REQ
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(http_stream_current_processing, MetricUnit::REQUESTS);
 
-HttpStreamAction::HttpStreamAction(ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
-    // Use LOAD privilege type: requires LOAD permission
-    // Note: _exec_env is set by parent class HttpHandlerWithAuth
+HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+    // HTTP stream derives db/table from the SQL header and then forwards the
+    // request credentials to FE load RPCs for table-scoped LOAD checks. The generic
+    // BE HTTP auth hook only supports caller-provided resource metadata.
     _http_stream_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("http_stream");
     INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_requests_total);
@@ -182,12 +181,6 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
 }
 
 int HttpStreamAction::on_header(HttpRequest* req) {
-    // Call parent's auth check first
-    int ret = HttpHandlerWithAuth::on_header(req);
-    if (ret != 0) {
-        return ret; // Auth failed, return error
-    }
-
     http_stream_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);

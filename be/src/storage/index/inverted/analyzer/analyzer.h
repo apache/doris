@@ -20,6 +20,7 @@
 #include <memory>
 #include <vector>
 
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/query/query.h"
@@ -49,14 +50,23 @@ public:
                                                const std::string& lower_case,
                                                const std::string& stop_words);
     static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
+    static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config,
+                                       AnalysisPurpose purpose);
+    static AnalyzerProviderPtr create_analyzer_provider(const InvertedIndexAnalyzerConfig* config);
 
     static std::vector<TermInfo> get_analyse_result(ReaderPtr reader,
                                                     lucene::analysis::Analyzer* analyzer);
 
     static std::vector<TermInfo> get_analyse_result(
             const std::string& search_str, const std::map<std::string, std::string>& properties);
+    static std::vector<TermInfo> get_analyse_result(
+            const std::string& search_str, const std::map<std::string, std::string>& properties,
+            AnalysisPurpose purpose);
 
     static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };
+
+AnalysisPurpose select_analysis_purpose(InvertedIndexQueryType query_type, int32_t slop,
+                                        bool is_similarity);
 
 } // namespace doris::segment_v2::inverted_index

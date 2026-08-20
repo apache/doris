@@ -44,6 +44,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
@@ -60,6 +61,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/index/inverted/query_v2/regexp_query/regexp_query.h"
+#include "storage/index/inverted/query_v2/scored_bit_set_query/scored_bit_set_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/query_v2/wildcard_query/wildcard_query.h"
 #include "storage/index/inverted/util/string_helper.h"
@@ -113,6 +115,50 @@ static std::string extract_segment_prefix(
     VLOG_DEBUG << "extract_segment_prefix: no suitable inverted index reader found across "
                << iterators.size() << " iterators, caching disabled for this query";
     return "";
+}
+
+static void collect_referenced_fields(const TSearchClause& clause,
+                                      std::unordered_set<std::string>* fields) {
+    DORIS_CHECK(fields != nullptr);
+    if (clause.__isset.field_name && !clause.field_name.empty()) {
+        fields->insert(clause.field_name);
+    }
+    for (const auto& child : clause.children) {
+        collect_referenced_fields(child, fields);
+    }
+}
+
+static bool referenced_fields_contain_snii_reader(
+        const TSearchClause& root,
+        const std::unordered_map<std::string, IndexIterator*>& iterators) {
+    std::unordered_set<std::string> referenced_fields;
+    collect_referenced_fields(root, &referenced_fields);
+    for (const auto& field_name : referenced_fields) {
+        auto iterator_it = iterators.find(field_name);
+        if (iterator_it == iterators.end()) {
+            continue;
+        }
+        auto* inv_iter = dynamic_cast<InvertedIndexIterator*>(iterator_it->second);
+        if (inv_iter == nullptr) {
+            continue;
+        }
+        for (auto type : {InvertedIndexReaderType::FULLTEXT, InvertedIndexReaderType::STRING_TYPE,
+                          InvertedIndexReaderType::BKD}) {
+            IndexReaderType reader_type = type;
+            auto reader = inv_iter->get_reader(reader_type);
+            if (reader == nullptr) {
+                continue;
+            }
+            auto inv_reader = std::dynamic_pointer_cast<InvertedIndexReader>(reader);
+            DORIS_CHECK(inv_reader != nullptr);
+            auto file_reader = inv_reader->get_index_file_reader();
+            DORIS_CHECK(file_reader != nullptr);
+            if (file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 namespace {
@@ -216,6 +262,14 @@ InvertedIndexQueryType direct_index_query_type_for_clause(const std::string& cla
     return InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
+std::string normalize_wildcard_pattern(const std::string& value,
+                                       const std::map<std::string, std::string>& index_properties) {
+    const bool has_parser =
+            inverted_index::InvertedIndexAnalyzer::should_analyzer(index_properties);
+    const std::string lowercase_setting = get_parser_lowercase_from_properties(index_properties);
+    return has_parser && lowercase_setting == INVERTED_INDEX_PARSER_TRUE ? to_lower(value) : value;
+}
+
 } // namespace
 
 Status FunctionSearch::execute_impl(FunctionContext* /*context*/, Block& /*block*/,
@@ -274,13 +328,16 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
     SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
 
-    const bool need_similarity_score =
-            index_query_context && index_query_context->collection_similarity;
-
     // DSL result cache only stores bitmap/null bitmap. It does not store BM25 scores,
     // so score() queries must execute scorers to populate CollectionSimilarity.
-    auto* dsl_cache = (enable_cache && !need_similarity_score) ? InvertedIndexQueryCache::instance()
-                                                               : nullptr;
+    const bool enable_scoring =
+            index_query_context != nullptr && index_query_context->collection_similarity != nullptr;
+    // Also bypass the DSL cache when any referenced field is served by an SNII reader.
+    auto* dsl_cache =
+            enable_cache && !enable_scoring &&
+                            !referenced_fields_contain_snii_reader(search_param.root, iterators)
+                    ? InvertedIndexQueryCache::instance()
+                    : nullptr;
     std::string seg_prefix;
     std::string dsl_sig;
     InvertedIndexQueryCache::CacheKey dsl_cache_key;
@@ -394,11 +451,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     query_v2::QueryExecutionContext exec_ctx =
             build_variant_search_query_execution_context(num_rows, resolver, &null_resolver);
 
-    bool enable_scoring = false;
     bool is_asc = false;
     size_t top_k = 0;
     if (index_query_context) {
-        enable_scoring = index_query_context->collection_similarity != nullptr;
         is_asc = index_query_context->is_asc;
         top_k = index_query_context->query_limit;
     }
@@ -734,6 +789,168 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         *binding_key = binding.binding_key;
     }
 
+    if (binding.use_snii_native_reader()) {
+        DORIS_CHECK(binding.inverted_reader != nullptr);
+        // The SNII reader answers a clause directly from a query type: it tokenizes the value
+        // itself and owns the matching operator, so unlike the CLucene path below there is no
+        // query tree to assemble here. RANGE and LIST reach the same TERM fallback the CLucene
+        // path uses, because neither is implemented there either.
+        InvertedIndexQueryType snii_query_type = (clause_type == "RANGE" || clause_type == "LIST")
+                                                         ? InvertedIndexQueryType::EQUAL_QUERY
+                                                         : clause_type_to_query_type(clause_type);
+
+        if (clause_type == "TERM") {
+            // minimum_should_match ("at least N of M terms") has no SNII query type: the reader
+            // only knows AND-all (MATCH_ALL_QUERY) or OR-all (EQUAL_QUERY/MATCH_ANY_QUERY) of the
+            // terms it tokenizes internally, never a partial threshold. The CLucene TERM handling
+            // below builds an OccurBooleanQuery for this, but only when the value actually
+            // tokenizes to MORE THAN ONE term: its `term_infos.size() == 1` short-circuit returns
+            // a plain TermQuery first and never looks at msm, because msm is meaningless when
+            // there is only one term to select "at least N of" from. SNII must draw the line in
+            // the same place: tokenize the value up front and refuse only the genuinely
+            // unsupported multi-token case, instead of rejecting every analysed field the instant
+            // msm is set regardless of how many tokens the value produces.
+            if (minimum_should_match > 0 &&
+                inverted_index::InvertedIndexAnalyzer::should_analyzer(binding.index_properties)) {
+                auto term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        value, binding.index_properties,
+                        inverted_index::AnalysisPurpose::kPlainQuery);
+                if (term_infos.size() > 1) {
+                    return Status::NotSupported(
+                            "SNII native SEARCH does not support minimum_should_match for TERM "
+                            "clauses (got {})",
+                            minimum_should_match);
+                }
+                if (term_infos.empty()) {
+                    // Zero tokens (e.g. an all-stopword or empty value): mirror the CLucene TERM
+                    // handling's own `term_infos.empty()` -> empty BitSetQuery short-circuit
+                    // below, instead of falling through to binding.inverted_reader->query()
+                    // below. That reader's own empty-term_infos short-circuit
+                    // (snii_index_reader.cpp:722-731) only returns an empty bitmap when
+                    // is_match_query() is true (inverted_index_query_type.h:99-106). TERM's
+                    // "or"/default-operator query type is EQUAL_QUERY, which is not in that list,
+                    // so it would instead return Status::Error<INVERTED_INDEX_NO_TERMS>. The
+                    // "and" operator's MATCH_ALL_QUERY (assigned below) IS in that list, but this
+                    // branch returns unconditionally before that assignment ever runs -- same as
+                    // the CLucene reference path, which is unconditional too -- so the outcome
+                    // here does not depend on default_operator. For SEARCH() specifically that
+                    // error would be a hard query failure, not a slower row-scan fallback:
+                    // VSearchExpr has no downgrade path of its own (vsearch.cpp:234/265), and
+                    // prevent_search_row_fallback (vsearch.cpp:169-183) does not admit
+                    // INVERTED_INDEX_NO_TERMS as a status that may fall back either.
+                    return finish_leaf_query(
+                            std::make_shared<query_v2::BitSetQuery>(roaring::Roaring()));
+                }
+                // size() == 1: msm is meaningless for a single token, matching V3 -- fall through.
+            }
+            // default_operator selects how a multi-token TERM value combines: "and" requires
+            // every term (MATCH_ALL_QUERY), "or" -- the default -- requires any term, which is
+            // already snii_query_type above (EQUAL_QUERY). A single-token value is unaffected
+            // either way, since the reader special-cases terms.size() == 1 for both query types.
+            if (default_operator == "and") {
+                snii_query_type = InvertedIndexQueryType::MATCH_ALL_QUERY;
+            }
+        } else if (clause_type == "PREFIX" &&
+                   !inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                           binding.index_properties)) {
+            // FE keeps the trailing '*' in the PREFIX value unstripped (SearchDslParser.java).
+            // On an analysed field the tokenizer drops it, leaving a clean single prefix term,
+            // so the default clause_type_to_query_type mapping (MATCH_PHRASE_PREFIX_QUERY) is
+            // correct as-is. On a keyword (non-analysed) field the whole string -- '*' included
+            // -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so
+            // MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. Route
+            // those to WILDCARD_QUERY instead, exactly like the CLucene path's
+            // WildcardQuery(value) for PREFIX (function_search.cpp:1075-1076): the reader
+            // forwards a WILDCARD_QUERY value unanalysed, so the trailing '*' works the same way.
+            snii_query_type = InvertedIndexQueryType::WILDCARD_QUERY;
+        }
+
+        // The SNII reader has no way to hand a clause's BM25 values back through query(): it
+        // publishes them into whatever CollectionSimilarity the context carries. If that were the
+        // query's own similarity, the reader and the collector -- which also calls collect() with
+        // the scorer's score, and whose collect() accumulates rather than overwrites -- would both
+        // write, so every document would end up with its BM25 plus the scorer's constant, and the
+        // early top-k path would rank by that constant instead of by relevance. Redirect the
+        // reader into a private sink and let the score reach the collector the normal way, through
+        // the scorer built below.
+        //
+        // The sink is created exactly when the reader is going to score, which is the same pair
+        // of conditions the reader itself uses (its actual_similarity): the caller supplied a
+        // similarity at all, and this query type scores on this index. Deciding it up front beats
+        // inferring it afterwards from "the sink came back non-empty", and it keeps every clause
+        // that cannot be scored -- wildcard, regexp, EQUAL_QUERY, and the WILDCARD "*" shortcut
+        // that never calls the reader -- from allocating a CollectionSimilarity that reserves
+        // 1024 entries in its constructor.
+        const bool reader_will_score =
+                context->collection_similarity != nullptr &&
+                IndexReaderHelper::is_need_similarity_score(
+                        snii_query_type, &binding.inverted_reader->get_index_meta());
+        std::shared_ptr<segment_v2::IndexQueryContext> reader_context = context;
+        std::shared_ptr<CollectionSimilarity> score_sink;
+        if (reader_will_score) {
+            score_sink = std::make_shared<CollectionSimilarity>();
+            reader_context = std::make_shared<segment_v2::IndexQueryContext>(*context);
+            reader_context->collection_similarity = score_sink;
+        }
+
+        auto data_bitmap = std::make_shared<roaring::Roaring>();
+        if (clause_type == "WILDCARD" && value == "*") {
+            data_bitmap->addRange(0, num_rows);
+        } else {
+            // Wildcard patterns carry the analyzer's lower_case semantics; every other clause
+            // passes its value through untouched, since the reader analyses it.
+            std::string pattern =
+                    clause_type == "WILDCARD"
+                            ? normalize_wildcard_pattern(value, binding.index_properties)
+                            : value;
+            Field query_value = Field::create_field<TYPE_STRING>(pattern);
+            RETURN_IF_ERROR(binding.inverted_reader->query(reader_context,
+                                                           binding.stored_field_name, query_value,
+                                                           snii_query_type, data_bitmap, nullptr));
+            // Reply-direction fields land on the copy the reader was given, so they have to be
+            // folded back. Today this is unreachable rather than load-bearing: the count-only
+            // fast path requires the scan to have no score runtime, while the similarity that
+            // creates the copy exists only when there IS one, so the two never coexist. It stays
+            // because the copy must remain honest if that ever changes -- a dropped reply would
+            // be silent.
+            if (reader_context != context) {
+                context->merge_reader_outputs(*reader_context);
+            }
+            // Restore the pre-normalization value for WILDCARD so the trace still shows what the
+            // caller actually asked for, not just what was sent to the reader.
+            std::string log_suffix =
+                    clause_type == "WILDCARD" ? (" (original='" + value + "')") : std::string();
+            VLOG_DEBUG << "search: SNII clause processed, type=" << clause_type
+                       << ", field=" << field_name << ", value='" << pattern << "'" << log_suffix;
+        }
+
+        auto null_bitmap = std::make_shared<roaring::Roaring>();
+        if (binding.inverted_reader->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(binding.inverted_reader->read_null_bitmap(
+                    context, &null_bitmap_cache_handle, nullptr));
+            auto cached_null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            DORIS_CHECK(cached_null_bitmap != nullptr);
+            null_bitmap = std::move(cached_null_bitmap);
+        }
+        *data_bitmap -= *null_bitmap;
+        // Only clauses the reader actually scored get a scored query. The rest -- wildcard,
+        // regexp, and any query type is_need_similarity_score rejects -- have no per-document
+        // value to expose, and keep the constant-score BitSetQuery that the CLucene path also
+        // gives its unscored leaves, so their contribution to a compound query is unchanged.
+        // The emptiness check is not redundant with reader_will_score above: that gate cannot see
+        // the analysed term count, and the reader publishes nothing for shapes such as a
+        // MATCH_PHRASE_PREFIX_QUERY that tokenizes to a single term.
+        auto sink_scores = score_sink != nullptr ? score_sink->release_scores() : ScoreMap {};
+        if (!sink_scores.empty()) {
+            return finish_leaf_query(std::make_shared<query_v2::ScoredBitSetQuery>(
+                    std::move(data_bitmap), std::move(null_bitmap),
+                    std::make_shared<const ScoreMap>(std::move(sink_scores))));
+        }
+        return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(data_bitmap),
+                                                                         std::move(null_bitmap)));
+    }
+
     if (binding.use_direct_index_reader()) {
         auto direct_query_type = direct_index_query_type_for_clause(clause_type);
         if (direct_query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
@@ -800,7 +1017,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             std::vector<TermInfo> term_infos =
                     inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            value, binding.index_properties);
+                            value, binding.index_properties,
+                            inverted_index::AnalysisPurpose::kPlainQuery);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: No terms found after tokenization for TERM query, field="
                              << field_name << ", value='" << value
@@ -864,7 +1082,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             std::vector<TermInfo> term_infos =
                     inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            value, binding.index_properties);
+                            value, binding.index_properties,
+                            inverted_index::AnalysisPurpose::kPlainQuery);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: No terms found after tokenization for PHRASE query, field="
                              << field_name << ", value='" << value
@@ -879,8 +1098,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 const auto& term_info = phrase_term_infos[0];
                 if (term_info.is_single_term()) {
                     std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
-                    return finish_leaf_query(
-                            std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr));
+                    return finish_leaf_query(make_term_query(term_wstr));
                 } else {
                     auto builder =
                             create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
@@ -922,7 +1140,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             std::vector<TermInfo> term_infos =
                     inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            value, binding.index_properties);
+                            value, binding.index_properties,
+                            inverted_index::AnalysisPurpose::kPlainQuery);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: tokenization yielded no terms for clause '" << clause_type
                              << "', field=" << field_name << ", returning empty BitSetQuery";
@@ -994,8 +1213,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     binding.index_properties);
             std::string lowercase_setting =
                     get_parser_lowercase_from_properties(binding.index_properties);
-            bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
-            std::string pattern = should_lowercase ? to_lower(value) : value;
+            std::string pattern = normalize_wildcard_pattern(value, binding.index_properties);
             VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
                        << pattern << "' (original='" << value << "', has_parser=" << has_parser
                        << ", lower_case=" << lowercase_setting << ")";

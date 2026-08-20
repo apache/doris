@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "exec/sink/writer/iceberg/iceberg_writer_compatibility.h"
 #include "exprs/vexpr.h"
 #include "format/table/deletion_vector.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
@@ -203,6 +204,8 @@ Status VIcebergDeleteSink::init_properties(ObjectPool* pool) {
 Status VIcebergDeleteSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
+    RETURN_IF_ERROR(validate_iceberg_external_file_report_ack(state->query_options()));
+
     // Initialize counters
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(profile, "SendDataTime");
@@ -283,13 +286,17 @@ Status VIcebergDeleteSink::close(Status close_status) {
                              _delete_file_count);
 
     if (_state != nullptr) {
-        for (const auto& commit_data : _commit_data_list) {
-            _state->add_iceberg_commit_datas(commit_data);
+        for (auto& commit_data : _commit_data_list) {
+            Status report_status = _state->add_iceberg_commit_datas(std::move(commit_data));
+            if (!report_status.ok()) {
+                _cleanup_created_files();
+                return report_status;
+            }
         }
     }
 
     if (!_defer_file_cleanup_until_outer_close) {
-        _created_files.clear();
+        _transfer_created_files_to_report_cleanup();
     }
 
     return Status::OK();
@@ -299,9 +306,22 @@ void VIcebergDeleteSink::finish_deferred_file_cleanup(Status outer_status) {
     if (!outer_status.ok()) {
         _cleanup_created_files();
     } else {
-        _created_files.clear();
+        _transfer_created_files_to_report_cleanup();
     }
     _defer_file_cleanup_until_outer_close = false;
+}
+
+void VIcebergDeleteSink::_transfer_created_files_to_report_cleanup() {
+    DCHECK(_state != nullptr);
+    for (auto& created_file : _created_files) {
+        _state->add_rejected_external_file_report_cleanup(
+                [cleanup_fs = std::move(created_file.first),
+                 cleanup_path = std::move(created_file.second)] {
+                    WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
+                                  "failed to delete an Iceberg delete file after report failure");
+                });
+    }
+    _created_files.clear();
 }
 
 void VIcebergDeleteSink::_cleanup_created_files() {

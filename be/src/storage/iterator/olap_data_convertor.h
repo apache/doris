@@ -23,6 +23,8 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <utility>
@@ -69,7 +71,7 @@ public:
 };
 
 struct VariantColumnData {
-    const void* column_data;
+    const IColumn* column_data;
     size_t row_pos;
 };
 
@@ -301,36 +303,49 @@ private:
         }
 
         Status convert_to_olap() override {
-            typename PrimitiveTypeTraits<T>::ColumnType* column_data = nullptr;
+            using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+
+            const ColumnType* column_data = nullptr;
             if (_nullmap) {
-                auto nullable_column =
+                const auto* nullable_column =
                         assert_cast<const ColumnNullable*>(_typed_column.column.get());
-                _mutable_column = std::move(nullable_column->get_nested_column()).mutate();
-                column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
-                        _mutable_column.get());
+                column_data = assert_cast<const ColumnType*>(&nullable_column->get_nested_column());
             } else {
-                _mutable_column = std::move(*_typed_column.column).mutate();
-                column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
-                        _mutable_column.get());
+                column_data = assert_cast<const ColumnType*>(_typed_column.column.get());
             }
 
             assert(column_data);
-            _values = (typename PrimitiveTypeTraits<T>::CppType*)(column_data->get_data().data()) +
-                      _row_pos;
+            _values = column_data->get_data().data() + _row_pos;
+            // DATA and ROW_BINLOG flush tasks may convert the same source Block concurrently,
+            // so this converter must never mutate the source column or its nullable nested column.
+            // Most simple types can expose the requested source slice directly with zero copy.
+            // FLOAT/DOUBLE are special because storage requires a canonical NaN representation:
+            // scan only the requested slice and keep the zero-copy path when it contains no NaN;
+            // otherwise, normalize a copy in the converter-owned reusable buffer. The buffer is a
+            // member because SegmentWriter may read the accessor after convert_to_olap() returns.
             if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
-                for (size_t i = 0; i < _num_rows; ++i) {
-                    if (std::isnan(_values[i])) {
-                        _values[i] = std::numeric_limits<
-                                typename PrimitiveTypeTraits<T>::CppType>::quiet_NaN();
+                _converted_values.clear();
+                const CppType* values_end = _values + _num_rows;
+                const CppType* first_nan = std::find_if(
+                        _values, values_end, [](CppType value) { return std::isnan(value); });
+                if (UNLIKELY(first_nan != values_end)) {
+                    _converted_values.assign(_values, values_end);
+                    auto* converted_value = _converted_values.data() + (first_nan - _values);
+                    for (; converted_value != _converted_values.end(); ++converted_value) {
+                        if (std::isnan(*converted_value)) {
+                            *converted_value = std::numeric_limits<CppType>::quiet_NaN();
+                        }
                     }
+                    _values = _converted_values.data();
                 }
             }
             return Status::OK();
         }
 
     protected:
-        typename PrimitiveTypeTraits<T>::CppType* _values = nullptr;
-        MutableColumnPtr _mutable_column = nullptr;
+        using CppType = typename PrimitiveTypeTraits<T>::CppType;
+        const CppType* _values = nullptr;
+        PaddedPODArray<CppType> _converted_values;
     };
 
     class OlapColumnDataConvertorDateV2 : public OlapColumnDataConvertorBase {
@@ -435,9 +450,7 @@ private:
             }
 
             assert(column_data);
-            this->_values =
-                    (typename PrimitiveTypeTraits<T>::CppType*)(column_data->get_data().data()) +
-                    this->_row_pos;
+            this->_values = column_data->get_data().data() + this->_row_pos;
             return Status::OK();
         }
     };
@@ -533,7 +546,7 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        const void* _value_ptr;
+        const IColumn* _value_ptr = nullptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
         std::unique_ptr<VariantColumnData> _variant_column_data;
     };

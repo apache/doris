@@ -20,6 +20,7 @@ package org.apache.doris.datasource.storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
@@ -420,12 +421,31 @@ public final class StorageAdapter {
         return params;
     }
 
-    /** Backend (BE) configuration map, key-for-key equal to the legacy typed classes. */
+    /**
+     * Backend (BE) configuration map, key-for-key equal to the legacy typed classes plus the
+     * per-scheme {@code doris.fs.cache.key.<scheme>} entries identifying the credential set it was
+     * built from (see {@link FsCacheKeys}).
+     *
+     * <p>The returned map is a defensive copy: the Broker/Local/Http branch of
+     * {@link #computeBackendConfigProperties()} hands back the caller's own raw property map, which
+     * must not gain the injected keys nor any caller's later edits.
+     */
     public Map<String, String> getBackendConfigProperties() {
         if (backendConfigProperties == null) {
-            backendConfigProperties = computeBackendConfigProperties();
+            Map<String, String> props = new HashMap<>(computeBackendConfigProperties());
+            FsCacheKeys.putFsCacheKeys(props, spi);
+            backendConfigProperties = props;
         }
-        return backendConfigProperties;
+        return new HashMap<>(backendConfigProperties);
+    }
+
+    /**
+     * Stable fingerprint of this storage identity, computed by the bound SPI properties from their
+     * class name and matched (credential-carrying) user properties — see {@link FsCacheKeys}. It is
+     * published under {@link FsCacheKeys#fsCacheKeyProperty} for each scheme this storage serves.
+     */
+    public String getFsCacheFingerprint() {
+        return spi.fsCacheFingerprint();
     }
 
     private Map<String, String> computeBackendConfigProperties() {

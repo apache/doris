@@ -24,7 +24,10 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_scalar.h"
+#include "util/json/path_in_data.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -283,7 +286,47 @@ void validate_variant_payload(VariantRef value) {
 VariantField::VariantField(std::unique_ptr<char[]> data, size_t size) noexcept
         : _data(std::move(data)), _size(size) {}
 
-VariantField::VariantField(const VariantField& other) : _size(other._size) {
+VariantField::VariantField() noexcept = default;
+
+VariantField::~VariantField() = default;
+
+VariantField::VariantField(VariantMap legacy)
+        : _legacy_representation(true), _legacy(std::make_unique<VariantMap>(std::move(legacy))) {}
+
+bool VariantField::is_legacy() const noexcept {
+    return _legacy_representation;
+}
+
+// NOLINTNEXTLINE(readability-make-member-function-const) -- non-const overload exposes a writable V1 map.
+VariantMap& VariantField::legacy_map() {
+    if (!_legacy_representation) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Encoded VariantField does not contain a legacy VariantMap");
+    }
+    if (_legacy == nullptr) {
+        _legacy = std::make_unique<VariantMap>();
+    }
+    return *_legacy;
+}
+
+const VariantMap& VariantField::legacy_map() const {
+    if (!_legacy_representation) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Encoded VariantField does not contain a legacy VariantMap");
+    }
+    if (_legacy == nullptr) {
+        static const VariantMap EMPTY;
+        return EMPTY;
+    }
+    return *_legacy;
+}
+
+VariantField::VariantField(const VariantField& other)
+        : _legacy_representation(other._legacy_representation), _size(other._size) {
+    if (_legacy_representation) {
+        _legacy = other._legacy != nullptr ? std::make_unique<VariantMap>(*other._legacy)
+                                           : std::make_unique<VariantMap>();
+    }
     if (_size != 0) {
         _data = std::make_unique<char[]>(_size);
         std::memcpy(_data.get(), other._data.get(), _size);
@@ -291,7 +334,10 @@ VariantField::VariantField(const VariantField& other) : _size(other._size) {
 }
 
 VariantField::VariantField(VariantField&& other) noexcept
-        : _data(std::move(other._data)), _size(std::exchange(other._size, 0)) {}
+        : _legacy_representation(other._legacy_representation),
+          _legacy(std::move(other._legacy)),
+          _data(std::move(other._data)),
+          _size(std::exchange(other._size, 0)) {}
 
 VariantField& VariantField::operator=(const VariantField& other) {
     VariantField copy(other);
@@ -301,6 +347,8 @@ VariantField& VariantField::operator=(const VariantField& other) {
 
 VariantField& VariantField::operator=(VariantField&& other) noexcept {
     if (this != &other) {
+        _legacy_representation = other._legacy_representation;
+        _legacy = std::move(other._legacy);
         _data = std::move(other._data);
         _size = std::exchange(other._size, 0);
     }
@@ -339,7 +387,22 @@ VariantField VariantField::from_bytes(StringRef bytes) {
     return {copy_bytes(bytes), bytes.size};
 }
 
+VariantField VariantField::from_scalar(const VariantScalarRef& scalar) {
+    const size_t metadata_size = VARIANT_EMPTY_METADATA.size();
+    const size_t value_offset = METADATA_SIZE_PREFIX + metadata_size;
+    const size_t value_size = scalar.encoded_size();
+    auto data = std::make_unique<char[]>(value_offset + value_size);
+    write_u32(data.get(), static_cast<uint32_t>(metadata_size));
+    std::memcpy(data.get() + METADATA_SIZE_PREFIX, VARIANT_EMPTY_METADATA.data(), metadata_size);
+    scalar.write_physical(data.get() + value_offset, value_size);
+    return VariantField(std::move(data), value_offset + value_size);
+}
+
 VariantRef VariantField::ref() const {
+    if (_legacy_representation) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Legacy VariantField does not contain an encoded Variant row");
+    }
     if (_size == 0) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot reference an empty or moved-from VariantField");
@@ -351,6 +414,14 @@ VariantRef VariantField::ref() const {
     VariantMetadataRef metadata {.data = _data.get() + METADATA_SIZE_PREFIX, .size = metadata_size};
     return {.metadata = metadata,
             .value = {metadata.data + metadata.size, _size - METADATA_SIZE_PREFIX - metadata.size}};
+}
+
+VariantMetadataRef VariantField::metadata() const {
+    return ref().metadata;
+}
+
+StringRef VariantField::value() const {
+    return ref().value;
 }
 
 StringRef VariantField::bytes() const noexcept {
@@ -382,6 +453,8 @@ bool VariantField::operator>(const VariantField&) const {
 }
 
 void VariantField::swap(VariantField& other) noexcept {
+    std::swap(_legacy_representation, other._legacy_representation);
+    _legacy.swap(other._legacy);
     _data.swap(other._data);
     std::swap(_size, other._size);
 }

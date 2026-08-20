@@ -32,6 +32,7 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/field.h"
 #include "core/string_view.h"
+#include "storage/field_type.h"
 
 namespace doris {
 class BufferWritable;

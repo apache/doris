@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <ranges>
 #include <set>
 #include <utility>
 
@@ -465,6 +466,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
         break;
     case TInvertedIndexFileStorageFormat::V3:
         tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        break;
+    case TInvertedIndexFileStorageFormat::SNII:
+        tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
         break;
     default:
         tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);

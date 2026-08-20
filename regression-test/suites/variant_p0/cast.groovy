@@ -18,8 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_variant_cast", "p0") {
-    qt_sql1 """select cast(cast('{"a" : 1}' as variant) as jsonb);"""
-    qt_sql2 """select json_type(cast(cast('{"a" : 1}' as variant) as jsonb), "\$.a");"""
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    qt_sql1 """select cast(${variantV2Function}('{"a" : 1}') as jsonb);"""
+    qt_sql2 """select json_type(cast(${variantV2Function}('{"a" : 1}') as jsonb), "\$.a");"""
     sql "DROP TABLE IF EXISTS var_cast"
     sql """
         CREATE TABLE `var_cast` (
@@ -32,11 +33,11 @@ suite("test_variant_cast", "p0") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
-    sql """insert into var_cast values (1, '{"aaa" : 1}')"""
+    sql """insert into var_cast values (1, ${variantV2Function}('{"aaa" : 1}'))"""
     qt_sql3 "select cast(var as json) from var_cast"
-    sql """insert into var_cast values (1, '[1]')"""
+    sql """insert into var_cast values (1, ${variantV2Function}('[1]'))"""
     qt_sql4 "select cast(var as json) from var_cast"
-    sql """insert into var_cast values (1, '123')"""
+    sql """insert into var_cast values (1, ${variantV2Function}('123'))"""
     qt_sql5 "select cast(var as json) from var_cast"
 
     sql "DROP TABLE IF EXISTS var_not_null_cast"
@@ -51,13 +52,13 @@ suite("test_variant_cast", "p0") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
-    sql """insert into var_not_null_cast values (1, '{"aaa" : 1}')"""
+    sql """insert into var_not_null_cast values (1, ${variantV2Function}('{"aaa" : 1}'))"""
     //qt_sql6 "select cast(var as json) from var_not_null_cast"
-    sql """insert into var_not_null_cast values (1, '[1]')"""
+    sql """insert into var_not_null_cast values (1, ${variantV2Function}('[1]'))"""
     //qt_sql7 "select cast(var as json) from var_not_null_cast"
-    sql """insert into var_not_null_cast values (1, '123')"""
+    sql """insert into var_not_null_cast values (1, ${variantV2Function}('123'))"""
     //qt_sql8 "select cast(var as json) from var_not_null_cast"
-    sql """insert into var_not_null_cast values (1, '{"aaa" : "aaa"}')"""
+    sql """insert into var_not_null_cast values (1, ${variantV2Function}('{"aaa" : "aaa"}'))"""
     qt_sql9 "select * from var_not_null_cast where cast(var['aaa'] as int) is null"
 
     sql "DROP TABLE IF EXISTS var_cast_decimal"
@@ -72,6 +73,6 @@ suite("test_variant_cast", "p0") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
-    sql """insert into var_cast_decimal values (1, '{"aaa" : 1.23}')"""
+    sql """insert into var_cast_decimal values (1, ${variantV2Function}('{"aaa" : 1.23}'))"""
     qt_sql10 "select * from var_cast_decimal where cast(var['aaa'] as decimal(10, 1)) = 1.2"
 }

@@ -1404,7 +1404,9 @@ Status OrcReader::_configure_row_reader_projection() {
 }
 
 Status OrcReader::_init_search_argument_from_local_filters() {
-    if (!_state->enable_filter_by_min_max || _request->conjuncts.empty()) {
+    const size_t safe_count =
+            std::min(_request->metadata_pruning_safe_conjunct_count, _request->conjuncts.size());
+    if (!_state->enable_filter_by_min_max || safe_count == 0) {
         return Status::OK();
     }
 
@@ -1412,7 +1414,10 @@ Status OrcReader::_init_search_argument_from_local_filters() {
         auto builder = ::orc::SearchArgumentFactory::newBuilder();
         bool has_pushdown = false;
         builder->startAnd();
-        for (const auto& conjunct : _request->conjuncts) {
+        // ORC may omit unsupported expressions from a SARG, so a later predicate must not cross
+        // an earlier error-preserving barrier.
+        for (size_t i = 0; i < safe_count; ++i) {
+            const auto& conjunct = _request->conjuncts[i];
             if (conjunct == nullptr) {
                 continue;
             }

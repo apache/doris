@@ -126,12 +126,6 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
             memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
 }
 
-void TabletsChannel::_init_profile(RuntimeProfile* profile) {
-    DCHECK(profile != nullptr);
-    BaseTabletsChannel::_init_profile(profile);
-    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
-}
-
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
     // if _state is kOpened, it's a normal case, already open by other sender
@@ -418,8 +412,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         }
     }
 
-    _write_single_replica = req.write_single_replica();
-
     // 2. wait all writer finished flush.
     for (auto* writer : need_wait_writers) {
         RETURN_IF_ERROR((writer->wait_flush()));
@@ -459,49 +451,14 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     for (auto* writer : need_wait_writers) {
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
-        _commit_txn(writer, req, res);
-    }
-
-    if (_write_single_replica) {
-        auto* success_slave_tablet_node_ids = res->mutable_success_slave_tablet_node_ids();
-        // The operation waiting for all slave replicas to complete must end before the timeout,
-        // so that there is enough time to collect completed replica. Otherwise, the task may
-        // timeout and fail even though most of the replicas are completed. Here we set 0.9
-        // times the timeout as the maximum waiting time.
-        SCOPED_TIMER(_slave_replica_timer);
-        while (!need_wait_writers.empty() &&
-               (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
-            std::set<DeltaWriter*>::iterator it;
-            for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-                bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
-                if (is_done) {
-                    need_wait_writers.erase(it++);
-                } else {
-                    it++;
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        for (auto* writer : need_wait_writers) {
-            writer->add_finished_slave_replicas(success_slave_tablet_node_ids);
-        }
-        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+        _commit_txn(writer, res);
     }
 
     return Status::OK();
 }
 
-void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
-                                 PTabletWriterAddBlockResult* res) {
-    PSlaveTabletNodes slave_nodes;
-    if (_write_single_replica) {
-        auto& nodes_map = req.slave_tablet_nodes();
-        auto it = nodes_map.find(writer->tablet_id());
-        if (it != nodes_map.end()) {
-            slave_nodes = it->second;
-        }
-    }
-    Status st = writer->commit_txn(slave_nodes);
+void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res) {
+    Status st = writer->commit_txn();
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
@@ -641,14 +598,6 @@ Status BaseTabletsChannel::cancel() {
     }
     _state = kFinished;
 
-    return Status::OK();
-}
-
-Status TabletsChannel::cancel() {
-    RETURN_IF_ERROR(BaseTabletsChannel::cancel());
-    if (_write_single_replica) {
-        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
-    }
     return Status::OK();
 }
 

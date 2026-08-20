@@ -325,7 +325,11 @@ Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>
     s3_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
     stats.from_peer_cache = false;
-    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    if (st.ok()) {
+        stats.remote_physical_read_bytes += size;
+    }
+    return st;
 }
 
 CloudWarmUpManager& get_warm_up_manager() {
@@ -343,6 +347,10 @@ struct RaceState {
     Status peer_status;
     Status s3_status;
     std::unique_ptr<char[]> s3_buf;
+    // Actual bytes fetched by the winning S3 leg; merged into the caller's
+    // ReadStatistics only in the winner==1 branch of collect_race_result (the
+    // losing S3 leg may outlive the caller's stack, so it must not touch stats).
+    size_t s3_read_size = 0;
     PeerFetchResult peer_res;
     std::string peer_winner_cg_id; // compute_group_id of the winning peer candidate
     std::string peer_winner_host;  // host of the winning peer candidate
@@ -466,6 +474,7 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
         if (st.ok() && race->winner < 0) {
             race->winner = 1;
             race->s3_buf = std::move(s3_buf);
+            race->s3_read_size = read_size;
         }
         race->cv.notify_all();
     };
@@ -548,9 +557,11 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
         }
         return Status::OK();
     } else if (race->winner == 1) {
-        // S3 won.
+        // S3 won: this was a real storage GET, so account it as physical remote IO
+        // exactly like the non-race download path does.
         buffer = std::move(race->s3_buf);
         stats.from_peer_cache = false;
+        stats.remote_physical_read_bytes += race->s3_read_size;
         g_peer_race_s3_win << 1;
         if (io_ctx != nullptr && io_ctx->file_cache_stats != nullptr) {
             io_ctx->file_cache_stats->num_peer_race_s3_win++;
@@ -1038,6 +1049,8 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
                     &remote_bytes_read, io_ctx));
             indirect_read_bytes += read_size;
             source_read_breakdown.remote_bytes += remote_bytes_read;
+            // Self-heal fell back to a real storage GET; count it as physical remote IO.
+            stats.remote_physical_read_bytes += remote_bytes_read;
             DCHECK(remote_bytes_read == read_size);
         }
 
@@ -1112,6 +1125,10 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         *bytes_read = remote_bytes_read;
         DCHECK_EQ(*bytes_read, bytes_req);
         source_read_breakdown.remote_bytes += remote_bytes_read;
+        // This is a real storage GET, so it must count as physical remote IO just like
+        // the block-download path; otherwise profiles show scanned-from-remote bytes
+        // with zero physical reads whenever remote-only-on-miss is active.
+        stats.remote_physical_read_bytes += remote_bytes_read;
         g_read_cache_indirect_bytes << remote_bytes_read;
         g_read_cache_indirect_total_bytes << remote_bytes_read;
         return Status::OK();
@@ -1413,6 +1430,7 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer,
                 statis->inverted_index_write_cache_io_timer,
                 statis->inverted_index_bytes_write_into_cache);
+        statis->inverted_index_remote_physical_read_bytes += read_stats.remote_physical_read_bytes;
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,

@@ -108,8 +108,8 @@ constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_O
 // regenerating all golden files.
 constexpr int32_t kGoldenBeExecVersion = 10;
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 76;
-constexpr size_t kExpectedGoldenSegmentCount = 154;
+constexpr size_t kExpectedGoldenCaseCount = 78;
+constexpr size_t kExpectedGoldenSegmentCount = 158;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -2093,8 +2093,13 @@ bool logical_field_equal(const Field& current, const Field& golden) {
         return logical_field_vector_equal(current.get<TYPE_STRUCT>(), golden.get<TYPE_STRUCT>());
     case TYPE_MAP:
         return logical_field_vector_equal(current.get<TYPE_MAP>(), golden.get<TYPE_MAP>());
-    case TYPE_VARIANT:
-        return logical_variant_equal(current.get<TYPE_VARIANT>(), golden.get<TYPE_VARIANT>());
+    case TYPE_VARIANT: {
+        const auto& current_variant = current.get<TYPE_VARIANT>();
+        const auto& golden_variant = golden.get<TYPE_VARIANT>();
+        DORIS_CHECK(current_variant.is_legacy());
+        DORIS_CHECK(golden_variant.is_legacy());
+        return logical_variant_equal(current_variant.legacy_map(), golden_variant.legacy_map());
+    }
     case TYPE_JSONB: {
         const auto& current_jsonb = current.get<TYPE_JSONB>();
         const auto& golden_jsonb = golden.get<TYPE_JSONB>();
@@ -3649,8 +3654,11 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 }
 
 TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepTheirSegmentBytes) {
-    // Flexible partial update is a VerticalSegmentWriter-only generation path on the baseline.
-    constexpr std::array kFlexiblePartialWriterModes {true};
+    // Both writers replay flexible partial update. The vertical baselines were
+    // recorded from the legacy in-writer fill; the horizontal ones pin the path
+    // the transform chain newly opened (the legacy horizontal writer rejected
+    // flexible, so no legacy baseline can exist for it).
+    constexpr std::array kFlexiblePartialWriterModes {false, true};
     auto record = [](Result<std::vector<SegmentFingerprint>> result) {
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
