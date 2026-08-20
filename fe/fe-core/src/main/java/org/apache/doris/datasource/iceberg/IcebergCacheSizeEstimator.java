@@ -337,7 +337,7 @@ final class IcebergCacheSizeEstimator {
                 bytes = MetaCacheWeightUtils.saturatedAdd(bytes, BLOB_METADATA_WEIGHT);
                 bytes = addString(bytes, blob.type());
                 bytes = addCount(bytes, blob.fields().size(), BLOB_FIELD_WEIGHT);
-                bytes = addStringMap(bytes, blob.properties());
+                bytes = addStringMapWithEntries(bytes, blob.properties());
             }
         }
         budget.chargeElements(metadata.partitionStatisticsFiles().size());
@@ -356,7 +356,7 @@ final class IcebergCacheSizeEstimator {
                         MetaCacheWeightUtils.estimatedByteArrayBytes(
                                 encryptedKey.encryptedKeyMetadata().remaining()));
             }
-            bytes = addStringMap(bytes, encryptedKey.properties());
+            bytes = addStringMapWithEntries(bytes, encryptedKey.properties());
         }
         bytes = addString(bytes, metadata.uuid());
         return bytes;

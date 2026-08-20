@@ -1239,6 +1239,28 @@ public class IcebergExternalMetaCacheTest {
 
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 "iceberg statistics blobs", emptyEstimate, populatedEstimate, empty, populated);
+
+        // With a fixed blob count, growing only the property count must charge the per-entry
+        // map structure, not just the property strings.
+        GenericStatisticsFile fewProperties = statisticsFileWithProperties(4);
+        GenericStatisticsFile manyProperties = statisticsFileWithProperties(256);
+        long fewEstimate = IcebergCacheSizeEstimator.retainedTablePayloadBytes(
+                tableWithMetadata(metadataWithStatisticsFile(fewProperties)));
+        long manyEstimate = IcebergCacheSizeEstimator.retainedTablePayloadBytes(
+                tableWithMetadata(metadataWithStatisticsFile(manyProperties)));
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg blob properties", fewEstimate, manyEstimate,
+                fewProperties, manyProperties);
+    }
+
+    private GenericStatisticsFile statisticsFileWithProperties(int propertyCount) {
+        Map<String, String> properties = new HashMap<>();
+        for (int index = 0; index < propertyCount; index++) {
+            properties.put("p" + index, "v" + index);
+        }
+        return new GenericStatisticsFile(1L, "/stats/file.puffin", 1L, 1L,
+                Collections.singletonList(new GenericBlobMetadata(
+                        "blob-type", 1L, 1L, Collections.singletonList(1), properties)));
     }
 
     @Test
