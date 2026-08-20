@@ -43,6 +43,7 @@ public class FunctionCallExpr extends Expr {
 
     private FunctionParams aggFnParams;
 
+    @SerializedName("obe")
     private List<OrderByElement> orderByElements = Lists.newArrayList();
 
     // check analytic function

@@ -22,14 +22,20 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.CatalogMgr;
@@ -67,12 +73,12 @@ public class RoutineLoadJobPersistenceTest {
                 9001L, "127.0.0.1:9092", "image_topic", UserIdentity.ADMIN);
         job.state = RoutineLoadJob.JobState.PAUSED;
         job.origStmt = new OriginStatement("deliberately invalid SQL", 0);
-        Expr columnExpr = new BinaryPredicate(
-                BinaryPredicate.Operator.GT, new IntLiteral(3), new IntLiteral(2));
-        Expr precedingFilter = new BinaryPredicate(
-                BinaryPredicate.Operator.GE, new IntLiteral(4), new IntLiteral(3));
+        Expr columnExpr = new TimeV2Literal(12, 34, 56, 123456, 6, true);
+        Expr precedingFilter = new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
+                namedSlot("content"), new StringLiteral("hello world"), Type.BOOLEAN,
+                NullableMode.DEPEND_ON_ARGUMENT, null, false, "english");
         Expr whereExpr = new BinaryPredicate(
-                BinaryPredicate.Operator.LT, new IntLiteral(1), new IntLiteral(2));
+                BinaryPredicate.Operator.GT, namedSlot("a`b"), new IntLiteral(10));
         Expr deleteCondition = new BinaryPredicate(
                 BinaryPredicate.Operator.EQ, new IntLiteral(1), new IntLiteral(1));
         job.setRoutineLoadDesc(new RoutineLoadDesc(
@@ -190,6 +196,13 @@ public class RoutineLoadJobPersistenceTest {
 
     private static String exprToSql(Expr expr) {
         return expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
+    }
+
+    private static SlotRef namedSlot(String column) {
+        SlotRef slotRef = new SlotRef(null, column);
+        slotRef.setLabel("`" + column.replace("`", "``") + "`");
+        slotRef.setType(Type.VARCHAR);
+        return slotRef;
     }
 
     private static JsonObject imageJson(RoutineLoadJob job) throws IOException {

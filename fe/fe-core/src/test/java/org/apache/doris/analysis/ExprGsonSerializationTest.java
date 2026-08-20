@@ -51,6 +51,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -59,6 +60,38 @@ import java.util.stream.Stream;
 public class ExprGsonSerializationTest {
     private static final Pattern CLASS_DECLARATION_PATTERN = Pattern.compile(
             "public\\s+(abstract\\s+)?(?:final\\s+)?class\\s+(\\w+)\\s+extends\\s+(\\w+)\\b");
+    // These fields are analysis caches or execution-only state. Durable Expr consumers rebuild
+    // them after converting the restored Expr to SQL and analyzing that SQL again. Keeping the
+    // classification explicit makes every newly added unannotated Expr field fail this test.
+    private static final Set<String> NON_DURABLE_EXPR_FIELDS = new TreeSet<>(Arrays.asList(
+            "BinaryPredicate.slotIsLeft",
+            "Expr.fn",
+            "Expr.isConstant",
+            "Expr.nullable",
+            "FunctionCallExpr.aggFnParams",
+            "FunctionCallExpr.isMergeAggFn",
+            "FunctionCallExpr.originChildSize",
+            "InformationFunction.intValue",
+            "InformationFunction.strValue",
+            "JsonLiteral.beConverted",
+            "JsonLiteral.parser",
+            "MatchPredicate.invertedIndexAnalyzerName",
+            "MatchPredicate.invertedIndexCharFilter",
+            "MatchPredicate.invertedIndexParser",
+            "MatchPredicate.invertedIndexParserLowercase",
+            "MatchPredicate.invertedIndexParserMode",
+            "MatchPredicate.invertedIndexParserStopwords",
+            "SearchPredicate.fieldIndexes",
+            "SearchPredicate.qsPlan",
+            "SlotRef.desc",
+            "TryCastExpr.originCastNullable",
+            "VariableExpr.boolValue",
+            "VariableExpr.decimalValue",
+            "VariableExpr.floatValue",
+            "VariableExpr.intValue",
+            "VariableExpr.isNull",
+            "VariableExpr.literalExpr",
+            "VariableExpr.strValue"));
 
     private static class ExprHolder {
         @SerializedName("expr")
@@ -94,7 +127,25 @@ public class ExprGsonSerializationTest {
     }
 
     @Test
-    public void testExprHolderRoundTrip() {
+    public void testExprFieldsAreExplicitlyClassifiedForPersistence() throws Exception {
+        Set<String> unclassifiedFields = new TreeSet<>();
+        for (Class<? extends Expr> exprClass : createExprSamples().keySet()) {
+            for (Class<?> current = exprClass; Expr.class.isAssignableFrom(current); current = current.getSuperclass()) {
+                for (Field field : current.getDeclaredFields()) {
+                    int modifiers = field.getModifiers();
+                    if (!field.isSynthetic() && !Modifier.isStatic(modifiers) && !Modifier.isTransient(modifiers)
+                            && field.getAnnotation(SerializedName.class) == null) {
+                        unclassifiedFields.add(current.getSimpleName() + "." + field.getName());
+                    }
+                }
+            }
+        }
+        Assertions.assertEquals(NON_DURABLE_EXPR_FIELDS, unclassifiedFields,
+                "New Expr fields must use @SerializedName or be explicitly classified as non-durable");
+    }
+
+    @Test
+    public void testExprHolderRoundTrip() throws Exception {
         ExprHolder holder = new ExprHolder(
                 createArithmeticExpr(),
                 Arrays.asList(createSearchPredicate(), createVirtualSlotRef(), createLambdaFunctionExpr()));
@@ -111,10 +162,16 @@ public class ExprGsonSerializationTest {
     }
 
     private void assertExprRoundTrip(Class<? extends Expr> expectedClass, Expr expr) {
+        String expectedSqlWithoutTable = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
+        String expectedSqlWithTable = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
         String json = GsonUtilsCatalog.GSON.toJson(expr, Expr.class);
         Expr restored = GsonUtilsCatalog.GSON.fromJson(json, Expr.class);
         Assertions.assertEquals(expectedClass, restored.getClass());
         Assertions.assertEquals(json, GsonUtilsCatalog.GSON.toJson(restored, Expr.class));
+        Assertions.assertEquals(expectedSqlWithoutTable,
+                restored.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
+        Assertions.assertEquals(expectedSqlWithTable,
+                restored.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     private Map<Class<? extends Expr>, Expr> createExprSamples() throws Exception {
@@ -164,8 +221,12 @@ public class ExprGsonSerializationTest {
     }
 
     private FunctionCallExpr createFunctionCallExpr() {
-        return new FunctionCallExpr("ifnull",
-                Arrays.asList(NullLiteral.create(Type.VARCHAR), new StringLiteral("fallback")), true);
+        IntLiteral orderKey = new IntLiteral(7L);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("group_concat",
+                Arrays.asList(new StringLiteral("value"), orderKey), true);
+        functionCallExpr.setOrderByElements(
+                Collections.singletonList(new OrderByElement(orderKey, false, null)));
+        return functionCallExpr;
     }
 
     private LambdaFunctionCallExpr createLambdaFunctionCallExpr() {
@@ -224,7 +285,7 @@ public class ExprGsonSerializationTest {
 
     private MatchPredicate createMatchPredicate() {
         return new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
-                new SlotRef(Type.VARCHAR, false), new StringLiteral("hello"),
+                createNamedSlotRef("content"), new StringLiteral("hello"),
                 Type.BOOLEAN, NullableMode.DEPEND_ON_ARGUMENT, null, false, "english");
     }
 
@@ -268,13 +329,14 @@ public class ExprGsonSerializationTest {
                 Type.BIGINT, NullableMode.ALWAYS_NOT_NULLABLE, false);
     }
 
-    private SlotRef createSlotRef() {
+    private SlotRef createSlotRef() throws Exception {
         SlotRef slotRef = createNamedSlotRef("col1");
         slotRef.setType(Type.BIGINT);
+        setDeclaredField(SlotRef.class, slotRef, "subColPath", Arrays.asList("nested", "leaf"));
         return slotRef;
     }
 
-    private VirtualSlotRef createVirtualSlotRef() {
+    private VirtualSlotRef createVirtualSlotRef() throws Exception {
         String json = GsonUtilsCatalog.GSON.toJson(createSlotRef(), Expr.class)
                 .replace("\"clazz\":\"SlotRef\"", "\"clazz\":\"VirtualSlotRef\"");
         return (VirtualSlotRef) GsonUtilsCatalog.GSON.fromJson(json, Expr.class);
