@@ -48,8 +48,10 @@
 #include "storage/segment/historical_row_retriever.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "testutil/creators.h"
 
 namespace doris {
 
@@ -424,6 +426,107 @@ protected:
     }
 
     // A MoW tablet over the engine's data dir; no rowsets are registered with it.
+    // The two tablets a row-binlog write really uses: the source tablet, and the
+    // independent binlog tablet whose own schema is the derived binlog schema
+    // (source keys + visible columns, then TSO/LSN/OP). Built through the
+    // engine's tablet manager so both are exactly what the write path sees.
+    struct BinlogTablets {
+        TabletSharedPtr source;
+        TabletSharedPtr binlog;
+    };
+
+    BinlogTablets create_binlog_tablets(int64_t tablet_id, TKeysType::type keys_type, bool mow) {
+        // Three columns (one key, two values) so a narrow partial-update block
+        // can sit strictly between num_key_columns and num_columns, which the
+        // binlog MoW derive requires.
+        auto request =
+                testutil::create_tablet_request(tablet_id, /*schema_hash=*/1, /*partition_id=*/10,
+                                                /*short_key_column_count=*/1, keys_type,
+                                                {{"k1", TPrimitiveType::INT, true},
+                                                 {"v1", TPrimitiveType::INT, false},
+                                                 {"v2", TPrimitiveType::INT, false}});
+        if (mow) {
+            request.__set_enable_unique_key_merge_on_write(true);
+        }
+        testutil::enable_row_binlog(&request);
+        RuntimeProfile profile("binlog_ut");
+        EXPECT_TRUE(_engine->create_tablet(request, &profile).ok());
+
+        auto binlog_request = request;
+        binlog_request.tablet_id = tablet_id + kBinlogTabletIdOffset;
+        binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
+                request.tablet_schema, request.tablet_schema.schema_hash + 1);
+        binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
+        // hidden source columns are dropped from the binlog schema, so the
+        // indices pointing at them must not follow along
+        binlog_request.tablet_schema.__set_delete_sign_idx(-1);
+        binlog_request.tablet_schema.__set_sequence_col_idx(-1);
+        // AFTER value columns are nullable in a real binlog schema, even when the
+        // source column is NOT NULL. The TSO/LSN/op columns keep the nullability
+        // create_row_binlog_tablet_schema gave them.
+        for (auto& column : binlog_request.tablet_schema.columns) {
+            if (!column.is_key && column.column_name != BINLOG_TSO_COL &&
+                column.column_name != BINLOG_LSN_COL && column.column_name != BINLOG_OP_COL) {
+                column.__set_is_allow_null(true);
+            }
+        }
+        EXPECT_TRUE(_engine->create_tablet(binlog_request, &profile).ok());
+
+        return {_engine->tablet_manager()->get_tablet(tablet_id),
+                _engine->tablet_manager()->get_tablet(binlog_request.tablet_id)};
+    }
+
+    // The per-segment LSN range the binlog derive consumes (one LSN per row).
+    static std::shared_ptr<std::vector<int64_t>> make_seg_lsn(size_t num_rows,
+                                                              int64_t start = 1000) {
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
+        for (size_t i = 0; i < num_rows; ++i) {
+            lsn_ids->push_back(start + static_cast<int64_t>(i));
+        }
+        return lsn_ids;
+    }
+
+    // (k1 key, v1, v2, delete-sign) UNIQUE_KEYS MoW source schema for the binlog
+    // partial-update path. It has three visible columns so a narrow PU block can
+    // sit strictly between num_key_columns and num_columns, and a delete-sign
+    // column (with a default) which the fixed-PU fill requires.
+    TabletSchemaSPtr create_binlog_pu_source_schema() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(10);
+
+        auto add_col = [&](int uid, const std::string& name, const std::string& type, bool is_key,
+                           bool nullable, const std::string& def = "", bool visible = true) {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(uid);
+            c->set_name(name);
+            c->set_type(type);
+            c->set_is_key(is_key);
+            c->set_length(type == "TINYINT" ? 1 : 4);
+            c->set_index_length(type == "TINYINT" ? 1 : 4);
+            c->set_is_nullable(nullable);
+            c->set_aggregation("NONE");
+            c->set_visible(visible);
+            if (!def.empty()) {
+                c->set_default_value(def);
+            }
+        };
+        add_col(0, "k1", "INT", true, false);
+        add_col(1, "v1", "INT", false, true, std::to_string(0));
+        add_col(2, "v2", "INT", false, true, std::to_string(0));
+        // the delete-sign column is hidden, so num_visible_columns stays 3 and
+        // the binlog schema's num_columns (3 + TSO/LSN/OP) rule holds.
+        add_col(3, DELETE_SIGN, "TINYINT", false, false, std::to_string(0), /*visible=*/false);
+        pb.set_delete_sign_idx(3);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
     TabletSharedPtr make_tablet(const TabletSchemaSPtr& schema, int64_t tablet_id) {
         TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = tablet_id;
@@ -605,6 +708,8 @@ protected:
     }
 
     static constexpr int64_t kTabletId = 90001;
+    // keeps a binlog tablet's id clear of its source tablet's
+    static constexpr int64_t kBinlogTabletIdOffset = 10000;
 
     StorageEngine* _engine = nullptr;
     std::unique_ptr<DataDir> _data_dir;
