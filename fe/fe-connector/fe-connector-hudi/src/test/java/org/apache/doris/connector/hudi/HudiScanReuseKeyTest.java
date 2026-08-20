@@ -162,7 +162,7 @@ class HudiScanReuseKeyTest {
     void statementReuseCanBeDisabled() {
         RecordingScanProvider provider = new RecordingScanProvider();
         ConnectorSession session = new MemoSession(new MemoScope(),
-                Collections.singletonMap(ConnectorSession.ENABLE_EXTERNAL_SCAN_TASK_REUSE, "false"));
+                Collections.singletonMap("enable_external_scan_task_reuse", "false"));
         ConnectorScanRequest request = ConnectorScanRequest.builder(
                 handle().toBuilder().prunedPartitionPaths(null).build(),
                 Collections.<ConnectorColumnHandle>emptyList()).build();
