@@ -151,6 +151,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TSerializer;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -194,6 +195,7 @@ public class StmtExecutor {
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
     private volatile boolean deferredForArrowFlight = false;
+    private Closeable deferredArrowFlightStatementResources;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -969,16 +971,64 @@ public class StmtExecutor {
         return deferredForArrowFlight;
     }
 
+    void deferArrowFlightQuery() {
+        Closeable resources = statementContext.detachStatementResources();
+        deferredArrowFlightStatementResources = resources;
+        deferredForArrowFlight = true;
+        try {
+            context.addFlightSqlDeferredExecutor(this);
+        } catch (RuntimeException | Error t) {
+            deferredForArrowFlight = false;
+            deferredArrowFlightStatementResources = null;
+            try {
+                resources.close();
+            } catch (Throwable closeFailure) {
+                t.addSuppressed(closeFailure);
+            }
+            throw t;
+        }
+    }
+
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
     // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
     // SplitSources and the query queue slot) and then unregister the query. See #62259.
     public void finalizeArrowFlightQuery() {
+        Throwable failure = null;
         try {
             if (coord != null) {
                 coord.close();
             }
-        } finally {
+        } catch (Throwable t) {
+            failure = t;
+        }
+        try {
+            if (deferredArrowFlightStatementResources != null) {
+                deferredArrowFlightStatementResources.close();
+            }
+        } catch (Throwable t) {
+            if (failure == null) {
+                failure = t;
+            } else {
+                failure.addSuppressed(t);
+            }
+        }
+        try {
             finalizeQuery();
+        } catch (Throwable t) {
+            if (failure == null) {
+                failure = t;
+            } else {
+                failure.addSuppressed(t);
+            }
+        }
+        if (failure != null) {
+            if (failure instanceof RuntimeException) {
+                throw (RuntimeException) failure;
+            }
+            if (failure instanceof Error) {
+                throw (Error) failure;
+            }
+            throw new IllegalStateException("Failed to finalize Arrow Flight query", failure);
         }
     }
 
@@ -1431,8 +1481,7 @@ public class StmtExecutor {
                 // at the end of GetFlightInfo. Point queries use a different coordBase (not
                 // deferred). See #62259.
                 if (coordBase == coord) {
-                    deferredForArrowFlight = true;
-                    context.addFlightSqlDeferredExecutor(this);
+                    deferArrowFlightQuery();
                 }
                 return;
             }

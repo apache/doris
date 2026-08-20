@@ -97,8 +97,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         super(ENGINE, refreshExecutor);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
-                false, MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping),
-                (key, value) -> value.releaseCacheReference()));
+                true, MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping),
+                (key, value) -> value.retire()));
         viewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_VIEW, NameMapping.class, View.class, this::loadView,
                 defaultEntryCacheSpec(), MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
         manifestEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_MANIFEST, IcebergManifestEntryKey.class,

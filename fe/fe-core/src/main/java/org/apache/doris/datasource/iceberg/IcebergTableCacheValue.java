@@ -85,6 +85,11 @@ public class IcebergTableCacheValue {
         }
     }
 
+    void retire() {
+        releaseCacheReference();
+        releaseLoaderReference();
+    }
+
     private void release() {
         int remaining = references.decrementAndGet();
         if (remaining == 0) {
