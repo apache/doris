@@ -677,17 +677,17 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     scanner_context->_pending_tasks = std::stack<std::shared_ptr<ScanTask>>();
     scanner_context->_completed_tasks.clear();
     scanner_context->_in_flight_tasks_num = 0;
-        // Even if the effective limit is temporarily zero, one pending task must run so it can publish
-        // a block or EOS and prevent the Context from stalling.
-        scanner_context->_max_scan_concurrency = 0;
+    // Even if the effective limit is temporarily zero, one pending task must run so it can publish
+    // a block or EOS and prevent the Context from stalling.
+    scanner_context->_max_scan_concurrency = 0;
 
     auto completed_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
     completed_task->set_state(ScanTask::State::IN_FLIGHT);
     completed_task->cached_block = Block::create_unique();
     completed_task->set_state(ScanTask::State::COMPLETED);
     completed_task->cached_block.reset();
-        // A consumed non-EOS result must be eligible for another Context admission. This also covers
-        // the COMPLETED -> PENDING transition used by ThreadPool scheduling.
+    // A consumed non-EOS result must be eligible for another Context admission. This also covers
+    // the COMPLETED -> PENDING transition used by ThreadPool scheduling.
     scanner_context->push_pending_scan_task(completed_task, context_transfer_lock);
 
     EXPECT_FALSE(scanner_context->is_context_queued(context_transfer_lock));
@@ -695,7 +695,7 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     EXPECT_TRUE(scanner_context->is_context_queued(context_transfer_lock));
     scanner_context->set_context_queued(false, context_transfer_lock);
 
-        // The Context can admit exactly one scanner at its configured concurrency limit.
+    // The Context can admit exactly one scanner at its configured concurrency limit.
     auto admitted_task = scanner_context->try_get_next_scan_task(context_transfer_lock);
     EXPECT_EQ(admitted_task, completed_task);
     EXPECT_EQ(admitted_task->_state, ScanTask::State::IN_FLIGHT);
