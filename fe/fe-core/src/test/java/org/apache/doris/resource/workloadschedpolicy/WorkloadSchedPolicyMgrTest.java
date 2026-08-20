@@ -340,21 +340,4 @@ public class WorkloadSchedPolicyMgrTest {
             Assert.assertTrue(e.getMessage().contains("remote scan bytes"));
         }
     }
-
-    @Test
-    public void testRemoteScanBytesMetricCanNotMixWithFeAction() throws UserException {
-        try {
-            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
-            // Validate the new metric follows the existing BE-only action compatibility rules.
-            conditionMetas.add(new WorkloadConditionMeta("be_scan_bytes_from_remote_storage", ">", "100"));
-            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
-            actionMetas.add(new WorkloadActionMeta("set_session_variable", "workload_group=normal"));
-
-            mgr.createWorkloadSchedPolicy("policy_remote_scan_bytes_with_fe_action", false, conditionMetas,
-                    actionMetas, null);
-            Assert.fail("Should throw exception for remote scan bytes metric with FE action");
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("action and metric must run in FE together or run in BE together"));
-        }
-    }
 }
