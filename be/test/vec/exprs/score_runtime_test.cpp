@@ -214,6 +214,9 @@ TEST_F(ScoreRuntimeTest, PrepareSuccessColumnIdZero) {
 }
 
 TEST_F(ScoreRuntimeTest, PrepareFailsWhenRootIsNotVirtualSlotRef) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "Death tests cannot fork safely after worker threads start on macOS";
+#endif
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     auto ctx = make_dummy_context();
     auto runtime = ScoreRuntime::create_shared(ctx, false, 10);

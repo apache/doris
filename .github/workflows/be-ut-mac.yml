@@ -29,10 +29,10 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -44,6 +44,7 @@ jobs:
         with:
           filters: |
             be_changes:
+              - '.github/workflows/be-ut-mac.yml'
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
@@ -53,7 +54,8 @@ jobs:
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
-          max-size: "5G"
+          # Leave enough space for the arm64 thirdparty bundle and ASAN build tree.
+          max-size: "1G"
           restore-keys: BE-UT-macOS-
 
       - name: Run UT ${{ github.ref }}
@@ -80,21 +82,58 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
+          brew cleanup --prune=all
+
+          # Keep the selected Xcode 16.4 toolchain, but reclaim the space used
+          # by newer preinstalled SDKs before the large ASAN test link.
+          unused_xcodes=(
+            '/Applications/Xcode_26.3.app'
+            '/Applications/Xcode_26.2.app'
+            '/Applications/Xcode_26.1.1.app'
+            '/Applications/Xcode_26.0.1.app'
+          )
+          for unused_xcode in "${unused_xcodes[@]}"; do
+            if [[ -d "${unused_xcode}" ]]; then
+              sudo rm -rf "${unused_xcode}"
+            fi
+          done
 
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -fL https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -fL "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-arm64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
+          rm -f doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${JAVA_HOME%\/}"
+
+          LLVM_PREFIX="$(brew --prefix llvm@20)"
+          export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export DORIS_CLANG_HOME="${LLVM_PREFIX}"
+          export CC="${LLVM_PREFIX}/bin/clang"
+          export CXX="${LLVM_PREFIX}/bin/clang++"
+
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
+          export CFLAGS="-I${LIBOMP_PREFIX}/include ${CFLAGS:-}"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
+          export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
+          export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
+          # The arm64 ASAN build has no useful ccache hits and needs the space
+          # occupied by restored and newly written cache entries during linking.
+          ccache -C
+          export CCACHE_DISABLE=1
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean

@@ -50,6 +50,9 @@ TEST_F(BlockFileCacheTest,
     context.query_id = query_id;
     ASSERT_TRUE(
             FileCacheFactory::instance()->create_file_cache(local_cache_base_path, settings).ok());
+    auto* cache = FileCacheFactory::instance()->get_by_path(local_cache_base_path);
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
 
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");

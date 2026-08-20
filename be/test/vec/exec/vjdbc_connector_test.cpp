@@ -34,7 +34,10 @@ protected:
     void SetUp() override {
         // Save original config and environment
         original_jdbc_drivers_dir_ = config::jdbc_drivers_dir;
-        original_doris_home_ = getenv("DORIS_HOME");
+        if (const char* doris_home = getenv("DORIS_HOME")) {
+            original_doris_home_ = doris_home;
+            had_original_doris_home_ = true;
+        }
 
         // Set DORIS_HOME for testing
         setenv("DORIS_HOME", "/tmp/test_doris", 1);
@@ -55,8 +58,8 @@ protected:
         // Restore original config and environment
         config::jdbc_drivers_dir = original_jdbc_drivers_dir_;
 
-        if (original_doris_home_) {
-            setenv("DORIS_HOME", original_doris_home_, 1);
+        if (had_original_doris_home_) {
+            setenv("DORIS_HOME", original_doris_home_.c_str(), 1);
         } else {
             unsetenv("DORIS_HOME");
         }
@@ -66,7 +69,8 @@ protected:
 
 private:
     std::string original_jdbc_drivers_dir_;
-    const char* original_doris_home_ = nullptr;
+    std::string original_doris_home_;
+    bool had_original_doris_home_ = false;
     JdbcConnectorParam param_;
 };
 

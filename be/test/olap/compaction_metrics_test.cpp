@@ -62,8 +62,12 @@ public:
     }
 
     void TearDown() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        // StorageEngine owns the compaction pools. Destroy it first so all submitted work has
+        // stopped before the DataDir referenced by those tasks is released.
+        _storage_engine.reset();
+        _data_dir.reset();
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
     }
 
     std::unique_ptr<StorageEngine> _storage_engine;

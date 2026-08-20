@@ -323,7 +323,10 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
     int max_threads = num_cpus == 0 ? _num_disk * min_threads
                                     : std::min(_num_disk * min_threads,
                                                num_cpus * config::max_flush_thread_num_per_cpu);
-    // Update max_threads first to avoid constraint violation when increasing min_threads
+    min_threads = std::min(min_threads, max_threads);
+    if (min_threads < _flush_pool->min_threads()) {
+        static_cast<void>(_flush_pool->set_min_threads(min_threads));
+    }
     static_cast<void>(_flush_pool->set_max_threads(max_threads));
     static_cast<void>(_flush_pool->set_min_threads(min_threads));
 
@@ -331,7 +334,10 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
     max_threads = num_cpus == 0 ? _num_disk * min_threads
                                 : std::min(_num_disk * min_threads,
                                            num_cpus * config::max_flush_thread_num_per_cpu);
-    // Update max_threads first to avoid constraint violation when increasing min_threads
+    min_threads = std::min(min_threads, max_threads);
+    if (min_threads < _high_prio_flush_pool->min_threads()) {
+        static_cast<void>(_high_prio_flush_pool->set_min_threads(min_threads));
+    }
     static_cast<void>(_high_prio_flush_pool->set_max_threads(max_threads));
     static_cast<void>(_high_prio_flush_pool->set_min_threads(min_threads));
 }

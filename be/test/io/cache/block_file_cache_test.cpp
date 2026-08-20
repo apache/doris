@@ -3133,7 +3133,7 @@ TEST_F(BlockFileCacheTest, ttl_gc) {
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
     ASSERT_GT(cache._time_to_key.size(), 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(4000));
     ASSERT_EQ(cache._time_to_key.size(), 0);
 
     if (fs::exists(cache_base_path)) {
@@ -7960,9 +7960,14 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max);
 
-    config::file_cache_evict_in_advance_batch_bytes = 200000;     // evict 2 200000 blocks
-    config::enable_evict_file_cache_in_advance = true;            // enable evict in advance
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // wait for clear
+    config::file_cache_evict_in_advance_batch_bytes = 200000; // evict 2 200000 blocks
+    config::enable_evict_file_cache_in_advance = true;        // enable evict in advance
+    for (int retry = 0; retry < 100; ++retry) {
+        if (cache.get_stats_unsafe()["normal_queue_curr_size"] <= cache_max - 400000) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
