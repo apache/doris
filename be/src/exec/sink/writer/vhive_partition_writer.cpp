@@ -73,8 +73,13 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
         s3_fs != nullptr &&
         !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
                                            _supports_deferred_azure_multipart)) {
+        const auto provider = s3_fs->client_holder()->s3_client_conf().provider;
+        if (provider == io::ObjStorageProvider::S3EXPRESS) {
+            return Status::NotSupported("S3 Express Hive writes are not supported");
+        }
         // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
         // compatibility fence, so reject before creating an upload that it could corrupt.
+        DCHECK(provider == io::ObjStorageProvider::AZURE);
         return Status::NotSupported(
                 "Azure Hive writes require a coordinator that supports deferred multipart "
                 "completion");
