@@ -258,6 +258,28 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
 
+        // The duplicate-column regressions below only prove the fix if their queries really
+        // enter phase-2 materialization. Pin the plan: two result slots must point at one
+        // physical column index, which is the input that used to drop a column.
+        explain {
+            sql "select name a, name b from orc_topn_lazy_mat_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("projectList:[a, b]")
+            contains("column_descs_lists[[`name` text NULL, `name` text NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[1, 1]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        explain {
+            sql "select col2 x, col2 y from parquet_topn_lazy_complex_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("column_descs_lists[[`col2` struct<a:int,b:array<int>> NULL, `col2` struct<a:int,b:array<int>> NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[2, 2]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_complex_table]")
+        }
+
         explain {
             sql """ select a.name,length(a.name),a.value,b.*,a.* from  parquet_topn_lazy_mat_table as a    
             join  orc_topn_lazy_mat_table as b on a.id = b.id order by a.name    limit 10 """

@@ -933,19 +933,23 @@ Status RowIdStorageReader::submit_external_scan_tasks(
     size_t submitted_count = 0;
     for (size_t idx = 0; idx < task_count; ++idx) {
         semaphore.acquire();
-        Status submit_st =
-                scheduler->submit_scan_task(SimplifiedScanTask(
-                                                    [&, idx]() -> bool {
-                                                        Defer complete([&] {
-                                                            std::lock_guard<std::mutex> lock(mtx);
-                                                            ++completed_count;
-                                                            cv.notify_one();
-                                                        });
-                                                        scan_status.update(run_task(idx));
-                                                        return true;
-                                                    },
-                                                    nullptr, nullptr),
-                                            make_task_id(idx));
+        auto run_one_task = [&, idx]() -> bool {
+            Status task_status = Status::OK();
+            // Publish the status before the completion signal wakes the waiter, on every
+            // path. A scanner that throws would otherwise leave scan_status OK while this
+            // Defer still counts the task as finished, and the caller would report success
+            // over a half-filled result block.
+            Defer complete([&] {
+                scan_status.update(task_status);
+                std::lock_guard<std::mutex> lock(mtx);
+                ++completed_count;
+                cv.notify_one();
+            });
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(task_status = run_task(idx), task_status);
+            return true;
+        };
+        Status submit_st = scheduler->submit_scan_task(
+                SimplifiedScanTask(run_one_task, nullptr, nullptr), make_task_id(idx));
         if (!submit_st.ok()) {
             scan_status.update(submit_st);
             semaphore.release();
@@ -1151,8 +1155,8 @@ Status RowIdStorageReader::read_batch_external_row(
     // scan_blocks may have fewer columns than result_block when duplicate physical columns
     // are deduplicated, and insert_from_multi_column() cannot handle ColumnString
     // cross-type (32/64) copies safely.
-    uint32_t scan_position = 0;
-    for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+    const size_t result_column_count = result_block.columns();
+    for (size_t column_id = 0; column_id < result_column_count; column_id++) {
         auto dst_col_guard = result_block.mutate_column_scoped(column_id);
         MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
 
@@ -1160,8 +1164,8 @@ Status RowIdStorageReader::read_batch_external_row(
         std::vector<ColumnPtr> nullable_src_columns(scan_blocks.size());
         auto scan_column_id = result_column_to_scan_column[column_id];
         for (const auto& [pos_block, block_idx] : row_id_block_idx) {
-            DCHECK(scan_blocks.size() > pos_block);
-            DCHECK(scan_blocks[pos_block].get_columns().size() > scan_column_id);
+            DCHECK_GT(scan_blocks.size(), pos_block);
+            DCHECK_GT(scan_blocks[pos_block].columns(), scan_column_id);
             const auto& src_column_ptr =
                     scan_blocks[pos_block].get_by_position(scan_column_id).column;
             const auto* src_col = src_column_ptr.get();
@@ -1178,7 +1182,7 @@ Status RowIdStorageReader::read_batch_external_row(
                         print_id(query_id), result_block.get_by_position(column_id).name, pos_block,
                         src_col->size(), block_idx);
             }
-            scan_position = cast_set<uint32_t>(block_idx);
+            uint32_t scan_position = cast_set<uint32_t>(block_idx);
             dst_col->insert_indices_from(*src_col, &scan_position, &scan_position + 1);
         }
     }
