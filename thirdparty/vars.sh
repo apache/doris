@@ -540,6 +540,12 @@ JINDOFS_NAME=jindofs-6.8.2-libs-0.1.tar.gz
 JINDOFS_SOURCE=jindofs-6.8.2-libs-0.1
 JINDOFS_MD5SUM="0e5b0f71e636b8ed3f09e0bf16208fd1"
 
+# juicefs
+JUICEFS_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
+JUICEFS_NAME=juicefs-hadoop-1.3.1.jar
+JUICEFS_SOURCE=
+JUICEFS_MD5SUM="f374dfbfbdc4b83417cfea78a6728c54"
+
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
 PUGIXML_NAME=pugixml-1.15.tar.gz
@@ -639,6 +645,7 @@ export TP_ARCHIVES=(
     'DRAGONBOX'
     'ICU'
     'JINDOFS'
+    'JUICEFS'
     'PUGIXML'
     'OPENBLAS'
     'FAISS'

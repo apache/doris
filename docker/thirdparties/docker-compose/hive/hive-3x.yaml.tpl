@@ -92,6 +92,7 @@ services:
       - "${HMS_PORT}"
     volumes:
       - ./scripts:/mnt/scripts
+      - /tmp/jfs-bucket:/tmp/jfs-bucket
     depends_on:
       hive-metastore-postgresql:
         condition: service_healthy

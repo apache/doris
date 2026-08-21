@@ -63,6 +63,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         AZURE;
 
         public static ResourceType fromString(String resourceType) {
+            if ("jfs".equalsIgnoreCase(resourceType) || "juicefs".equalsIgnoreCase(resourceType)) {
+                return HDFS;
+            }
             for (ResourceType type : ResourceType.values()) {
                 if (type.name().equalsIgnoreCase(resourceType)) {
                     return type;
