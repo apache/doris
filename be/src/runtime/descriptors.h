@@ -470,6 +470,8 @@ public:
         }
     }
 
+    RowDescriptor& operator=(const RowDescriptor&) = default;
+
     RowDescriptor(TupleDescriptor* tuple_desc);
 
     RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc);
