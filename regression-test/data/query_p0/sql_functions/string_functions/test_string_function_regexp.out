@@ -511,3 +511,57 @@ Ben
 -- !sql_field5 --
 2
 
+-- !sql_regexp_extract_all_group0 --
+['x=18abc','x=17bcd']
+
+-- !sql_regexp_extract_all_group2 --
+['abc','bcd']
+
+-- !sql_regexp_extract_all_empty_group --
+['','b']
+
+-- !sql_regexp_extract_all_array_group0 --
+["x=18abc", "x=17bcd"]
+
+-- !sql_regexp_extract_all_array_group2 --
+["abc", "bcd"]
+
+-- !sql_regexp_extract_all_array_group3 --
+["e"]
+
+-- !sql_regexp_extract_all_col_group0 --
+\N
+
+['lli']
+
+
+['lli','lli']
+['lli','lli']
+
+-- !sql_regexp_extract_all_col_group1 --
+\N
+
+['ll']
+
+
+['ll','ll']
+['ll','ll']
+
+-- !sql_regexp_extract_all_col_group2 --
+\N
+
+['i']
+
+
+['i','i']
+['i','i']
+
+-- !sql_regexp_extract_all_null_str --
+\N
+
+-- !sql_regexp_extract_all_null_pattern --
+\N
+
+-- !sql_regexp_extract_all_null_idx --
+\N
+

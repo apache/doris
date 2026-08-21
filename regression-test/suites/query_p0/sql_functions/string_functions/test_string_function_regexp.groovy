@@ -255,4 +255,58 @@ suite("test_string_function_regexp") {
 
     qt_sql_field4 "SELECT FIELD('21','2130', '2131', '21');"
     qt_sql_field5 "SELECT FIELD(21, 2130, 21, 2131);"
+
+    qt_sql_regexp_extract_all_group0 "select regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 0);"
+    qt_sql_regexp_extract_all_group2 "select regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 2);"
+    qt_sql_regexp_extract_all_empty_group "select regexp_extract_all('a b', '(a)|(b)', 2);"
+    qt_sql_regexp_extract_all_array_group0 "select regexp_extract_all_array('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 0);"
+    qt_sql_regexp_extract_all_array_group2 "select regexp_extract_all_array('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 2);"
+    qt_sql_regexp_extract_all_array_group3 "select regexp_extract_all_array('hitdecisiondlist', '(i)(.*?)(e)', 3);"
+
+    // column input
+    // column input: the table was dropped earlier in this suite, recreate it first
+    sql "DROP TABLE IF EXISTS test_string_function_regexp"
+    sql """
+            CREATE TABLE IF NOT EXISTS test_string_function_regexp (
+                k varchar(32),
+                v int,
+            )
+            DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");
+        """
+    sql """
+        INSERT INTO test_string_function_regexp VALUES
+            ("billie eillish",1),
+            ("It's ok",2),
+            ("Emmy eillish",3),
+            ("It's true",4),
+            (null,5),
+            ("",6),
+            ("billie eillish",null)
+        """
+    qt_sql_regexp_extract_all_col_group0 "SELECT regexp_extract_all(k, '(ll)(i)', 0) from test_string_function_regexp ORDER BY k;"
+    qt_sql_regexp_extract_all_col_group1 "SELECT regexp_extract_all(k, '(ll)(i)', 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql_regexp_extract_all_col_group2 "SELECT regexp_extract_all(k, '(ll)(i)', 2) from test_string_function_regexp ORDER BY k;"
+
+    // null literal input
+    qt_sql_regexp_extract_all_null_str "SELECT regexp_extract_all(null, '(b)', 1);"
+    qt_sql_regexp_extract_all_null_pattern "SELECT regexp_extract_all('abc', null, 1);"
+    qt_sql_regexp_extract_all_null_idx "SELECT regexp_extract_all('abc', '(b)', null);"
+
+    // illegal group index: negative or beyond the number of capturing groups
+    test {
+        sql "SELECT regexp_extract_all('abc', '(b)', -1);"
+        exception "invalid"
+    }
+    test {
+        sql "SELECT regexp_extract_all('abc', '(b)', 2);"
+        exception "invalid"
+    }
+    test {
+        sql "SELECT regexp_extract_all_array('abc', '(b)', -1);"
+        exception "invalid"
+    }
+    test {
+        sql "SELECT regexp_extract_all_array('abc', '(b)', 2);"
+        exception "invalid"
+    }
 }
