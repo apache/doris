@@ -75,6 +75,8 @@ public abstract class TableValuedFunctionIf {
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:
                 return new TasksTableValuedFunction(params);
+            case LanceIndexEntriesTableValuedFunction.NAME:
+                return new LanceIndexEntriesTableValuedFunction(params);
             case ParquetMetadataTableValuedFunction.NAME:
                 return new ParquetMetadataTableValuedFunction(params);
             case ParquetMetadataTableValuedFunction.NAME_FILE_METADATA: {

@@ -66,6 +66,9 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -102,6 +105,7 @@ import org.apache.doris.thrift.TFrontendsMetadataParams;
 import org.apache.doris.thrift.THudiMetadataParams;
 import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
+import org.apache.doris.thrift.TLanceIndexMetadataParams;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
@@ -131,6 +135,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -169,6 +174,10 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> ROLE_MAPPINGS_COLUMN_TO_INDEX;
+
+    // Bound for the relayed Lance table identity fields; matches the loader's external
+    // string limit so an oversized identity fails before any catalog resolution.
+    private static final int MAX_LANCE_IDENTIFIER_BYTES = 1024;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -308,6 +317,9 @@ public class MetadataGenerator {
             case PARTITION_VALUES:
                 result = partitionValuesMetadataResult(params);
                 break;
+            case LANCE_INDEX_ENTRIES:
+                result = lanceIndexEntriesMetadataResult(params);
+                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
@@ -399,6 +411,96 @@ public class MetadataGenerator {
         result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
         result.status.addToErrorMsgs(msg);
         return result;
+    }
+
+    static TFetchSchemaTableDataResult lanceIndexEntriesMetadataResult(
+            TMetadataTableRequestParams params) {
+        if (!params.isSetLanceIndexMetadataParams()) {
+            return errorResult("Lance index metadata params is not set.");
+        }
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("Current user identity is not set for Lance index metadata.");
+        }
+        TLanceIndexMetadataParams lanceParams = params.getLanceIndexMetadataParams();
+        if (!lanceParams.isSetCatalog() || !lanceParams.isSetDatabase() || !lanceParams.isSetTable()
+                || !isBoundedLanceIdentifier(lanceParams.getCatalog())
+                || !isBoundedLanceIdentifier(lanceParams.getDatabase())
+                || !isBoundedLanceIdentifier(lanceParams.getTable())) {
+            return errorResult("Invalid Lance index metadata table identity.");
+        }
+
+        String catalogName = lanceParams.getCatalog().trim();
+        String databaseName = lanceParams.getDatabase().trim();
+        String tableName = lanceParams.getTable().trim();
+        UserIdentity userIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+
+        // The master repeats authorization before resolving or initializing an external
+        // catalog: this RPC arrives through the BE relay and carries no privilege context.
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
+                catalogName, databaseName, tableName, PrivPredicate.SHOW)) {
+            return errorResult(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg(
+                    "SHOW", userIdentity.getQualifiedUser(), userIdentity.getHost(),
+                    databaseName + ": " + tableName));
+        }
+
+        try {
+            CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+            if (!(catalog instanceof LanceExternalCatalog)) {
+                return errorResult("Catalog '" + catalogName + "' is not a Lance catalog.");
+            }
+            // REST catalogs are rejected from configuration only, before any catalog
+            // initialization or remote namespace request.
+            if (((LanceExternalCatalog) catalog).isRestCatalogConfigured()) {
+                return errorResult(LanceIndexEntriesTableValuedFunction.REST_CATALOG_REJECT_MESSAGE);
+            }
+            DatabaseIf<?> database = catalog.getDbOrAnalysisException(databaseName);
+            TableIf table = database.getTableOrAnalysisException(tableName);
+            if (!(table instanceof LanceExternalTable)) {
+                return errorResult("Table '" + tableName + "' is not a Lance table.");
+            }
+
+            List<LancePhysicalIndexEntry> entries = ((LanceExternalTable) table).loadIndexEntries();
+            String resolvedCatalogName = catalog.getName();
+            String resolvedDatabaseName = database.getFullName();
+            String resolvedTableName = table.getName();
+            List<TRow> rows = new ArrayList<>(entries.size());
+            for (LancePhysicalIndexEntry entry : entries) {
+                TRow row = new TRow();
+                row.addToColumnValue(new TCell().setStringVal(resolvedCatalogName));
+                row.addToColumnValue(new TCell().setStringVal(resolvedDatabaseName));
+                row.addToColumnValue(new TCell().setStringVal(resolvedTableName));
+                row.addToColumnValue(new TCell().setStringVal(entry.getName()));
+                row.addToColumnValue(new TCell().setStringVal(entry.getUuid()));
+                row.addToColumnValue(new TCell().setLongVal(entry.getDatasetVersion()));
+                rows.add(row);
+            }
+            TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+            result.setStatus(new TStatus(TStatusCode.OK));
+            result.setDataBatch(rows);
+            return result;
+        } catch (Exception e) {
+            // Load failures arrive here already sanitized by the catalog wrapper (provider
+            // credentials and dataset URIs stripped); anything else collapses to a generic
+            // message so a relayed RPC cannot leak internals. Logging this wrapper adds no
+            // new exposure and keeps sanitized load failures diagnosable.
+            LOG.warn("Failed to load Lance index entries for {}.{}.{}",
+                    catalogName, databaseName, tableName, e);
+            return errorResult(lanceIndexEntriesErrorMessage(e));
+        }
+    }
+
+    private static boolean isBoundedLanceIdentifier(String value) {
+        return value != null && !value.trim().isEmpty()
+                && value.getBytes(StandardCharsets.UTF_8).length <= MAX_LANCE_IDENTIFIER_BYTES;
+    }
+
+    private static String lanceIndexEntriesErrorMessage(Exception exception) {
+        String message = exception.getMessage();
+        if (message != null && (exception instanceof AnalysisException
+                || message.startsWith("Failed to load Lance index metadata for "))) {
+            return message;
+        }
+        return "Failed to load Lance index entries.";
     }
 
     private static TFetchSchemaTableDataResult hudiMetadataResult(TMetadataTableRequestParams params) {

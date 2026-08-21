@@ -20,6 +20,7 @@ package org.apache.doris.datasource.lance;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -67,6 +68,16 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
 
     public LanceTableMetadata loadMetadataForVectorSearch() {
         return ((LanceExternalCatalog) catalog).loadTableMetadataForVectorSearch(
+                db.getRemoteName(), remoteName);
+    }
+
+    public List<LanceLogicalIndex> loadIndexMetadata() throws AnalysisException {
+        return ((LanceExternalCatalog) catalog).loadTableIndexMetadata(
+                db.getRemoteName(), remoteName);
+    }
+
+    public List<LancePhysicalIndexEntry> loadIndexEntries() throws AnalysisException {
+        return ((LanceExternalCatalog) catalog).loadTableIndexEntries(
                 db.getRemoteName(), remoteName);
     }
 
