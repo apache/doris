@@ -1000,8 +1000,9 @@ public class StmtExecutor {
         deferredArrowFlightStatementResources = resources;
         deferredForArrowFlight = true;
         deferredExecTimeoutS = context.getExecTimeoutS();
+        boolean registered;
         try {
-            context.addFlightSqlDeferredExecutor(this);
+            registered = context.addFlightSqlDeferredExecutor(this);
         } catch (RuntimeException | Error t) {
             deferredForArrowFlight = false;
             deferredExecTimeoutS = -1;
@@ -1012,6 +1013,12 @@ public class StmtExecutor {
                 t.addSuppressed(closeFailure);
             }
             throw t;
+        }
+        if (!registered) {
+            // Session teardown sealed and drained the registry between detachment and registration. Finalize
+            // directly: no later owner can reach this executor, and the deferred flag keeps the statement's
+            // ordinary finally block from closing the same coordinator a second time.
+            finalizeArrowFlightQuery();
         }
     }
 
