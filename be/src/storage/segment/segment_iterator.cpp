@@ -1562,12 +1562,12 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         return true;
     }
     // Row-binlog incremental reads force-push the TSO range predicate (see
-    // OlapScanner::_init_tso_pushdown), and the merge iterator uses the TSO column as its
+    // OlapScanner::_init_tso_predicate), and the merge iterator uses the TSO column as its
     // sequence sort key (BetaRowsetReader sets binlog_tso_idx). On a cross-version rowset
     // (e.g. produced by binlog LMax quick-merge) the TSO zonemap can be always-true, so the
     // pruning below would skip reading it and fill placeholder zeros, breaking the merge
     // ordering. The TSO column carries real values on disk, so force it to be read.
-    if (_opts.read_row_binlog && cid == _opts.tablet_schema->binlog_tso_col_idx()) {
+    if (_opts.read_row_binlog && cid == _schema->tso_ordinal()) {
         return true;
     }
     const auto& column = *_schema->column(cid);
