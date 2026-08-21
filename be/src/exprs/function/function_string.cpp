@@ -1392,7 +1392,15 @@ public:
             !(zone_map.min_value < Field::create_field<TYPE_STRING>(*upper_prefix))) {
             return ZoneMapFilterResult::kNoMatch;
         }
-        return ZoneMapFilterResult::kMayMatch;
+        // One NULL row is enough to stop the whole zone from matching.
+        const bool can_match_all = !zone_map.has_null;
+        // [min, max] sits inside [prefix, next_prefix), so every row starts with the prefix.
+        const bool zone_within_prefix_range =
+                zone_map.min_value >= lower &&
+                (!upper_prefix.has_value() ||
+                 zone_map.max_value < Field::create_field<TYPE_STRING>(*upper_prefix));
+        return can_match_all && zone_within_prefix_range ? ZoneMapFilterResult::kAllMatch
+                                                         : ZoneMapFilterResult::kMayMatch;
     }
 
     bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {

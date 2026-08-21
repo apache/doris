@@ -240,8 +240,14 @@ public:
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
 
+    // Conjuncts are ANDed, so one that matches nothing rules the zone out and the zone matches
+    // everything only when all of them do. `always_true` is resized to `conjuncts` and marks the
+    // ones the zone map proves true for every row, so the caller can drop them. Callers that
+    // cannot drop anything, such as a per-page walk where other pages still need the conjunct,
+    // pass a scratch vector and ignore it.
     [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
-            const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
+            const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx,
+            std::vector<bool>* always_true);
     [[nodiscard]] static ZoneMapFilterResult evaluate_dictionary_filter(
             const VExprContextSPtrs& conjuncts, const DictionaryEvalContext& ctx);
     [[nodiscard]] static ZoneMapFilterResult evaluate_bloom_filter(

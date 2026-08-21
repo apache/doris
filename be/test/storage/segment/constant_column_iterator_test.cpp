@@ -73,7 +73,7 @@ TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConsta
     }
 }
 
-TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
+TEST_F(ConstantColumnIteratorTest, SegmentZoneMapIsTheConstantValue) {
     const int64_t kValue = 100;
     ConstantColumnReader reader(Field::create_field<TYPE_BIGINT>(kValue));
     auto make_gt_predicate = [](int64_t value) {
@@ -83,18 +83,19 @@ TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
         return SingleColumnBlockPredicate::create_unique(pred);
     };
 
-    bool matched = false;
+    segment_v2::ZoneMap zone_map;
+    auto st = reader.get_segment_zone_map(&zone_map);
+    ASSERT_TRUE(st.ok()) << st;
+
+    // The zone map is [kValue, kValue], so `> kValue - 1` holds for every row and `> kValue`
+    // holds for none.
     AndBlockColumnPredicate keep;
     keep.add_column_predicate(make_gt_predicate(kValue - 1));
-    auto st = reader.match_condition(&keep, &matched);
-    ASSERT_TRUE(st.ok()) << st;
-    EXPECT_TRUE(matched);
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, keep.evaluate_zonemap_filter(zone_map));
 
     AndBlockColumnPredicate prune;
     prune.add_column_predicate(make_gt_predicate(kValue));
-    st = reader.match_condition(&prune, &matched);
-    ASSERT_TRUE(st.ok()) << st;
-    EXPECT_FALSE(matched);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, prune.evaluate_zonemap_filter(zone_map));
 }
 
 // next_batch fills every row with the constant value, advances the ordinal,

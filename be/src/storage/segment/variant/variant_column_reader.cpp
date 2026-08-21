@@ -106,11 +106,13 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _inner->get_current_ordinal(); }
 
-    Status get_row_ranges_by_zone_map(
-            const AndBlockColumnPredicate* col_predicates,
-            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) override {
-        return _inner->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_ranges);
+    Status get_page_zone_map_count(size_t* count) override {
+        return _inner->get_page_zone_map_count(count);
+    }
+
+    Status get_page_zone_map(size_t page_index, RowRange* rows,
+                             segment_v2::ZoneMap* zone_map) override {
+        return _inner->get_page_zone_map(page_index, rows, zone_map);
     }
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,

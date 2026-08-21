@@ -288,6 +288,18 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     iter._opts.stats = &_stats;
     iter._opts.tablet_schema = _tablet_schema;
 
+    // Page zone maps are reached through the column iterators, so create them the way
+    // SegmentIterator::_init_return_column_iterators() does before calling the private method.
+    ColumnIteratorOptions iter_opts;
+    iter_opts.file_reader = segment->file_reader().get();
+    iter_opts.stats = &_stats;
+    for (size_t ordinal = 0; ordinal < read_schema->num_read_columns(); ++ordinal) {
+        ASSERT_TRUE(segment->new_column_iterator(*read_schema->column(ordinal),
+                                                 &iter._column_iterators[ordinal], &iter._opts)
+                            .ok());
+        ASSERT_TRUE(iter._column_iterators[ordinal]->init(iter_opts).ok());
+    }
+
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     VExprContextSPtrs conjuncts {expr_ctx};
     auto row_ranges = RowRanges::create_single(kNumRows);

@@ -393,9 +393,21 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
     }
     const auto& zone_map = *zone_map_ptr;
     if (is_null) {
-        return zone_map.has_null ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
+        if (!zone_map.has_null) {
+            return ZoneMapFilterResult::kNoMatch; // no NULL row here
+        }
+        if (!zone_map.has_not_null) {
+            return ZoneMapFilterResult::kAllMatch; // every row is NULL
+        }
+        return ZoneMapFilterResult::kMayMatch;
     }
-    return zone_map.has_not_null ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
+    if (!zone_map.has_not_null) {
+        return ZoneMapFilterResult::kNoMatch; // every row is NULL
+    }
+    if (!zone_map.has_null) {
+        return ZoneMapFilterResult::kAllMatch; // no NULL row here
+    }
+    return ZoneMapFilterResult::kMayMatch;
 }
 
 // Keep the conservative fallback checks together so their evaluation order remains explicit.
@@ -460,7 +472,19 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     DORIS_CHECK(
             field_types_compatible(values.max_value.get_type(), data_type->get_primitive_type()));
 
+    // The zone range does not reach the range of the listed values, so nothing in this zone can be
+    // one of them.
+    const bool no_row_is_listed =
+            zone_map.max_value < values.min_value || zone_map.min_value > values.max_value;
+    // A NULL row satisfies neither IN nor NOT IN, and a hidden Parquet NaN could satisfy either,
+    // so both stop the zone from matching completely.
+    const bool can_match_all =
+            !zone_map.has_null && !ctx.floating_nan_count_unknown(slot->column_id());
+
     if (is_not_in) {
+        if (no_row_is_listed) {
+            return can_match_all ? ZoneMapFilterResult::kAllMatch : ZoneMapFilterResult::kMayMatch;
+        }
         // NOT IN can only prune when the whole zone contains exactly one non-null value and that
         // value is excluded by the set. Wider ranges may contain values that are not filtered.
         if (zone_map.min_value == zone_map.max_value) {
@@ -471,9 +495,14 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
         return ZoneMapFilterResult::kMayMatch;
     }
 
-    // First use the IN-set min/max to rule out disjoint zone-map ranges.
-    if (zone_map.max_value < values.min_value || zone_map.min_value > values.max_value) {
+    if (no_row_is_listed) {
         return ZoneMapFilterResult::kNoMatch;
+    }
+    // Equal bounds mean every row in the zone holds the same value, so probing the set once
+    // answers for all of them. Wider ranges cannot be answered this way because the listed values
+    // leave gaps between the set's own min and max.
+    if (can_match_all && zone_map.min_value == zone_map.max_value && set.find(zone_map.min_value)) {
+        return ZoneMapFilterResult::kAllMatch;
     }
 
     // For large IN sets and dense-domain containers, avoid exact checks on the scan hot path.

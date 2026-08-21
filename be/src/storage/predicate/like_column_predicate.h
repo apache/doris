@@ -69,6 +69,10 @@ public:
     }
 
     PredicateType type() const override { return PredicateType::LIKE; }
+
+    // A LIKE pattern matches on the value itself, so the min/max of a zone says nothing about it.
+    bool support_zonemap() const override { return false; }
+
     void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
     void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override;

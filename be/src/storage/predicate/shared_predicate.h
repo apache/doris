@@ -100,20 +100,27 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    bool support_zonemap() const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_and(zone_map);
+            return ColumnPredicate::support_zonemap();
         }
-        return _nested->evaluate_and(zone_map);
+        return _nested->support_zonemap();
     }
 
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+    ZoneMapFilterResult evaluate_zonemap_filter_impl(
+            const segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_del(zone_map);
+            return ColumnPredicate::evaluate_zonemap_filter_impl(zone_map);
         }
-        return _nested->evaluate_del(zone_map);
+        const auto result = _nested->evaluate_zonemap_filter(zone_map);
+        // The nested predicate keeps tightening while the scan runs (top-N filter), so what
+        // matches every row now may not later. Say the top-N heap gives `c <= 1000` and this
+        // zone holds c in [1, 500]. Every row matches, but reporting kAllMatch drops the
+        // predicate from this segment for good, so the later `c <= 100` never gets to prune
+        // the zone. Report kMayMatch instead and let the tighter version have its chance.
+        return result == ZoneMapFilterResult::kAllMatch ? ZoneMapFilterResult::kMayMatch : result;
     }
 
     bool evaluate_and(const BloomFilter* bf) const override {

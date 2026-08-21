@@ -83,7 +83,6 @@ std::string describe_filter_stats(const IndexReadResult& result) {
         << " filtered_segments=" << result.stats.filtered_segment_number
         << " rows_inverted_index_filtered=" << result.stats.rows_inverted_index_filtered
         << " rows_stats_filtered=" << result.stats.rows_stats_filtered
-        << " rows_stats_rp_filtered=" << result.stats.rows_stats_rp_filtered
         << " rows_bf_filtered=" << result.stats.rows_bf_filtered
         << " segment_dict_filtered=" << result.stats.segment_dict_filtered
         << " rows_conditions_filtered=" << result.stats.rows_conditions_filtered;

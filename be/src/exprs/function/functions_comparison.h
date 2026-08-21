@@ -324,31 +324,49 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
         // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
         return unsupported_zonemap_filter(ctx);
     }
+    const auto& min_value = zone_map.min_value;
+    const auto& max_value = zone_map.max_value;
+    // Each operator reads the same two facts off the two ends of [min, max].
+    bool no_row_matches = false;
+    bool every_row_matches = false;
     switch (effective_op) {
     case Op::EQ:
-        return literal < zone_map.min_value || zone_map.max_value < literal
-                       ? ZoneMapFilterResult::kNoMatch
-                       : ZoneMapFilterResult::kMayMatch;
+        no_row_matches = literal < min_value || max_value < literal;
+        every_row_matches = min_value == literal && max_value == literal;
+        break;
     case Op::NE:
-        return zone_map.min_value == literal && zone_map.max_value == literal
-                       ? ZoneMapFilterResult::kNoMatch
-                       : ZoneMapFilterResult::kMayMatch;
+        no_row_matches = min_value == literal && max_value == literal;
+        every_row_matches = literal < min_value || max_value < literal;
+        break;
     case Op::LT:
-        return zone_map.min_value >= literal ? ZoneMapFilterResult::kNoMatch
-                                             : ZoneMapFilterResult::kMayMatch;
+        no_row_matches = min_value >= literal;
+        every_row_matches = max_value < literal;
+        break;
     case Op::LE:
-        return zone_map.min_value > literal ? ZoneMapFilterResult::kNoMatch
-                                            : ZoneMapFilterResult::kMayMatch;
+        no_row_matches = min_value > literal;
+        every_row_matches = max_value <= literal;
+        break;
     case Op::GT:
-        return zone_map.max_value <= literal ? ZoneMapFilterResult::kNoMatch
-                                             : ZoneMapFilterResult::kMayMatch;
+        no_row_matches = max_value <= literal;
+        every_row_matches = min_value > literal;
+        break;
     case Op::GE:
-        return zone_map.max_value < literal ? ZoneMapFilterResult::kNoMatch
-                                            : ZoneMapFilterResult::kMayMatch;
+        no_row_matches = max_value < literal;
+        every_row_matches = min_value >= literal;
+        break;
     }
 
-    // keep this to avoid compile failure with g++.
-    __builtin_unreachable();
+    if (no_row_matches) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    // A NULL row never passes a comparison, and a hidden Parquet NaN would not either, so both
+    // stop the zone from matching completely.
+    const bool can_match_all =
+            !zone_map.has_null && !ctx.floating_nan_count_unknown(slot_literal->slot_index);
+    if (can_match_all && every_row_matches) {
+        return ZoneMapFilterResult::kAllMatch;
+    }
+    return ZoneMapFilterResult::kMayMatch;
 }
 
 inline bool can_evaluate(const VExprSPtrs& arguments) {
