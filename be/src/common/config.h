@@ -1588,6 +1588,8 @@ DECLARE_mBool(enable_mow_get_agg_by_cache);
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+DECLARE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_String(user_files_secure_path);
