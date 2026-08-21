@@ -203,8 +203,19 @@ Status QueryTaskController::revoke_memory() {
             ((void*)spill_context.get()), PrettyPrinter::print_bytes(revoked_size),
             PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(), tasks.size());
 
-    for (auto* task : chosen_tasks) {
-        RETURN_IF_ERROR(task->revoke_memory(spill_context));
+    for (size_t i = 0; i < chosen_tasks.size(); ++i) {
+        auto status = chosen_tasks[i]->revoke_memory(spill_context);
+        if (!status.ok()) {
+            // A failed submit never reaches do_revoke_memory, so neither the failed
+            // task nor the unsubmitted remainder would ever call on_task_finished().
+            // Without accounting for them here the SpillContext never completes, its
+            // callback never fires set_memory_sufficient(true), and the query waits
+            // on _memory_sufficient_dependency forever.
+            for (size_t j = i; j < chosen_tasks.size(); ++j) {
+                spill_context->on_task_finished();
+            }
+            return status;
+        }
     }
     return Status::OK();
 }
