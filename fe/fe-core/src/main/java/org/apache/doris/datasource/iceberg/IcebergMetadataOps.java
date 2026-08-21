@@ -105,6 +105,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
     private ExecutionAuthenticator executionAuthenticator;
+    private final ThreadPoolExecutor threadPoolWithPreAuth;
     // Generally, there should be only two levels under the catalog, namely <database>.<table>,
     // but the REST type catalog is obtained from an external server,
     // and the level provided by the external server may be three levels, <catalog>.<database>.<table>.
@@ -117,6 +118,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         this.catalog = catalog;
         nsCatalog = (SupportsNamespaces) catalog;
         this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
+        this.threadPoolWithPreAuth = dorisCatalog.getThreadPoolWithPreAuth();
 
         if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
             externalCatalogName =
@@ -1928,7 +1930,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
-        return dorisCatalog.getThreadPoolWithPreAuth();
+        return threadPoolWithPreAuth;
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {

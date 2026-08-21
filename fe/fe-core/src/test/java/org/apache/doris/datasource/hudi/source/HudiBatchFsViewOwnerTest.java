@@ -64,4 +64,20 @@ class HudiBatchFsViewOwnerTest {
         Mockito.verify(assignment, Mockito.never()).stop();
         Mockito.verify(lease).close();
     }
+
+    @Test
+    void statementCloseCancelsAcceptedTaskBeforeItStarts() {
+        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(
+                () -> Assertions.fail("cancelled task must not run"), owner::finish);
+        owner.track(task);
+
+        owner.close();
+
+        Assertions.assertTrue(task.isCancelled());
+        Mockito.verify(assignment).stop();
+        Mockito.verify(lease).close();
+    }
 }

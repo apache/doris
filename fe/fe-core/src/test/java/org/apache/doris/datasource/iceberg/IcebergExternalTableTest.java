@@ -79,7 +79,7 @@ public class IcebergExternalTableTest {
         Mockito.when(icebergTable.specs()).thenReturn(specs);
 
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
 
         Mockito.verify(icebergTable, Mockito.times(1)).specs();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
@@ -94,7 +94,7 @@ public class IcebergExternalTableTest {
         List<PartitionField> fields = Lists.newArrayList();
         Mockito.when(spec.fields()).thenReturn(fields);
 
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
         Mockito.verify(spec, Mockito.times(1)).fields();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
@@ -109,7 +109,7 @@ public class IcebergExternalTableTest {
         fields.add(null);
         Mockito.when(spec.fields()).thenReturn(fields);
 
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
         Mockito.verify(spec, Mockito.times(2)).fields();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
@@ -125,7 +125,7 @@ public class IcebergExternalTableTest {
         Mockito.doReturn(mockTransform("hour")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
 
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
         Mockito.verify(schema, Mockito.times(1)).findColumnName(ArgumentMatchers.anyInt());
@@ -134,13 +134,13 @@ public class IcebergExternalTableTest {
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
 
         Mockito.doReturn(mockTransform("month")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
     }
