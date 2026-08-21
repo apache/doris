@@ -41,30 +41,55 @@ class Schema;
 
 namespace doris {
 
+class ArrowWriteConverter {
+public:
+    virtual ~ArrowWriteConverter() = default;
+
+    virtual Status write_column(const std::shared_ptr<const IDataType>& type,
+                                const DataTypeSerDe& serde, const IColumn& column,
+                                const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                const cctz::time_zone& ctz) const = 0;
+
+protected:
+    Status write_plain_arrow_column(const std::shared_ptr<const IDataType>& type,
+                                    const DataTypeSerDe& serde, const IColumn& column,
+                                    const NullMap* null_map,
+                                    const std::shared_ptr<arrow::Field>& field,
+                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                    const cctz::time_zone& ctz) const;
+};
+
+const ArrowWriteConverter& plain_arrow_write_converter();
+
 class FromBlockToRecordBatchConverter {
 public:
-    FromBlockToRecordBatchConverter(const Block& block,
-                                    const std::shared_ptr<arrow::Schema>& schema,
-                                    arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
+    FromBlockToRecordBatchConverter(
+            const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+            arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj,
+            const ArrowWriteConverter& write_converter = plain_arrow_write_converter())
             : _block(block),
               _schema(schema),
               _pool(pool),
               _cur_field_idx(-1),
               _timezone_obj(timezone_obj),
               _row_range_start(0),
-              _row_range_end(0) {}
+              _row_range_end(0),
+              _write_converter(write_converter) {}
 
-    FromBlockToRecordBatchConverter(const Block& block,
-                                    const std::shared_ptr<arrow::Schema>& schema,
-                                    arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj,
-                                    size_t start_row, size_t end_row)
+    FromBlockToRecordBatchConverter(
+            const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+            arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj, size_t start_row,
+            size_t end_row,
+            const ArrowWriteConverter& write_converter = plain_arrow_write_converter())
             : _block(block),
               _schema(schema),
               _pool(pool),
               _cur_field_idx(-1),
               _timezone_obj(timezone_obj),
               _row_range_start(start_row),
-              _row_range_end(end_row) {}
+              _row_range_end(end_row),
+              _write_converter(write_converter) {}
 
     ~FromBlockToRecordBatchConverter() = default;
 
@@ -87,6 +112,7 @@ private:
     // Row range for zero-copy slicing (0 means use all rows from _row_range_start)
     size_t _row_range_start;
     size_t _row_range_end;
+    const ArrowWriteConverter& _write_converter;
 
     std::vector<std::shared_ptr<arrow::Array>> _arrays;
 };
@@ -116,6 +142,11 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
                               arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj, size_t start_row,
                               size_t end_row);
+
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
+                              const cctz::time_zone& timezone_obj, size_t start_row, size_t end_row,
+                              const ArrowWriteConverter& write_converter);
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
                                     std::shared_ptr<arrow::RecordBatch>* result);

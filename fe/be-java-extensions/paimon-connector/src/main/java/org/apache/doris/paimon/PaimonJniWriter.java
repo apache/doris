@@ -70,7 +70,7 @@ import java.util.Set;
  *   C++ Block → Arrow IPC Stream → JNI direct ByteBuffer
  *   → PaimonJniWriter.write(directBuffer)
  *   → ArrowStreamReader → VectorSchemaRoot
- *   → PaimonArrowConverter (row-at-a-time typed extraction)
+ *   → PaimonArrowBatchAdapter (Arrow-backed Paimon columnar row)
  *   → PaimonWriteSchema.tableRow() (canonical table-schema order)
  *   → Paimon SDK bucket assignment and table write
  * </pre>
@@ -92,7 +92,7 @@ public class PaimonJniWriter {
 
     private BufferAllocator allocator;
     private PreExecutionAuthenticator preExecutionAuthenticator;
-    private PaimonArrowConverter arrowConverter;
+    private PaimonArrowBatchAdapter arrowAdapter;
 
     private PaimonWriteSchema writeSchema;
     private FileStoreTable table;
@@ -159,7 +159,6 @@ public class PaimonJniWriter {
                         "PaimonJniWriter requires a native memory manager");
             }
             this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopConfig);
-            this.arrowConverter = new PaimonArrowConverter(ZoneId.of(timeZone));
             preExecutionAuthenticator.execute(() -> {
                 try {
                     FileStoreTable table = PaimonUtils.deserialize(serializedTable);
@@ -173,6 +172,8 @@ public class PaimonJniWriter {
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(
                             table.rowType(), columnNames, changelogWrite);
+                    this.arrowAdapter = new PaimonArrowBatchAdapter(
+                            writeSchema.inputType(), ZoneId.of(timeZone), allocator);
                     validateWriteColumnsForMergeEngine(
                             columnNames.length - (changelogWrite ? 1 : 0), coreOptions);
                     this.fullCompactionChangelog =
@@ -198,6 +199,14 @@ public class PaimonJniWriter {
                 }
             });
         }
+    }
+
+    /** Return the exact target Arrow IPC schema bound from the Paimon table type. */
+    public byte[] getArrowSchema() {
+        if (arrowAdapter == null) {
+            throw new IllegalStateException("PaimonJniWriter is not open");
+        }
+        return arrowAdapter.serializedArrowSchema();
     }
 
     /**
@@ -416,12 +425,11 @@ public class PaimonJniWriter {
         if (rowCount == 0) {
             return;
         }
-        // Convert and write one row at a time. Keeping only one row of boxed values
-        // avoids retaining a second, Object[][] representation of the full Arrow batch.
-        PaimonArrowConverter.RowReader rows =
-                arrowConverter.rows(root, writeSchema.targetTypes());
+        // The adapter exposes Arrow vectors directly as a Paimon columnar row. Only the final
+        // table-layout row is materialized; there is no second Object[][] batch conversion.
+        PaimonArrowBatchAdapter.Rows rows = arrowAdapter.rows(root);
         for (int r = 0; r < rowCount; r++) {
-            InternalRow row = writeSchema.tableRow(rows.values(r));
+            InternalRow row = writeSchema.tableRow(rows.row(r));
             switch (bucketMode) {
                 case HASH_DYNAMIC:
                     writeHashDynamicRow(row);
@@ -496,7 +504,7 @@ public class PaimonJniWriter {
             closeWriter();
         } finally {
             writeSchema = null;
-            arrowConverter = null;
+            arrowAdapter = null;
             if (allocator != null) {
                 allocator.close();
                 allocator = null;

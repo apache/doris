@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.paimon.casting.DefaultValueRow;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
@@ -61,7 +62,7 @@ public class PaimonWriteSchemaTest {
                 true);
 
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> schema.tableRow(new Object[] {(byte) 9, 1}));
+                () -> tableRow(schema, (byte) 9, 1));
     }
 
     @Test
@@ -75,7 +76,7 @@ public class PaimonWriteSchemaTest {
                 5
         };
 
-        InternalRow tableRow = schema.tableRow(values);
+        InternalRow tableRow = tableRow(schema, values);
 
         Assertions.assertEquals(5, tableRow.getInt(0));
         Assertions.assertEquals("erin", tableRow.getString(1).toString());
@@ -92,7 +93,7 @@ public class PaimonWriteSchemaTest {
                 6
         };
 
-        InternalRow tableRow = schema.tableRow(values);
+        InternalRow tableRow = tableRow(schema, values);
 
         Assertions.assertEquals(6, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
@@ -117,7 +118,7 @@ public class PaimonWriteSchemaTest {
                         null, "unknown")));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[] {7});
+        InternalRow tableRow = tableRow(schema, 7);
 
         Assertions.assertEquals(7, tableRow.getInt(0));
         Assertions.assertEquals("unknown", tableRow.getString(1).toString());
@@ -130,7 +131,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "name", DataTypes.STRING().notNull())));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[] {7});
+        InternalRow tableRow = tableRow(schema, 7);
 
         Assertions.assertEquals(7, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
@@ -146,11 +147,10 @@ public class PaimonWriteSchemaTest {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
                 new String[] {"region", "score", "id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[] {
+        InternalRow tableRow = tableRow(schema,
                 BinaryString.fromString("south"),
                 92.5D,
-                8
-        });
+                8);
 
         Assertions.assertEquals(8, tableRow.getInt(0));
         Assertions.assertEquals("unknown", tableRow.getString(1).toString());
@@ -166,10 +166,9 @@ public class PaimonWriteSchemaTest {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
                 new String[] {"name", "id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[] {
+        InternalRow tableRow = tableRow(schema,
                 null,
-                9
-        });
+                9);
 
         Assertions.assertEquals(9, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
@@ -184,7 +183,7 @@ public class PaimonWriteSchemaTest {
         PaimonWriteSchema schema = PaimonWriteSchema.create(
                 tableType, new String[] {"bucket_key", "partition_key"});
 
-        InternalRow tableRow = schema.tableRow(new Object[] {null, null});
+        InternalRow tableRow = tableRow(schema, null, null);
         Assertions.assertTrue(tableRow.isNullAt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
 
@@ -206,7 +205,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(3, "nested", nestedType, null, "{42, default-value}")));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[] {10});
+        InternalRow tableRow = tableRow(schema, 10);
 
         InternalArray numbers = tableRow.getArray(1);
         Assertions.assertEquals(3, numbers.size());
@@ -247,12 +246,15 @@ public class PaimonWriteSchemaTest {
     }
 
     private static InternalRow changelogRow(PaimonWriteSchema schema, byte operation) {
-        return schema.tableRow(new Object[] {
+        return tableRow(schema,
                 operation,
                 11,
                 BinaryString.fromString("value"),
                 1.0D,
-                BinaryString.fromString("east")
-        });
+                BinaryString.fromString("east"));
+    }
+
+    private static InternalRow tableRow(PaimonWriteSchema schema, Object... values) {
+        return schema.tableRow(GenericRow.of(values));
     }
 }

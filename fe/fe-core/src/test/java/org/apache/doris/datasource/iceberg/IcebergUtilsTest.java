@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -80,6 +81,21 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testIcebergFixedAlwaysMapsToLengthPreservingVarbinary() {
+        for (boolean enableMappingVarbinary : Arrays.asList(false, true)) {
+            Type shortFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(4), enableMappingVarbinary, false);
+            Assert.assertTrue(shortFixed.isVarbinaryType());
+            Assert.assertEquals(4, ((ScalarType) shortFixed).getLength());
+
+            Type longFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(256), enableMappingVarbinary, false);
+            Assert.assertTrue(longFixed.isVarbinaryType());
+            Assert.assertEquals(256, ((ScalarType) longFixed).getLength());
+        }
+    }
+
     @Test
     public void testSnapshotCacheFreezesSharedTableOperations() {
         Schema originalSchema = new Schema(

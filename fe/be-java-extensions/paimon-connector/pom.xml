@@ -61,6 +61,11 @@ under the License.
             <artifactId>paimon-format</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-arrow</artifactId>
+        </dependency>
+
         <!-- Keep FileIO service providers with the paimon-common SPI in this connector's
              isolated classloader. Loading them from preload-extensions breaks provider linkage. -->
         <dependency>

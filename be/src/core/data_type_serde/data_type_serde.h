@@ -37,6 +37,7 @@
 namespace arrow {
 class ArrayBuilder;
 class Array;
+class Field;
 } // namespace arrow
 namespace cctz {
 class time_zone;
@@ -498,6 +499,23 @@ public:
     virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                          arrow::ArrayBuilder* array_builder, int64_t start,
                                          int64_t end, const cctz::time_zone& ctz) const = 0;
+    // Most scalar types deliberately share their physical Arrow encoding across these protocols.
+    // Target-specific SerDes override the corresponding method; callers never retry another
+    // protocol method after an error.
+    virtual Status write_column_to_paimon(const std::shared_ptr<const IDataType>&,
+                                          const IColumn& column, const NullMap* null_map,
+                                          const std::shared_ptr<arrow::Field>&,
+                                          arrow::ArrayBuilder* array_builder, int64_t start,
+                                          int64_t end, const cctz::time_zone& ctz) const {
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    virtual Status write_column_to_iceberg(const std::shared_ptr<const IDataType>&,
+                                           const IColumn& column, const NullMap* null_map,
+                                           const std::shared_ptr<arrow::Field>&,
+                                           arrow::ArrayBuilder* array_builder, int64_t start,
+                                           int64_t end, const cctz::time_zone& ctz) const {
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
     virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
