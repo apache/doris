@@ -103,7 +103,8 @@ public class WebSqlStatementExecutor {
             long rowBytes = 0;
             for (int column = 1; column <= columnCount; column++) {
                 String type = metadata.getColumnTypeName(column);
-                Object value = isDateType(type) ? resultSet.getString(column) : resultSet.getObject(column);
+                Object value = isTextSerializedType(type)
+                        ? resultSet.getString(column) : resultSet.getObject(column);
                 row.add(value);
                 rowBytes += valueSize(value);
             }
@@ -128,6 +129,11 @@ public class WebSqlStatementExecutor {
     private boolean isDateType(String type) {
         return "DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)
                 || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type);
+    }
+
+    private boolean isTextSerializedType(String type) {
+        return isDateType(type) || "BIGINT".equalsIgnoreCase(type) || "LARGEINT".equalsIgnoreCase(type)
+                || type.regionMatches(true, 0, "DECIMAL", 0, "DECIMAL".length());
     }
 
     private long valueSize(Object value) {

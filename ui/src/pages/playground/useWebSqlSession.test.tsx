@@ -19,6 +19,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 
 import { UiApiError } from '../../api/client';
 import {
+  closeWebSqlSession,
   createWebSqlSession,
   getWebSqlSession,
 } from '../../api/webSql';
@@ -41,6 +42,7 @@ describe('useWebSqlSession initialization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    vi.mocked(closeWebSqlSession).mockResolvedValue({ closed: true });
   });
 
   it('validates a stored session before reporting ready', async () => {
@@ -59,6 +61,7 @@ describe('useWebSqlSession initialization', () => {
     expect(getWebSqlSession).toHaveBeenCalledWith(storedId);
     expect(createWebSqlSession).not.toHaveBeenCalled();
     unmount();
+    expect(closeWebSqlSession).toHaveBeenCalledWith(storedId, false);
   });
 
   it('replaces a stored session that no longer exists in the FE', async () => {
@@ -81,5 +84,21 @@ describe('useWebSqlSession initialization', () => {
     expect(sessionStorage.getItem(WEB_SQL_SESSION_STORAGE_KEY)).toBe(replacementId);
     expect(createWebSqlSession).toHaveBeenCalledTimes(1);
     unmount();
+  });
+
+  it('uses a keepalive close when the browser page is being discarded', async () => {
+    vi.mocked(createWebSqlSession).mockResolvedValue({
+      sessionId: replacementId,
+      createdAtMillis: 3,
+      lastAccessMillis: 3,
+    });
+    const { result, unmount } = renderHook(() => useWebSqlSession());
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(closeWebSqlSession).toHaveBeenCalledWith(replacementId, true);
+    unmount();
+    expect(closeWebSqlSession).toHaveBeenCalledTimes(1);
   });
 });

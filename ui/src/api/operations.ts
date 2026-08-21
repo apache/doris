@@ -101,13 +101,14 @@ async function legacyRequest<T>(path: string, init: RequestInit): Promise<T> {
     });
   }
 
-  if (response.status === 401) {
+  const unauthorized = response.status === 401 || payload.code === 401;
+  if (unauthorized) {
     setCsrfToken(null);
     window.dispatchEvent(new CustomEvent('doris-ui:unauthorized'));
   }
   if (!response.ok || payload.code !== 0 || payload.data === undefined) {
-    throw new UiApiError(response.status || 500, {
-      code: response.status === 401 ? 'UI_UNAUTHENTICATED'
+    throw new UiApiError(unauthorized ? 401 : response.status || 500, {
+      code: unauthorized ? 'UI_UNAUTHENTICATED'
         : response.status === 403 ? 'UI_FORBIDDEN'
           : 'UI_OPERATION_FAILED',
       message: payload.msg || 'The operational data could not be loaded.',

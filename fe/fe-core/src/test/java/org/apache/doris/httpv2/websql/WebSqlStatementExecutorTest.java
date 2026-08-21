@@ -26,6 +26,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -60,6 +61,40 @@ public class WebSqlStatementExecutorTest {
         Assertions.assertEquals("tpcds", result.getDatabase());
         Assertions.assertFalse(session.cancel());
         Mockito.verify(connection, Mockito.never()).close();
+    }
+
+    @Test
+    void serializesWideNumericValuesAsExactStrings() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
+        Mockito.when(statement.execute("SELECT wide_values")).thenReturn(true);
+        Mockito.when(statement.getResultSet()).thenReturn(resultSet);
+        Mockito.when(resultSet.getMetaData()).thenReturn(metadata);
+        Mockito.when(metadata.getColumnCount()).thenReturn(3);
+        Mockito.when(metadata.getColumnName(1)).thenReturn("bigint_value");
+        Mockito.when(metadata.getColumnName(2)).thenReturn("largeint_value");
+        Mockito.when(metadata.getColumnName(3)).thenReturn("decimal_value");
+        Mockito.when(metadata.getColumnTypeName(1)).thenReturn("BIGINT");
+        Mockito.when(metadata.getColumnTypeName(2)).thenReturn("LARGEINT");
+        Mockito.when(metadata.getColumnTypeName(3)).thenReturn("DECIMAL(38, 9)");
+        Mockito.when(resultSet.next()).thenReturn(true, false);
+        Mockito.when(resultSet.getString(1)).thenReturn("9223372036854775807");
+        Mockito.when(resultSet.getString(2)).thenReturn("170141183460469231731687303715884105727");
+        Mockito.when(resultSet.getString(3)).thenReturn("12345678901234567890123456789.123456789");
+        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+
+        WebSqlExecutionResult result = new WebSqlStatementExecutor().execute(
+                session, "SELECT wide_values", limits());
+
+        Assertions.assertEquals(Arrays.asList("9223372036854775807",
+                "170141183460469231731687303715884105727",
+                "12345678901234567890123456789.123456789"), result.getRows().get(0));
+        Mockito.verify(resultSet, Mockito.never()).getObject(Mockito.anyInt());
     }
 
     @Test

@@ -52,8 +52,9 @@ export async function resetWebSqlSession(sessionId: string): Promise<WebSqlSessi
     });
 }
 
-export async function closeWebSqlSession(sessionId: string): Promise<WebSqlCloseResult> {
+export async function closeWebSqlSession(sessionId: string, keepalive = false): Promise<WebSqlCloseResult> {
   return uiRequest<WebSqlCloseResult>(`${basePath}/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',
+      ...(keepalive ? { keepalive: true } : {}),
     });
 }
