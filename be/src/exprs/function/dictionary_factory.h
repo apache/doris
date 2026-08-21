@@ -20,13 +20,11 @@
 #include <gen_cpp/BackendService_types.h>
 
 #include <algorithm>
-#include <atomic>
 #include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "exprs/function/dictionary.h"
-#include "util/debug_points.h"
 #include "util/time.h"
 
 namespace doris {
@@ -41,13 +39,6 @@ public:
 
     // Returns nullptr if failed
     std::shared_ptr<const IDictionary> get(int64_t dict_id, int64_t version_id) {
-        // simulate slow query holding old version_id
-        DBUG_EXECUTE_IF("dict_get_delay", {
-            int sleep_sec = dp->param<int>("sleep_sec", 10);
-            LOG(INFO) << "debug point dict_get_delay: sleeping " << sleep_sec
-                      << "s before get dict_id=" << dict_id << " version_id=" << version_id;
-            sleep(sleep_sec);
-        });
         std::shared_lock lc(_mutex);
         auto it = _dict_id_to_versioned_map.find(dict_id);
         if (it != _dict_id_to_versioned_map.end()) {
@@ -113,16 +104,17 @@ public:
         auto& versioned_map = _dict_id_to_versioned_map[dict_id];
         if (!versioned_map.empty()) {
             int64_t latest = versioned_map.rbegin()->first;
-            if (version_id <= latest) {
+            // only reject out-of-order; allow == latest for idempotent re-commit after partial rollback
+            if (version_id < latest) {
                 LOG_WARNING(
                         "DictionaryFactory Failed to commit dictionary because version ID "
-                        "is not greater than the existing version ID")
+                        "is less than the existing version ID")
                         .tag("dict_id", dict_id)
                         .tag("version_id", version_id)
                         .tag("dict name", dict->dict_name())
                         .tag("existing version ID", latest);
                 return Status::InvalidArgument(
-                        "Version ID is not greater than the existing version ID for the "
+                        "Version ID is less than the existing version ID for the "
                         "dictionary. {} : {}",
                         version_id, latest);
             }
@@ -134,74 +126,58 @@ public:
         dict->set_commit_time_ms(UnixMillis());
         versioned_map[version_id] = dict;
         _refreshing_dict_map.erase(dict_id);
+        std::vector<DictionaryPtr> to_retire;
+        int64_t now = UnixMillis();
+        _gc_count_for_dict_no_lock(dict_id, versioned_map, to_retire);
+        _gc_ttl_if_needed_no_lock(now, to_retire);
         lc.unlock();
-        gc_if_needed();
         return Status::OK();
     }
 
     Status delete_dict(int64_t dict_id) {
         VLOG_DEBUG << "DictionaryFactory delete dictionary, dict_id: " << dict_id;
-        std::unique_lock lc(_mutex);
-        auto it = _dict_id_to_versioned_map.find(dict_id);
-        if (it == _dict_id_to_versioned_map.end()) {
-            return Status::OK();
+        std::vector<DictionaryPtr> to_retire;
+        {
+            std::unique_lock lc(_mutex);
+            auto it = _dict_id_to_versioned_map.find(dict_id);
+            if (it == _dict_id_to_versioned_map.end()) {
+                return Status::OK();
+            }
+            if (it->second.empty()) {
+                LOG_WARNING("DictionaryFactory delete dictionary with empty version map")
+                        .tag("dict_id", dict_id);
+            } else {
+                auto latest_it = it->second.rbegin();
+                LOG_INFO("DictionaryFactory Successfully delete dictionary")
+                        .tag("dict_id", dict_id)
+                        .tag("dict name", latest_it->second->dict_name())
+                        .tag("latest version_id", latest_it->first);
+            }
+            for (auto& [v_id, dict] : it->second) {
+                to_retire.push_back(std::move(dict));
+            }
+            _dict_id_to_versioned_map.erase(it);
         }
-        if (it->second.empty()) {
-            LOG_WARNING("DictionaryFactory delete dictionary with empty version map")
-                    .tag("dict_id", dict_id);
-        } else {
-            auto latest_it = it->second.rbegin();
-            LOG_INFO("DictionaryFactory Successfully delete dictionary")
-                    .tag("dict_id", dict_id)
-                    .tag("dict name", latest_it->second->dict_name())
-                    .tag("latest version_id", latest_it->first);
-        }
-        _dict_id_to_versioned_map.erase(it);
+        // destroy retired payloads outside _mutex
         return Status::OK();
     }
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
 
-    // unified GC entry: count-based + ttl-based, with interval protection
-    void gc_if_needed() {
+    // TTL GC for all dicts, interval-gated. Caller must hold _mutex.
+    void _gc_ttl_if_needed_no_lock(int64_t now, std::vector<DictionaryPtr>& to_retire) {
         int64_t gc_interval_ms = std::max(1, config::dictionary_gc_interval_seconds) * 1000LL;
-        int64_t now = UnixMillis();
-        if (now - _last_gc_time_ms.load(std::memory_order_relaxed) < gc_interval_ms) {
+        if (now - _last_gc_time_ms < gc_interval_ms) {
             return;
         }
-        std::unique_lock<std::shared_mutex> lc(_mutex);
-        // re-check under lock to avoid duplicate GC
-        if (now - _last_gc_time_ms.load(std::memory_order_relaxed) < gc_interval_ms) {
-            return;
-        }
-        _last_gc_time_ms.store(now, std::memory_order_relaxed);
-        _gc_all_no_lock(now);
-    }
-
-    void get_dictionary_status(std::vector<TDictionaryStatus>& result,
-                               std::vector<int64_t> dict_ids);
-
-private:
-    // GC all dicts: first count-based, then ttl-based. Always keeps the latest version.
-    void _gc_all_no_lock(int64_t now) {
-        int32_t max_versions = std::max(1, config::dictionary_max_versions);
+        _last_gc_time_ms = now;
         int64_t ttl_ms = static_cast<int64_t>(config::dictionary_version_ttl_seconds) * 1000;
-        int64_t threshold_ms = ttl_ms > 0 ? now - ttl_ms : 0;
+        if (ttl_ms <= 0) {
+            return;
+        }
+        int64_t threshold_ms = now - ttl_ms;
         for (auto& [dict_id, versioned_map] : _dict_id_to_versioned_map) {
-            if (versioned_map.size() <= 1) {
-                continue;
-            }
-            // count-based: drop oldest while exceeding max_versions
-            while (versioned_map.size() > static_cast<size_t>(max_versions)) {
-                auto it = versioned_map.begin();
-                LOG_INFO("DictionaryFactory GC old version by count")
-                        .tag("dict_id", dict_id)
-                        .tag("version_id", it->first)
-                        .tag("dict name", it->second->dict_name());
-                versioned_map.erase(it);
-            }
-            // ttl-based: drop non-latest versions older than ttl
-            while (ttl_ms > 0 && versioned_map.size() > 1) {
+            while (versioned_map.size() > 1) {
                 auto it = versioned_map.begin();
                 if (it->second->commit_time_ms() >= threshold_ms) {
                     break;
@@ -210,8 +186,29 @@ private:
                         .tag("dict_id", dict_id)
                         .tag("version_id", it->first)
                         .tag("age_sec", (now - it->second->commit_time_ms()) / 1000);
+                to_retire.push_back(std::move(it->second));
                 versioned_map.erase(it);
             }
+        }
+    }
+
+    void get_dictionary_status(std::vector<TDictionaryStatus>& result,
+                               std::vector<int64_t> dict_ids);
+
+private:
+    // Count-based GC for a single dict: drop oldest versions while size > max_versions.
+    void _gc_count_for_dict_no_lock(int64_t dict_id,
+                                    std::map<int64_t, DictionaryPtr>& versioned_map,
+                                    std::vector<DictionaryPtr>& to_retire) {
+        int32_t max_versions = std::max(1, config::dictionary_max_versions);
+        while (versioned_map.size() > static_cast<size_t>(max_versions)) {
+            auto it = versioned_map.begin();
+            LOG_INFO("DictionaryFactory GC old version by count")
+                    .tag("dict_id", dict_id)
+                    .tag("version_id", it->first)
+                    .tag("dict name", it->second->dict_name());
+            to_retire.push_back(std::move(it->second));
+            versioned_map.erase(it);
         }
     }
 
@@ -223,7 +220,7 @@ private:
 
     std::shared_mutex _mutex;
 
-    std::atomic<int64_t> _last_gc_time_ms {0};
+    int64_t _last_gc_time_ms = 0;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };

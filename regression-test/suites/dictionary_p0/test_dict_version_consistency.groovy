@@ -28,6 +28,7 @@ suite("test_dict_version_consistency", "nonConcurrent") {
             k varchar(100) not null,
             v varchar(100) not null
         )
+        UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(`k`) BUCKETS 1
         properties("replication_num" = "1");
     """
@@ -100,39 +101,40 @@ suite("test_dict_version_consistency", "nonConcurrent") {
     logger.info("=== Test 1 passed ===")
 
     // ============ Test 2: multi-version retention ============
-    // Scenario: query holds old version N (dict_get_delay sleeps 5s at BE get()),
-    //           refresh commits new version N+1 during the sleep.
-    //           Verifies _dict_id_to_versioned_map retains old version N (max_versions=2).
+    // Scenario: refresh commits version N+1 with new data, then query forced to use
+    //           old version N via FE debug point. Verifies _dict_id_to_versioned_map
+    //           retains old version N (max_versions=2) and returns old data.
     logger.info("=== Test 2: multi-version retention ===")
+    def prevMaxVersions = "2"
     update_all_be_config("dictionary_max_versions", "2")
-    GetDebugPoint().enableDebugPointForAllBEs("dict_get_delay", [sleep_sec: 5])
     try {
         def baselineVersion2 = getDictVersion()
-        // submit query in background: FE plan uses baselineVersion2, BE sleeps 5s at get()
-        def executor = Executors.newSingleThreadExecutor()
-        def queryResult = new java.util.concurrent.atomic.AtomicReference<List>()
-        def queryFuture = executor.submit({
-            sql "use test_dict_version_consistency"
-            queryResult.set(sql "select dict_get('test_dict_version_consistency.dict1', 'v', '1')")
-        })
 
-        // wait for BE to enter dict_get_delay (query is now sleeping with old version)
-        sleep(2000)
-
-        // refresh commits new version while query holds old version
+        // update src data so N+1 returns a distinguishable value (insert overwrites unique key)
+        sql "insert into src_dict values ('1', 'value1_v2')"
+        sql "sync"
         sql "refresh dictionary dict1"
         def newVersion = waitVersionAdvanced(baselineVersion2, 10000)
-        logger.info("refresh committed version ${newVersion}, query still holding ${baselineVersion2}")
+        logger.info("refresh committed version ${newVersion}, baseline was ${baselineVersion2}")
 
-        // query should complete successfully using old version (multi-version retention)
-        queryFuture.get(30, TimeUnit.SECONDS)
-        executor.shutdown()
-        result = queryResult.get()
-        assertEquals("value1", result[0][0])
-        logger.info("query succeeded with old version (multi-version retention)")
+        // query with forced old version N should return old data (multi-version retention)
+        GetDebugPoint().enableDebugPointForAllFEs("ExpressionTranslator.dict_get_version",
+                [version_id: baselineVersion2.toString()])
+        try {
+            result = queryDict("1")
+            assertEquals("value1", result[0][0])
+            logger.info("query with forced version ${baselineVersion2} returned old data")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("ExpressionTranslator.dict_get_version")
+        }
+
+        // query with current version N+1 should return new data
+        result = queryDict("1")
+        assertEquals("value1_v2", result[0][0])
+        logger.info("query with current version ${newVersion} returned new data")
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("dict_get_delay")
-        update_all_be_config("dictionary_max_versions", "1")
+        GetDebugPoint().disableDebugPointForAllFEs("ExpressionTranslator.dict_get_version")
+        update_all_be_config("dictionary_max_versions", prevMaxVersions)
     }
     logger.info("=== Test 2 passed ===")
 }

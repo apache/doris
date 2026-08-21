@@ -40,7 +40,7 @@ static void commit_version(DictionaryFactory& f, int64_t dict_id, int64_t versio
     auto dict = make_dict("dict_" + std::to_string(dict_id));
     EXPECT_TRUE(f.refresh_dict(dict_id, version_id, dict));
     // reset GC timer to force GC on every commit
-    f._last_gc_time_ms.store(0, std::memory_order_relaxed);
+    f._last_gc_time_ms = 0;
     EXPECT_TRUE(f.commit_refresh_dict(dict_id, version_id));
 }
 
@@ -219,7 +219,7 @@ TEST(DictionaryMultiVersionTest, GCIntervalLarge) {
     config::dictionary_gc_interval_seconds = 1000000;
     config::dictionary_max_versions = 1;
     DictionaryFactory f;
-    f._last_gc_time_ms.store(UnixMillis(), std::memory_order_relaxed);
+    f._last_gc_time_ms = UnixMillis();
     // manual commit without resetting GC timer
     auto dict1 = make_dict("dict_1");
     EXPECT_TRUE(f.refresh_dict(1, 1, dict1));
@@ -227,8 +227,8 @@ TEST(DictionaryMultiVersionTest, GCIntervalLarge) {
     auto dict2 = make_dict("dict_1");
     EXPECT_TRUE(f.refresh_dict(1, 2, dict2));
     EXPECT_TRUE(f.commit_refresh_dict(1, 2));
-    // interval not elapsed; GC skipped; both kept
-    EXPECT_NE(nullptr, f.get(1, 1));
+    // count-based GC runs on every commit regardless of interval; v=1 dropped
+    EXPECT_EQ(nullptr, f.get(1, 1));
     EXPECT_NE(nullptr, f.get(1, 2));
     config::dictionary_gc_interval_seconds = old_interval;
     config::dictionary_max_versions = old_max;
@@ -236,14 +236,58 @@ TEST(DictionaryMultiVersionTest, GCIntervalLarge) {
 
 // ============ boundary scenarios ============
 
-TEST(DictionaryMultiVersionTest, CommitDuplicateVersion) {
+TEST(DictionaryMultiVersionTest, CommitOverwritesSameVersion) {
+    auto old_max = config::dictionary_max_versions;
+    config::dictionary_max_versions = 10;
     DictionaryFactory f;
     commit_version(f, 1, 1);
-    // commit same version again should fail
+    // commit same version again should overwrite (idempotent), not fail
+    auto dict = make_dict("dict_1");
+    EXPECT_TRUE(f.refresh_dict(1, 1, dict));
+    EXPECT_TRUE(f.commit_refresh_dict(1, 1));
+    // staging cleared after commit
+    EXPECT_TRUE(!f._refreshing_dict_map.contains(1));
+    // get still works
+    EXPECT_NE(nullptr, f.get(1, 1));
+    config::dictionary_max_versions = old_max;
+}
+
+TEST(DictionaryMultiVersionTest, CommitRejectsOutOfOrder) {
+    auto old_max = config::dictionary_max_versions;
+    config::dictionary_max_versions = 10;
+    DictionaryFactory f;
+    commit_version(f, 1, 2);
+    // commit v=1 when latest=v=2 should fail (out of order)
     auto dict = make_dict("dict_1");
     EXPECT_TRUE(f.refresh_dict(1, 1, dict));
     auto st = f.commit_refresh_dict(1, 1);
     EXPECT_FALSE(st.ok());
+    // staging still there (not consumed by failed commit)
+    EXPECT_TRUE(f._refreshing_dict_map.contains(1));
+    config::dictionary_max_versions = old_max;
+}
+
+TEST(DictionaryMultiVersionTest, PartialRollbackRecovery) {
+    auto old_max = config::dictionary_max_versions;
+    config::dictionary_max_versions = 10;
+    DictionaryFactory f;
+    // BE1 commit v=1 success
+    commit_version(f, 1, 1);
+    // simulate partial rollback: FE abort v=1 after commit succeeded.
+    // staging already consumed by commit, abort is silent OK, orphan v=1 remains.
+    EXPECT_TRUE(f.abort_refresh_dict(1, 1).ok());
+    // orphan v=1 still in versioned_map
+    EXPECT_NE(nullptr, f.get(1, 1));
+    // next refresh: FE INC to v=1 again, refresh_dict writes new staging v=1
+    auto dict_new = make_dict("dict_1");
+    EXPECT_TRUE(f.refresh_dict(1, 1, dict_new));
+    // commit v=1: should overwrite orphan, not fail with "version <= latest"
+    EXPECT_TRUE(f.commit_refresh_dict(1, 1));
+    // staging cleared
+    EXPECT_TRUE(!f._refreshing_dict_map.contains(1));
+    // get works
+    EXPECT_NE(nullptr, f.get(1, 1));
+    config::dictionary_max_versions = old_max;
 }
 
 TEST(DictionaryMultiVersionTest, GetNonExistentDict) {
@@ -252,8 +296,9 @@ TEST(DictionaryMultiVersionTest, GetNonExistentDict) {
 }
 
 TEST(DictionaryMultiVersionTest, DeleteAllVersions) {
-    DictionaryFactory f;
+    auto old = config::dictionary_max_versions;
     config::dictionary_max_versions = 10;
+    DictionaryFactory f;
     commit_version(f, 1, 1);
     commit_version(f, 1, 2);
     commit_version(f, 1, 3);
@@ -261,6 +306,7 @@ TEST(DictionaryMultiVersionTest, DeleteAllVersions) {
     EXPECT_EQ(nullptr, f.get(1, 1));
     EXPECT_EQ(nullptr, f.get(1, 2));
     EXPECT_EQ(nullptr, f.get(1, 3));
+    config::dictionary_max_versions = old;
 }
 
 TEST(DictionaryMultiVersionTest, DeleteNonExistent) {
@@ -281,20 +327,23 @@ TEST(DictionaryMultiVersionTest, DeleteAfterGC) {
 }
 
 TEST(DictionaryMultiVersionTest, CommitAfterDelete) {
-    DictionaryFactory f;
+    auto old = config::dictionary_max_versions;
     config::dictionary_max_versions = 10;
+    DictionaryFactory f;
     commit_version(f, 1, 1);
     EXPECT_TRUE(f.delete_dict(1).ok());
     // commit new version after delete
     commit_version(f, 1, 2);
     EXPECT_NE(nullptr, f.get(1, 2));
+    config::dictionary_max_versions = old;
 }
 
 // ============ get_dictionary_status ============
 
 TEST(DictionaryMultiVersionTest, GetStatusReportsLatest) {
-    DictionaryFactory f;
+    auto old = config::dictionary_max_versions;
     config::dictionary_max_versions = 10;
+    DictionaryFactory f;
     commit_version(f, 1, 1);
     commit_version(f, 1, 2);
     commit_version(f, 1, 3);
@@ -303,6 +352,7 @@ TEST(DictionaryMultiVersionTest, GetStatusReportsLatest) {
     EXPECT_EQ(1, result.size());
     EXPECT_EQ(1, result[0].dictionary_id);
     EXPECT_EQ(3, result[0].version_id);
+    config::dictionary_max_versions = old;
 }
 
 TEST(DictionaryMultiVersionTest, GetStatusEmptyAfterDelete) {
