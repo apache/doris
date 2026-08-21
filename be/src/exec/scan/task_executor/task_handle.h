@@ -28,6 +28,8 @@ public:
     virtual Status init() = 0;
     virtual bool is_closed() const = 0;
     virtual TaskId task_id() const = 0;
+    // Leaf splits accepted by TaskExecutor but not admitted to this task yet.
+    virtual int queued_leaf_splits() const = 0;
 };
 
 } // namespace doris

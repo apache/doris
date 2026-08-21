@@ -22,6 +22,8 @@
 #include <glog/logging.h>
 #include <zconf.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <memory>
@@ -41,6 +43,7 @@
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "exec/scan/task_executor/task_executor.h"
+#include "exec/scan/task_executor/task_handle.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -177,6 +180,30 @@ int ScannerContext::_available_pickup_scanner_count() {
     return scanners;
 }
 
+static Status init_task_executor(ScannerScheduler* scanner_scheduler, RuntimeState* state,
+                                 const std::string& ctx_id,
+                                 std::weak_ptr<TaskExecutor>* task_executor,
+                                 std::shared_ptr<TaskHandle>* task_handle) {
+    if (auto* task_executor_scheduler =
+                dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(scanner_scheduler)) {
+        std::shared_ptr<TaskExecutor> executor = task_executor_scheduler->task_executor();
+        *task_executor = executor;
+        TaskId task_id(fmt::format("{}-{}", print_id(state->query_id()), ctx_id));
+        int initial_task_concurrency =
+                config::task_executor_initial_max_concurrency_per_task > 0
+                        ? config::task_executor_initial_max_concurrency_per_task
+                        : std::max(48, CpuInfo::num_cores() * 2);
+        if (config::task_executor_max_concurrency_per_task > 0) {
+            initial_task_concurrency = std::min(initial_task_concurrency,
+                                                config::task_executor_max_concurrency_per_task);
+        }
+        *task_handle = DORIS_TRY(executor->create_task(
+                task_id, []() { return 0.0; }, initial_task_concurrency,
+                std::chrono::milliseconds(100), std::nullopt));
+    }
+    return Status::OK();
+}
+
 // After init function call, should not access _parent
 Status ScannerContext::init() {
 #ifndef BE_TEST
@@ -196,20 +223,10 @@ Status ScannerContext::init() {
 
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
-
-    if (auto* task_executor_scheduler =
-                dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
-        std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
-        _task_executor = task_executor;
-        TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
-        _task_handle = DORIS_TRY(task_executor->create_task(
-                task_id, []() { return 0.0; },
-                config::task_executor_initial_max_concurrency_per_task > 0
-                        ? config::task_executor_initial_max_concurrency_per_task
-                        : std::max(48, CpuInfo::num_cores() * 2),
-                std::chrono::milliseconds(100), std::nullopt));
-    }
 #endif
+
+    RETURN_IF_ERROR(
+            init_task_executor(_scanner_scheduler, _state, ctx_id, &_task_executor, &_task_handle));
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
     // is larger than 10MB.
@@ -579,13 +596,19 @@ void ScannerContext::reestimated_block_mem_bytes(int64_t num) {
 
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
+    return _get_margin(transfer_lock, scheduler_lock, _in_flight_tasks_num.load());
+}
+
+int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
+                                    std::unique_lock<std::shared_mutex>& scheduler_lock,
+                                    int32_t in_flight_tasks) {
     // Get effective max concurrency considering adaptive scheduling
     int32_t effective_max_concurrency = _available_pickup_scanner_count();
     DCHECK_LE(effective_max_concurrency, _max_scan_concurrency);
 
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
-    int32_t margin_1 = _min_scan_concurrency -
-                       (cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num);
+    int32_t margin_1 =
+            _min_scan_concurrency - (cast_set<int32_t>(_completed_tasks.size()) + in_flight_tasks);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
     int32_t margin_2 =
@@ -595,7 +618,7 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
     // margin_3 is used to respect adaptive max concurrency limit
     int32_t margin_3 =
             std::max(effective_max_concurrency -
-                             (cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num),
+                             (cast_set<int32_t>(_completed_tasks.size()) + in_flight_tasks),
                      1);
 
     if (margin_1 <= 0 && margin_2 <= 0) {
@@ -610,24 +633,32 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
     if (low_memory_mode()) {
         // In low memory mode, we will limit the number of running scanners to `low_memory_mode_scanners()`.
         // So that we will not submit too many scan tasks to scheduler.
-        margin = std::min(low_memory_mode_scanners() - _in_flight_tasks_num, margin);
+        margin = std::min(low_memory_mode_scanners() - in_flight_tasks, margin);
     }
 
     VLOG_DEBUG << fmt::format(
             "[{}|{}] schedule scan task, margin_1: {} = {} - ({} + {}), margin_2: {} = {} - "
             "({} + {}), margin_3: {} = {} - ({} + {}), margin: {}, adaptive: {}",
             print_id(_query_id), ctx_id, margin_1, _min_scan_concurrency, _completed_tasks.size(),
-            _in_flight_tasks_num, margin_2, _min_scan_concurrency_of_scan_scheduler,
+            in_flight_tasks, margin_2, _min_scan_concurrency_of_scan_scheduler,
             _scanner_scheduler->get_active_threads(), _scanner_scheduler->get_queue_size(),
-            margin_3, effective_max_concurrency, _completed_tasks.size(), _in_flight_tasks_num,
-            margin, _enable_adaptive_scanners);
+            margin_3, effective_max_concurrency, _completed_tasks.size(), in_flight_tasks, margin,
+            _enable_adaptive_scanners);
 
     return margin;
+}
+
+int32_t ScannerContext::_admitted_in_flight_tasks() const {
+    const int32_t queued_leaf_splits = _task_handle ? _task_handle->queued_leaf_splits() : 0;
+    DCHECK_LE(queued_leaf_splits, _in_flight_tasks_num);
+    return _in_flight_tasks_num - queued_leaf_splits;
 }
 
 // This function must be called with:
 // 1. _transfer_lock held.
 // 2. ScannerScheduler::_lock held.
+// Keep the scheduling decision and submission together so both use the same locked state snapshot.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                           std::unique_lock<std::mutex>& transfer_lock,
                                           std::unique_lock<std::shared_mutex>& scheduler_lock) {
@@ -638,75 +669,73 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
 
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
 
-    int32_t margin = _get_margin(transfer_lock, scheduler_lock);
+    const int32_t submission_margin = std::max(_get_margin(transfer_lock, scheduler_lock), 0);
+    bool current_scan_task_scheduled = current_scan_task == nullptr;
 
-    // margin is less than zero. Means this scan operator could not submit any scan task for now.
-    if (margin <= 0) {
-        // Be careful with current scan task.
-        // We need to add it back to task queue to make sure it could be resubmitted.
-        if (current_scan_task) {
-            // This usually happens when we should downgrade the concurrency.
-            current_scan_task->set_state(ScanTask::State::PENDING);
-            _pending_tasks.push(current_scan_task);
-            VLOG_DEBUG << fmt::format(
-                    "{} push back scanner to task queue, because diff <= 0, _completed_tasks size "
-                    "{}, _in_flight_tasks_num {}",
-                    ctx_id, _completed_tasks.size(), _in_flight_tasks_num);
+    // A yielded scanner keeps its TaskExecutor admission slot. Use the admission-aware margin
+    // only to re-enqueue splits that TaskExecutor already owns. In particular, a task with
+    // is_first_schedule=true must not consume this margin and create more TaskExecutor backlog.
+    int32_t admitted_in_flight_tasks = 0;
+    int32_t reschedule_margin = 0;
+    if (_task_handle) {
+        admitted_in_flight_tasks = _admitted_in_flight_tasks();
+        reschedule_margin =
+                std::max(_get_margin(transfer_lock, scheduler_lock, admitted_in_flight_tasks), 0);
+    }
+    while (reschedule_margin-- > 0) {
+        const auto current_concurrency = cast_set<int32_t>(
+                _completed_tasks.size() + admitted_in_flight_tasks + tasks_to_submit.size());
+        auto task_to_run =
+                _pull_next_scan_task(current_scan_task_scheduled ? nullptr : current_scan_task,
+                                     current_concurrency, true);
+        if (!task_to_run) {
+            break;
         }
-
-#ifndef NDEBUG
-        // This DCHECK is necessary.
-        // We need to make sure each scan operator could have at least 1 scan tasks.
-        // Or this scan operator will not be re-scheduled.
-        if (!_pending_tasks.empty() && _in_flight_tasks_num == 0 && _completed_tasks.empty()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
-        }
-#endif
-
-        return Status::OK();
+        current_scan_task_scheduled |= task_to_run == current_scan_task;
+        tasks_to_submit.push_back(std::move(task_to_run));
     }
 
-    bool first_pull = true;
-
-    while (margin-- > 0) {
+    // Rescheduled splits also consume ordinary ScannerContext margin. Only the remaining ordinary
+    // margin may pull a first-time scanner and submit a new split to TaskExecutor.
+    int32_t remaining_submission_margin =
+            std::max(submission_margin - cast_set<int32_t>(tasks_to_submit.size()), 0);
+    while (remaining_submission_margin-- > 0) {
         std::shared_ptr<ScanTask> task_to_run;
-        const int32_t current_concurrency = cast_set<int32_t>(
+        const auto current_concurrency = cast_set<int32_t>(
                 _completed_tasks.size() + _in_flight_tasks_num + tasks_to_submit.size());
-        VLOG_DEBUG << fmt::format("{} currenct concurrency: {} = {} + {} + {}", ctx_id,
+        VLOG_DEBUG << fmt::format("{} current concurrency: {} = {} + {} + {}", ctx_id,
                                   current_concurrency, _completed_tasks.size(),
                                   _in_flight_tasks_num, tasks_to_submit.size());
-        if (first_pull) {
-            task_to_run = _pull_next_scan_task(current_scan_task, current_concurrency);
-            if (task_to_run == nullptr) {
-                // In three situations we will get nullptr.
-                // 1. current_concurrency already reached _max_scan_concurrency.
-                // 2. all scanners are finished.
-                // 3. The shared LIMIT is exhausted while completed or in-flight tasks can still
-                //    make progress.
-                if (current_scan_task) {
-                    DCHECK(current_scan_task->cached_block == nullptr);
-                    DCHECK(!current_scan_task->is_eos());
-                    if (current_scan_task->cached_block != nullptr || current_scan_task->is_eos()) {
-                        // This should not happen.
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                               "Scanner scheduler logical error.");
-                    }
-                    // Current scan task is not scheduled, we need to add it back to task queue to make sure it could be resubmitted.
-                    current_scan_task->set_state(ScanTask::State::PENDING);
-                    _pending_tasks.push(current_scan_task);
-                }
-            }
-            first_pull = false;
-        } else {
-            task_to_run = _pull_next_scan_task(nullptr, current_concurrency);
-        }
+        task_to_run = _pull_next_scan_task(
+                current_scan_task_scheduled ? nullptr : current_scan_task, current_concurrency);
 
         if (task_to_run) {
-            tasks_to_submit.push_back(task_to_run);
+            current_scan_task_scheduled |= task_to_run == current_scan_task;
+            tasks_to_submit.push_back(std::move(task_to_run));
         } else {
             break;
         }
     }
+
+    if (!current_scan_task_scheduled) {
+        DCHECK(current_scan_task->cached_block == nullptr);
+        DCHECK(!current_scan_task->is_eos());
+        current_scan_task->set_state(ScanTask::State::PENDING);
+        _pending_tasks.push(current_scan_task);
+        VLOG_DEBUG << fmt::format(
+                "{} push back scanner to task queue, because no margin is available, "
+                "_completed_tasks size {}, _in_flight_tasks_num {}",
+                ctx_id, _completed_tasks.size(), _in_flight_tasks_num);
+    }
+
+#ifndef NDEBUG
+    // This DCHECK is necessary. We need to make sure each scan operator could have at least one
+    // task that can make progress, otherwise this scan operator will not be re-scheduled.
+    if (tasks_to_submit.empty() && !_pending_tasks.empty() && _in_flight_tasks_num == 0 &&
+        _completed_tasks.empty()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
+    }
+#endif
 
     if (tasks_to_submit.empty()) {
         return Status::OK();
@@ -729,7 +758,8 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
 }
 
 std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
-        std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
+        std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency,
+        bool only_existing_split) {
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
         effective_max_concurrency = _adaptive_processor->expected_scanners > 0
@@ -746,6 +776,7 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (current_scan_task != nullptr) {
+        DCHECK(!only_existing_split || !current_scan_task->is_first_schedule);
         if (current_scan_task->cached_block != nullptr || current_scan_task->is_eos()) {
             // This should not happen.
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
@@ -754,6 +785,9 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
+        if (only_existing_split && _pending_tasks.top()->is_first_schedule) {
+            return nullptr;
+        }
         // Do not submit more pending scanners after the shared LIMIT is exhausted while
         // completed or in-flight tasks can still make progress. If neither exists, allow pending
         // scanners to be submitted so they can report EOS and wake the pipeline task.

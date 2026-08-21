@@ -350,6 +350,8 @@ public:
 
     TaskId task_id() const override { return _task_id; }
 
+    int queued_leaf_splits() const override { return 0; }
+
 private:
     TaskId _task_id;
 };

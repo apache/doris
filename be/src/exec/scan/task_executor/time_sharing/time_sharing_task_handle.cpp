@@ -133,6 +133,11 @@ int TimeSharingTaskHandle::running_leaf_splits() const {
     return static_cast<int>(_running_leaf_splits.size());
 }
 
+int TimeSharingTaskHandle::queued_leaf_splits() const {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return static_cast<int>(_queued_leaf_splits.size());
+}
+
 int64_t TimeSharingTaskHandle::scheduled_nanos() const {
     std::lock_guard<std::mutex> lock(_mutex);
     return _scheduled_nanos;

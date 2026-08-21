@@ -57,6 +57,7 @@ public:
     bool enqueue_split(std::shared_ptr<PrioritizedSplitRunner> split);
     bool record_intermediate_split(std::shared_ptr<PrioritizedSplitRunner> split);
     int running_leaf_splits() const;
+    int queued_leaf_splits() const override;
     int64_t scheduled_nanos() const;
     std::shared_ptr<PrioritizedSplitRunner> poll_next_split();
     void split_finished(std::shared_ptr<PrioritizedSplitRunner> split);
