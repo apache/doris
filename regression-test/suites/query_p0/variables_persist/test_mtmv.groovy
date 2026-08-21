@@ -73,7 +73,7 @@ suite("test_mtmv") {
     sql "set enable_decimal256=false;"
     explain {
         sql query_sql
-        contains "mv_var_1 not chose"
+        contains "mv_var_1 fail"
     }
     qt_rewite_open128 "$query_sql order by 1,2,3;"
     sql "drop materialized view  if exists mv_var_1;"
