@@ -224,7 +224,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)"),
               (int64_t)1},
              std::string("['18','17']")},
-            {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)"), (int64_t)1},
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)"),
+              (int64_t)1},
              std::string("['a']")},
             {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)"),
               (int64_t)1},
@@ -408,8 +409,8 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         block.insert({col_pattern, pattern_col_type, "pattern"});
         auto col_idx = ColumnInt64::create();
         col_idx->insert_value(1);
-        block.insert({ColumnConst::create(std::move(col_idx), 1),
-                      std::make_shared<DataTypeInt64>(), "idx"});
+        block.insert({ColumnConst::create(std::move(col_idx), 1), std::make_shared<DataTypeInt64>(),
+                      "idx"});
         block.insert({nullptr, return_type, "result"});
 
         ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
@@ -576,8 +577,9 @@ TEST(FunctionLikeTest, regexp_extract_all_null_rows_yield_null_without_aborting)
                                           make_nullable(bigint_type)};
     FunctionUtils fn_utils({}, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    fn_ctx->set_constant_cols(
-            {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column), nullptr});
+    fn_ctx->set_constant_cols({nullptr,
+                               std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                               nullptr});
 
     ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
