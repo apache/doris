@@ -259,14 +259,6 @@ public:
         }
     }
 
-    void update_delayed_expired_timestamp(uint64_t delayed_expired_timestamp) {
-        if (delayed_expired_timestamp > _delayed_expired_timestamp) {
-            _delayed_expired_timestamp = delayed_expired_timestamp;
-        }
-    }
-
-    uint64_t delayed_expired_timestamp() { return _delayed_expired_timestamp; }
-
     virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) {
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
         return Status::OK();
@@ -373,8 +365,6 @@ protected:
     std::atomic<uint64_t> _refs_by_reader;
     // rowset state machine
     RowsetStateMachine _rowset_state_machine;
-    std::atomic<uint64_t> _delayed_expired_timestamp = 0;
-
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
 

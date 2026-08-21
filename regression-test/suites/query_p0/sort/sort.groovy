@@ -124,10 +124,6 @@ suite("sort") {
     sql "insert into sort_default_value values (3, 0)"
     sql "insert into sort_default_value values (4, null)"
     qt_sql "select * from sort_default_value order by k1 limit 10"
-    explain {
-        sql("select * from sort_default_value order by k1 limit 10")
-        contains "OPT TWO PHASE"
-    }
 
     def tblName = "sort_one_float_column"
     sql """ DROP TABLE IF EXISTS ${tblName} """

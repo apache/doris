@@ -36,11 +36,16 @@
 #include "exec/scan/file_scanner.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/defer_op.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
 
 namespace {
+
+void fetch_callback(bthread::CountdownEvent* counter) {
+    Defer defer([&] { counter->signal(); });
+}
 
 constexpr const char* TOPN_LAZY_MAT_PHASE2_PER_BACKEND =
         "TopNLazyMaterializationSecondPhasePerBackend";

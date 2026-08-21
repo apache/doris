@@ -1514,10 +1514,10 @@ bool BaseStorageEngine::notify_listener(std::string_view name) {
     return found;
 }
 
-void BaseStorageEngine::_evict_quring_rowset_thread_callback() {
+void BaseStorageEngine::_gc_expired_id_file_map_thread_callback() {
     int32_t interval = config::quering_rowsets_evict_interval;
     do {
-        _evict_querying_rowset();
+        _gc_expired_id_file_map();
         interval = config::quering_rowsets_evict_interval;
         if (interval <= 0) {
             LOG(WARNING) << "quering_rowsets_evict_interval config is illegal: " << interval
@@ -1632,34 +1632,7 @@ void StorageEngine::get_compaction_status_json(std::string* result) {
     _compaction_submit_registry.jsonfy_compaction_status(result);
 }
 
-void BaseStorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    _querying_rowsets.emplace(rs->rowset_id(), rs);
-}
-
-RowsetSharedPtr BaseStorageEngine::get_quering_rowset(RowsetId rs_id) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    auto it = _querying_rowsets.find(rs_id);
-    if (it != _querying_rowsets.end()) {
-        return it->second;
-    }
-    return nullptr;
-}
-
-void BaseStorageEngine::_evict_querying_rowset() {
-    {
-        std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-        for (auto it = _querying_rowsets.begin(); it != _querying_rowsets.end();) {
-            uint64_t now = UnixSeconds();
-            // We delay the GC time of this rowset since it's maybe still needed, see #20732
-            if (now > it->second->delayed_expired_timestamp()) {
-                it = _querying_rowsets.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
-
+void BaseStorageEngine::_gc_expired_id_file_map() {
     uint64_t now = UnixSeconds();
     ExecEnv::GetInstance()->get_id_manager()->gc_expired_id_file_map(now);
 }
