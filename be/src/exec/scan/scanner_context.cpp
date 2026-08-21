@@ -617,11 +617,10 @@ void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
     _pending_tasks.push(std::move(scan_task));
 }
 
-std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
-        const std::unique_lock<std::mutex>& transfer_lock) {
+bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const {
     DORIS_CHECK(transfer_lock.owns_lock());
     if (done() || _pending_tasks.empty()) {
-        return nullptr;
+        return false;
     }
 
     int32_t effective_max_concurrency = _max_scan_concurrency;
@@ -643,7 +642,12 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
     // 2. If there are no completed or in-flight tasks, no worker can publish a block or EOS.
     // 3. Admit one scanner in that case so the query can make progress and cannot stall.
     const bool has_progressing_task = current_concurrency > 0;
-    if (has_progressing_task && current_concurrency >= effective_max_concurrency) {
+    return !has_progressing_task || current_concurrency < effective_max_concurrency;
+}
+
+std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
+        const std::unique_lock<std::mutex>& transfer_lock) {
+    if (!can_admit_scan_task(transfer_lock)) {
         return nullptr;
     }
 

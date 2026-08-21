@@ -50,6 +50,11 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
         // Submitting another runnable would only duplicate work and distort Context queue latency.
         return Status::OK();
     }
+    if (!scanner_ctx->can_admit_scan_task(transfer_lock)) {
+        // No runnable is needed when the Context has no pending scanner or its concurrency slots
+        // are occupied. Completion or operator consumption will retry scheduling when state changes.
+        return Status::OK();
+    }
 
     // transfer_lock prevents another producer from submitting concurrently. The worker callback
     // also waits for this lock, so it cannot run between successful submission and marking queued.

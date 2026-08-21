@@ -23,6 +23,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -44,6 +45,8 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 class ScannerContextTest : public testing::Test {
@@ -681,6 +684,8 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     // a block or EOS and prevent the Context from stalling.
     scanner_context->_max_scan_concurrency = 0;
 
+    EXPECT_FALSE(scanner_context->can_admit_scan_task(context_transfer_lock));
+
     auto completed_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
     completed_task->set_state(ScanTask::State::IN_FLIGHT);
     completed_task->cached_block = Block::create_unique();
@@ -689,6 +694,7 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     // A consumed non-EOS result must be eligible for another Context admission. This also covers
     // the COMPLETED -> PENDING transition used by ThreadPool scheduling.
     scanner_context->push_pending_scan_task(completed_task, context_transfer_lock);
+    EXPECT_TRUE(scanner_context->can_admit_scan_task(context_transfer_lock));
 
     EXPECT_FALSE(scanner_context->is_context_queued(context_transfer_lock));
     scanner_context->set_context_queued(true, context_transfer_lock);
@@ -700,6 +706,10 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     EXPECT_EQ(admitted_task, completed_task);
     EXPECT_EQ(admitted_task->_state, ScanTask::State::IN_FLIGHT);
     EXPECT_EQ(scanner_context->_in_flight_tasks_num, 1);
+
+    auto blocked_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
+    scanner_context->push_pending_scan_task(blocked_task, context_transfer_lock);
+    EXPECT_FALSE(scanner_context->can_admit_scan_task(context_transfer_lock));
     EXPECT_EQ(scanner_context->try_get_next_scan_task(context_transfer_lock), nullptr);
 }
 
@@ -1044,6 +1054,66 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
                                                0);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(scanner_context->_num_finished_scanners, 1);
+}
+
+TEST_F(ScannerContextTest, terminal_eos_skips_context_submission) {
+    const int parallel_tasks = 1;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = 100;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    auto scanner_delegate = std::make_shared<ScannerDelegate>(scanner);
+    std::list<std::shared_ptr<ScannerDelegate>> scanners {scanner_delegate};
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
+            scanners, 100, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
+            parallel_tasks);
+
+    auto eos_task = std::make_shared<ScanTask>(scanner_delegate);
+    eos_task->set_state(ScanTask::State::IN_FLIGHT);
+    eos_task->set_state(ScanTask::State::EOS);
+    scanner_context->_pending_tasks = std::stack<std::shared_ptr<ScanTask>>();
+    scanner_context->_completed_tasks.push_back(eos_task);
+    scanner_context->_in_flight_tasks_num = 0;
+
+    ThreadPoolSimplifiedScanScheduler scheduler("terminal_eos_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 0, 1).ok());
+    CountDownLatch task_started(1);
+    CountDownLatch release_task(1);
+    Defer cleanup = [&] {
+        release_task.count_down();
+        scheduler.stop();
+    };
+    ASSERT_TRUE(scheduler
+                        .submit_scan_task(SimplifiedScanTask(
+                                [&] {
+                                    task_started.count_down();
+                                    release_task.wait();
+                                    return true;
+                                },
+                                nullptr, nullptr))
+                        .ok());
+    ASSERT_TRUE(task_started.wait_for(std::chrono::seconds(5)));
+    ASSERT_EQ(scheduler.get_active_threads(), 1);
+    scanner_context->_scanner_scheduler = &scheduler;
+
+    MockRuntimeStateLocal mock_runtime_state;
+    EXPECT_CALL(mock_runtime_state, is_cancelled()).WillRepeatedly(testing::Return(false));
+    Block block;
+    bool eos = false;
+    Status status = scanner_context->get_block_from_queue(&mock_runtime_state, &block, &eos, 0);
+
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(scheduler.get_queue_size(), 0);
 }
 
 /**

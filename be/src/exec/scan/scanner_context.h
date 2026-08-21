@@ -283,6 +283,11 @@ public:
     void push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
                                 const std::unique_lock<std::mutex>& transfer_lock);
 
+    // Return whether a Context worker can currently admit one pending scanner. This check has no
+    // side effects, so the scheduler can avoid submitting a runnable that would immediately exit.
+    // The caller must hold _transfer_lock.
+    bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const;
+
     // Atomically check whether this context can start another scan task, move one task from
     // pending to in-flight, and return it. The caller must hold _transfer_lock.
     std::shared_ptr<ScanTask> try_get_next_scan_task(
