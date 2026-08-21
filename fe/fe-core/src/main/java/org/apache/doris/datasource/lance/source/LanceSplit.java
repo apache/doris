@@ -24,7 +24,6 @@ import org.apache.doris.datasource.TableFormatType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -37,21 +36,15 @@ public class LanceSplit extends FileSplit {
     private final long version;
     private final List<Long> fragmentIds;
     private final List<UUID> indexSegmentUuids;
-    private final long rowCount;
 
     public static LanceSplit forFragment(
             String datasetUri, long version, long fragmentId, long physicalRows) {
-        return forFragment(datasetUri, version, fragmentId, -1, physicalRows);
-    }
-
-    public static LanceSplit forFragment(
-            String datasetUri, long version, long fragmentId, long rowCount, long physicalRows) {
         return new LanceSplit(datasetUri, version, Collections.singletonList(fragmentId),
-                Collections.emptyList(), rowCount, physicalRows);
+                Collections.emptyList(), physicalRows);
     }
 
     public static LanceSplit wholeDatasetAtLatest(String datasetUri) {
-        return new LanceSplit(datasetUri, 0, Collections.emptyList(), Collections.emptyList(), -1, 1);
+        return new LanceSplit(datasetUri, 0, Collections.emptyList(), Collections.emptyList(), 1);
     }
 
     public static LanceSplit forIndexSegment(String datasetUri, long version, UUID indexSegmentUuid,
@@ -60,11 +53,11 @@ public class LanceSplit extends FileSplit {
             throw new IllegalArgumentException("Lance index segment split must contain fragments");
         }
         return new LanceSplit(datasetUri, version, fragmentIds,
-                Collections.singletonList(indexSegmentUuid), -1, physicalRows);
+                Collections.singletonList(indexSegmentUuid), physicalRows);
     }
 
     private LanceSplit(String datasetUri, long version, List<Long> fragmentIds,
-            List<UUID> indexSegmentUuids, long rowCount, long physicalRows) {
+            List<UUID> indexSegmentUuids, long physicalRows) {
         super(LocationPath.of(requireDatasetUri(datasetUri)), 0, 0, 0, 0, null,
                 Collections.emptyList());
         if (version < 0) {
@@ -80,14 +73,10 @@ public class LanceSplit extends FileSplit {
                 throw new IllegalArgumentException("Lance index segment UUID must not be null");
             }
         }
-        if (rowCount < -1) {
-            throw new IllegalArgumentException("Lance fragment row count must be non-negative or unknown");
-        }
         this.datasetUri = datasetUri;
         this.version = version;
         this.fragmentIds = Collections.unmodifiableList(new ArrayList<>(fragmentIds));
         this.indexSegmentUuids = Collections.unmodifiableList(new ArrayList<>(indexSegmentUuids));
-        this.rowCount = rowCount;
         this.tableFormatType = TableFormatType.LANCE;
         this.selfSplitWeight = Math.max(physicalRows, 1);
     }
@@ -121,11 +110,6 @@ public class LanceSplit extends FileSplit {
 
     public boolean hasIndexSegmentUuids() {
         return !indexSegmentUuids.isEmpty();
-    }
-
-    /** Returns the fixed-snapshot logical row count after deletion vectors, when FE knows it. */
-    public OptionalLong getRowCount() {
-        return rowCount >= 0 ? OptionalLong.of(rowCount) : OptionalLong.empty();
     }
 
     @Override

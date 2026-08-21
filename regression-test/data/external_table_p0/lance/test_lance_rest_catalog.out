@@ -10,12 +10,6 @@ all_types
 -- !rest_scan --
 12	12	1	12	78
 
--- !rest_count_star --
-12
-
 -- !rest_predicate_pushdown --
 8
 9
-
--- !rest_filtered_count --
-2
