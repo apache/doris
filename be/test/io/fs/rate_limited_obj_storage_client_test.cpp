@@ -17,6 +17,7 @@
 
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <memory>
