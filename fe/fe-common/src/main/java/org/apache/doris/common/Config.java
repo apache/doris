@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import java.io.File;
 
 public class Config extends ConfigBase {
-
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -566,6 +565,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas for "
             + "a load job.")
     public static short min_load_replica_num = -1;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
 
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
