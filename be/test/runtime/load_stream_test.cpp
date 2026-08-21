@@ -304,9 +304,16 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
 }
 
 struct ResponseStat {
-    std::atomic<int32_t> num;
+    struct TabletOutcome {
+        std::vector<int64_t> success_tablet_ids;
+        std::vector<int64_t> failed_tablet_ids;
+        bool final_tablet_result_fanout = false;
+    };
+
+    std::atomic<int32_t> num {0};
     std::vector<int64_t> success_tablet_ids;
     std::vector<int64_t> failed_tablet_ids;
+    std::vector<TabletOutcome> tablet_outcomes;
 };
 bthread::Mutex g_stat_lock;
 static ResponseStat g_response_stat;
@@ -316,12 +323,15 @@ void reset_response_stat() {
     g_response_stat.num = 0;
     g_response_stat.success_tablet_ids.clear();
     g_response_stat.failed_tablet_ids.clear();
+    g_response_stat.tablet_outcomes.clear();
 }
 
 class LoadStreamMgrTest : public testing::Test {
 public:
     class Handler : public brpc::StreamInputHandler {
     public:
+        explicit Handler(ResponseStat* response_stat = nullptr) : _response_stat(response_stat) {}
+
         int on_received_messages(StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override {
             for (size_t i = 0; i < size; i++) {
@@ -330,19 +340,33 @@ public:
                 response.ParseFromZeroCopyStream(&wrapper);
                 LOG(INFO) << "response " << response.DebugString();
                 std::lock_guard lock_guard(g_stat_lock);
-                for (auto& id : response.success_tablet_ids()) {
-                    g_response_stat.success_tablet_ids.push_back(id);
+                auto record_response = [&](ResponseStat& stat) {
+                    ResponseStat::TabletOutcome outcome;
+                    for (auto tablet_id : response.success_tablet_ids()) {
+                        stat.success_tablet_ids.push_back(tablet_id);
+                        outcome.success_tablet_ids.push_back(tablet_id);
+                    }
+                    for (const auto& tablet : response.failed_tablets()) {
+                        stat.failed_tablet_ids.push_back(tablet.id());
+                        outcome.failed_tablet_ids.push_back(tablet.id());
+                    }
+                    outcome.final_tablet_result_fanout = response.final_tablet_result_fanout();
+                    stat.tablet_outcomes.push_back(std::move(outcome));
+                    stat.num++;
+                };
+                record_response(g_response_stat);
+                if (_response_stat != nullptr) {
+                    record_response(*_response_stat);
                 }
-                for (auto& tablet : response.failed_tablets()) {
-                    g_response_stat.failed_tablet_ids.push_back(tablet.id());
-                }
-                g_response_stat.num++;
             }
 
             return 0;
         }
         void on_idle_timeout(StreamId id) override { std::cerr << "on_idle_timeout" << std::endl; }
         void on_closed(StreamId id) override { std::cerr << "on_closed" << std::endl; }
+
+    private:
+        ResponseStat* _response_stat;
     };
 
     class StreamService : public PBackendService {
@@ -405,7 +429,7 @@ public:
 
     class MockSinkClient {
     public:
-        MockSinkClient() = default;
+        MockSinkClient() : _handler(&_response_stat) {}
         ~MockSinkClient() { disconnect(); }
 
         class MockClosure : public google::protobuf::Closure {
@@ -420,7 +444,8 @@ public:
             std::function<void()> _cb;
         };
 
-        Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID, int total_streams = 1) {
+        Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID, int total_streams = 1,
+                              bool need_final_tablet_result = false) {
             brpc::Channel channel;
             std::cerr << "connect_stream" << std::endl;
             // Initialize the channel, NULL means using default options.
@@ -454,6 +479,9 @@ public:
             request.set_txn_id(NORMAL_TXN_ID);
             request.set_src_id(sender_id);
             request.set_total_streams(total_streams);
+            if (need_final_tablet_result) {
+                request.set_need_final_tablet_result(true);
+            }
             auto ptablet = request.add_tablets();
             ptablet->set_tablet_id(NORMAL_TABLET_ID);
             ptablet->set_index_id(NORMAL_INDEX_ID);
@@ -484,10 +512,16 @@ public:
 
         Status close() { return Status::OK(); }
 
+        std::vector<ResponseStat::TabletOutcome> tablet_outcomes() const {
+            std::lock_guard lock_guard(g_stat_lock);
+            return _response_stat.tablet_outcomes;
+        }
+
     private:
         brpc::StreamId _stream;
         brpc::Controller _cntl;
         brpc::StreamOptions _stream_options;
+        ResponseStat _response_stat;
         Handler _handler;
     };
 
@@ -1277,6 +1311,78 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
     // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
+}
+
+TEST_F(LoadStreamMgrTest,
+       multiple_sources_receive_same_final_outcome_with_multiple_physical_streams) {
+    constexpr int kSourceCount = 2;
+    constexpr int kStreamsPerSource = 2;
+    constexpr int kTotalStreams = kSourceCount * kStreamsPerSource;
+    MockSinkClient clients[kSourceCount][kStreamsPerSource];
+
+    for (int source = 0; source < kSourceCount; ++source) {
+        for (int stream = 0; stream < kStreamsPerSource; ++stream) {
+            ASSERT_TRUE(clients[source][stream].connect_stream(source, kTotalStreams, true).ok());
+        }
+    }
+    reset_response_stat();
+
+    std::string data = "success tablet data";
+    write_one_tablet(clients[0][0], NORMAL_LOAD_ID, 0, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0, 0,
+                     data, true);
+
+    PTabletID success_tablet;
+    success_tablet.set_partition_id(NORMAL_PARTITION_ID);
+    success_tablet.set_index_id(NORMAL_INDEX_ID);
+    success_tablet.set_tablet_id(NORMAL_TABLET_ID);
+    success_tablet.set_num_segments(1);
+    PTabletID failed_tablet {success_tablet};
+    failed_tablet.set_tablet_id(NORMAL_TABLET_ID + 1);
+
+    // Close both physical streams of source 0 before source 1. The final tablet result is not
+    // available yet, but source 0 must retain a representative stream to receive it later.
+    close_load(clients[0][0], {success_tablet, failed_tablet}, 0);
+    close_load(clients[0][1], {}, 0);
+    wait_for_ack(1);
+    EXPECT_EQ(g_response_stat.num.load(), 1);
+
+    close_load(clients[1][0], {}, 1);
+    close_load(clients[1][1], {}, 1);
+    wait_for_ack(kTotalStreams);
+    EXPECT_EQ(g_response_stat.num.load(), kTotalStreams);
+
+    wait_for_close();
+    ASSERT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
+
+    auto final_outcome_count = [&](int source) {
+        int count = 0;
+        for (int stream = 0; stream < kStreamsPerSource; ++stream) {
+            for (const auto& outcome : clients[source][stream].tablet_outcomes()) {
+                if (outcome.success_tablet_ids == std::vector<int64_t> {NORMAL_TABLET_ID} &&
+                    outcome.failed_tablet_ids == std::vector<int64_t> {NORMAL_TABLET_ID + 1}) {
+                    ++count;
+                }
+            }
+        }
+        return count;
+    };
+
+    EXPECT_EQ(final_outcome_count(0), 1);
+    EXPECT_EQ(final_outcome_count(1), 1);
+
+    int owner_count = 0;
+    int fanout_count = 0;
+    for (int source = 0; source < kSourceCount; ++source) {
+        for (int stream = 0; stream < kStreamsPerSource; ++stream) {
+            for (const auto& outcome : clients[source][stream].tablet_outcomes()) {
+                if (outcome.success_tablet_ids == std::vector<int64_t> {NORMAL_TABLET_ID}) {
+                    outcome.final_tablet_result_fanout ? ++fanout_count : ++owner_count;
+                }
+            }
+        }
+    }
+    EXPECT_EQ(owner_count, 1);
+    EXPECT_EQ(fanout_count, 1);
 }
 
 TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {

@@ -19,6 +19,9 @@
 
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+
+#include <algorithm>
 
 #include "cloud/cloud_tablets_channel.h"
 #include "cloud/config.h"
@@ -36,6 +39,14 @@
 namespace doris {
 
 bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
+
+static void copy_final_tablet_result(PTabletWriterAddBlockResult* response,
+                                     const PTabletWriterAddBlockResult& result, bool fanout) {
+    response->mutable_status()->CopyFrom(result.status());
+    response->mutable_tablet_vec()->CopyFrom(result.tablet_vec());
+    response->mutable_tablet_errors()->CopyFrom(result.tablet_errors());
+    response->set_final_tablet_result_fanout(fanout);
+}
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
                          std::string sender_ip, int64_t backend_id, bool enable_profile,
@@ -79,6 +90,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
 }
 
 LoadChannel::~LoadChannel() {
+    _cancel_final_tablet_result_waiters(Status::Cancelled("Load channel removed"));
     g_loadchannel_cnt << -1;
     std::stringstream rows_str;
     for (const auto& entry : _tablets_channels_rows) {
@@ -179,7 +191,8 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 }
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
-                              PTabletWriterAddBlockResult* response) {
+                              PTabletWriterAddBlockResult* response,
+                              google::protobuf::Closure** done) {
     DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
                     { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
@@ -193,6 +206,9 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     bool is_finished = false;
     Status st = _get_tablets_channel(channel, is_finished, index_id);
     if (!st.ok() || is_finished) {
+        if (st.ok() && request.eos() && request.need_final_tablet_result()) {
+            _defer_or_copy_final_tablet_result(index_id, request.sender_id(), response, done);
+        }
         return st;
     }
 
@@ -207,8 +223,19 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     // 3. handle eos
     // if channel is incremental, maybe hang on close until all close request arrived.
     if (request.has_eos() && request.eos()) {
-        st = _handle_eos(channel.get(), request, response);
+        bool finished = false;
+        st = _handle_eos(channel.get(), request, response, &finished);
         _report_profile(response);
+        if (finished && need_final_tablet_result()) {
+            st.to_protobuf(response->mutable_status());
+            _publish_final_tablet_result(index_id, request.sender_id(), *response);
+            if (request.need_final_tablet_result()) {
+                _defer_or_copy_final_tablet_result(index_id, request.sender_id(), response, done);
+            }
+        } else if (request.need_final_tablet_result() && st.ok()) {
+            st.to_protobuf(response->mutable_status());
+            _defer_or_copy_final_tablet_result(index_id, request.sender_id(), response, done);
+        }
         if (!st.ok()) {
             return st;
         }
@@ -221,17 +248,18 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 
 Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
                                 const PTabletWriterAddBlockRequest& request,
-                                PTabletWriterAddBlockResult* response) {
+                                PTabletWriterAddBlockResult* response, bool* finished) {
     if (_enable_profile) {
         _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
     }
-    bool finished = false;
     auto index_id = request.index_id();
 
-    RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+    RETURN_IF_ERROR(channel->close(this, request, response, finished));
 
     // for init node, we close waiting(hang on) all close request and let them return together.
-    if (request.has_hang_wait() && request.hang_wait()) {
+    // Cross-AZ final-result fan-out replaces this busy-wait barrier and completes after the final
+    // tablets-channel close result is published.
+    if (request.has_hang_wait() && request.hang_wait() && !request.need_final_tablet_result()) {
         DCHECK(!channel->is_incremental_channel());
         VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
                                   request.index_id(), request.sender_id());
@@ -247,7 +275,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
         }
     }
 
-    if (finished) {
+    if (*finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
             std::lock_guard<std::mutex> lt(_tablets_channels_lock);
@@ -260,6 +288,111 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
         _finished_channel_ids.emplace(index_id);
     }
     return Status::OK();
+}
+
+void LoadChannel::_reserve_final_tablet_result(int64_t index_id) {
+    std::lock_guard<std::mutex> lock(_final_tablet_result_lock);
+    _need_final_tablet_result.store(true);
+    if (_cancelled.load() && _final_tablet_result_cancel_status.ok()) {
+        _final_tablet_result_cancel_status = Status::Cancelled("Load channel cancelled");
+    }
+    _final_tablet_results.try_emplace(index_id);
+}
+
+void LoadChannel::_defer_or_copy_final_tablet_result(int64_t index_id, int32_t sender_id,
+                                                     PTabletWriterAddBlockResult* response,
+                                                     google::protobuf::Closure** done) {
+    std::shared_ptr<PTabletWriterAddBlockResult> tablet_result;
+    bool fanout = false;
+    {
+        std::lock_guard<std::mutex> lock(_final_tablet_result_lock);
+        _need_final_tablet_result.store(true);
+        auto& state = _final_tablet_results[index_id];
+        if (state.tablet_result != nullptr) {
+            tablet_result = state.tablet_result;
+            fanout = sender_id != state.owner_sender_id;
+        } else if (!_final_tablet_result_cancel_status.ok()) {
+            state.tablet_result = std::make_shared<PTabletWriterAddBlockResult>();
+            _final_tablet_result_cancel_status.to_protobuf(state.tablet_result->mutable_status());
+            tablet_result = state.tablet_result;
+        } else {
+            DORIS_CHECK(done != nullptr && *done != nullptr);
+            for (const auto& error : response->tablet_errors()) {
+                state.tablet_errors.try_emplace(error.tablet_id(), error);
+            }
+            state.waiters.push_back({response, *done});
+            *done = nullptr;
+            return;
+        }
+    }
+    copy_final_tablet_result(response, *tablet_result, fanout);
+}
+
+void LoadChannel::_publish_final_tablet_result(int64_t index_id, int32_t sender_id,
+                                               const PTabletWriterAddBlockResult& result) {
+    std::shared_ptr<PTabletWriterAddBlockResult> tablet_result;
+    std::vector<FinalTabletResultWaiter> waiters;
+    {
+        std::lock_guard<std::mutex> lock(_final_tablet_result_lock);
+        _need_final_tablet_result.store(true);
+        auto state_it = _final_tablet_results.find(index_id);
+        if (state_it == _final_tablet_results.end()) {
+            state_it = _final_tablet_results.emplace(index_id, FinalTabletResultState()).first;
+        }
+        auto& state = state_it->second;
+        if (state.tablet_result != nullptr) {
+            return;
+        }
+        state.tablet_result = std::make_shared<PTabletWriterAddBlockResult>();
+        state.owner_sender_id = sender_id;
+        if (_final_tablet_result_cancel_status.ok()) {
+            state.tablet_result->mutable_status()->CopyFrom(result.status());
+            state.tablet_result->mutable_tablet_vec()->CopyFrom(result.tablet_vec());
+            for (const auto& error : result.tablet_errors()) {
+                state.tablet_errors.try_emplace(error.tablet_id(), error);
+            }
+            for (const auto& [_, error] : state.tablet_errors) {
+                state.tablet_result->add_tablet_errors()->CopyFrom(error);
+            }
+        } else {
+            _final_tablet_result_cancel_status.to_protobuf(state.tablet_result->mutable_status());
+        }
+        tablet_result = state.tablet_result;
+        waiters.swap(state.waiters);
+    }
+    for (auto& waiter : waiters) {
+        copy_final_tablet_result(waiter.response, *tablet_result, true);
+        waiter.done->Run();
+    }
+}
+
+void LoadChannel::_cancel_final_tablet_result_waiters(const Status& reason) {
+    if (!_need_final_tablet_result.load()) {
+        return;
+    }
+    std::vector<std::pair<std::shared_ptr<PTabletWriterAddBlockResult>,
+                          std::vector<FinalTabletResultWaiter>>>
+            completions;
+    {
+        std::lock_guard<std::mutex> lock(_final_tablet_result_lock);
+        if (_final_tablet_result_cancel_status.ok()) {
+            _final_tablet_result_cancel_status = reason;
+        }
+        for (auto& [_, state] : _final_tablet_results) {
+            if (state.tablet_result != nullptr) {
+                continue;
+            }
+            state.tablet_result = std::make_shared<PTabletWriterAddBlockResult>();
+            _final_tablet_result_cancel_status.to_protobuf(state.tablet_result->mutable_status());
+            completions.emplace_back(state.tablet_result, std::move(state.waiters));
+        }
+    }
+    for (auto& [result, waiters] : completions) {
+        for (auto& waiter : waiters) {
+            copy_final_tablet_result(waiter.response, *result, false);
+            waiter.done->Run();
+        }
+    }
 }
 
 void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
@@ -301,14 +434,47 @@ bool LoadChannel::is_finished() {
         return false;
     }
     std::lock_guard<std::mutex> l(_lock);
-    return _tablets_channels.empty();
+    if (!_tablets_channels.empty() || !need_final_tablet_result()) {
+        return _tablets_channels.empty();
+    }
+    std::lock_guard<std::mutex> result_lock(_final_tablet_result_lock);
+    return std::ranges::all_of(_final_tablet_results, [](const auto& result) {
+        return result.second.tablet_result != nullptr;
+    });
 }
 
-Status LoadChannel::cancel() {
+bool LoadChannel::copy_final_tablet_results(std::unordered_map<int64_t, FinalTabletResult>* results,
+                                            size_t max_bytes, bool* oversized,
+                                            size_t* result_bytes) const {
+    std::lock_guard<std::mutex> lock(_final_tablet_result_lock);
+    results->clear();
+    *oversized = false;
+    *result_bytes = 0;
+    for (const auto& [_, state] : _final_tablet_results) {
+        if (state.tablet_result == nullptr) {
+            return false;
+        }
+        const size_t bytes = state.tablet_result->SpaceUsedLong();
+        if (bytes > max_bytes - *result_bytes) {
+            *oversized = true;
+            return true;
+        }
+        *result_bytes += bytes;
+    }
+    for (const auto& [index_id, state] : _final_tablet_results) {
+        results->emplace(index_id, FinalTabletResult {*state.tablet_result, state.owner_sender_id});
+    }
+    return true;
+}
+
+Status LoadChannel::cancel(const Status& reason) {
     _cancelled.store(true);
-    std::lock_guard<std::mutex> l(_lock);
-    for (auto& it : _tablets_channels) {
-        static_cast<void>(it.second->cancel());
+    _cancel_final_tablet_result_waiters(reason);
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        for (auto& it : _tablets_channels) {
+            static_cast<void>(it.second->cancel());
+        }
     }
     return Status::OK();
 }

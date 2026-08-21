@@ -318,7 +318,8 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
                     { tablets_for_schema.clear(); });
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile());
+                           _state->enable_profile(),
+                           _t_sink.olap_table_sink.__isset.cross_az_succ_quorum);
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;
@@ -848,7 +849,8 @@ Status VTabletWriterV2::_close_wait(
         int64_t close_wait_version = _load_stream_map->close_wait_version();
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
+        bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets,
+                                              need_wait_after_quorum_success);
         if (quorum_success || unfinished_streams.empty()) {
             LOG(INFO) << "quorum_success: " << quorum_success
                       << ", is all finished: " << unfinished_streams.empty()
@@ -896,7 +898,7 @@ Status VTabletWriterV2::_close_wait(
 
 bool VTabletWriterV2::_quorum_success(
         const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
-        const std::unordered_set<int64_t>& need_finish_tablets) {
+        const std::unordered_set<int64_t>& need_finish_tablets, bool final_close_stage) {
     if (!config::enable_quorum_success_write) {
         return false;
     }
@@ -906,7 +908,9 @@ bool VTabletWriterV2::_quorum_success(
     }
 
     // 1. calculate finished tablets replica num
+    const auto& table_sink = _t_sink.olap_table_sink;
     std::unordered_set<int64_t> finished_dst_ids;
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> successful_dst_ids_by_tablet;
     std::unordered_map<int64_t, int64_t> finished_tablets_replica;
     for (const auto& [dst_id, streams] : streams_for_node) {
         bool finished = true;
@@ -920,6 +924,11 @@ bool VTabletWriterV2::_quorum_success(
         }
         if (finished) {
             finished_dst_ids.insert(dst_id);
+            if (final_close_stage && table_sink.__isset.cross_az_succ_quorum) {
+                for (int64_t tablet_id : streams->success_tablets()) {
+                    successful_dst_ids_by_tablet[tablet_id].insert(dst_id);
+                }
+            }
         }
     }
     for (const auto& [dst_id, _] : streams_for_node) {
@@ -941,6 +950,22 @@ bool VTabletWriterV2::_quorum_success(
     for (const auto& tablet_id : need_finish_tablets) {
         if (finished_tablets_replica[tablet_id] < _load_required_replicas_num(tablet_id)) {
             return false;
+        }
+    }
+    if (final_close_stage && table_sink.__isset.cross_az_succ_quorum) {
+        for (int64_t tablet_id : need_finish_tablets) {
+            const auto* tablet = _location->find_tablet(tablet_id);
+            if (tablet == nullptr) {
+                continue;
+            }
+            const auto gap_it = _tablet_version_gap_backends.find(tablet_id);
+            const auto* version_gap_node_ids =
+                    gap_it == _tablet_version_gap_backends.end() ? nullptr : &gap_it->second;
+            if (!_nodes_info->is_cross_az_quorum_success(
+                        table_sink.cross_az_succ_quorum, tablet->node_ids,
+                        successful_dst_ids_by_tablet[tablet_id], version_gap_node_ids)) {
+                return false;
+            }
         }
     }
     return true;
@@ -1084,11 +1109,15 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
             failed_reason[tablet_id] = reason;
             num_failed_tablets++;
         }
+        const bool final_result_fanout = _t_sink.olap_table_sink.__isset.cross_az_succ_quorum &&
+                                         streams.final_tablet_result_fanout();
         for (auto tablet_id : streams.success_tablets()) {
-            TTabletCommitInfo commit_info;
-            commit_info.tabletId = tablet_id;
-            commit_info.backendId = dst_id;
-            tablet_commit_infos.emplace_back(std::move(commit_info));
+            if (!final_result_fanout) {
+                TTabletCommitInfo commit_info;
+                commit_info.tabletId = tablet_id;
+                commit_info.backendId = dst_id;
+                tablet_commit_infos.emplace_back(std::move(commit_info));
+            }
             // Only count non-gap backends toward success
             auto gap_it = _tablet_version_gap_backends.find(tablet_id);
             if (gap_it == _tablet_version_gap_backends.end() ||

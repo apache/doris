@@ -61,6 +61,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -494,6 +495,9 @@ public class DatabaseTransactionMgr {
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
         Map<Long, Table> idToTable = new HashMap<>();
+        Map<String, Integer> crossAzSuccQuorum = Config.getCrossAzSuccQuorum();
+        Map<Long, String> backendLocationTags = crossAzSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
+        Map<String, Integer> loadReplicaNumByAz = crossAzSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
@@ -615,6 +619,9 @@ public class DatabaseTransactionMgr {
                         tabletSuccReplicas.clear();
                         tabletWriteFailedReplicas.clear();
                         tabletVersionFailedReplicas.clear();
+                        if (!crossAzSuccQuorum.isEmpty()) {
+                            loadReplicaNumByAz.clear();
+                        }
                         long tabletId = tablet.getId();
                         Set<Long> tabletBackends = tablet.getBackendIds();
                         totalInvolvedBackends.addAll(tabletBackends);
@@ -626,6 +633,21 @@ public class DatabaseTransactionMgr {
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
                                         + tabletId + "], backend [" + tabletBackend + "]");
+                            }
+                            if (!crossAzSuccQuorum.isEmpty()) {
+                                backendLocationTags.computeIfAbsent(tabletBackend, backendId -> {
+                                    Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
+                                    return backend == null ? "" : backend.getLocationTag().value;
+                                });
+                                boolean canLoad = env.getCurrentSystemInfo().checkBackendAlive(tabletBackend)
+                                        && !replica.isBad()
+                                        && (replica.getState().canLoad()
+                                        || (replica.getState() == Replica.ReplicaState.DECOMMISSION
+                                        && replica.getPostWatermarkTxnId() < 0
+                                        && replica.getLastFailedVersion() < 0));
+                                if (canLoad) {
+                                    loadReplicaNumByAz.merge(backendLocationTags.get(tabletBackend), 1, Integer::sum);
+                                }
                             }
 
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet,
@@ -669,6 +691,36 @@ public class DatabaseTransactionMgr {
                             LOG.info(errMsg);
 
                             throw new TabletQuorumFailedException(transactionId, errMsg);
+                        }
+
+                        for (Entry<String, Integer> entry : crossAzSuccQuorum.entrySet()) {
+                            String az = entry.getKey();
+                            int replicaNumInAz = loadReplicaNumByAz.getOrDefault(az, 0);
+                            int requiredInAz = Math.min(entry.getValue(), replicaNumInAz);
+                            if (requiredInAz == 0) {
+                                continue;
+                            }
+
+                            int succInAz = 0;
+                            for (Replica replica : tabletSuccReplicas) {
+                                if (az.equals(backendLocationTags.get(replica.getBackendIdWithoutException()))) {
+                                    succInAz++;
+                                }
+                            }
+                            if (succInAz < requiredInAz) {
+                                String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
+                                        tabletWriteFailedReplicas, tabletVersionFailedReplicas);
+                                String errMsg = String.format("Failed to commit txn %s, cause tablet %s cross AZ "
+                                                + "success quorum failed for %s: required %s successful replicas, "
+                                                + "but only %s succeeded. table %s, partition: [ id=%s, commit "
+                                                + "version %s, visible version %s ], this tablet detail: %s. "
+                                                + "Please try again later.",
+                                        transactionId, tablet.getId(), az, requiredInAz, succInAz, tableId,
+                                        partition.getId(), partition.getCommittedVersion(),
+                                        partition.getVisibleVersion(), writeDetail);
+                                LOG.info(errMsg);
+                                throw new TabletQuorumFailedException(transactionId, errMsg);
+                            }
                         }
                     }
                 }

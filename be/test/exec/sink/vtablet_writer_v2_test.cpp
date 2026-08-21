@@ -31,6 +31,7 @@
 #include "exec/sink/load_stream_map_pool.h"
 #include "exec/sink/load_stream_stub.h"
 #include "exec/sink/sink_test_utils.h"
+#include "exec/sink/writer/vtablet_writer.h"
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
@@ -315,6 +316,24 @@ TEST_F(TestVTabletWriterV2, one_replica) {
     ASSERT_EQ(tablet_commit_infos.size(), 2);
 }
 
+TEST_F(TestVTabletWriterV2, final_result_fanout_does_not_duplicate_commit_info) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {1}, {{1, Status::InternalError("other replica failed")}});
+    auto stream = load_stream_map->at(1001)->streams().front();
+    stream->_final_tablet_result_fanout.store(true);
+
+    auto writer = create_vtablet_writer(1);
+    writer->_t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az1", 1}});
+    std::vector<TTabletCommitInfo> tablet_commit_infos;
+    ASSERT_TRUE(writer->_create_commit_info(tablet_commit_infos, load_stream_map).ok());
+    EXPECT_TRUE(tablet_commit_infos.empty());
+
+    stream->_final_tablet_result_fanout.store(false);
+    ASSERT_TRUE(writer->_create_commit_info(tablet_commit_infos, load_stream_map).ok());
+    ASSERT_EQ(tablet_commit_infos.size(), 1);
+}
+
 TEST_F(TestVTabletWriterV2, one_replica_fail) {
     UniqueId load_id;
     std::vector<TTabletCommitInfo> tablet_commit_infos;
@@ -518,6 +537,263 @@ TEST_F(TestVTabletWriterV2, quorum_excludes_streams_not_closing_in_current_stage
     incremental_streams_2->streams().front()->_is_closing.store(true);
     unfinished_streams.clear();
     ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+}
+
+TEST_F(TestVTabletWriterV2, quorum_waits_for_cross_az_success) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto streams_1 = load_stream_map->get_or_create(1001);
+    auto streams_2 = load_stream_map->get_or_create(1002);
+    auto streams_3 = load_stream_map->get_or_create(1003);
+    for (const auto& streams : {streams_1, streams_2, streams_3}) {
+        streams->streams().front()->add_success_tablet(1);
+        streams->streams().front()->_is_closing.store(true);
+    }
+
+    TPaloNodesInfo t_nodes;
+    for (const auto& [node_id, location] : std::vector<std::pair<int64_t, std::string>> {
+                 {1001, "az1"}, {1002, "az1"}, {1003, "az2"}}) {
+        TNodeInfo node;
+        node.__set_id(node_id);
+        node.__set_location(location);
+        t_nodes.nodes.push_back(node);
+    }
+    DorisNodesInfo nodes_info(t_nodes);
+
+    TOlapTableLocationParam t_location;
+    TTabletLocation tablet;
+    tablet.__set_tablet_id(1);
+    tablet.__set_node_ids({1001, 1002, 1003});
+    t_location.tablets.push_back(tablet);
+    OlapTableLocationParam location(t_location);
+
+    auto writer = create_vtablet_writer();
+    writer->_load_stream_map = load_stream_map;
+    writer->_nodes_info = &nodes_info;
+    writer->_location = &location;
+    for (int64_t node_id : {1001, 1002, 1003}) {
+        writer->_tablets_by_node[node_id].insert(1);
+    }
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams {
+            streams_3->streams().front()};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    writer->_t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az1", 2}, {"az2", 2}});
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    unfinished_streams.clear();
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    writer->_tablet_version_gap_backends[1].insert(1003);
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+}
+
+TEST_F(TestVTabletWriterV2, v1_quorum_checks_cross_az_only_in_final_close_stage) {
+    TDataSink t_sink;
+    t_sink.__isset.olap_table_sink = true;
+    t_sink.olap_table_sink.num_replicas = 5;
+    t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az2", 1}});
+    VExprContextSPtrs output_exprs;
+    auto writer = std::make_unique<VTabletWriter>(t_sink, output_exprs, nullptr, nullptr);
+    writer->_num_replicas = 5;
+    writer->_tablet_replica_info[1] = {5, 3};
+
+    TPaloNodesInfo t_nodes;
+    for (const auto& [node_id, location] : std::vector<std::pair<int64_t, std::string>> {
+                 {1001, "az1"}, {1002, "az1"}, {1003, "az1"}, {1004, "az2"}, {1005, "az2"}}) {
+        TNodeInfo node;
+        node.__set_id(node_id);
+        node.__set_location(location);
+        t_nodes.nodes.push_back(node);
+    }
+    DorisNodesInfo nodes_info(t_nodes);
+    writer->_nodes_info = &nodes_info;
+
+    TOlapTableLocationParam t_location;
+    TTabletLocation tablet;
+    tablet.__set_tablet_id(1);
+    tablet.__set_node_ids({1001, 1002, 1003, 1004, 1005});
+    t_location.tablets.push_back(tablet);
+    OlapTableLocationParam location(t_location);
+    writer->_location = &location;
+
+    IndexChannel index_channel(writer.get(), 1, nullptr);
+    for (int64_t node_id : {1001, 1002, 1003, 1004, 1005}) {
+        auto node_channel = std::make_shared<VNodeChannel>(writer.get(), &index_channel, node_id);
+        node_channel->_eos_is_produced = true;
+        if (node_id != 1004) {
+            node_channel->_successful_tablet_ids.insert(1);
+        }
+        index_channel._node_channels[node_id] = node_channel;
+        index_channel._tablets_by_channel[node_id].insert(1);
+    }
+    index_channel.mark_as_failed(index_channel._node_channels[1004].get(), "test", 1);
+
+    std::unordered_set<int64_t> unfinished_node_channel_ids {1005};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+
+    // Initial channels already have an ordinary majority (1001, 1002, 1003), so the first
+    // auto-partition close stage can finish without waiting for the incremental AZ replica.
+    ASSERT_TRUE(
+            index_channel._quorum_success(unfinished_node_channel_ids, need_finish_tablets, false));
+
+    // The final close stage must additionally enforce the cross-AZ policy. Node 1004 failed and
+    // node 1005 has not finished, so az2 does not have a successful replica yet.
+    ASSERT_FALSE(
+            index_channel._quorum_success(unfinished_node_channel_ids, need_finish_tablets, true));
+
+    unfinished_node_channel_ids.clear();
+    ASSERT_TRUE(
+            index_channel._quorum_success(unfinished_node_channel_ids, need_finish_tablets, true));
+}
+
+TEST_F(TestVTabletWriterV2, v1_final_result_fanout_does_not_duplicate_commit_info) {
+    TDataSink t_sink;
+    t_sink.__isset.olap_table_sink = true;
+    t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az1", 1}});
+    VExprContextSPtrs output_exprs;
+    VTabletWriter writer(t_sink, output_exprs, nullptr, nullptr);
+    IndexChannel index_channel(&writer, 1, nullptr);
+    VNodeChannel node_channel(&writer, &index_channel, 1001);
+    MockRuntimeState state;
+    node_channel._state = &state;
+
+    PTabletWriterAddBlockResult result;
+    Status::OK().to_protobuf(result.mutable_status());
+    auto* tablet = result.add_tablet_vec();
+    tablet->set_tablet_id(1);
+    tablet->set_received_rows(10);
+    tablet->set_num_rows_filtered(1);
+    result.set_final_tablet_result_fanout(true);
+    WriteBlockCallbackContext ctx;
+    ctx._is_last_rpc = true;
+
+    node_channel._add_block_success_callback(result, ctx);
+    EXPECT_TRUE(node_channel._successful_tablet_ids.contains(1));
+    EXPECT_TRUE(node_channel._tablet_commit_infos.empty());
+    EXPECT_TRUE(node_channel._tablets_received_rows.empty());
+    EXPECT_TRUE(node_channel._tablets_filtered_rows.empty());
+
+    result.set_final_tablet_result_fanout(false);
+    node_channel._add_block_success_callback(result, ctx);
+    EXPECT_EQ(node_channel._tablet_commit_infos.size(), 1);
+    EXPECT_EQ(node_channel._tablets_received_rows.size(), 1);
+    EXPECT_EQ(node_channel._tablets_filtered_rows.size(), 1);
+}
+
+TEST_F(TestVTabletWriterV2, v2_quorum_waits_for_cross_az_tablet_success) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto streams_1 = load_stream_map->get_or_create(1001);
+    auto streams_2 = load_stream_map->get_or_create(1002);
+    auto streams_3 = load_stream_map->get_or_create(1003);
+    auto streams_4 = load_stream_map->get_or_create(1004);
+    auto streams_5 = load_stream_map->get_or_create(1005);
+    for (const auto& streams : {streams_1, streams_2, streams_3, streams_4, streams_5}) {
+        streams->mark_open();
+        streams->streams().front()->_is_closing.store(true);
+    }
+    for (const auto& streams : {streams_1, streams_2, streams_3}) {
+        streams->select_one_stream()->add_success_tablet(1);
+    }
+    streams_4->select_one_stream()->add_failed_tablet(1, Status::InternalError("test"));
+
+    TPaloNodesInfo t_nodes;
+    for (const auto& [node_id, location] : std::vector<std::pair<int64_t, std::string>> {
+                 {1001, "az1"}, {1002, "az1"}, {1003, "az1"}, {1004, "az2"}, {1005, "az2"}}) {
+        TNodeInfo node;
+        node.__set_id(node_id);
+        node.__set_location(location);
+        t_nodes.nodes.push_back(node);
+    }
+    DorisNodesInfo nodes_info(t_nodes);
+
+    TOlapTableLocationParam t_location;
+    TTabletLocation tablet;
+    tablet.__set_tablet_id(1);
+    tablet.__set_node_ids({1001, 1002, 1003, 1004, 1005});
+    t_location.tablets.push_back(tablet);
+    OlapTableLocationParam location(t_location);
+
+    auto writer = create_vtablet_writer(5);
+    writer->_load_stream_map = load_stream_map;
+    writer->_nodes_info = &nodes_info;
+    writer->_location = &location;
+    writer->_t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az2", 1}});
+    for (int64_t node_id : {1001, 1002, 1003, 1004, 1005}) {
+        writer->_tablets_by_node[node_id].insert(1);
+    }
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams {
+            streams_5->streams().front()};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    streams_5->select_one_stream()->add_success_tablet(1);
+    unfinished_streams.clear();
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+}
+
+TEST_F(TestVTabletWriterV2, v2_quorum_checks_cross_az_only_in_final_close_stage) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto streams_1 = load_stream_map->get_or_create(1001);
+    auto streams_2 = load_stream_map->get_or_create(1002);
+    auto streams_3 = load_stream_map->get_or_create(1003);
+    auto streams_4 = load_stream_map->get_or_create(1004);
+    auto streams_5 = load_stream_map->get_or_create(1005);
+    for (const auto& streams : {streams_1, streams_2, streams_3, streams_4, streams_5}) {
+        streams->mark_open();
+        streams->streams().front()->_is_closing.store(true);
+    }
+    for (const auto& streams : {streams_1, streams_2, streams_3}) {
+        streams->select_one_stream()->add_success_tablet(1);
+    }
+    streams_4->select_one_stream()->add_failed_tablet(1, Status::InternalError("test"));
+
+    TPaloNodesInfo t_nodes;
+    for (const auto& [node_id, location] : std::vector<std::pair<int64_t, std::string>> {
+                 {1001, "az1"}, {1002, "az1"}, {1003, "az1"}, {1004, "az2"}, {1005, "az2"}}) {
+        TNodeInfo node;
+        node.__set_id(node_id);
+        node.__set_location(location);
+        t_nodes.nodes.push_back(node);
+    }
+    DorisNodesInfo nodes_info(t_nodes);
+
+    TOlapTableLocationParam t_location;
+    TTabletLocation tablet;
+    tablet.__set_tablet_id(1);
+    tablet.__set_node_ids({1001, 1002, 1003, 1004, 1005});
+    t_location.tablets.push_back(tablet);
+    OlapTableLocationParam location(t_location);
+
+    auto writer = create_vtablet_writer(5);
+    writer->_load_stream_map = load_stream_map;
+    writer->_nodes_info = &nodes_info;
+    writer->_location = &location;
+    writer->_t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az2", 1}});
+    for (int64_t node_id : {1001, 1002, 1003, 1004, 1005}) {
+        writer->_tablets_by_node[node_id].insert(1);
+    }
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams {
+            streams_5->streams().front()};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+
+    // The first auto-partition close stage is only a lifecycle fence. Its ordinary majority is
+    // already complete, so the unfinished incremental stream in az2 must not block it.
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets, false));
+
+    // The final stage makes the load decision and must enforce the AZ policy. Node 1004 failed
+    // and node 1005 is unfinished, so az2 has no successful replica yet.
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets, true));
+
+    streams_5->select_one_stream()->add_success_tablet(1);
+    unfinished_streams.clear();
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets, true));
 }
 
 } // namespace doris

@@ -60,6 +60,36 @@
 
 namespace doris {
 
+bool DorisNodesInfo::is_cross_az_quorum_success(
+        const std::map<std::string, int32_t>& cross_az_succ_quorum,
+        const std::vector<int64_t>& tablet_node_ids,
+        const std::unordered_set<int64_t>& finished_node_ids,
+        const std::unordered_set<int64_t>* version_gap_node_ids) const {
+    for (const auto& [az, configured_min] : cross_az_succ_quorum) {
+        int replica_num_in_az = 0;
+        int succ_in_az = 0;
+        for (int64_t node_id : tablet_node_ids) {
+            const auto* node = find_node(node_id);
+            if (node == nullptr || node->location != az) {
+                continue;
+            }
+            ++replica_num_in_az;
+            if (finished_node_ids.contains(node_id) &&
+                (version_gap_node_ids == nullptr || !version_gap_node_ids->contains(node_id))) {
+                ++succ_in_az;
+            }
+        }
+        const int required_in_az = std::min(configured_min, replica_num_in_az);
+        if (required_in_az == 0) {
+            continue;
+        }
+        if (succ_in_az < required_in_az) {
+            return false;
+        }
+    }
+    return true;
+}
+
 const OlapTableIndexSchema* OlapTableSchemaParam::row_binlog_index_schema(int64_t index_id) const {
     for (auto* schema : _row_binlog_index_schemas) {
         if (schema->index_id == index_id) {

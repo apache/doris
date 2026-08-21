@@ -144,7 +144,8 @@ public:
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                int64_t idle_timeout_ms, bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile,
+                bool need_final_tablet_result = false);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -255,6 +256,8 @@ public:
                                  _cancel_st.to_string_no_stack());
     }
 
+    bool final_tablet_result_fanout() const { return _final_tablet_result_fanout.load(); }
+
     int64_t get_and_reset_load_back_pressure_version_wait_time_ms() {
         return _load_back_pressure_version_wait_time_ms.exchange(0);
     }
@@ -302,6 +305,7 @@ protected:
     bthread::Mutex _failed_tablets_mutex;
     std::vector<int64_t> _success_tablets;
     std::unordered_map<int64_t, Status> _failed_tablets;
+    std::atomic<bool> _final_tablet_result_fanout = false;
 
     bool _is_incremental = false;
     std::shared_ptr<CloseWaitNotifier> _close_wait_notifier;
@@ -331,7 +335,8 @@ public:
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                int64_t idle_timeout_ms, bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile,
+                bool need_final_tablet_result = false);
 
     bool is_incremental() const { return _is_incremental; }
 
@@ -363,6 +368,15 @@ public:
             std::copy(v.begin(), v.end(), std::inserter(s, s.end()));
         }
         return s;
+    }
+
+    bool final_tablet_result_fanout() const {
+        for (auto& stream : _streams) {
+            if (stream->final_tablet_result_fanout()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     std::unordered_map<int64_t, Status> failed_tablets() {
