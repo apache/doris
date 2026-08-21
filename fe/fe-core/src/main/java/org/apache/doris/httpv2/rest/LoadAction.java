@@ -752,7 +752,8 @@ public class LoadAction extends RestBaseController {
                 || "Cookie".equalsIgnoreCase(headerName)
                 || "Set-Cookie".equalsIgnoreCase(headerName)
                 || "token".equalsIgnoreCase(headerName)
-                || "Auth-Token".equalsIgnoreCase(headerName);
+                || "Auth-Token".equalsIgnoreCase(headerName)
+                || "auth_code".equalsIgnoreCase(headerName);
     }
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
