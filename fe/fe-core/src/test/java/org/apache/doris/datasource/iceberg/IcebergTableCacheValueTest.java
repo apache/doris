@@ -33,10 +33,27 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class IcebergTableCacheValueTest {
+
+    @Test
+    void leaseKeepsExecutorFromItsTableGeneration() {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        try {
+            IcebergTableCacheValue value = new IcebergTableCacheValue(
+                    newProxy(Table.class), executor, () -> null, () -> { });
+            IcebergTableCacheValue.Lease lease = value.tryAcquire();
+            Assertions.assertNotNull(lease);
+            Assertions.assertSame(executor, lease.getPlanningExecutor());
+            lease.close();
+            value.retire();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
     @Test
     void classifiesOnlyPerTableFileIOAsOwned() {
