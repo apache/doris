@@ -236,8 +236,10 @@ inline void run_nullable_selection_kernel(benchmark::State& state,
             state.SkipWithError(status.to_string().c_str());
             return;
         }
-        benchmark::DoNotOptimize(scratch.physical_selection.ranges.data());
-        benchmark::DoNotOptimize(scratch.selected_nulls.data());
+        auto* selection_ranges = scratch.physical_selection.ranges.data();
+        auto* selected_nulls = scratch.selected_nulls.data();
+        benchmark::DoNotOptimize(selection_ranges);
+        benchmark::DoNotOptimize(selected_nulls);
         benchmark::ClobberMemory();
     }
 
