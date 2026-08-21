@@ -19,8 +19,11 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
+import org.apache.doris.nereids.properties.DistributionMapping;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -33,11 +36,16 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -114,8 +122,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         }
                     }
                 }
-                return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                return createNaturalHashSpec(olapScan, hashDistributionInfo, hashColumns, output);
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -132,12 +139,79 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         }
                     }
                 }
-                return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                return createNaturalHashSpec(olapScan, hashDistributionInfo, hashColumns, output);
             }
         } else {
             // RandomDistributionInfo
             return DistributionSpecStorageAny.INSTANCE;
         }
+    }
+
+    private static DistributionSpecHash createNaturalHashSpec(LogicalOlapScan olapScan,
+            HashDistributionInfo hashDistributionInfo, List<ExprId> hashColumns, List<Slot> output) {
+        return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
+                olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()),
+                buildDistributionMappings(olapScan.getTable(), hashDistributionInfo, output));
+    }
+
+    private static List<DistributionMapping> buildDistributionMappings(OlapTable table,
+            HashDistributionInfo hashDistributionInfo, List<Slot> output) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || !context.getSessionVariable().isEnableColocateMappingConstraint()) {
+            return ImmutableList.of();
+        }
+        return buildDistributionMappings(
+                hashDistributionInfo,
+                output,
+                Env.getCurrentEnv().getConstraintManager().getDistributionMappingConstraints(table));
+    }
+
+    static List<DistributionMapping> buildDistributionMappings(HashDistributionInfo hashDistributionInfo,
+            List<Slot> output, List<DistributionMappingConstraint> constraints) {
+        Map<String, ExprId> columnExprIds = new HashMap<>();
+        for (Slot slot : output) {
+            SlotReference slotReference = (SlotReference) slot;
+            slotReference.getOriginalColumn().ifPresent(
+                    column -> columnExprIds.put(
+                            column.tryGetBaseColumnName().toLowerCase(Locale.ROOT), slot.getExprId()));
+        }
+        Map<String, Integer> distributionIndices = new HashMap<>();
+        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+        for (int i = 0; i < distributionColumns.size(); i++) {
+            distributionIndices.put(distributionColumns.get(i).getName().toLowerCase(Locale.ROOT), i);
+        }
+
+        ImmutableList.Builder<DistributionMapping> mappings = ImmutableList.builder();
+        for (DistributionMappingConstraint constraint : constraints) {
+            ImmutableList.Builder<ExprId> determinants = ImmutableList.builder();
+            boolean allDeterminantsAvailable = true;
+            for (String column : constraint.getDeterminantColumnNames()) {
+                ExprId exprId = columnExprIds.get(column.toLowerCase(Locale.ROOT));
+                if (exprId == null) {
+                    allDeterminantsAvailable = false;
+                    break;
+                }
+                determinants.add(exprId);
+            }
+            if (!allDeterminantsAvailable) {
+                continue;
+            }
+            ImmutableList.Builder<Integer> targetIndices = ImmutableList.builder();
+            boolean allTargetsAvailable = true;
+            for (String column : constraint.getDistributionColumnNames()) {
+                Integer targetIndex = distributionIndices.get(column.toLowerCase(Locale.ROOT));
+                if (targetIndex == null) {
+                    allTargetsAvailable = false;
+                    break;
+                }
+                targetIndices.add(targetIndex);
+            }
+            if (!allTargetsAvailable) {
+                continue;
+            }
+            mappings.add(new DistributionMapping(
+                    constraint.getMappingId(), determinants.build(), targetIndices.build()));
+        }
+        return mappings.build();
     }
 }

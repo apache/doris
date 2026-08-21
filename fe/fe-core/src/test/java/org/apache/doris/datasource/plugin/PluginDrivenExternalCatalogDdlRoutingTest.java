@@ -49,6 +49,7 @@ import org.apache.doris.connector.spi.ddl.DropRefChange;
 import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalRowCountCache;
@@ -170,6 +171,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     @Test
     public void testCreateDbIfNotExistsRefreshesCachesWhenDbExists() throws Exception {
         catalog.dbNullableResult = mockExternalDatabase();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         catalog.createDb("db1", true, new HashMap<>());
 
@@ -179,6 +181,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
         Mockito.verify(mockMetaCacheMgr).invalidateDb(
                 1L, Util.genIdByName("test-catalog", "db1"), "db1");
+        Assertions.assertNotEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -864,6 +868,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(info.getDbName()).thenReturn("db1");
         Mockito.when(info.getTableName()).thenReturn("t1");
         Mockito.when(info.isIfNotExists()).thenReturn(true);
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         boolean res = catalog.createTable(info);
 
@@ -872,6 +877,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
         Mockito.verify(mockMetaCacheMgr).invalidateTable(
                 1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "t1"), "t1");
+        Assertions.assertNotEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -1115,6 +1122,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testAddColumnRoutesConvertsAndLogsRefresh() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         catalog.addColumn(table, nullableIntColumn("age"), ColumnPosition.FIRST);
 
@@ -1128,6 +1136,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
         Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertNotEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -1242,20 +1252,32 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
-    public void testColumnOpWrapsConnectorException() {
+    public void testColumnOpWrapsConnectorException() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
         Mockito.doThrow(new DorisConnectorException("boom"))
                 .when(metadata).dropColumn(session, handle, "age");
 
         DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+        Assertions.assertThrows(DdlException.class, () -> {
+            try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                    catalog.lockConstraintMetadata(constraintMetadataBaseline)) {
+                Assertions.fail("stale constraint metadata snapshot must be rejected");
+            }
+        });
+        try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
+            Assertions.assertNotNull(ignored);
+        }
     }
 
     @Test
     public void testCreateOrReplaceBranchRoutesConvertsAndRefreshes() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         CreateOrReplaceBranchInfo info = new CreateOrReplaceBranchInfo("b1", true, false, true,
                 new BranchOptions(Optional.of(42L), Optional.of(86400000L),
@@ -1264,6 +1286,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
         Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
         BranchChange b = cap.getValue();
         Assertions.assertEquals("b1", b.getName());
         Assertions.assertTrue(b.isCreate());

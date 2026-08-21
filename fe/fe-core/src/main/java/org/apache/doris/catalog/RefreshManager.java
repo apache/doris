@@ -57,9 +57,18 @@ public class RefreshManager {
     // Refresh catalog
     public void handleRefreshCatalog(String catalogName, boolean invalidCache) throws UserException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
-        refreshCatalogInternal(catalog, invalidCache);
-        CatalogLog log = CatalogLog.createForRefreshCatalog(catalog.getId(), invalidCache);
-        Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
+        if (catalog instanceof ExternalCatalog) {
+            try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                    ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+                refreshCatalogInternal(catalog, invalidCache);
+                CatalogLog log = CatalogLog.createForRefreshCatalog(catalog.getId(), invalidCache);
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
+            }
+        } else {
+            refreshCatalogInternal(catalog, invalidCache);
+            CatalogLog log = CatalogLog.createForRefreshCatalog(catalog.getId(), invalidCache);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
+        }
     }
 
     public void replayRefreshCatalog(CatalogLog log) {
@@ -68,7 +77,14 @@ public class RefreshManager {
             LOG.warn("failed to find catalog replaying refresh catalog {}", log.getCatalogId());
             return;
         }
-        refreshCatalogInternal(catalog, log.isInvalidCache());
+        if (catalog instanceof ExternalCatalog) {
+            try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                    ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+                refreshCatalogInternal(catalog, log.isInvalidCache());
+            }
+        } else {
+            refreshCatalogInternal(catalog, log.isInvalidCache());
+        }
     }
 
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
@@ -89,11 +105,15 @@ public class RefreshManager {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh database in external catalog");
         }
-        DatabaseIf db = catalog.getDbOrDdlException(dbName);
-        refreshDbInternal((ExternalDatabase) db);
-
-        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName());
-        Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
+        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                externalCatalog.beginConstraintMetadataMutation()) {
+            DatabaseIf db = catalog.getDbOrDdlException(dbName);
+            refreshDbInternal((ExternalDatabase) db);
+            ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(
+                    catalog.getId(), db.getFullName());
+            Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
+        }
     }
 
     public void replayRefreshDb(ExternalObjectLog log) {
@@ -102,27 +122,31 @@ public class RefreshManager {
             LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
             return;
         }
-        String localDbName = log.getDbName();
-        if (Strings.isNullOrEmpty(localDbName)) {
-            LOG.warn("refresh database replay log has no local name: {}", log.debugForRefreshDb());
-            return;
-        }
-        long dbId = Util.genIdByName(catalog.getName(), localDbName);
-        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(localDbName);
-
-        if (!db.isPresent()) {
-            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-            try {
-                invalidateAllConnectorCachesIfPresent(catalog);
-            } finally {
-                cacheMgr.invalidateDb(log.getCatalogId(), dbId, localDbName);
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                catalog.beginConstraintMetadataMutation()) {
+            String localDbName = log.getDbName();
+            if (Strings.isNullOrEmpty(localDbName)) {
+                LOG.warn("refresh database replay log has no local name: {}", log.debugForRefreshDb());
+                return;
             }
-            LOG.info("database object cache is cold when replaying refresh database; invalidated caches by "
-                            + "local name {}: {}",
-                    localDbName, log.debugForRefreshDb());
-            return;
+            long dbId = Util.genIdByName(catalog.getName(), localDbName);
+            Optional<ExternalDatabase<? extends ExternalTable>> db =
+                    catalog.getDbForReplay(localDbName);
+
+            if (!db.isPresent()) {
+                ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+                try {
+                    invalidateAllConnectorCachesIfPresent(catalog);
+                } finally {
+                    cacheMgr.invalidateDb(log.getCatalogId(), dbId, localDbName);
+                }
+                LOG.info("database object cache is cold when replaying refresh database; invalidated caches by "
+                                + "local name {}: {}",
+                        localDbName, log.debugForRefreshDb());
+                return;
+            }
+            refreshDbInternal(db.get());
         }
-        refreshDbInternal(db.get());
     }
 
     private void refreshDbInternal(ExternalDatabase db) {
@@ -153,27 +177,30 @@ public class RefreshManager {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh ExternalCatalog Tables");
         }
-
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            DatabaseIf db = catalog.getDbNullable(dbName);
+            if (db == null) {
+                if (!ignoreIfNotExists) {
+                    throw new DdlException(
+                            "Database " + dbName + " does not exist in catalog " + catalog.getName());
+                }
+                return;
             }
-            return;
-        }
 
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
+                if (!ignoreIfNotExists) {
+                    throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+                }
+                return;
             }
-            return;
+            long updateTime = System.currentTimeMillis();
+            refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
+            ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+                    catalog.getId(), db.getFullName(), table.getName(), updateTime);
+            Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
         }
-        long updateTime = System.currentTimeMillis();
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
-        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
-                catalog.getId(), db.getFullName(), table.getName(), updateTime);
-        env.getEditLog().logRefreshExternalTable(log);
     }
 
     /** Records a committed remote mutation for replay before any fallible local cache refresh. */
@@ -192,6 +219,13 @@ public class RefreshManager {
             LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                catalog.beginConstraintMetadataMutation()) {
+            replayRefreshTableInternal(catalog, log);
+        }
+    }
+
+    private void replayRefreshTableInternal(ExternalCatalog catalog, ExternalObjectLog log) {
         String localDbName = log.getDbName();
         String localTableName = log.getTableName();
         if (Strings.isNullOrEmpty(localDbName) || Strings.isNullOrEmpty(localTableName)) {

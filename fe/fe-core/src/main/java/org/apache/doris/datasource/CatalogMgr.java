@@ -295,14 +295,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Remove the catalog instance by name and write the meta log.
      */
     public void dropCatalog(String catalogName, boolean ifExists) throws UserException {
+        CatalogIf<?> catalog = getCatalog(catalogName);
+        if (!(catalog instanceof ExternalCatalog)) {
+            dropCatalogInternal(catalogName, ifExists, catalog);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            dropCatalogInternal(catalogName, ifExists, catalog);
+        }
+    }
+
+    private void dropCatalogInternal(String catalogName, boolean ifExists,
+            CatalogIf<?> expectedCatalog) throws UserException {
         RemovedCatalog removedCatalog = null;
         writeLock();
         try {
+            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
+            if (catalog != expectedCatalog) {
+                throw new DdlException("Catalog changed while dropping " + catalogName
+                        + ", retry the statement");
+            }
             if (ifExists && !nameToCatalog.containsKey(catalogName)) {
                 LOG.warn("Non catalog {} is found.", catalogName);
                 return;
             }
-            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + catalogName);
             }
@@ -324,11 +341,28 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Modify the catalog name into a new one and write the meta log.
      */
     public void alterCatalogName(String catalogName, String newCatalogName) throws UserException {
+        CatalogIf<?> catalog = getCatalog(catalogName);
+        if (!(catalog instanceof ExternalCatalog)) {
+            alterCatalogNameInternal(catalogName, newCatalogName, catalog);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            alterCatalogNameInternal(catalogName, newCatalogName, catalog);
+        }
+    }
+
+    private void alterCatalogNameInternal(String catalogName, String newCatalogName,
+            CatalogIf<?> expectedCatalog) throws UserException {
         RemovedCatalog removedCatalog = null;
         String lastDb = null;
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(catalogName);
+            if (catalog != expectedCatalog) {
+                throw new DdlException("Catalog changed while renaming " + catalogName
+                        + ", retry the statement");
+            }
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + catalogName);
             }
@@ -410,10 +444,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
+        CatalogIf<?> catalog = getCatalog(catalogName);
+        if (!(catalog instanceof ExternalCatalog)) {
+            alterCatalogPropsInternal(catalogName, newProperties, catalog);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            alterCatalogPropsInternal(catalogName, newProperties, catalog);
+        }
+    }
+
+    private void alterCatalogPropsInternal(String catalogName, Map<String, String> newProperties,
+            CatalogIf<?> expectedCatalog) throws UserException {
         Runnable accessControllerCleanup = () -> { };
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(catalogName);
+            if (catalog != expectedCatalog) {
+                throw new DdlException("Catalog changed while altering properties for "
+                        + catalogName + ", retry the statement");
+            }
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + catalogName);
             }
@@ -575,9 +626,25 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Reply for drop catalog event.
      */
     public void replayDropCatalog(CatalogLog log) {
+        CatalogIf<?> catalog = getCatalog(log.getCatalogId());
+        if (!(catalog instanceof ExternalCatalog)) {
+            replayDropCatalogInternal(log, catalog);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            replayDropCatalogInternal(log, catalog);
+        }
+    }
+
+    private void replayDropCatalogInternal(CatalogLog log, CatalogIf<?> expectedCatalog) {
         RemovedCatalog removedCatalog;
         writeLock();
         try {
+            if (idToCatalog.get(log.getCatalogId()) != expectedCatalog) {
+                throw new IllegalStateException(
+                        "Catalog changed while replaying drop: " + log.getCatalogId());
+            }
             removedCatalog = removeCatalog(log.getCatalogId());
         } finally {
             writeUnlock();
@@ -589,9 +656,25 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Reply for alter catalog name event.
      */
     public void replayAlterCatalogName(CatalogLog log) {
+        CatalogIf<?> catalog = getCatalog(log.getCatalogId());
+        if (!(catalog instanceof ExternalCatalog)) {
+            replayAlterCatalogNameInternal(log, catalog);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            replayAlterCatalogNameInternal(log, catalog);
+        }
+    }
+
+    private void replayAlterCatalogNameInternal(CatalogLog log, CatalogIf<?> expectedCatalog) {
         RemovedCatalog removedCatalog;
         writeLock();
         try {
+            if (idToCatalog.get(log.getCatalogId()) != expectedCatalog) {
+                throw new IllegalStateException(
+                        "Catalog changed while replaying rename: " + log.getCatalogId());
+            }
             removedCatalog = removeCatalog(log.getCatalogId());
         } finally {
             writeUnlock();
@@ -644,9 +727,26 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      */
     public void replayAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties, boolean isReplay)
             throws DdlException {
+        CatalogIf<?> catalog = getCatalog(log.getCatalogId());
+        if (!(catalog instanceof ExternalCatalog)) {
+            replayAlterCatalogPropsInternal(log, oldProperties, isReplay, catalog);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+            replayAlterCatalogPropsInternal(log, oldProperties, isReplay, catalog);
+        }
+    }
+
+    private void replayAlterCatalogPropsInternal(CatalogLog log, Map<String, String> oldProperties,
+            boolean isReplay, CatalogIf<?> expectedCatalog) throws DdlException {
         Runnable accessControllerCleanup = () -> { };
         writeLock();
         try {
+            if (idToCatalog.get(log.getCatalogId()) != expectedCatalog) {
+                throw new DdlException(
+                        "Catalog changed while replaying property update: " + log.getCatalogId());
+            }
             accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true);
         } finally {
             writeUnlock();

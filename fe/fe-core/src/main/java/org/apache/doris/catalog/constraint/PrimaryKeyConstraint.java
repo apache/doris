@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessable {
@@ -110,6 +111,21 @@ public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessa
                     && java.util.Objects.equals(info.getTbl(), oldInfo.getTbl())) {
                 foreignTableInfos.set(i, newInfo);
                 break;
+            }
+        }
+    }
+
+    public void renameForeignTables(Map<TableNameInfo, TableNameInfo> renamedTables) {
+        for (int i = 0; i < foreignTableInfos.size(); i++) {
+            TableNameInfo oldInfo = foreignTableInfos.get(i);
+            TableNameInfo newInfo = renamedTables.get(oldInfo);
+            if (newInfo != null) {
+                String oldKey = oldInfo.getCtl() + "." + oldInfo.getDb() + "." + oldInfo.getTbl();
+                if (foreignTableNameStrs.remove(oldKey)) {
+                    String newKey = newInfo.getCtl() + "." + newInfo.getDb() + "." + newInfo.getTbl();
+                    foreignTableNameStrs.add(newKey);
+                }
+                foreignTableInfos.set(i, newInfo);
             }
         }
     }

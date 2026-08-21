@@ -182,6 +182,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
             "enable_local_exchange_before_streaming_agg";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
+    public static final String ENABLE_COLOCATE_MAPPING_CONSTRAINT = "enable_colocate_mapping_constraint";
     public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
@@ -1430,6 +1431,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_COLOCATE_MAPPING_CONSTRAINT,
+            varType = VariableAnnotation.EXPERIMENTAL_ONLINE,
+            affectQueryResultInPlan = true,
+            description = "Whether to derive colocate joins from distribution mapping constraints")
+    public boolean enableColocateMappingConstraint = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
@@ -4355,6 +4362,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableColocatePlan() {
         return disableColocatePlan;
+    }
+
+    public boolean isEnableColocateMappingConstraint() {
+        return enableColocateMappingConstraint;
     }
 
     public boolean isEnableBucketShuffleJoin() {

@@ -121,9 +121,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
-        synchronized (this) {
-            this.initialized = false;
-            invalidateAllTableCache();
+        writeLock();
+        try {
+            synchronized (this) {
+                this.initialized = false;
+                invalidateAllTableCache();
+            }
+        } finally {
+            writeUnlock();
         }
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateDbMetadataCache(extCatalog.getId(), getFullName());
@@ -347,20 +352,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     /**
-     * Resolve the retained local table name for replay without loading table metadata.
-     *
-     * <p>The ID map intentionally outlives object-cache eviction so normal by-ID lookup and legacy ID-only edit logs
-     * can still resolve the table identity. Replay can use this name to invalidate independent engine caches when the
-     * table object itself is cold.
-     */
-    public Optional<String> getTableNameForReplay(long tableId) {
-        if (!isInitialized()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(tableIdNameIndex.getName(tableId));
-    }
-
-    /**
      * Same as "getTableForReplay(long tableId)", but resolves the local name from the cached names snapshot first.
      * Replay misses still skip synchronous load-through. If the names entry is already hot, cache internals may
      * schedule asynchronous refresh-after-write, but this method never waits for remote metadata loading.
@@ -403,6 +394,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     @Override
+    public boolean tryReadLock(long timeout, TimeUnit unit) {
+        try {
+            return this.rwLock.readLock().tryLock(timeout, unit);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("failed to try read lock at external db[" + id + "]", e);
+            return false;
+        }
+    }
+
+    @Override
     public void readUnlock() {
         this.rwLock.readLock().unlock();
     }
@@ -422,6 +424,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         try {
             return this.rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             LOG.warn("failed to try write lock at external db[" + id + "]", e);
             return false;
         }

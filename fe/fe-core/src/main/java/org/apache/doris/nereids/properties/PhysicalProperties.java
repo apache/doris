@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -59,26 +60,39 @@ public class PhysicalProperties {
 
     private final DistributionSpec distributionSpec;
 
+    private final Optional<NaturalDistributionMappingSpec> naturalDistributionMappingSpec;
+
     private Integer hashCode = null;
 
     private PhysicalProperties() {
-        this.orderSpec = new OrderSpec();
-        this.distributionSpec = DistributionSpecAny.INSTANCE;
+        this(DistributionSpecAny.INSTANCE, new OrderSpec(), Optional.empty());
     }
 
     public PhysicalProperties(DistributionSpec distributionSpec) {
-        this.distributionSpec = distributionSpec;
-        this.orderSpec = new OrderSpec();
+        this(distributionSpec, new OrderSpec(), naturalMappingSpecFrom(distributionSpec));
     }
 
     public PhysicalProperties(OrderSpec orderSpec) {
-        this.orderSpec = orderSpec;
-        this.distributionSpec = DistributionSpecAny.INSTANCE;
+        this(DistributionSpecAny.INSTANCE, orderSpec, Optional.empty());
     }
 
     public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
+        this(distributionSpec, orderSpec, naturalMappingSpecFrom(distributionSpec));
+    }
+
+    /** Constructor with mapping-based natural bucket locality. */
+    public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec,
+            Optional<NaturalDistributionMappingSpec> naturalDistributionMappingSpec) {
         this.distributionSpec = distributionSpec;
         this.orderSpec = orderSpec;
+        this.naturalDistributionMappingSpec = naturalDistributionMappingSpec;
+    }
+
+    private static Optional<NaturalDistributionMappingSpec> naturalMappingSpecFrom(
+            DistributionSpec distributionSpec) {
+        return distributionSpec instanceof DistributionSpecHash
+                ? NaturalDistributionMappingSpec.fromHashSpec((DistributionSpecHash) distributionSpec)
+                : Optional.empty();
     }
 
     /**
@@ -115,12 +129,28 @@ public class PhysicalProperties {
     }
 
     public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {
-        return new PhysicalProperties(distributionSpec, orderSpec);
+        return new PhysicalProperties(distributionSpec, orderSpec, naturalDistributionMappingSpec);
     }
 
-    // Current properties satisfies other properties.
+    public PhysicalProperties withNaturalDistributionMappingSpec(
+            Optional<NaturalDistributionMappingSpec> naturalDistributionMappingSpec) {
+        return new PhysicalProperties(distributionSpec, orderSpec, naturalDistributionMappingSpec);
+    }
+
+    /** Return whether the current properties satisfy the required properties. */
     public boolean satisfy(PhysicalProperties other) {
-        return orderSpec.satisfy(other.orderSpec) && distributionSpec.satisfy(other.distributionSpec);
+        if (!orderSpec.satisfy(other.orderSpec)) {
+            return false;
+        }
+        if (other.distributionSpec instanceof DistributionSpecHash
+                && ((DistributionSpecHash) other.distributionSpec).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE) {
+            return naturalDistributionMappingSpec
+                    .map(spec -> spec.satisfy(
+                            ((DistributionSpecHash) other.distributionSpec).getOrderedShuffledColumns()))
+                    .orElse(false);
+        }
+        return distributionSpec.satisfy(other.distributionSpec);
     }
 
     public OrderSpec getOrderSpec() {
@@ -129,6 +159,17 @@ public class PhysicalProperties {
 
     public DistributionSpec getDistributionSpec() {
         return distributionSpec;
+    }
+
+    public Optional<NaturalDistributionMappingSpec> getNaturalDistributionMappingSpec() {
+        return naturalDistributionMappingSpec;
+    }
+
+    /** Whether a missing property can be produced by adding physical enforcers. */
+    public boolean isEnforceable() {
+        return !(distributionSpec instanceof DistributionSpecHash)
+                || ((DistributionSpecHash) distributionSpec).getShuffleType()
+                        != ShuffleType.COLOCATE_MAPPING_REQUIRE;
     }
 
     public boolean isDistributionOnlyProperties() {
@@ -148,13 +189,14 @@ public class PhysicalProperties {
             return false;
         }
         return orderSpec.equals(that.orderSpec)
-                && distributionSpec.equals(that.distributionSpec);
+                && distributionSpec.equals(that.distributionSpec)
+                && naturalDistributionMappingSpec.equals(that.naturalDistributionMappingSpec);
     }
 
     @Override
     public int hashCode() {
         if (hashCode == null) {
-            hashCode = Objects.hash(orderSpec, distributionSpec);
+            hashCode = Objects.hash(orderSpec, distributionSpec, naturalDistributionMappingSpec);
         }
         return hashCode;
     }
@@ -170,7 +212,8 @@ public class PhysicalProperties {
         if (this.equals(GATHER)) {
             return "GATHER";
         }
-        return distributionSpec.toString() + " " + orderSpec.toString();
+        return distributionSpec.toString() + " " + orderSpec.toString()
+                + naturalDistributionMappingSpec.map(spec -> " " + spec).orElse("");
     }
 
 }

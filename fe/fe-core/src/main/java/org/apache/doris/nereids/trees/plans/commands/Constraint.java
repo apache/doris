@@ -36,6 +36,8 @@ public class Constraint {
     private final LogicalPlan curTable;
     private final @Nullable LogicalPlan referenceTable;
     private final @Nullable ImmutableList<Slot> referenceSlots;
+    private final @Nullable String mappingId;
+    private final @Nullable ImmutableList<Slot> distributionSlots;
     private final ConstraintType type;
 
     Constraint(ConstraintType type, LogicalPlan curTable, ImmutableList<Slot> slots) {
@@ -47,6 +49,8 @@ public class Constraint {
                 "table of constraint can't be null");
         this.referenceTable = null;
         this.referenceSlots = null;
+        this.mappingId = null;
+        this.distributionSlots = null;
     }
 
     Constraint(LogicalPlan curTable, ImmutableList<Slot> slots,
@@ -61,8 +65,25 @@ public class Constraint {
                 "reference table in foreign key can not be null");
         this.referenceSlots = Objects.requireNonNull(referenceSlotSet,
                 "reference slots in foreign key can not be null");
+        this.mappingId = null;
+        this.distributionSlots = null;
         Preconditions.checkArgument(referenceSlots.size() == slots.size(),
                 "Foreign key's size must be same as the size of reference slots");
+    }
+
+    Constraint(LogicalPlan curTable, String mappingId, ImmutableList<Slot> determinantSlots,
+            ImmutableList<Slot> distributionSlots) {
+        Preconditions.checkArgument(determinantSlots != null && !determinantSlots.isEmpty(),
+                "determinant slots of distribution mapping constraint can't be null or empty");
+        Preconditions.checkArgument(distributionSlots != null && !distributionSlots.isEmpty(),
+                "distribution slots of distribution mapping constraint can't be null or empty");
+        this.type = ConstraintType.DISTRIBUTION_MAPPING;
+        this.slots = determinantSlots;
+        this.curTable = Objects.requireNonNull(curTable, "table of constraint can't be null");
+        this.referenceTable = null;
+        this.referenceSlots = null;
+        this.mappingId = Objects.requireNonNull(mappingId, "mapping id can't be null");
+        this.distributionSlots = distributionSlots;
     }
 
     public static Constraint newUniqueConstraint(LogicalPlan curTable, ImmutableList<Slot> slotSet) {
@@ -79,6 +100,11 @@ public class Constraint {
         return new Constraint(curTable, slotSet, referenceTable, referenceSlotSet);
     }
 
+    public static Constraint newDistributionMappingConstraint(LogicalPlan curTable, String mappingId,
+            ImmutableList<Slot> determinantSlots, ImmutableList<Slot> distributionSlots) {
+        return new Constraint(curTable, mappingId, determinantSlots, distributionSlots);
+    }
+
     public boolean isForeignKey() {
         return type == ConstraintType.FOREIGN_KEY;
     }
@@ -91,6 +117,14 @@ public class Constraint {
         return type == ConstraintType.PRIMARY_KEY;
     }
 
+    public boolean isDistributionMapping() {
+        return type == ConstraintType.DISTRIBUTION_MAPPING;
+    }
+
+    public String getMappingId() {
+        return Objects.requireNonNull(mappingId, "mapping id is only available for distribution mapping constraint");
+    }
+
     public LogicalPlan toProject() {
         return new LogicalProject<>(ImmutableList.copyOf(slots), curTable);
     }
@@ -98,6 +132,12 @@ public class Constraint {
     public LogicalPlan toReferenceProject() {
         Preconditions.checkArgument(referenceSlots != null, "Reference slot set of foreign key cannot be null");
         return new LogicalProject<>(ImmutableList.copyOf(referenceSlots), referenceTable);
+    }
+
+    public LogicalPlan toDistributionProject() {
+        Preconditions.checkArgument(distributionSlots != null,
+                "distribution slots are only available for distribution mapping constraint");
+        return new LogicalProject<>(ImmutableList.copyOf(distributionSlots), curTable);
     }
 
     @Override
@@ -109,6 +149,9 @@ public class Constraint {
         if (type.equals(ConstraintType.FOREIGN_KEY)) {
             sb.append("Reference Table: ").append(referenceTable).append("\n");
             sb.append("Reference Slot Set: ").append(referenceSlots);
+        } else if (type.equals(ConstraintType.DISTRIBUTION_MAPPING)) {
+            sb.append("Mapping Id: ").append(mappingId).append("\n");
+            sb.append("Distribution Slot Set: ").append(distributionSlots);
         }
         return sb.toString();
     }

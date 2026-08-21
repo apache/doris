@@ -155,10 +155,13 @@ public class RefreshManagerTest {
         seedAndEvictTableObject();
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
                 CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L);
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         new RefreshManager().replayRefreshTable(log);
 
         assertColdTableInvalidatedByName();
+        Assert.assertNotEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
         Mockito.verify(metaCacheMgr).invalidateTable(
                 CATALOG_ID, DATABASE_ID, DATABASE_NAME, TABLE_ID, TABLE_NAME);
     }

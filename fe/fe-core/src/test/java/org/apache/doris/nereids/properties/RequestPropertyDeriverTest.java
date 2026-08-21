@@ -27,8 +27,11 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -39,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -46,15 +50,22 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -211,9 +222,10 @@ class RequestPropertyDeriverTest {
             GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(leftGroup, rightGroup));
             new Group(null, groupExpression, null);
 
-            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
-            List<List<PhysicalProperties>> actual
-                    = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+            RequestPropertyDeriver requestPropertyDeriver =
+                    new RequestPropertyDeriver(testConnectContext, jobContext);
+            List<List<PhysicalProperties>> actual =
+                    requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
             List<List<PhysicalProperties>> expected = Lists.newArrayList();
             expected.add(Lists.newArrayList(
@@ -224,6 +236,37 @@ class RequestPropertyDeriverTest {
             ));
             expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
             Assertions.assertEquals(expected, actual);
+
+            sessionVariable.enableColocateMappingConstraint = true;
+            List<List<PhysicalProperties>> enabled =
+                    requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+            expected.add(1, Lists.newArrayList(
+                    new PhysicalProperties(new DistributionSpecHash(
+                            Lists.newArrayList(leftKey.getExprId()),
+                            ShuffleType.COLOCATE_MAPPING_REQUIRE)),
+                    new PhysicalProperties(new DistributionSpecHash(
+                            Lists.newArrayList(rightKey.getExprId()),
+                            ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+            Assertions.assertEquals(expected, enabled);
+
+            PhysicalHashJoin<GroupPlan, GroupPlan> expressionJoin = new PhysicalHashJoin<>(
+                    JoinType.INNER_JOIN,
+                    ImmutableList.of(new EqualTo(leftKey, new Add(rightKey, Literal.of(1)))),
+                    ExpressionUtils.EMPTY_CONDITION,
+                    new DistributeHint(DistributeType.NONE),
+                    Optional.empty(),
+                    logicalProperties,
+                    leftPlan,
+                    rightPlan);
+            GroupExpression expressionJoinGroup =
+                    new GroupExpression(expressionJoin, Lists.newArrayList(leftGroup, rightGroup));
+            new Group(null, expressionJoinGroup, null);
+
+            List<List<PhysicalProperties>> expressionJoinRequests =
+                    requestPropertyDeriver.getRequestChildrenPropertyList(expressionJoinGroup);
+            Assertions.assertEquals(
+                    Lists.newArrayList(expected.get(0), expected.get(2)),
+                    expressionJoinRequests);
         }
     }
 
@@ -272,6 +315,171 @@ class RequestPropertyDeriverTest {
                 ShuffleType.REQUIRE
         ))));
         Assertions.assertEquals(expected, actual);
+    }
+
+    @Test
+    void testGlobalAggregatePropagatesColocateMappingRequestWhenEnabled() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference extra = new SlotReference("extra", IntegerType.INSTANCE);
+        Alias outputD1 = new Alias(d1, "output_d1");
+        Alias outputK2 = new Alias(k2, "output_k2");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        Alias distinctCount = new Alias(
+                new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count");
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(d1, k2),
+                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId(), distinctCount.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties mappingRequest = PhysicalProperties.createHash(
+                Lists.newArrayList(d1.getExprId(), k2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties originalRequest = PhysicalProperties.createHash(
+                Lists.newArrayList(d1.getExprId(), k2.getExprId()), ShuffleType.REQUIRE);
+
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        List<List<PhysicalProperties>> enabled = new RequestPropertyDeriver(
+                testConnectContext, parentProperties).getRequestChildrenPropertyList(groupExpression);
+        Assertions.assertEquals(ImmutableList.of(
+                ImmutableList.of(mappingRequest), ImmutableList.of(originalRequest)), enabled);
+
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = false;
+        List<List<PhysicalProperties>> disabled = new RequestPropertyDeriver(
+                testConnectContext, parentProperties).getRequestChildrenPropertyList(groupExpression);
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)), disabled);
+
+        PhysicalHashAggregate<GroupPlan> expressionGroupByAggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(new EqualTo(d1, k2), k2),
+                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        GroupExpression expressionGroupBy = new GroupExpression(expressionGroupByAggregate);
+        new Group(null, expressionGroupBy, null);
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        List<List<PhysicalProperties>> expressionGroupByRequests = new RequestPropertyDeriver(
+                testConnectContext, parentProperties).getRequestChildrenPropertyList(expressionGroupBy);
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)), expressionGroupByRequests);
+    }
+
+    @Test
+    void testAggregateRemapsColocateMappingRequestThroughWideningVarcharCast() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        SlotReference determinant = new SlotReference("determinant", new VarcharType(8));
+        Alias widenedOutput =
+                new Alias(new Cast(determinant, new VarcharType(32)), "widened_determinant");
+        AggregateParam aggregateParam =
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(determinant),
+                Lists.newArrayList(widenedOutput),
+                Optional.of(Lists.newArrayList(determinant)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(widenedOutput.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+
+        List<List<PhysicalProperties>> requests = new RequestPropertyDeriver(
+                testConnectContext, parentProperties)
+                .getRequestChildrenPropertyList(groupExpression);
+
+        Assertions.assertEquals(
+                PhysicalProperties.createHash(
+                        Lists.newArrayList(determinant.getExprId()),
+                        ShuffleType.COLOCATE_MAPPING_REQUIRE),
+                requests.get(0).get(0));
+    }
+
+    @Test
+    void testUnionDoesNotPropagateColocateMappingRequest() {
+        SlotReference outputD1 = new SlotReference("output_d1", IntegerType.INSTANCE);
+        SlotReference outputK2 = new SlotReference("output_k2", IntegerType.INSTANCE);
+        SlotReference leftD1 = new SlotReference("left_d1", IntegerType.INSTANCE);
+        SlotReference leftK2 = new SlotReference("left_k2", IntegerType.INSTANCE);
+        SlotReference rightD1 = new SlotReference("right_d1", IntegerType.INSTANCE);
+        SlotReference rightK2 = new SlotReference("right_k2", IntegerType.INSTANCE);
+        PhysicalUnion union = new PhysicalUnion(
+                Qualifier.ALL,
+                ImmutableList.of(outputD1, outputK2),
+                ImmutableList.of(
+                        ImmutableList.of(leftD1, leftK2),
+                        ImmutableList.of(rightD1, rightK2)),
+                ImmutableList.of(),
+                logicalProperties,
+                ImmutableList.of(groupPlan, groupPlan));
+        GroupExpression groupExpression = new GroupExpression(union, Lists.newArrayList(group, group));
+        new Group(null, groupExpression, null);
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                ImmutableList.of(outputD1.getExprId(), outputK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+
+        List<List<PhysicalProperties>> actual = new RequestPropertyDeriver(
+                MemoTestUtils.createConnectContext(), parentProperties)
+                .getRequestChildrenPropertyList(groupExpression);
+
+        Assertions.assertEquals(
+                ImmutableList.of(ImmutableList.of(PhysicalProperties.ANY, PhysicalProperties.ANY)),
+                actual);
+    }
+
+    @Test
+    void testIntersectAndExceptDoNotPropagateColocateMappingRequest() {
+        SlotReference outputD1 = new SlotReference("output_d1", IntegerType.INSTANCE);
+        SlotReference outputK2 = new SlotReference("output_k2", IntegerType.INSTANCE);
+        SlotReference leftD1 = new SlotReference("left_d1", IntegerType.INSTANCE);
+        SlotReference leftK2 = new SlotReference("left_k2", IntegerType.INSTANCE);
+        SlotReference rightD1 = new SlotReference("right_d1", IntegerType.INSTANCE);
+        SlotReference rightK2 = new SlotReference("right_k2", IntegerType.INSTANCE);
+        List<List<SlotReference>> childrenOutputs = ImmutableList.of(
+                ImmutableList.of(leftD1, leftK2),
+                ImmutableList.of(rightD1, rightK2));
+        List<Plan> children = ImmutableList.of(groupPlan, groupPlan);
+        List<PhysicalSetOperation> setOperations = ImmutableList.of(
+                new PhysicalIntersect(Qualifier.DISTINCT,
+                        ImmutableList.of(outputD1, outputK2), childrenOutputs, logicalProperties, children),
+                new PhysicalExcept(Qualifier.DISTINCT,
+                        ImmutableList.of(outputD1, outputK2), childrenOutputs, logicalProperties, children));
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                ImmutableList.of(outputD1.getExprId(), outputK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+
+        for (PhysicalSetOperation setOperation : setOperations) {
+            GroupExpression groupExpression =
+                    new GroupExpression(setOperation, Lists.newArrayList(group, group));
+            new Group(null, groupExpression, null);
+            List<List<PhysicalProperties>> actual = new RequestPropertyDeriver(
+                    MemoTestUtils.createConnectContext(), parentProperties)
+                    .getRequestChildrenPropertyList(groupExpression);
+
+            Assertions.assertEquals(1, actual.size());
+            Assertions.assertEquals(2, actual.get(0).size());
+            for (PhysicalProperties childRequest : actual.get(0)) {
+                Assertions.assertInstanceOf(DistributionSpecHash.class, childRequest.getDistributionSpec());
+                Assertions.assertNotEquals(ShuffleType.COLOCATE_MAPPING_REQUIRE,
+                        ((DistributionSpecHash) childRequest.getDistributionSpec()).getShuffleType());
+            }
+        }
     }
 
     @Test

@@ -19,12 +19,18 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -37,12 +43,14 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -67,38 +75,123 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableNameInfo tableNameInfo;
-        try {
-            TableIf table = extractTable(ctx, plan);
-            tableNameInfo = TableNameInfoUtils.fromCatalogDb(
-                    table.getDatabase().getCatalog(), table.getDatabase(), table);
-        } catch (Exception e) {
-            // Table may no longer exist (e.g., external table deleted by another system).
-            // Fall back to extracting the table name from the unresolved plan.
-            LOG.warn("Table resolution failed for dropping constraint {}, "
-                    + "falling back to name-based lookup: {}", name, e.getMessage());
-            tableNameInfo = extractTableNameFromPlan(ctx);
+        TableNameInfo unresolvedTableName = plan instanceof UnboundRelation
+                ? extractTableNameFromPlan(ctx) : null;
+        CatalogIf<?> unresolvedCatalog = unresolvedTableName == null ? null
+                : Env.getCurrentEnv().getCatalogMgr().getCatalog(unresolvedTableName.getCtl());
+        if (unresolvedCatalog instanceof ExternalCatalog) {
+            // External PK/FK/UK constraints are authoritative in ConstraintManager. Avoid connector
+            // schema loading so DROP works with cache disabled or session cache bypass.
+            ExternalCatalog externalCatalog = (ExternalCatalog) unresolvedCatalog;
+            unresolvedTableName = new TableNameInfo(
+                    externalCatalog.getName(), unresolvedTableName.getDb(), unresolvedTableName.getTbl());
+            boolean lowerCaseMetaNames =
+                    Boolean.parseBoolean(externalCatalog.getLowerCaseMetaNames());
+            tableNameInfo = !lowerCaseMetaNames
+                    && externalCatalog.getLowerCaseTableNames() == 0
+                    && externalCatalog.getLowerCaseDatabaseNames() == 0
+                    ? unresolvedTableName
+                    : Env.getCurrentEnv().getConstraintManager()
+                            .canonicalizeExternalTableName(
+                                    unresolvedTableName,
+                                    name,
+                                    lowerCaseMetaNames
+                                            || externalCatalog.getLowerCaseDatabaseNames() != 0,
+                                    lowerCaseMetaNames
+                                            || externalCatalog.getLowerCaseTableNames() != 0);
+        } else {
+            try {
+                TableIf table = extractTable(ctx, plan);
+                tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                        table.getDatabase().getCatalog(), table.getDatabase(), table);
+            } catch (Exception e) {
+                // Table may no longer exist (e.g., external table deleted by another system).
+                // Fall back to extracting the table name from the unresolved plan.
+                LOG.warn("Table resolution failed for dropping constraint {}, "
+                        + "falling back to name-based lookup: {}", name, e.getMessage());
+                if (unresolvedTableName == null) {
+                    throw e;
+                }
+                tableNameInfo = unresolvedTableName;
+            }
         }
         // must be checked on both paths above: table resolution failing (which includes an
         // authorization failure) falls back to a name-only lookup that binds nothing.
         checkAlterPriv(ctx, tableNameInfo);
+        Constraint initialConstraint = getConstraintOrThrow(tableNameInfo);
+        List<TableNameInfo> initialCascadeDropTables = Env.getCurrentEnv()
+                .getConstraintManager().getCascadeDropTables(initialConstraint);
+        List<TableNameInfo> affectedTableInfos = new ArrayList<>();
+        affectedTableInfos.add(tableNameInfo);
+        affectedTableInfos.addAll(initialCascadeDropTables);
+        ConstraintCommandUtils.ExternalCatalogSnapshots externalCatalogSnapshots =
+                ConstraintCommandUtils.snapshotExternalCatalogs(affectedTableInfos);
+
+        Constraint constraint;
+        List<MTMV> dependentMtmvs;
+        EditLog.EditLogItem logItem;
+        try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
+                ConstraintCommandUtils.lockCurrentDatabases(
+                        affectedTableInfos, externalCatalogSnapshots, List.of());
+                ConstraintCommandUtils.LockedTables lockedTables =
+                        ConstraintCommandUtils.lockCurrentTablesIfPresent(
+                                lockedDatabases, affectedTableInfos)) {
+            TableIf currentTable = lockedTables.get(tableNameInfo);
+            constraint = getConstraintOrThrow(tableNameInfo);
+            if (constraint instanceof DistributionMappingConstraint
+                    && !(currentTable instanceof OlapTable)) {
+                throw new AnalysisException(
+                        "Distribution mapping constraint requires an OLAP table");
+            }
+            List<TableNameInfo> cascadeDropTables = Env.getCurrentEnv()
+                    .getConstraintManager().getCascadeDropTables(constraint);
+            if (!ConstraintCommandUtils.sameTables(
+                    initialCascadeDropTables, cascadeDropTables)) {
+                throw new AnalysisException(
+                        "Foreign key references changed while dropping constraint "
+                                + name + " on " + tableNameInfo + ", retry the statement");
+            }
+            for (TableNameInfo fkTableInfo : cascadeDropTables) {
+                checkAlterPriv(ctx, fkTableInfo);
+            }
+            dependentMtmvs = getDependentMtmvs(
+                    tableNameInfo, constraint, cascadeDropTables);
+            logItem = Env.getCurrentEnv().getConstraintManager()
+                    .dropConstraintAndSubmit(tableNameInfo, name, cascadeDropTables);
+            if (constraint instanceof DistributionMappingConstraint) {
+                Env.getCurrentEnv().getSqlCacheManager()
+                        .invalidateAboutTableAndFencePublication(currentTable);
+            }
+        }
+        if (logItem != null) {
+            logItem.await();
+        }
+        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private List<MTMV> getDependentMtmvs(TableNameInfo tableNameInfo,
+            Constraint constraint, List<TableNameInfo> cascadeDropTables)
+            throws org.apache.doris.common.AnalysisException {
+        if (!(constraint instanceof PrimaryKeyConstraint)) {
+            return MTMVUtil.getDependentMtmvsByConstraint(
+                    tableNameInfo, constraint);
+        }
+        List<BaseTableInfo> baseTables = new ArrayList<>();
+        baseTables.add(new BaseTableInfo(tableNameInfo));
+        for (TableNameInfo cascadeDropTable : cascadeDropTables) {
+            baseTables.add(new BaseTableInfo(cascadeDropTable));
+        }
+        return MTMVUtil.getDependentMtmvsByBaseTables(baseTables);
+    }
+
+    private Constraint getConstraintOrThrow(TableNameInfo tableNameInfo) {
         Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
         if (constraint == null) {
             throw new AnalysisException(
                     String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
         }
-        // dropping a primary key cascades into ConstraintManager.cascadeDropForeignKeys(), which
-        // deletes the foreign key constraints of every referencing table, so those tables have to be
-        // authorized too. Checked before dropConstraint() because the cascade is atomic. The snapshot
-        // is taken under the manager lock; a foreign key added after it still needs ALTER on its own
-        // table to be created, so it cannot be used to bypass this.
-        for (TableNameInfo fkTableInfo
-                : Env.getCurrentEnv().getConstraintManager().getCascadeDropTables(constraint)) {
-            checkAlterPriv(ctx, fkTableInfo);
-        }
-        List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+        return constraint;
     }
 
     private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
@@ -117,19 +210,7 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     "Cannot resolve table for dropping constraint " + name);
         }
         UnboundRelation unbound = (UnboundRelation) plan;
-        List<String> parts = unbound.getNameParts();
-        String ctl = ctx.getCurrentCatalog() != null
-                ? ctx.getCurrentCatalog().getName()
-                : "internal";
-        String db = ctx.getDatabase();
-        // Fill in default catalog/db from connect context if not specified
-        if (parts.size() == 1) {
-            return new TableNameInfo(ctl, db, parts.get(0));
-        }
-        if (parts.size() == 2) {
-            return new TableNameInfo(ctl, parts.get(0), parts.get(1));
-        }
-        return new TableNameInfo(parts);
+        return ConstraintCommandUtils.qualifyTableName(ctx, unbound.getNameParts());
     }
 
     private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {

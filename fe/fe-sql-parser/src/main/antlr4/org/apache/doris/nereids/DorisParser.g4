@@ -1050,6 +1050,10 @@ constraint
     | FOREIGN KEY slots=identifierList
         REFERENCES referenceTable=multipartIdentifier
         referencedSlots=identifierList
+    | COLOCATE MAPPING mappingId=identifier
+        slots=identifierList
+        DETERMINES DISTRIBUTION KEY distributionSlots=identifierList
+        NOT ENFORCED
     ;
 
 partitionSpec
@@ -2103,6 +2107,7 @@ nonReserved
     | DECIMALV3
     | DEFERRED
     | DEMAND
+    | DETERMINES
     | DIAGNOSE
     | DIAGNOSIS
     | DICTIONARIES
@@ -2117,6 +2122,7 @@ nonReserved
     | DYNAMIC
     | E
     | ENABLE
+    | ENFORCED
     | ENCRYPTION
     | ENCRYPTKEY
     | ENCRYPTKEYS

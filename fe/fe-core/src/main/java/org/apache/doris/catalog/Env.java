@@ -3084,6 +3084,7 @@ public class Env {
     @SuppressWarnings("unchecked")
     public void migrateConstraintsFromTables() {
         if (!constraintManager.isEmpty()) {
+            constraintManager.syncDistributionMappingsToTables();
             return;
         }
         int migratedCount = 0;
@@ -3123,6 +3124,7 @@ public class Env {
             LOG.info("Migrated {} constraints from old table-based storage "
                     + "to ConstraintManager", migratedCount);
             constraintManager.rebuildForeignKeyReferences();
+            constraintManager.syncDistributionMappingsToTables();
         }
     }
 
@@ -3455,7 +3457,10 @@ public class Env {
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName, String cloudUniqueId)
             throws DdlException {
+        ConstraintManager currentConstraintManager = getConstraintManager();
+        currentConstraintManager.acquireFrontendAdmission();
         if (!tryLock(false)) {
+            currentConstraintManager.releaseFrontendAdmissionFence();
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
@@ -3493,6 +3498,7 @@ public class Env {
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
+            currentConstraintManager.releaseFrontendAdmissionFence();
         }
     }
 
@@ -5996,6 +6002,18 @@ public class Env {
         if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
             throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
         }
+        String mappingConstraint =
+                constraintManager.findDistributionMappingConstraintWithColumn(table, colName);
+        if (mappingConstraint == null) {
+            mappingConstraint = constraintManager.findConstraintWithColumn(
+                    TableNameInfoUtils.fromDb(db, table.getName()), colName);
+        }
+        if (mappingConstraint != null) {
+            throw new DdlException(String.format(
+                    "Cannot rename column '%s' because it is used by constraint '%s'. "
+                            + "Drop the constraint first.",
+                    colName, mappingConstraint));
+        }
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
@@ -6937,6 +6955,10 @@ public class Env {
                     }
                 }
             }
+            if (!constraintManager.getDistributionMappingConstraints(tbl).isEmpty()) {
+                throw new DdlException("Cannot change distribution type of table with"
+                        + " distribution mapping constraints. Drop the constraints first.");
+            }
             if (!tbl.convertHashDistributionToRandomDistribution()) {
                 throw new DdlException("Table " + tbl.getName() + " is not hash distributed");
             }
@@ -6953,6 +6975,11 @@ public class Env {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
+            Preconditions.checkState(
+                    constraintManager.getDistributionMappingConstraints(olapTable).isEmpty(),
+                    "Cannot replay HASH-to-RANDOM conversion for table %s"
+                            + " with distribution mapping constraints",
+                    olapTable.getName());
             olapTable.convertHashDistributionToRandomDistribution();
             LOG.info("replay modify distribution type of table from hash to random : " + olapTable.getName());
         } finally {

@@ -387,4 +387,53 @@ public class DistributionSpecHashTest {
         Assertions.assertFalse(bucketed1.satisfy(bucketed2));
         Assertions.assertFalse(bucketed2.satisfy(bucketed1));
     }
+
+    @Test
+    public void testColocateMappingRequireSatisfy() {
+        ExprId k1 = new ExprId(0);
+        ExprId k2 = new ExprId(1);
+        ExprId d1 = new ExprId(2);
+        ExprId d2 = new ExprId(3);
+        DistributionSpecHash natural = new DistributionSpecHash(
+                ImmutableList.of(k1, k2),
+                ShuffleType.NATURAL,
+                1,
+                1,
+                ImmutableSet.of(1L),
+                ImmutableList.of(
+                        new DistributionMapping("mapping_1", ImmutableList.of(d1), ImmutableList.of(0)),
+                        new DistributionMapping("mapping_2", ImmutableList.of(d2), ImmutableList.of(1))));
+
+        Assertions.assertTrue(new PhysicalProperties(natural).satisfy(
+                new PhysicalProperties(new DistributionSpecHash(
+                        ImmutableList.of(d1, k2), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+        Assertions.assertTrue(new PhysicalProperties(natural).satisfy(
+                new PhysicalProperties(new DistributionSpecHash(
+                        ImmutableList.of(d1, d2), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+        Assertions.assertFalse(new PhysicalProperties(natural).satisfy(
+                new PhysicalProperties(new DistributionSpecHash(
+                        ImmutableList.of(d1), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+        Assertions.assertFalse(natural.satisfy(new DistributionSpecHash(
+                ImmutableList.of(d1, k2), ShuffleType.COLOCATE_MAPPING_REQUIRE)));
+        Assertions.assertFalse(natural.satisfy(new DistributionSpecHash(
+                ImmutableList.of(d1, k2), ShuffleType.REQUIRE)));
+
+        Map<ExprId, ExprId> projections = Maps.newHashMap();
+        projections.put(d1, d1);
+        projections.put(k2, k2);
+        DistributionSpecHash projected = (DistributionSpecHash) natural.project(
+                projections, ImmutableSet.of(), DistributionSpecAny.INSTANCE);
+        Assertions.assertTrue(projected.getDistributionMappings().isEmpty());
+    }
+
+    @Test
+    public void testColocateMappingRequireIsNotEnforceable() {
+        ExprId exprId = new ExprId(0);
+
+        Assertions.assertFalse(new PhysicalProperties(new DistributionSpecHash(
+                ImmutableList.of(exprId), ShuffleType.COLOCATE_MAPPING_REQUIRE)).isEnforceable());
+        Assertions.assertTrue(new PhysicalProperties(new DistributionSpecHash(
+                ImmutableList.of(exprId), ShuffleType.REQUIRE)).isEnforceable());
+        Assertions.assertTrue(PhysicalProperties.GATHER.isEnforceable());
+    }
 }

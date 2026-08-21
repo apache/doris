@@ -543,14 +543,22 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private String findConstraintWithColumn(Table table, String columnName) {
+        String mappingConstraint = Env.getCurrentEnv().getConstraintManager()
+                .findDistributionMappingConstraintWithColumn(table, columnName);
+        if (mappingConstraint != null) {
+            return mappingConstraint;
+        }
+        return Env.getCurrentEnv().getConstraintManager()
+                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                        table.getDatabase().getCatalog(), table.getDatabase(), table), columnName);
+    }
+
     private void processDropColumn(DropColumnOp dropColumnOp, Table externalTable, List<Column> newSchema)
             throws DdlException {
         String dropColName = dropColumnOp.getColName();
 
-        String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
-                        externalTable.getDatabase().getCatalog(),
-                        externalTable.getDatabase(), externalTable), dropColName);
+        String constraintName = findConstraintWithColumn(externalTable, dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "
@@ -595,10 +603,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         String dropColName = dropColumnOp.getColName();
 
-        String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
-                        olapTable.getDatabase().getCatalog(),
-                        olapTable.getDatabase(), olapTable), dropColName);
+        String constraintName = findConstraintWithColumn(olapTable, dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "

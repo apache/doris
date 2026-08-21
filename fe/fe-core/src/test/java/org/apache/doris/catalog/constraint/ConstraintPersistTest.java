@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
@@ -55,6 +56,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -208,6 +216,206 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void distributionMappingConstraintPersistTest() throws Exception {
+        ConstraintManager manager = new ConstraintManager();
+        TableNameInfo tableNameInfo = new TableNameInfo("internal.test.mapping_table");
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_constraint", "tenant_by_user", List.of("user_id"), List.of("tenant_id"));
+        manager.addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(outputStream));
+        ConstraintManager loadedManager = ConstraintManager.read(
+                new DataInputStream(new ByteArrayInputStream(outputStream.toByteArray())));
+
+        Constraint loaded = loadedManager.getConstraint(tableNameInfo, mapping.getName());
+        Assertions.assertEquals(mapping, loaded);
+        Assertions.assertEquals("tenant_by_user", ((DistributionMappingConstraint) loaded).getMappingId());
+    }
+
+    @Test
+    void imageLoadAndFollowerReplayKeepDistributionMappingStoresConsistent() throws Exception {
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_image_replay", "mapping_image_replay", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(image));
+        manager.dropConstraint(tableNameInfo, mapping.getName(), true);
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
+
+        Env.getCurrentEnv().loadConstraintManager(
+                new DataInputStream(new ByteArrayInputStream(image.toByteArray())), 0L);
+        Env.getCurrentEnv().migrateConstraintsFromTables();
+        ConstraintManager loadedManager = Env.getCurrentEnv().getConstraintManager();
+        Assertions.assertEquals(mapping, loadedManager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertEquals(
+                List.of(mapping), loadedManager.getDistributionMappingConstraints(table));
+
+        replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, mapping);
+        Assertions.assertNull(loadedManager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertTrue(loadedManager.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
+    void distributionMappingConstraintLifecycleIndexTest() {
+        ConstraintManager manager = new ConstraintManager();
+        TableNameInfo oldTableName = new TableNameInfo("internal.old_db.mapping_table");
+        TableNameInfo newTableName = new TableNameInfo("internal.new_db.mapping_table");
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_constraint", "tenant_by_user", List.of("user_id"), List.of("tenant_id"));
+        manager.addConstraint(oldTableName, mapping.getName(), mapping, true);
+
+        manager.renameDatabase("internal", "old_db", "new_db");
+
+        Assertions.assertNull(manager.getConstraint(oldTableName, mapping.getName()));
+        Assertions.assertEquals(mapping, manager.getConstraint(newTableName, mapping.getName()));
+        Assertions.assertEquals(
+                mapping.getName(),
+                manager.findConstraintWithColumn(newTableName, "USER_ID"));
+    }
+
+    @Test
+    void recoverTableRebuildsDistributionMappingIndexFromTableMetadata() throws Exception {
+        createTable("create table mapping_recover (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\"replication_num\"=\"1\")");
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "mapping_recover")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_recover", "mapping_recover", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        dropTableWithSql("drop table test.mapping_recover");
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+
+        recoverTable("recover table test.mapping_recover");
+        TableIf recoveredTable = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "mapping_recover")),
+                connectContext.getEnv(), Optional.empty());
+        Assertions.assertEquals(mapping, manager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertEquals(
+                List.of(mapping), manager.getDistributionMappingConstraints(recoveredTable));
+        dropTableWithSql("drop table test.mapping_recover force");
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void restoreTableWithoutMappingClearsStaleDistributionMappingIndex() throws Exception {
+        Table table = (Table) RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint staleMapping = new DistributionMappingConstraint(
+                "stale_mapping", "stale_mapping", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(tableNameInfo, staleMapping.getName(), staleMapping, true);
+        table.getTableAttributes().getConstraintsMap().clear();
+
+        manager.restoreTableConstraints(tableNameInfo, table);
+
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, staleMapping.getName()));
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
+    void replayInvalidatesSqlCacheOnlyForDistributionMappingConstraint() throws Exception {
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        PrimaryKeyConstraint primaryKey = new PrimaryKeyConstraint(
+                "pk_replay_epoch", com.google.common.collect.ImmutableSet.of("k1"));
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_replay_epoch", "mapping_replay_epoch", List.of("k2"), List.of("k1"));
+        long initialSequence = Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo);
+
+        replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, primaryKey);
+        Assertions.assertEquals(initialSequence, Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo));
+        replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, primaryKey);
+        Assertions.assertEquals(initialSequence, Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo));
+
+        replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, mapping);
+        long addMappingSequence = Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo);
+        Assertions.assertTrue(addMappingSequence > initialSequence);
+        Assertions.assertEquals(List.of(mapping), manager.getDistributionMappingConstraints(table));
+        replayConstraint(OperationType.OP_DROP_CONSTRAINT, tableNameInfo, mapping);
+        Assertions.assertTrue(Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo) > addMappingSequence);
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
+    void distributionMappingReplayWaitsForTableReadersBeforeMutationAndFence() throws Exception {
+        TableIf table = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_replay_lock", "mapping_replay_lock", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        long initialSequence = Env.getCurrentEnv().getSqlCacheManager()
+                .getTableInvalidationSequence(tableNameInfo);
+        CountDownLatch replayStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        table.readLock();
+        Future<?> replay = executor.submit(() -> {
+            replayStarted.countDown();
+            replayConstraint(OperationType.OP_ADD_CONSTRAINT, tableNameInfo, mapping);
+            return null;
+        });
+        try {
+            Assertions.assertTrue(replayStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertThrows(TimeoutException.class,
+                    () -> replay.get(100, TimeUnit.MILLISECONDS));
+            Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+            Assertions.assertEquals(initialSequence, Env.getCurrentEnv().getSqlCacheManager()
+                    .getTableInvalidationSequence(tableNameInfo));
+        } finally {
+            table.readUnlock();
+        }
+
+        try {
+            replay.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(mapping, manager.getConstraint(tableNameInfo, mapping.getName()));
+            Assertions.assertTrue(Env.getCurrentEnv().getSqlCacheManager()
+                    .getTableInvalidationSequence(tableNameInfo) > initialSequence);
+        } finally {
+            executor.shutdownNow();
+            if (manager.getConstraint(tableNameInfo, mapping.getName()) != null) {
+                manager.dropConstraint(tableNameInfo, mapping.getName(), true);
+            }
+        }
+    }
+
+    private void replayConstraint(short operationType, TableNameInfo tableNameInfo, Constraint constraint)
+            throws Exception {
+        JournalEntity journal = new JournalEntity();
+        journal.setData(new AlterConstraintLog(constraint, tableNameInfo));
+        journal.setOpCode(operationType);
+        EditLog.loadJournal(Env.getCurrentEnv(), 0L, journal);
+    }
+
+    @Test
     void addConstraintLogPersistForExternalTableTest() throws Exception {
         Config.edit_log_type = "local";
         FeConstants.runningUnitTest = true;
@@ -251,6 +459,75 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
             EditLog.loadJournal(Env.getCurrentEnv(), 0L, journalEntity);
         }
         Assertions.assertEquals(2, mgr.getConstraints(tni).size());
+    }
+
+    @Test
+    void externalConstraintCommandWorksWithoutMetadataCache() throws Exception {
+        Config.edit_log_type = "local";
+        FeConstants.runningUnitTest = true;
+        createCatalog("create catalog extCtlNoCache properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
+
+        TableNameInfo tableNameInfo =
+                new TableNameInfo("extCtlNoCache", "db1", "tbl11");
+        ConstraintManager manager =
+                Env.getCurrentEnv().getConstraintManager();
+
+        addConstraint("alter table extCtlNoCache.db1.tbl11 "
+                + "add constraint no_cache_pk primary key (a11)");
+        Assertions.assertNotNull(
+                manager.getConstraint(tableNameInfo, "no_cache_pk"));
+
+        dropConstraint("alter table extCtlNoCache.db1.tbl11 "
+                + "drop constraint no_cache_pk");
+        Assertions.assertNull(
+                manager.getConstraint(tableNameInfo, "no_cache_pk"));
+    }
+
+    @Test
+    void externalDropUsesPersistedCanonicalNameWithoutMetadataCache() throws Exception {
+        Config.edit_log_type = "local";
+        FeConstants.runningUnitTest = true;
+        createCatalog("create catalog extCaseNoCache properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"lower_case_table_names\" = \"2\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
+
+        TableNameInfo canonicalName =
+                new TableNameInfo("extCaseNoCache", "db1", "Table_A");
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(canonicalName, "case_pk",
+                new PrimaryKeyConstraint("case_pk", Set.of("a11")), true);
+
+        dropConstraint("alter table extCaseNoCache.db1.table_a "
+                + "drop constraint case_pk");
+
+        Assertions.assertNull(manager.getConstraint(canonicalName, "case_pk"));
+
+        createCatalog("create catalog extLowerMetaNoCache properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"lower_case_meta_names\" = \"true\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
+        TableNameInfo lowerMetaCanonicalName =
+                new TableNameInfo("extLowerMetaNoCache", "db1", "table_a");
+        manager.addConstraint(lowerMetaCanonicalName, "lower_meta_pk",
+                new PrimaryKeyConstraint("lower_meta_pk", Set.of("a11")), true);
+
+        dropConstraint("alter table extLowerMetaNoCache.DB1.TABLE_A "
+                + "drop constraint lower_meta_pk");
+
+        Assertions.assertNull(
+                manager.getConstraint(lowerMetaCanonicalName, "lower_meta_pk"));
     }
 
     @Test
@@ -328,6 +605,25 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         String resolvedName = tni.getCtl() + "." + tni.getDb() + "." + tni.getTbl();
         Assertions.assertEquals(qualifiedName, resolvedName);
         Assertions.assertEquals("pk_compat", log.getConstraint().getName());
+    }
+
+    @Test
+    void alterConstraintLogCapturesConstraintAtConstruction() throws Exception {
+        TableNameInfo primaryTable = new TableNameInfo("internal", "db", "primary_table");
+        TableNameInfo foreignTable = new TableNameInfo("internal", "db", "foreign_table");
+        PrimaryKeyConstraint primaryKey = new PrimaryKeyConstraint("pk", Set.of("k1"));
+        AlterConstraintLog log = new AlterConstraintLog(primaryKey, primaryTable);
+
+        primaryKey.addForeignTable(foreignTable);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        log.write(new DataOutputStream(output));
+        AlterConstraintLog persistedLog = AlterConstraintLog.read(
+                new DataInputStream(new ByteArrayInputStream(output.toByteArray())));
+
+        Assertions.assertEquals(List.of(foreignTable), primaryKey.getForeignTableInfos());
+        PrimaryKeyConstraint persistedPrimaryKey =
+                (PrimaryKeyConstraint) persistedLog.getConstraint();
+        Assertions.assertTrue(persistedPrimaryKey.getForeignTableInfos().isEmpty());
     }
 
     @Test

@@ -24,14 +24,56 @@ import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 
 public class MetastoreEventSyncDriverRenameTest {
+
+    @Test
+    public void structuralEventAdvancesConstraintMetadataSequence() throws Exception {
+        Connector connector = Mockito.mock(Connector.class);
+        PluginDrivenExternalCatalog catalog = new IdentityEventCatalog(connector);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        long baseline = catalog.snapshotConstraintMetadata();
+        MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forDatabase(
+                Op.REGISTER_DATABASE, "db1", null, 1L, 2L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+        }
+
+        Assertions.assertNotEquals(baseline, catalog.snapshotConstraintMetadata());
+    }
+
+    @Test
+    public void partitionEventDoesNotAdvanceConstraintMetadataSequence() throws Exception {
+        Connector connector = Mockito.mock(Connector.class);
+        PluginDrivenExternalCatalog catalog = new IdentityEventCatalog(connector);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        long baseline = catalog.snapshotConstraintMetadata();
+        MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forPartitions(
+                Op.ADD_PARTITIONS, "db1", "tbl1", List.of("p1"), 1L, 2L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+        }
+
+        Assertions.assertEquals(baseline, catalog.snapshotConstraintMetadata());
+    }
 
     @Test
     public void databaseRenameAlwaysCleansOldNameAndRegistersNewName() throws Exception {

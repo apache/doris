@@ -34,6 +34,7 @@ import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
@@ -42,7 +43,9 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -213,33 +216,15 @@ public class EditLog {
                 return;
             }
             batch.add(first);
-            logEditQueue.drainTo(batch, Config.batch_edit_log_max_item_num - 1);
-
-            int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
-            JournalBatch journalBatch = new JournalBatch(itemNum);
+            if (Config.enable_batch_editlog) {
+                logEditQueue.drainTo(batch, Config.batch_edit_log_max_item_num - 1);
+            }
 
             if (DebugPointUtil.isEnable("EditLog.flushEditLog.exception")) {
                 // For debug purpose, throw an exception to test the edit log flush
                 throw new RuntimeException("EditLog.flushEditLog.exception");
             }
-            // Array to record pairs of logId and num
-            List<long[]> logIdNumPairs = new ArrayList<>();
-            for (EditLogItem req : batch) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
-                }
-                journalBatch.addJournal(req.op, req.writable);
-                if (journalBatch.shouldFlush()) {
-                    long logId = journal.write(journalBatch);
-                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
-                    journalBatch = new JournalBatch(itemNum);
-                }
-            }
-            // Write any remaining entries in the batch
-            if (!journalBatch.getJournalEntities().isEmpty()) {
-                long logId = journal.write(journalBatch);
-                logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
-            }
+            List<long[]> logIdNumPairs = writeJournalBatch(journal, batch);
 
             // Notify all producers
             // For batch with index, assign logId to each request according to the batch flushes
@@ -281,6 +266,38 @@ public class EditLog {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
         }
+    }
+
+    static List<long[]> writeJournalBatch(Journal journal, List<EditLogItem> batch) throws IOException {
+        int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
+        JournalBatch journalBatch = new JournalBatch(itemNum);
+        List<long[]> logIdNumPairs = new ArrayList<>();
+        for (EditLogItem req : batch) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
+            }
+            if (requiresDirectJournalWrite(req.op)) {
+                if (!journalBatch.getJournalEntities().isEmpty()) {
+                    long logId = journal.write(journalBatch);
+                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+                    journalBatch = new JournalBatch(itemNum);
+                }
+                long logId = journal.write(req.op, req.writable);
+                logIdNumPairs.add(new long[]{logId, 1});
+                continue;
+            }
+            journalBatch.addJournal(req.op, req.writable);
+            if (journalBatch.shouldFlush()) {
+                long logId = journal.write(journalBatch);
+                logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+                journalBatch = new JournalBatch(itemNum);
+            }
+        }
+        if (!journalBatch.getJournalEntities().isEmpty()) {
+            long logId = journal.write(journalBatch);
+            logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+        }
+        return logIdNumPairs;
     }
 
     public long getMaxJournalId() {
@@ -1223,8 +1240,7 @@ public class EditLog {
                         break;
                     }
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
-                    env.getConstraintManager().addConstraint(
-                            tni, constraint.getName(), constraint, true);
+                    replayConstraint(env, tni, constraint, true);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying add constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1240,8 +1256,7 @@ public class EditLog {
                         break;
                     }
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
-                    env.getConstraintManager().dropConstraint(
-                            tni, constraint.getName(), true);
+                    replayConstraint(env, tni, constraint, false);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying drop constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1541,6 +1556,41 @@ public class EditLog {
         }
     }
 
+    private static void replayConstraint(
+            Env env, TableNameInfo tableNameInfo, Constraint constraint, boolean add) {
+        TableIf table = null;
+        if (constraint instanceof DistributionMappingConstraint) {
+            CatalogIf<?> catalog = env.getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+            DatabaseIf<?> database = catalog == null ? null : catalog.getDbNullable(tableNameInfo.getDb());
+            table = database == null ? null : database.getTableNullable(tableNameInfo.getTbl());
+            if (table != null && !table.tryWriteLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException(
+                        "Failed to acquire table lock while replaying constraint on " + tableNameInfo);
+            }
+        }
+        try {
+            if (add) {
+                env.getConstraintManager().addConstraint(
+                        tableNameInfo, constraint.getName(), constraint, true);
+            } else {
+                env.getConstraintManager().dropConstraint(
+                        tableNameInfo, constraint.getName(), true);
+            }
+            if (constraint instanceof DistributionMappingConstraint) {
+                if (table == null) {
+                    env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tableNameInfo);
+                } else {
+                    env.getSqlCacheManager().invalidateAboutTableAndFencePublication(table);
+                }
+            }
+        } finally {
+            if (table != null) {
+                table.writeUnlock();
+            }
+        }
+    }
+
     /**
      * Shutdown the file store.
      */
@@ -1634,9 +1684,6 @@ public class EditLog {
      * <p>The caller MUST call {@link EditLogItem#await()} after releasing the lock to ensure
      * the entry is persisted before proceeding.
      *
-     * <p>If batch edit log is disabled, this falls back to a synchronous direct write
-     * and the returned item is already completed.
-     *
      * @return an {@link EditLogItem} handle to await completion
      */
     public EditLogItem submitEdit(short op, Writable writable) {
@@ -1646,25 +1693,18 @@ public class EditLog {
         }
 
         EditLogItem req = new EditLogItem(op, writable);
-        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
-            while (true) {
+        while (true) {
+            try {
+                logEditQueue.put(req);
+                break;
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupted during put, will sleep and retry.");
                 try {
-                    logEditQueue.put(req);
-                    break;
-                } catch (InterruptedException e) {
-                    LOG.warn("Interrupted during put, will sleep and retry.");
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException ex) {
-                        LOG.warn("interrupted during sleep, will retry.", ex);
-                    }
+                    Thread.sleep(100);
+                } catch (InterruptedException ex) {
+                    LOG.warn("interrupted during sleep, will retry.", ex);
                 }
             }
-        } else {
-            // Non-batch mode: write directly (synchronous)
-            long logId = logEditDirectly(op, writable);
-            req.logId = logId;
-            req.finished = true;
         }
         return req;
     }
@@ -1728,7 +1768,7 @@ public class EditLog {
             }
         }
         long logId = -1;
-        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+        if (shouldUseQueue(op)) {
             logId = logEditWithQueue(op, writable);
         } else {
             logId = logEditDirectly(op, writable);
@@ -1750,6 +1790,14 @@ public class EditLog {
         }
 
         return logId;
+    }
+
+    static boolean shouldUseQueue(short op) {
+        return op != OperationType.OP_TIMESTAMP || !Config.enable_batch_editlog;
+    }
+
+    static boolean requiresDirectJournalWrite(short op) {
+        return op == OperationType.OP_TIMESTAMP;
     }
 
     /**
@@ -2577,14 +2625,6 @@ public class EditLog {
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
 
-    }
-
-    public void logAddConstraint(AlterConstraintLog log) {
-        logEdit(OperationType.OP_ADD_CONSTRAINT, log);
-    }
-
-    public void logDropConstraint(AlterConstraintLog log) {
-        logEdit(OperationType.OP_DROP_CONSTRAINT, log);
     }
 
     public void logInsertOverwrite(InsertOverwriteLog log) {

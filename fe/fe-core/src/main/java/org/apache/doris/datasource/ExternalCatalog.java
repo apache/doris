@@ -80,6 +80,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -170,6 +174,9 @@ public abstract class ExternalCatalog
     protected MetaCacheEntry<String, NameCacheValue> databaseNames;
     protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
+    private transient ReentrantReadWriteLock constraintMetadataLock = new ReentrantReadWriteLock(true);
+    private transient AtomicLong constraintMetadataSequence = new AtomicLong();
+    private transient AtomicInteger activeConstraintMetadataMutations = new AtomicInteger();
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
@@ -183,6 +190,97 @@ public abstract class ExternalCatalog
         this.name = name;
         this.logType = logType;
         this.comment = Strings.nullToEmpty(comment);
+    }
+
+    /**
+     * Returns a stable baseline for constraint analysis without loading connector metadata.
+     */
+    public final long snapshotConstraintMetadata() {
+        return constraintMetadataSequence.get();
+    }
+
+    /**
+     * Prevents an external metadata mutation from starting after constraint metadata is validated.
+     */
+    public final ConstraintMetadataReadGuard lockConstraintMetadata(long expectedSequence)
+            throws DdlException {
+        try {
+            if (!constraintMetadataLock.readLock().tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new DdlException(
+                        "Failed to lock external catalog metadata while altering constraints on "
+                                + name + ". Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DdlException(
+                    "Interrupted while locking external catalog metadata for " + name, e);
+        }
+        if (activeConstraintMetadataMutations.get() != 0
+                || constraintMetadataSequence.get() != expectedSequence) {
+            constraintMetadataLock.readLock().unlock();
+            throw new DdlException("External catalog metadata changed while altering constraints on "
+                    + name + ", retry the statement");
+        }
+        return new ConstraintMetadataReadGuard();
+    }
+
+    /**
+     * Marks a metadata mutation before its remote operation starts and until its local publication completes.
+     */
+    public final ConstraintMetadataMutationGuard beginConstraintMetadataMutation() {
+        try {
+            if (!constraintMetadataLock.writeLock().tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException(
+                        "Failed to lock external catalog metadata for mutation on "
+                                + name + ". Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while locking external catalog metadata for mutation on " + name,
+                    e);
+        }
+        try {
+            activeConstraintMetadataMutations.incrementAndGet();
+            constraintMetadataSequence.incrementAndGet();
+        } finally {
+            constraintMetadataLock.writeLock().unlock();
+        }
+        return new ConstraintMetadataMutationGuard();
+    }
+
+    public final class ConstraintMetadataReadGuard implements AutoCloseable {
+        private boolean closed;
+
+        private ConstraintMetadataReadGuard() {
+        }
+
+        @Override
+        public void close() {
+            Preconditions.checkState(!closed, "constraint metadata read guard is already closed");
+            closed = true;
+            constraintMetadataLock.readLock().unlock();
+        }
+    }
+
+    public final class ConstraintMetadataMutationGuard implements AutoCloseable {
+        private boolean closed;
+
+        private ConstraintMetadataMutationGuard() {
+        }
+
+        @Override
+        public void close() {
+            Preconditions.checkState(!closed, "constraint metadata mutation guard is already closed");
+            // Publish the sequence first so readers cannot observe an inactive mutation with a stale sequence.
+            constraintMetadataSequence.incrementAndGet();
+            int remainingMutations = activeConstraintMetadataMutations.decrementAndGet();
+            Preconditions.checkState(remainingMutations >= 0,
+                    "constraint metadata mutation count must not be negative");
+            closed = true;
+        }
     }
 
     /**
@@ -964,19 +1062,6 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * Resolve the retained local database name for replay without loading database metadata.
-     *
-     * <p>The ID map intentionally outlives object-cache eviction so legacy ID-only refresh edit logs written by
-     * Doris 2.1 and 3.0 can still invalidate independent engine and connector caches during rolling upgrades.
-     */
-    public Optional<String> getDbNameForReplay(long dbId) {
-        if (!isInitialized()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(dbIdNameIndex.getName(dbId));
-    }
-
-    /**
      * Same as "getDbForReplay(long dbId)", but resolves the local name from the cached names snapshot first.
      * Replay misses still skip synchronous load-through. If the names entry is already hot, cache internals may
      * schedule asynchronous refresh-after-write, but this method never waits for remote metadata loading.
@@ -1149,6 +1234,9 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+        this.constraintMetadataLock = new ReentrantReadWriteLock(true);
+        this.constraintMetadataSequence = new AtomicLong();
+        this.activeConstraintMetadataMutations = new AtomicInteger();
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -1179,7 +1267,9 @@ public abstract class ExternalCatalog
     }
 
     public void replayCreateDb(String dbName) {
-        invalidateCreatedDatabase(dbName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            invalidateCreatedDatabase(dbName);
+        }
     }
 
     @Override
@@ -1189,7 +1279,9 @@ public abstract class ExternalCatalog
     }
 
     public void replayDropDb(String dbName) {
-        unregisterDatabase(dbName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            unregisterDatabase(dbName);
+        }
     }
 
     @Override
@@ -1199,7 +1291,9 @@ public abstract class ExternalCatalog
     }
 
     public void replayCreateTable(String dbName, String tblName) {
-        invalidateCreatedTable(dbName, tblName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            invalidateCreatedTable(dbName, tblName);
+        }
     }
 
     protected final void invalidateCreatedDatabase(String dbName) {
@@ -1265,7 +1359,9 @@ public abstract class ExternalCatalog
     }
 
     public void replayDropTable(String dbName, String tblName) {
-        invalidateDroppedTable(dbName, tblName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            invalidateDroppedTable(dbName, tblName);
+        }
     }
 
     /** Removes a database from local metadata and invalidates its FE caches. */

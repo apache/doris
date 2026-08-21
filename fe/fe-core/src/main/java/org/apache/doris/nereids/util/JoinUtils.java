@@ -21,10 +21,12 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DistributionMapping;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.properties.NaturalDistributionMappingSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
@@ -49,6 +51,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
@@ -239,8 +242,18 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
-        DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
-        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
+        PhysicalProperties leftProperties = join.left().getPhysicalProperties();
+        PhysicalProperties rightProperties = join.right().getPhysicalProperties();
+        if (leftProperties.getNaturalDistributionMappingSpec().isPresent()
+                && rightProperties.getNaturalDistributionMappingSpec().isPresent()
+                && couldColocateJoinByMapping(
+                        leftProperties.getNaturalDistributionMappingSpec().get(),
+                        rightProperties.getNaturalDistributionMappingSpec().get(),
+                        join.getHashJoinConjuncts())) {
+            return true;
+        }
+        DistributionSpec leftDistributionSpec = leftProperties.getDistributionSpec();
+        DistributionSpec rightDistributionSpec = rightProperties.getDistributionSpec();
         if (!(leftDistributionSpec instanceof DistributionSpecHash)
                 || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
@@ -268,30 +281,66 @@ public class JoinUtils {
         final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
         final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
 
-        // For UT or no partition is selected, getSelectedIndexId() == -1, see selectMaterializedView()
-        boolean hitSameIndex = (leftTableId == rightTableId)
-                && (leftHashSpec.getSelectedIndexId() != -1 && rightHashSpec.getSelectedIndexId() != -1)
-                && (leftHashSpec.getSelectedIndexId() == rightHashSpec.getSelectedIndexId());
-        boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
-                && (leftTablePartitions.size() <= 1);
-        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        if (!noNeedCheckColocateGroup && (!colocateIndex.isSameGroup(leftTableId, rightTableId)
-                || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+        if (!isSameStableColocateGroup(leftTableId, leftHashSpec.getSelectedIndexId(), leftTablePartitions,
+                rightTableId, rightHashSpec.getSelectedIndexId(), rightTablePartitions)) {
             return false;
         }
 
+        if (couldColocateJoinOnDistributionColumns(leftHashSpec, rightHashSpec, conjuncts)) {
+            return true;
+        }
+        if (!ConnectContext.get().getSessionVariable().isEnableColocateMappingConstraint()) {
+            return false;
+        }
+        return couldColocateJoinOnDistributionMappings(leftHashSpec, rightHashSpec, conjuncts);
+    }
+
+    /** Could use a mapping-based colocate join after distribution-key slots have been projected out. */
+    public static boolean couldColocateJoinByMapping(NaturalDistributionMappingSpec leftSpec,
+            NaturalDistributionMappingSpec rightSpec, List<Expression> conjuncts) {
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable().isDisableColocatePlan()
+                || !ConnectContext.get().getSessionVariable().isEnableColocateMappingConstraint()
+                || leftSpec.getDistributionKeyCount() != rightSpec.getDistributionKeyCount()) {
+            return false;
+        }
+        if (!isSameStableColocateGroup(
+                leftSpec.getTableId(), leftSpec.getSelectedIndexId(), leftSpec.getPartitionIds(),
+                rightSpec.getTableId(), rightSpec.getSelectedIndexId(), rightSpec.getPartitionIds())) {
+            return false;
+        }
+        return couldColocateJoinOnDistributionMappings(
+                leftSpec.getVisibleDistributionExprToIndex(), leftSpec.getDistributionMappings(),
+                rightSpec.getVisibleDistributionExprToIndex(), rightSpec.getDistributionMappings(),
+                leftSpec.getDistributionKeyCount(), conjuncts);
+    }
+
+    private static boolean isSameStableColocateGroup(long leftTableId, long leftSelectedIndexId,
+            Set<Long> leftTablePartitions, long rightTableId, long rightSelectedIndexId,
+            Set<Long> rightTablePartitions) {
+        // For UT or no partition is selected, selectedIndexId == -1, see selectMaterializedView().
+        boolean hitSameIndex = leftTableId == rightTableId
+                && leftSelectedIndexId != -1
+                && rightSelectedIndexId != -1
+                && leftSelectedIndexId == rightSelectedIndexId;
+        boolean noNeedCheckColocateGroup = hitSameIndex
+                && leftTablePartitions.equals(rightTablePartitions)
+                && leftTablePartitions.size() <= 1;
+        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        return noNeedCheckColocateGroup
+                || (colocateIndex.isSameGroup(leftTableId, rightTableId)
+                        && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)));
+    }
+
+    private static boolean couldColocateJoinOnDistributionColumns(DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec, List<Expression> conjuncts) {
+        if (!areAllSlotEqualPredicates(conjuncts)) {
+            return false;
+        }
         Set<Integer> equalIndices = new HashSet<>();
         for (Expression expr : conjuncts) {
-            // only simple equal predicate can use colocate join
-            if (!(expr instanceof EqualPredicate)) {
-                return false;
-            }
             Expression leftChild = ((EqualPredicate) expr).left();
             Expression rightChild = ((EqualPredicate) expr).right();
-            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof SlotReference)) {
-                return false;
-            }
-
             SlotReference leftSlot = (SlotReference) leftChild;
             SlotReference rightSlot = (SlotReference) rightChild;
             Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
@@ -307,12 +356,85 @@ public class JoinUtils {
                 equalIndices.add(leftIndex);
             }
         }
-        // on conditions must contain all distributed columns
-        if (equalIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values())) {
-            return true;
-        } else {
+        return equalIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values());
+    }
+
+    private static boolean couldColocateJoinOnDistributionMappings(DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec, List<Expression> conjuncts) {
+        return couldColocateJoinOnDistributionMappings(
+                leftHashSpec.getExprIdToEquivalenceSet(), leftHashSpec.getDistributionMappings(),
+                rightHashSpec.getExprIdToEquivalenceSet(), rightHashSpec.getDistributionMappings(),
+                leftHashSpec.getOrderedShuffledColumns().size(), conjuncts);
+    }
+
+    private static boolean couldColocateJoinOnDistributionMappings(
+            Map<ExprId, Integer> leftDistributionExprToIndex, List<DistributionMapping> leftMappings,
+            Map<ExprId, Integer> rightDistributionExprToIndex, List<DistributionMapping> rightMappings,
+            int distributionKeyCount, List<Expression> conjuncts) {
+        if (!areAllSlotEqualPredicates(conjuncts)) {
             return false;
         }
+        List<Pair<ExprId, ExprId>> equalExprIds = Lists.newArrayList();
+        Set<Integer> coveredIndices = new HashSet<>();
+        for (Expression expr : conjuncts) {
+            ExprId first = ((SlotReference) ((EqualPredicate) expr).left()).getExprId();
+            ExprId second = ((SlotReference) ((EqualPredicate) expr).right()).getExprId();
+            equalExprIds.add(Pair.of(first, second));
+
+            Integer leftIndex = leftDistributionExprToIndex.get(first);
+            Integer rightIndex = rightDistributionExprToIndex.get(second);
+            if (leftIndex == null) {
+                leftIndex = leftDistributionExprToIndex.get(second);
+                rightIndex = rightDistributionExprToIndex.get(first);
+            }
+            if (leftIndex != null && Objects.equals(leftIndex, rightIndex)) {
+                coveredIndices.add(leftIndex);
+            }
+        }
+
+        for (DistributionMapping leftMapping : leftMappings) {
+            for (DistributionMapping rightMapping : rightMappings) {
+                if (!leftMapping.getMappingId().equals(rightMapping.getMappingId())
+                        || !leftMapping.getTargetDistributionIndices()
+                                .equals(rightMapping.getTargetDistributionIndices())
+                        || leftMapping.getDeterminantExprIds().size()
+                                != rightMapping.getDeterminantExprIds().size()) {
+                    continue;
+                }
+                boolean determinantsEqual = true;
+                for (int i = 0; i < leftMapping.getDeterminantExprIds().size(); i++) {
+                    if (!containsEqualPair(equalExprIds, leftMapping.getDeterminantExprIds().get(i),
+                            rightMapping.getDeterminantExprIds().get(i))) {
+                        determinantsEqual = false;
+                        break;
+                    }
+                }
+                if (determinantsEqual) {
+                    coveredIndices.addAll(leftMapping.getTargetDistributionIndices());
+                }
+            }
+        }
+        for (int i = 0; i < distributionKeyCount; i++) {
+            if (!coveredIndices.contains(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Whether every conjunct is a simple slot-to-slot equality supported by colocate proof. */
+    public static boolean areAllSlotEqualPredicates(List<? extends Expression> conjuncts) {
+        return conjuncts.stream().allMatch(expr ->
+                expr instanceof EqualPredicate
+                        && ((EqualPredicate) expr).left() instanceof SlotReference
+                        && ((EqualPredicate) expr).right() instanceof SlotReference);
+    }
+
+    private static boolean containsEqualPair(
+            List<Pair<ExprId, ExprId>> equalExprIds, ExprId left, ExprId right) {
+        return equalExprIds.stream().anyMatch(pair ->
+                (pair.first.equals(left) && pair.second.equals(right))
+                        || (pair.first.equals(right) && pair.second.equals(left)));
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {

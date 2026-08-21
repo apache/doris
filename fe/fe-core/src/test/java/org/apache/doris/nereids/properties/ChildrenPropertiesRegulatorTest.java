@@ -21,24 +21,33 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -175,6 +184,119 @@ public class ChildrenPropertiesRegulatorTest {
                     Lists.newArrayList(PhysicalProperties.GATHER), mockedJobContext);
             Assertions.assertFalse(regulator.adjustChildrenProperties().isEmpty());
         }
+    }
+
+    @Test
+    public void testAggregateColocateMappingRequestRequiresNaturalMappingProof() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        GroupPlan mockedGroupPlan = Mockito.mock(GroupPlan.class);
+        Mockito.when(mockedGroupPlan.getAllChildrenTypes()).thenReturn(new BitSet());
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(d1, k2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                null,
+                false,
+                mockedGroupPlan);
+        GroupExpression parent = new GroupExpression(aggregate);
+        PhysicalProperties required = PhysicalProperties.createHash(
+                ImmutableList.of(d1.getExprId(), k2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        DistributionSpecHash naturalWithMapping = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, Sets.newHashSet(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+        DistributionSpecHash naturalWithoutMapping = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, Sets.newHashSet(3L), ImmutableList.of());
+
+        Assertions.assertFalse(adjustAggregateProperties(
+                parent, new PhysicalProperties(naturalWithMapping), required).isEmpty());
+        Assertions.assertTrue(adjustAggregateProperties(
+                parent, new PhysicalProperties(naturalWithoutMapping), required).isEmpty());
+    }
+
+    private List<List<PhysicalProperties>> adjustAggregateProperties(
+            GroupExpression parent, PhysicalProperties childOutput, PhysicalProperties required) {
+        ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(
+                parent,
+                ImmutableList.of(Mockito.mock(GroupExpression.class)),
+                ImmutableList.of(childOutput),
+                ImmutableList.of(required),
+                mockedJobContext);
+        return regulator.adjustChildrenProperties();
+    }
+
+    @Test
+    public void testRejectPartiallySatisfiedColocateMappingRequest() {
+        assertColocateMappingRequestRejected(Optional.empty(), Optional.of("mapping_1"));
+    }
+
+    @Test
+    public void testRejectColocateMappingRequestWhenFinalProofFails() {
+        try (MockedStatic<JoinUtils> mockedJoinUtils = Mockito.mockStatic(JoinUtils.class)) {
+            mockedJoinUtils.when(() -> JoinUtils.couldColocateJoinByMapping(
+                    Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(false);
+            assertColocateMappingRequestRejected(Optional.of("mapping_1"), Optional.of("mapping_2"));
+            mockedJoinUtils.verify(() -> JoinUtils.couldColocateJoinByMapping(
+                    Mockito.any(), Mockito.any(), Mockito.anyList()));
+        }
+    }
+
+    private void assertColocateMappingRequestRejected(
+            Optional<String> leftMappingId, Optional<String> rightMappingId) {
+        SlotReference leftK1 = new SlotReference("left_k1", IntegerType.INSTANCE);
+        SlotReference leftK2 = new SlotReference("left_k2", IntegerType.INSTANCE);
+        SlotReference leftD1 = new SlotReference("left_d1", IntegerType.INSTANCE);
+        SlotReference rightK1 = new SlotReference("right_k1", IntegerType.INSTANCE);
+        SlotReference rightK2 = new SlotReference("right_k2", IntegerType.INSTANCE);
+        SlotReference rightD1 = new SlotReference("right_d1", IntegerType.INSTANCE);
+        GroupPlan leftPlan = Mockito.mock(GroupPlan.class);
+        GroupPlan rightPlan = Mockito.mock(GroupPlan.class);
+        Mockito.when(leftPlan.getAllChildrenTypes()).thenReturn(new BitSet());
+        Mockito.when(rightPlan.getAllChildrenTypes()).thenReturn(new BitSet());
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(
+                JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(leftD1, rightD1), new EqualTo(leftK2, rightK2)),
+                ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                Mockito.mock(LogicalProperties.class),
+                leftPlan,
+                rightPlan);
+        GroupExpression parent = new GroupExpression(join);
+
+        DistributionSpecHash leftOutput = new DistributionSpecHash(
+                ImmutableList.of(leftK1.getExprId(), leftK2.getExprId()),
+                ShuffleType.NATURAL, 1L, 1L, Sets.newHashSet(1L),
+                leftMappingId.map(mappingId -> ImmutableList.of(new DistributionMapping(
+                        mappingId, ImmutableList.of(leftD1.getExprId()), ImmutableList.of(0))))
+                        .orElseGet(ImmutableList::of));
+        DistributionSpecHash rightOutput = new DistributionSpecHash(
+                ImmutableList.of(rightK1.getExprId(), rightK2.getExprId()),
+                ShuffleType.NATURAL, 2L, 1L, Sets.newHashSet(1L),
+                rightMappingId.map(mappingId -> ImmutableList.of(new DistributionMapping(
+                        mappingId, ImmutableList.of(rightD1.getExprId()), ImmutableList.of(0))))
+                        .orElseGet(ImmutableList::of));
+        DistributionSpecHash leftRequired = new DistributionSpecHash(
+                ImmutableList.of(leftD1.getExprId(), leftK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        DistributionSpecHash rightRequired = new DistributionSpecHash(
+                ImmutableList.of(rightD1.getExprId(), rightK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+
+        ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(
+                parent,
+                ImmutableList.of(Mockito.mock(GroupExpression.class), Mockito.mock(GroupExpression.class)),
+                ImmutableList.of(new PhysicalProperties(leftOutput), new PhysicalProperties(rightOutput)),
+                ImmutableList.of(new PhysicalProperties(leftRequired), new PhysicalProperties(rightRequired)),
+                mockedJobContext);
+
+        Assertions.assertTrue(regulator.adjustChildrenProperties().isEmpty());
     }
 
     private void testMustShuffleFilter(Class<? extends Plan> childClazz) {

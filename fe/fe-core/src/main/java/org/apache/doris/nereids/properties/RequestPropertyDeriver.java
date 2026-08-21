@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -261,6 +262,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             addRequestForShuffleJoin(hashJoin);
+            if (connectContext != null
+                    && connectContext.getSessionVariable().isEnableColocateMappingConstraint()
+                    && JoinUtils.areAllSlotEqualPredicates(hashJoin.getHashJoinConjuncts())) {
+                addShuffleJoinRequestProperty(hashJoin, ShuffleType.COLOCATE_MAPPING_REQUIRE);
+            }
         }
 
         // for broadcast join
@@ -298,7 +304,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalSetOperation(PhysicalSetOperation setOperation, PlanContext context) {
         // intersect and except need do distinct, so we must do distribution on it.
         DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
-        if (distributionRequestFromParent instanceof DistributionSpecHash) {
+        if (distributionRequestFromParent instanceof DistributionSpecHash
+                && ((DistributionSpecHash) distributionRequestFromParent).getShuffleType()
+                        != ShuffleType.COLOCATE_MAPPING_REQUIRE) {
             // shuffle according to parent require
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
             addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
@@ -330,7 +338,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (union.getConstantExprsList().isEmpty()) {
             // translate requestPropertyFromParent to other children's request.
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
-            if (distributionRequestFromParent instanceof DistributionSpecHash) {
+            if (distributionRequestFromParent instanceof DistributionSpecHash
+                    && ((DistributionSpecHash) distributionRequestFromParent).getShuffleType()
+                            != ShuffleType.COLOCATE_MAPPING_REQUIRE) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
                 addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
                         createHashRequestAccordingToParent(union, distributionSpecHash, context)));
@@ -464,6 +474,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         } else if (agg.getAggPhase().isGlobal()) {
+            addColocateMappingRequestForAggregate(agg);
             // partition expressions already set by rule
             if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
                 addRequestPropertyToChildren(
@@ -502,6 +513,56 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
         }
         return null;
+    }
+
+    private void addColocateMappingRequestForAggregate(PhysicalHashAggregate<? extends Plan> agg) {
+        DistributionSpec parentDistribution = requestPropertyFromParent.getDistributionSpec();
+        if (connectContext == null
+                || !connectContext.getSessionVariable().isEnableColocateMappingConstraint()
+                || agg.hasSourceRepeat()
+                || !(parentDistribution instanceof DistributionSpecHash)
+                || ((DistributionSpecHash) parentDistribution).getShuffleType()
+                        != ShuffleType.COLOCATE_MAPPING_REQUIRE) {
+            return;
+        }
+
+        Map<ExprId, NamedExpression> outputByExprId = agg.getOutputExpressions().stream()
+                .collect(Collectors.toMap(NamedExpression::getExprId, output -> output, (left, right) -> left));
+        Set<ExprId> groupByExprIds = Sets.newHashSet();
+        for (Expression groupBy : agg.getGroupByExpressions()) {
+            if (!(groupBy instanceof SlotReference)) {
+                return;
+            }
+            groupByExprIds.add(((SlotReference) groupBy).getExprId());
+        }
+        List<ExprId> childRequiredExprIds = Lists.newArrayList();
+        for (ExprId requiredExprId
+                : ((DistributionSpecHash) parentDistribution).getOrderedShuffledColumns()) {
+            NamedExpression output = outputByExprId.get(requiredExprId);
+            ExprId childExprId;
+            if (output instanceof Alias && ((Alias) output).child() instanceof SlotReference) {
+                childExprId = ((SlotReference) ((Alias) output).child()).getExprId();
+            } else if (output instanceof Alias && ((Alias) output).child() instanceof Cast
+                    && ((Alias) output).child().child(0) instanceof Slot
+                    && ChildOutputPropertyDeriver.isHashValuePreservingCast(
+                            ((Alias) output).child().child(0).getDataType(),
+                            ((Alias) output).child().getDataType())) {
+                childExprId = ((Slot) ((Alias) output).child().child(0)).getExprId();
+            } else if (output instanceof SlotReference) {
+                childExprId = output.getExprId();
+            } else {
+                continue;
+            }
+            if (!groupByExprIds.contains(childExprId)) {
+                return;
+            }
+            childRequiredExprIds.add(childExprId);
+        }
+        if (childRequiredExprIds.isEmpty()) {
+            return;
+        }
+        addRequestPropertyToChildren(
+                PhysicalProperties.createHash(childRequiredExprIds, ShuffleType.COLOCATE_MAPPING_REQUIRE));
     }
 
     private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg,

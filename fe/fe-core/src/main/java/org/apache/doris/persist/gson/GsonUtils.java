@@ -123,6 +123,7 @@ import org.apache.doris.catalog.TemplateType;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -348,6 +349,8 @@ public class GsonUtils {
 
     private static RuntimeTypeAdapterFactory<Constraint> constraintTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     Constraint.class, "clazz")
+            .registerSubtype(DistributionMappingConstraint.class,
+                    DistributionMappingConstraint.class.getSimpleName())
             .registerSubtype(PrimaryKeyConstraint.class, PrimaryKeyConstraint.class.getSimpleName())
             .registerSubtype(ForeignKeyConstraint.class, ForeignKeyConstraint.class.getSimpleName())
             .registerSubtype(UniqueConstraint.class, UniqueConstraint.class.getSimpleName());

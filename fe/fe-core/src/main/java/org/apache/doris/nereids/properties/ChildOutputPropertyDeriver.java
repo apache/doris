@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -78,8 +80,10 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -164,7 +168,50 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (context.getStatementContext().isShortCircuitQuery() && olapScan.getSelectedTabletIds().size() == 1) {
             return PhysicalProperties.GATHER;
         }
-        return new PhysicalProperties(olapScan.getDistributionSpec());
+        DistributionSpec distributionSpec = olapScan.getDistributionSpec();
+        PhysicalProperties properties = new PhysicalProperties(distributionSpec);
+        if (distributionSpec instanceof DistributionSpecHash) {
+            return properties.withNaturalDistributionMappingSpec(
+                    naturalMappingSpecFromOlapScan(olapScan, (DistributionSpecHash) distributionSpec));
+        }
+        return properties;
+    }
+
+    private Optional<NaturalDistributionMappingSpec> naturalMappingSpecFromOlapScan(
+            PhysicalOlapScan olapScan, DistributionSpecHash hashSpec) {
+        if (hashSpec.getShuffleType() != ShuffleType.NATURAL
+                || hashSpec.getDistributionMappings().isEmpty()) {
+            return Optional.empty();
+        }
+
+        HashDistributionInfo distributionInfo
+                = (HashDistributionInfo) olapScan.getTable().getDefaultDistributionInfo();
+        List<Column> distributionColumns = distributionInfo.getDistributionColumns();
+        Map<String, Integer> distributionIndices = Maps.newHashMapWithExpectedSize(distributionColumns.size());
+        for (int i = 0; i < distributionColumns.size(); i++) {
+            distributionIndices.put(distributionColumns.get(i).getName().toLowerCase(Locale.ROOT), i);
+        }
+
+        Map<ExprId, Integer> visibleDistributionExprs = Maps.newHashMap();
+        for (Slot slot : olapScan.getOutput()) {
+            SlotReference slotReference = (SlotReference) slot;
+            if (slotReference.getOriginalColumn().isPresent()) {
+                String columnName = slotReference.getOriginalColumn().get()
+                        .tryGetBaseColumnName().toLowerCase(Locale.ROOT);
+                Integer index = distributionIndices.get(columnName);
+                if (index != null) {
+                    visibleDistributionExprs.put(slot.getExprId(), index);
+                }
+            }
+        }
+
+        return Optional.of(new NaturalDistributionMappingSpec(
+                hashSpec.getTableId(),
+                hashSpec.getSelectedIndexId(),
+                hashSpec.getPartitionIds(),
+                distributionColumns.size(),
+                visibleDistributionExprs,
+                hashSpec.getDistributionMappings()));
     }
 
     @Override
@@ -204,10 +251,44 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
                     return PhysicalProperties.ANY;
                 }
+                if (childOutputProperty.getNaturalDistributionMappingSpec().isPresent()) {
+                    return computeAggregateOutputProperties(agg, childOutputProperty)
+                            .withOrderSpec(new OrderSpec());
+                }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    private PhysicalProperties computeAggregateOutputProperties(
+            PhysicalHashAggregate<? extends Plan> agg, PhysicalProperties childOutputProperty) {
+        NaturalDistributionMappingSpec naturalMappingSpec =
+                childOutputProperty.getNaturalDistributionMappingSpec().get();
+        if (agg.hasSourceRepeat()) {
+            return withoutNaturalDistributionMapping(childOutputProperty);
+        }
+
+        Set<ExprId> groupByExprIds = Sets.newHashSet();
+        for (Expression groupBy : agg.getGroupByExpressions()) {
+            if (!(groupBy instanceof SlotReference)) {
+                return withoutNaturalDistributionMapping(childOutputProperty);
+            }
+            groupByExprIds.add(((SlotReference) groupBy).getExprId());
+        }
+        if (!naturalMappingSpec.distributionKeysCoveredByDirectOrMapping(groupByExprIds)) {
+            return withoutNaturalDistributionMapping(childOutputProperty);
+        }
+
+        return computeProjectOutputProperties(agg.getOutputExpressions(), childOutputProperty);
+    }
+
+    private PhysicalProperties withoutNaturalDistributionMapping(PhysicalProperties properties) {
+        DistributionSpec distributionSpec = properties.getDistributionSpec();
+        if (distributionSpec instanceof DistributionSpecHash) {
+            distributionSpec = ((DistributionSpecHash) distributionSpec).withoutDistributionMappings();
+        }
+        return new PhysicalProperties(distributionSpec, properties.getOrderSpec());
     }
 
     /**
@@ -300,6 +381,19 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
         }
 
+        if (!(leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash
+                && rightOutputProperty.getDistributionSpec() instanceof DistributionSpecHash)
+                && leftOutputProperty.getNaturalDistributionMappingSpec().isPresent()
+                && rightOutputProperty.getNaturalDistributionMappingSpec().isPresent()
+                && JoinUtils.couldColocateJoinByMapping(
+                        leftOutputProperty.getNaturalDistributionMappingSpec().get(),
+                        rightOutputProperty.getNaturalDistributionMappingSpec().get(),
+                        hashJoin.getHashJoinConjuncts())) {
+            // The join is colocated, but hidden bucket positions are not executable output slots.
+            // Do not expose them as a reusable hash distribution above this join.
+            return PhysicalProperties.STORAGE_ANY;
+        }
+
         // shuffle
         if (leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash
                 && rightOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
@@ -338,31 +432,32 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             PhysicalProperties childProperties) {
         DistributionSpec childDistributionSpec = childProperties.getDistributionSpec();
         OrderSpec childOrderSpec = childProperties.getOrderSpec();
-        if (childDistributionSpec instanceof DistributionSpecHash) {
-            Map<ExprId, ExprId> projections = Maps.newHashMap();
-            Set<ExprId> obstructions = Sets.newHashSet();
-            for (NamedExpression namedExpression : projects) {
-                if (namedExpression instanceof Alias) {
-                    Alias alias = (Alias) namedExpression;
-                    Expression child = alias.child();
-                    if (child instanceof SlotReference) {
-                        projections.put(((SlotReference) child).getExprId(), alias.getExprId());
-                    } else if (child instanceof Cast && child.child(0) instanceof Slot
-                            && isSameHashValue(child.child(0).getDataType(), child.getDataType())) {
-                        // cast(slot as varchar(10)) can do projection if slot is varchar(3)
-                        projections.put(((Slot) child.child(0)).getExprId(), alias.getExprId());
-                    } else {
-                        obstructions.addAll(
-                                child.getInputSlots().stream()
-                                        .map(NamedExpression::getExprId)
-                                        .collect(Collectors.toSet()));
-                    }
+        Map<ExprId, ExprId> projections = Maps.newHashMap();
+        Set<ExprId> obstructions = Sets.newHashSet();
+        for (NamedExpression namedExpression : projects) {
+            if (namedExpression instanceof Alias) {
+                Alias alias = (Alias) namedExpression;
+                Expression child = alias.child();
+                if (child instanceof SlotReference) {
+                    projections.put(((SlotReference) child).getExprId(), alias.getExprId());
+                } else if (child instanceof Cast && child.child(0) instanceof Slot
+                        && isHashValuePreservingCast(child.child(0).getDataType(), child.getDataType())) {
+                    // cast(slot as varchar(10)) can do projection if slot is varchar(3)
+                    projections.put(((Slot) child.child(0)).getExprId(), alias.getExprId());
                 } else {
-                    // namedExpression is slot
-                    projections.put(namedExpression.getExprId(), namedExpression.getExprId());
+                    obstructions.addAll(
+                            child.getInputSlots().stream()
+                                    .map(NamedExpression::getExprId)
+                                    .collect(Collectors.toSet()));
                 }
+            } else {
+                // namedExpression is slot
+                projections.put(namedExpression.getExprId(), namedExpression.getExprId());
             }
+        }
 
+        PhysicalProperties projectedProperties = childProperties;
+        if (childDistributionSpec instanceof DistributionSpecHash) {
             DistributionSpecHash childDistributionSpecHash = (DistributionSpecHash) childDistributionSpec;
             boolean canUseChildProperties = true;
             for (ExprId exprId : childDistributionSpecHash.getOrderedShuffledColumns()) {
@@ -372,17 +467,21 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
             }
 
-            if (canUseChildProperties) {
-                return childProperties;
+            if (!canUseChildProperties || !childDistributionSpecHash.getDistributionMappings().isEmpty()) {
+                DistributionSpec defaultAnySpec = childDistributionSpecHash.getShuffleType() == ShuffleType.NATURAL
+                        ? DistributionSpecStorageAny.INSTANCE : DistributionSpecAny.INSTANCE;
+                boolean allDistributionKeysProjected = childDistributionSpecHash.getOrderedShuffledColumns().stream()
+                        .allMatch(projections::containsKey);
+                DistributionSpec outputDistributionSpec =
+                        childProperties.getNaturalDistributionMappingSpec().isPresent()
+                                && !allDistributionKeysProjected
+                                ? defaultAnySpec
+                                : childDistributionSpecHash.project(projections, obstructions, defaultAnySpec);
+                projectedProperties = new PhysicalProperties(outputDistributionSpec, childOrderSpec);
             }
-            DistributionSpec defaultAnySpec = childDistributionSpecHash.getShuffleType() == ShuffleType.NATURAL
-                    ? DistributionSpecStorageAny.INSTANCE : DistributionSpecAny.INSTANCE;
-            DistributionSpec outputDistributionSpec = childDistributionSpecHash.project(
-                    projections, obstructions, defaultAnySpec);
-            return new PhysicalProperties(outputDistributionSpec, childOrderSpec);
-        } else {
-            return childProperties;
         }
+        return projectedProperties.withNaturalDistributionMappingSpec(
+                childProperties.getNaturalDistributionMappingSpec().flatMap(spec -> spec.project(projections)));
     }
 
     @Override
@@ -416,7 +515,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     intersectGroupingKeysId.add(((SlotReference) key).getExprId());
                 }
                 if (intersectGroupingKeysId.containsAll(orderedShuffledColumns)) {
-                    return childrenOutputProperties.get(0);
+                    return withoutNaturalDistributionMapping(childrenOutputProperties.get(0));
                 }
             }
             output = PhysicalProperties.createAnyFromHash((DistributionSpecHash) childDistributionSpec);
@@ -608,7 +707,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (sort.getSortPhase().isLocal()) {
             return new PhysicalProperties(
                     childrenOutputProperties.get(0).getDistributionSpec(),
-                    new OrderSpec(sort.getOrderKeys()));
+                    new OrderSpec(sort.getOrderKeys()),
+                    childrenOutputProperties.get(0).getNaturalDistributionMappingSpec());
         }
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec(sort.getOrderKeys()));
     }
@@ -757,7 +857,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType());
     }
 
-    private static boolean isSameHashValue(DataType originType, DataType castType) {
+    static boolean isHashValuePreservingCast(DataType originType, DataType castType) {
         if (originType.isStringLikeType() && (castType.isVarcharType() || castType.isStringType())
                 && (castType.width() >= originType.width() || castType.width() < 0)) {
             return true;

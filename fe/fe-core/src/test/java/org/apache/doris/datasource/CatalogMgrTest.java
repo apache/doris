@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +51,77 @@ public class CatalogMgrTest {
                 (ConcurrentMap<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>>)
                         idToCatalogField.get(catalogMgr);
         idToCatalog.put(catalog.getId(), catalog);
+    }
+
+    private static void addCatalogByName(
+            CatalogMgr catalogMgr, String name,
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog)
+            throws Exception {
+        Field nameToCatalogField =
+                CatalogMgr.class.getDeclaredField("nameToCatalog");
+        nameToCatalogField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        ConcurrentMap<String,
+                CatalogIf<? extends DatabaseIf<? extends TableIf>>>
+                nameToCatalog =
+                (ConcurrentMap<String,
+                        CatalogIf<? extends DatabaseIf<? extends TableIf>>>)
+                        nameToCatalogField.get(catalogMgr);
+        nameToCatalog.put(name, catalog);
+    }
+
+    private static void assertReplacementRejected(
+            CatalogMgr catalogMgr, String methodName,
+            Class<?>[] parameterTypes, Object... arguments)
+            throws Exception {
+        Method method =
+                CatalogMgr.class.getDeclaredMethod(
+                        methodName, parameterTypes);
+        method.setAccessible(true);
+        InvocationTargetException exception =
+                Assertions.assertThrows(
+                        InvocationTargetException.class,
+                        () -> method.invoke(catalogMgr, arguments));
+        Assertions.assertInstanceOf(
+                DdlException.class, exception.getCause());
+        Assertions.assertTrue(
+                exception.getCause().getMessage().contains(
+                        "Catalog changed"));
+    }
+
+    @Test
+    void testCatalogMutationRejectsReplacement() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        String catalogName = "replacement_test";
+        CatalogIf<? extends DatabaseIf<? extends TableIf>>
+                expectedCatalog =
+                Mockito.mock(CatalogIf.class);
+        CatalogIf<? extends DatabaseIf<? extends TableIf>>
+                replacementCatalog =
+                Mockito.mock(CatalogIf.class);
+        addCatalogByName(
+                catalogMgr, catalogName, replacementCatalog);
+
+        assertReplacementRejected(
+                catalogMgr, "dropCatalogInternal",
+                new Class<?>[] {
+                        String.class, boolean.class, CatalogIf.class
+                },
+                catalogName, false, expectedCatalog);
+        assertReplacementRejected(
+                catalogMgr, "alterCatalogNameInternal",
+                new Class<?>[] {
+                        String.class, String.class, CatalogIf.class
+                },
+                catalogName, "replacement_test_new",
+                expectedCatalog);
+        assertReplacementRejected(
+                catalogMgr, "alterCatalogPropsInternal",
+                new Class<?>[] {
+                        String.class, Map.class, CatalogIf.class
+                },
+                catalogName, ImmutableMap.of("key", "value"),
+                expectedCatalog);
     }
 
     @Test
@@ -86,6 +159,7 @@ public class CatalogMgrTest {
                 CatalogMgr.METADATA_REFRESH_INTERVAL_SEC, "invalid");
         LatchingValidationCatalog catalog = new LatchingValidationCatalog(43L, oldProperties);
         addCatalog(catalogMgr, catalog);
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
         CatalogLog log = new CatalogLog();
         log.setCatalogId(catalog.getId());
         log.setNewProps(newProperties);
@@ -108,6 +182,12 @@ public class CatalogMgrTest {
             Assertions.assertNotNull(validationFailure);
             Assertions.assertEquals(oldProperties, catalog.propertiesSeenByInitialization);
             Assertions.assertEquals(oldProperties, catalog.getProperties());
+            Assertions.assertNotEquals(
+                    constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
+            try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                    catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
+                // A failed property mutation must not leave the catalog marked as active.
+            }
         } finally {
             executor.shutdownNow();
         }

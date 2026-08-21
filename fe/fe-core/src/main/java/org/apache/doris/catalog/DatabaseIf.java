@@ -48,6 +48,8 @@ public interface DatabaseIf<T extends TableIf> {
 
     void readLock();
 
+    boolean tryReadLock(long timeout, TimeUnit unit);
+
     void readUnlock();
 
     void writeLock();

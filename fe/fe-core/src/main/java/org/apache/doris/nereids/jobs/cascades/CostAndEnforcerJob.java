@@ -296,6 +296,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
             return;
         }
+        if (!requiredProperties.isEnforceable()) {
+            return;
+        }
 
         if (context.getRequiredProperties().isDistributionOnlyProperties()) {
             // For properties without an orderSpec, enforceMissingPropertiesHelper always adds a distributor

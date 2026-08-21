@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
@@ -448,7 +449,13 @@ public class CloudEnv extends Env {
 
     @Override
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
-        getCloudSystemInfoService().addFrontend(role, host, editLogPort);
+        ConstraintManager currentConstraintManager = getConstraintManager();
+        currentConstraintManager.acquireFrontendAdmission();
+        try {
+            getCloudSystemInfoService().addFrontend(role, host, editLogPort);
+        } finally {
+            currentConstraintManager.releaseFrontendAdmissionFence();
+        }
     }
 
     @Override
