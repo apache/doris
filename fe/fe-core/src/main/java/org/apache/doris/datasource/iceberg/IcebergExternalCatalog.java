@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -126,14 +127,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         initCatalog();
         initPreExecutionAuthenticator();
-        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
-        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,
                 String.format("iceberg_catalog_%s_executor_pool", name),
                 true,
                 executionAuthenticator);
+        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         metadataOps = ops;
     }
 
@@ -183,15 +184,29 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     public synchronized void onClose() {
+        ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
+        threadPoolWithPreAuth = null;
         super.onClose();
         Catalog retiredCatalog = catalog;
         catalog = null;
-        if (retiredCatalog != null) {
-            resourceTracker.retireCurrent(() -> closeCatalog(retiredCatalog));
-        }
+        resourceTracker.retireCurrent(() -> {
+            closeCatalog(retiredCatalog);
+            if (retiredExecutor != null) {
+                ThreadPoolManager.shutdownExecutorService(retiredExecutor);
+            }
+        });
+    }
+
+    @Override
+    public synchronized void resetToUninitialized(boolean invalidCache) {
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        super.resetToUninitialized(invalidCache);
     }
 
     private void closeCatalog(Catalog retiredCatalog) {
+        if (retiredCatalog == null) {
+            return;
+        }
         try {
             if (retiredCatalog instanceof AutoCloseable) {
                 ((AutoCloseable) retiredCatalog).close();

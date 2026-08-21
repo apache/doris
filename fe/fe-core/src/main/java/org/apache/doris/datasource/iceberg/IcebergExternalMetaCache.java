@@ -52,6 +52,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -118,6 +119,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         // Background/bootstrap callers without a StatementContext have no deterministic release boundary.
         // Load directly instead of borrowing a cache generation that could be evicted while they use it.
         return loadTable(nameMapping);
+    }
+
+    /** Returns the executor owned by the exact table generation retained by this statement. */
+    ThreadPoolExecutor getIcebergTableExecutor(ExternalTable dorisTable) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
+        if (lease == null || lease.getPlanningExecutor() == null) {
+            return dorisTable.getCatalog().getThreadPoolWithPreAuth();
+        }
+        return lease.getPlanningExecutor();
     }
 
     /** Runs a bounded metadata operation while retaining the exact table generation it uses. */
@@ -203,7 +214,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
                 Runnable tableCleanup = tableCleanup(loadContext.getCatalogType(), ops, table);
                 IcebergCatalogResourceTracker.ResourceLease catalogLease = loadContext.promote();
-                return new IcebergTableCacheValue(table, () -> loadSnapshotProjection(dorisTable, table), () -> {
+                return new IcebergTableCacheValue(table, ops.getThreadPoolWithPreAuth(),
+                        () -> loadSnapshotProjection(dorisTable, table), () -> {
                     try {
                         tableCleanup.run();
                     } finally {

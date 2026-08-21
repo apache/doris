@@ -139,6 +139,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -153,6 +154,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private IcebergSource source;
     private Table icebergTable;
+    private ThreadPoolExecutor planningExecutor;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
     // If tableLevelPushDownCount is true, means we can do count push down opt at table level.
     // which means all splits have no position/equality delete files,
@@ -267,6 +269,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             getRelationSnapshot();
             icebergTable = source.getIcebergTable();
             icebergTable = useFrozenTableGeneration(icebergTable);
+            planningExecutor = getPlanningExecutor();
             partitionMapInfos = new HashMap<>();
             initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
@@ -782,7 +785,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(planningExecutor);
 
         return icebergTableScan;
     }
@@ -812,6 +815,17 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         return currentTable;
+    }
+
+    private ThreadPoolExecutor getPlanningExecutor() {
+        TableIf targetTable = source.getTargetTable();
+        if (targetTable instanceof IcebergSysExternalTable) {
+            targetTable = ((IcebergSysExternalTable) targetTable).getSourceTable();
+        }
+        if (targetTable instanceof IcebergExternalTable) {
+            return IcebergUtils.getIcebergTableExecutor((IcebergExternalTable) targetTable);
+        }
+        return source.getCatalog().getThreadPoolWithPreAuth();
     }
 
     @VisibleForTesting
@@ -1698,7 +1712,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         long startTime = System.currentTimeMillis();
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        scan = scan.planWith(planningExecutor);
         BatchScan plannedScan = scan;
         try {
             positionDeleteTasks = getOrPlanPositionDeleteTasks(plannedScan, () -> {

@@ -152,6 +152,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -1056,6 +1057,10 @@ public class IcebergUtils {
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
+    }
+
+    public static ThreadPoolExecutor getIcebergTableExecutor(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).getIcebergTableExecutor(dorisTable);
     }
 
     /** The action must return derived metadata rather than retain the supplied table. */

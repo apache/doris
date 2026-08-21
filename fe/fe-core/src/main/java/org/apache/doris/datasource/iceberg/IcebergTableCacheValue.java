@@ -21,12 +21,14 @@ import com.google.common.base.Suppliers;
 import org.apache.iceberg.Table;
 
 import java.io.Closeable;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public class IcebergTableCacheValue {
     private final Table icebergTable;
+    private final ThreadPoolExecutor planningExecutor;
     private final Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue;
     private final Runnable cleanup;
     // Production-loaded values begin with one cache owner and one temporary loader owner. The temporary
@@ -36,17 +38,23 @@ public class IcebergTableCacheValue {
     private final AtomicBoolean loaderReferenceReleased;
 
     public IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue) {
-        this(icebergTable, latestSnapshotCacheValue, () -> { }, false);
+        this(icebergTable, null, latestSnapshotCacheValue, () -> { }, false);
     }
 
     IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue,
             Runnable cleanup) {
-        this(icebergTable, latestSnapshotCacheValue, cleanup, true);
+        this(icebergTable, null, latestSnapshotCacheValue, cleanup, true);
     }
 
-    private IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue,
-            Runnable cleanup, boolean loading) {
+    IcebergTableCacheValue(Table icebergTable, ThreadPoolExecutor planningExecutor,
+            Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue, Runnable cleanup) {
+        this(icebergTable, planningExecutor, latestSnapshotCacheValue, cleanup, true);
+    }
+
+    private IcebergTableCacheValue(Table icebergTable, ThreadPoolExecutor planningExecutor,
+            Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue, Runnable cleanup, boolean loading) {
         this.icebergTable = icebergTable;
+        this.planningExecutor = planningExecutor;
         this.latestSnapshotCacheValue = Suppliers.memoize(latestSnapshotCacheValue::get);
         this.cleanup = cleanup;
         this.references = new AtomicInteger(loading ? 2 : 1);
@@ -60,6 +68,10 @@ public class IcebergTableCacheValue {
 
     public IcebergSnapshotCacheValue getLatestSnapshotCacheValue() {
         return latestSnapshotCacheValue.get();
+    }
+
+    ThreadPoolExecutor getPlanningExecutor() {
+        return planningExecutor;
     }
 
     Lease tryAcquire() {
@@ -113,6 +125,10 @@ public class IcebergTableCacheValue {
 
         IcebergSnapshotCacheValue getLatestSnapshotCacheValue() {
             return value.getLatestSnapshotCacheValue();
+        }
+
+        ThreadPoolExecutor getPlanningExecutor() {
+            return value.getPlanningExecutor();
         }
 
         @Override
