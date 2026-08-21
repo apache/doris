@@ -18,7 +18,9 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.monitor.jvm.JvmInfo;
 import org.apache.doris.monitor.jvm.JvmStats;
+import org.apache.doris.monitor.jvm.JvmStats.BufferPool;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -41,6 +43,11 @@ public class JsonMetricVisitor extends MetricVisitor {
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
     private static final String JVM_THREAD = "jvm_thread";
+
+    private static final String JVM_BUFFER_POOL_USED_BYTES = "jvm_buffer_pool_used_bytes";
+    private static final String JVM_BUFFER_POOL_CAPACITY_BYTES = "jvm_buffer_pool_capacity_bytes";
+    private static final String JVM_BUFFER_POOL_COUNT = "jvm_buffer_pool_count";
+    private static final String JVM_BUFFER_POOL_MAX_BYTES = "jvm_buffer_pool_max_bytes";
 
     private static final String JVM_GC = "jvm_gc";
 
@@ -96,6 +103,20 @@ public class JsonMetricVisitor extends MetricVisitor {
         setJvmJsonMetric(sb, JVM_THREAD, null,  "waiting_count", "nounit", threads.getThreadsWaitingCount());
         setJvmJsonMetric(sb, JVM_THREAD, null, "timed_waiting_count", "nounit", threads.getThreadsTimedWaitingCount());
         setJvmJsonMetric(sb, JVM_THREAD, null, "terminated_count", "nounit", threads.getThreadsTerminatedCount());
+
+        // buffer pools
+        for (BufferPool bufferPool : jvmStats.getBufferPools()) {
+            setJvmJsonMetric(sb, JVM_BUFFER_POOL_USED_BYTES, bufferPool.getName(), "used", "bytes",
+                    bufferPool.getUsed().getBytes());
+            setJvmJsonMetric(sb, JVM_BUFFER_POOL_CAPACITY_BYTES, bufferPool.getName(), "capacity", "bytes",
+                    bufferPool.getTotalCapacity().getBytes());
+            setJvmJsonMetric(sb, JVM_BUFFER_POOL_COUNT, bufferPool.getName(), "count", "nounit",
+                    bufferPool.getCount());
+        }
+
+        // buffer pool max bytes
+        setJvmJsonMetric(sb, JVM_BUFFER_POOL_MAX_BYTES, "direct", "max", "bytes",
+                JvmInfo.jvmInfo().getMem().getDirectMemoryMax().getBytes());
     }
 
     private void setJvmJsonMetric(StringBuilder sb, String metric, String name, String type, String unit, long value) {
