@@ -24,6 +24,7 @@
 #include "exprs/hybrid_set.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
+#include "storage/olap_define.h"
 #include "storage/predicate/accept_null_predicate.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
@@ -243,6 +244,45 @@ TEST(PredicateZoneMapFilterTest, PassAllZoneIsNeverJudged) {
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               NullPredicate::create_shared(0, "c", true, PrimitiveType::TYPE_INT)
                       ->evaluate_zonemap_filter(all_null));
+}
+
+// A string bound of MAX_ZONE_MAP_INDEX_SIZE bytes was cut to fit, and the max was then bumped by
+// one byte to stay an upper bound. Neither bound is a real value from the data, so proving that
+// every row matches off them would drop a predicate that still removes rows.
+TEST(PredicateZoneMapFilterTest, CutStringBoundsCannotProveAllMatch) {
+    const std::string cut(MAX_ZONE_MAP_INDEX_SIZE, 'a');
+    const std::string shrt = "aaa";
+
+    auto zone_of = [](const std::string& v) {
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<TYPE_STRING>(v);
+        zone_map.max_value = Field::create_field<TYPE_STRING>(v);
+        zone_map.has_not_null = true;
+        return zone_map;
+    };
+    auto str_pred = [](const std::string& v, bool opposite) {
+        return std::make_shared<ComparisonPredicateBase<TYPE_STRING, PredicateType::NE>>(
+                0, "c", Field::create_field<TYPE_STRING>(v), opposite);
+    };
+
+    EXPECT_TRUE(zone_of(cut).has_cut_string_bounds());
+    EXPECT_FALSE(zone_of(shrt).has_cut_string_bounds());
+
+    // `c != "zzz"` on a zone holding one short value: the bounds are real, so every row differs.
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch,
+              str_pred("zzz", false)->evaluate_zonemap_filter(zone_of(shrt)));
+    // Same shape on cut bounds: the value may still sit inside the part that was cut away.
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              str_pred("zzz", false)->evaluate_zonemap_filter(zone_of(cut)));
+
+    // `delete where c != "zzz"` reaches kAllMatch through the opposite swap, which needs the
+    // same guard.
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              str_pred(cut, true)->evaluate_zonemap_filter(zone_of(cut)));
+
+    // Ruling rows out still works: a cut bound is inexact, not unusable.
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              str_pred(cut, false)->evaluate_zonemap_filter(zone_of(cut)));
 }
 
 TEST(PredicateZoneMapFilterTest, InListAnswersBothEnds) {
