@@ -180,10 +180,39 @@ class ConnectorColumnConverterTest {
         ScalarType decimal = ScalarType.createDecimalV3Type(18, 6);
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(decimal);
 
-        // PrimitiveType.toString() returns the specific decimal width (DECIMAL64 for p<=18)
-        Assertions.assertTrue(ct.getTypeName().startsWith("DECIMAL"));
+        // MUTATION GUARD: Doris stores DECIMALV3 as one of four precision-sized enum values
+        // (DECIMAL32/64/128/256 via PrimitiveType.toString()), but every connector (Paimon,
+        // Iceberg) always names it "DECIMALV3" on its own side of the write-plan schema
+        // comparison. If this regresses back to the raw enum name, a write-plan bind-vs-execute
+        // comparison of the SAME unchanged decimal column falsely reports "schema changed after
+        // the write was bound" (see testDecimalScalarTypeNameStableAcrossAllWidths below).
+        Assertions.assertEquals("DECIMALV3", ct.getTypeName());
         Assertions.assertEquals(18, ct.getPrecision());
         Assertions.assertEquals(6, ct.getScale());
+    }
+
+    @Test
+    void testDecimalScalarTypeNameStableAcrossAllWidths() {
+        // Doris picks DECIMAL32/64/128/256 based on precision (see PrimitiveType.isDecimalV3Type()).
+        // A write-plan's bound-vs-execute comparison must see the SAME ConnectorType.typeName for all
+        // four widths, otherwise PaimonWritePlanProvider#validateBoundColumns spuriously fails an
+        // unchanged decimal column with "Paimon write metadata changed after the write was bound".
+        int[] precisions = {5, 10, 18, 30, 50};
+        for (int precision : precisions) {
+            ScalarType decimal = ScalarType.createDecimalV3Type(precision, 2);
+            ConnectorType ct = ConnectorColumnConverter.toConnectorType(decimal);
+            Assertions.assertEquals("DECIMALV3", ct.getTypeName(),
+                    "precision " + precision + " must canonicalize to DECIMALV3");
+        }
+    }
+
+    @Test
+    void testDecimalV2TypeNameUnaffectedByV3Canonicalization() {
+        // DECIMALV2 is a distinct legacy type family; it must keep its own type name, not be folded
+        // into the DECIMALV3 canonicalization above.
+        ScalarType decimalV2 = ScalarType.createDecimalType(9, 2);
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(decimalV2);
+        Assertions.assertEquals("DECIMALV2", ct.getTypeName());
     }
 
     @Test
