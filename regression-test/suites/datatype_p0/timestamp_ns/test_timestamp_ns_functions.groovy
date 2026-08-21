@@ -282,6 +282,27 @@ suite("test_timestamp_ns_functions") {
                 cast('1970-01-01 00:00:02.123456789' as timestamp_ns), 2,
                 cast('1970-01-01 00:00:00.500000000' as timestamp_ns))
     """
+    def quarterCustomOriginSql = """
+        select
+            quarter_floor(
+                cast('2024-04-01 00:00:00.000000002' as timestamp_ns), 1,
+                cast('2024-03-01 00:00:00.000000001' as timestamp_ns)),
+            quarter_ceil(
+                cast('2024-04-01 00:00:00.000000002' as timestamp_ns), 1,
+                cast('2024-03-01 00:00:00.000000001' as timestamp_ns)),
+            quarter_floor(
+                cast('2024-02-01 00:00:00.000000000' as timestamp_ns), 1,
+                cast('2024-03-01 00:00:00.000000001' as timestamp_ns)),
+            quarter_ceil(
+                cast('2024-02-01 00:00:00.000000000' as timestamp_ns), 1,
+                cast('2024-03-01 00:00:00.000000001' as timestamp_ns))
+    """
+    qt_quarter_custom_origin_fold quarterCustomOriginSql
+    sql "set debug_skip_fold_constant = true"
+    qt_quarter_custom_origin_runtime quarterCustomOriginSql
+    sql "set debug_skip_fold_constant = false"
+    testFoldConst(quarterCustomOriginSql)
+
     qt_date_floor_ceil_interval_constants """
         select
             date_floor(cast('1969-12-31 23:59:59.999999999' as timestamp_ns),
@@ -314,11 +335,17 @@ suite("test_timestamp_ns_functions") {
             cast('2024-05-01 12:34:56.123456789' as timestamp_ns),
             interval 1 month)
     """
-    qt_sequence_terminal_overflow """
+    qt_sequence_lower_bound_overshoot """
         select sequence(
-            cast('2262-04-11 23:47:16.854775806' as timestamp_ns),
+            cast('1677-09-21 00:12:43.145224192' as timestamp_ns),
+            cast('1677-09-21 00:12:45.145224192' as timestamp_ns),
+            interval 3 second)
+    """
+    qt_sequence_upper_bound_overshoot """
+        select sequence(
+            cast('2262-04-11 23:47:14.854775807' as timestamp_ns),
             cast('2262-04-11 23:47:16.854775807' as timestamp_ns),
-            interval 1 second)
+            interval 3 second)
     """
     qt_sequence_all_units """
         select

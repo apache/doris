@@ -772,12 +772,17 @@ struct DateTimeFloorCeilCore {
                 trivial_part_ts_res = nanos_since_date(ts_origin, 1, 1);
             }
             if constexpr (Flag::Unit == QUARTER) {
-                diff = (ts_arg.year() - ts_origin.year()) * 4 +
-                       (ts_arg.month() - ts_origin.month()) / 3;
-                const uint8_t arg_quarter_month = (ts_arg.month() - 1) / 3 * 3 + 1;
-                const uint8_t origin_quarter_month = (ts_origin.month() - 1) / 3 * 3 + 1;
-                trivial_part_ts_arg = nanos_since_date(ts_arg, arg_quarter_month, 1);
-                trivial_part_ts_res = nanos_since_date(ts_origin, origin_quarter_month, 1);
+                const int64_t total_months = (ts_arg.year() - ts_origin.year()) * 12 +
+                                             ts_arg.month() - ts_origin.month();
+                diff = total_months / 3;
+                const int64_t remaining_months = total_months % 3;
+                if (remaining_months != 0) {
+                    trivial_part_ts_arg = remaining_months;
+                    trivial_part_ts_res = 0;
+                } else {
+                    trivial_part_ts_arg = nanos_since_date(ts_arg, ts_arg.month(), 1);
+                    trivial_part_ts_res = nanos_since_date(ts_origin, ts_origin.month(), 1);
+                }
             }
             if constexpr (Flag::Unit == MONTH) {
                 diff = (ts_arg.year() - ts_origin.year()) * 12 +

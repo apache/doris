@@ -65,6 +65,20 @@ suite("test_timestamp_ns_partition_bucket") {
     explain {
         sql """
             select * from timestamp_ns_partition_bucket
+            where cast(dt as datetimev2(6)) =
+                  cast('1970-01-01 00:00:00.000000' as datetimev2(6))
+        """
+        contains "partitions=3/3"
+    }
+    order_qt_lossy_cast_does_not_prune_raw_timestamp_ns """
+        select id, dt from timestamp_ns_partition_bucket
+        where cast(dt as datetimev2(6)) =
+              cast('1970-01-01 00:00:00.000000' as datetimev2(6))
+        order by id
+    """
+    explain {
+        sql """
+            select * from timestamp_ns_partition_bucket
             where date(dt) in (date '1969-12-31')
         """
         contains "partitions=1/3 (p_before_epoch)"
@@ -98,6 +112,13 @@ suite("test_timestamp_ns_partition_bucket") {
     order_qt_partition_rows "select id, dt from timestamp_ns_partition_bucket order by id"
     order_qt_nullable_first_range """
         select id, dt from timestamp_ns_partition_bucket where dt is null order by id
+    """
+    order_qt_information_schema_timestamp_ns_precision """
+        select data_type, numeric_precision, numeric_scale, datetime_precision
+        from information_schema.columns
+        where table_schema = '${context.dbName}'
+          and table_name = 'timestamp_ns_partition_bucket'
+          and column_name = 'dt'
     """
 
     sql "drop table if exists timestamp_ns_list_partition_rounding"

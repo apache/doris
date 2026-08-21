@@ -1272,8 +1272,42 @@ public class TimeRoundSeries {
 
     private static Expression roundTimeStampNs(DATE tag, TimeStampNsLiteral date, int period,
             LocalDateTime origin, boolean getCeil) {
-        LocalDateTime result = getDateCeilOrFloor(tag, date.toJavaDateType(), period, origin, getCeil);
+        LocalDateTime result = tag == DATE.QUARTER
+                ? getTimeStampNsQuarterCeilOrFloor(date.toJavaDateType(), period, origin, getCeil)
+                : getDateCeilOrFloor(tag, date.toJavaDateType(), period, origin, getCeil);
         return TimeStampNsLiteral.fromJavaDateType(result.withNano(origin.getNano()));
+    }
+
+    private static LocalDateTime getTimeStampNsQuarterCeilOrFloor(LocalDateTime date, int period,
+            LocalDateTime origin, boolean getCeil) {
+        if (period < 1) {
+            throw new AnalysisException("Operation quarter_" + (getCeil ? "ceil" : "floor")
+                    + " of " + period + " out of range");
+        }
+
+        long totalMonths = (date.getYear() - origin.getYear()) * 12L
+                + date.getMonthValue() - origin.getMonthValue();
+        long diff = totalMonths / 3;
+        long remainingMonths = totalMonths % 3;
+        int remainderComparison = Long.compare(remainingMonths, 0);
+        if (remainderComparison == 0) {
+            remainderComparison = Integer.compare(date.getDayOfMonth(), origin.getDayOfMonth());
+            if (remainderComparison == 0) {
+                remainderComparison = date.toLocalTime().compareTo(origin.toLocalTime());
+            }
+        }
+        if (getCeil) {
+            diff += remainderComparison > 0 ? 1 : 0;
+        } else {
+            diff -= remainderComparison < 0 ? 1 : 0;
+        }
+
+        long deltaInsidePeriod = (diff % period + period) % period;
+        long step = diff - deltaInsidePeriod;
+        if (getCeil && deltaInsidePeriod != 0) {
+            step += period;
+        }
+        return origin.plusMonths(step * 3);
     }
 
     /** TIMESTAMP_NS overloads of year_ceil. */

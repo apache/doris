@@ -227,8 +227,17 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, SourceDataPType, Int32>(idx,
-                                                                                        step_row);
+                        if constexpr (SourceDataPType == TYPE_TIMESTAMP_NS) {
+                            auto next = idx;
+                            if (!next.template date_add_interval<UNIT::value>(
+                                        TimeInterval(UNIT::value, step_row, false))) {
+                                break;
+                            }
+                            idx = next;
+                        } else {
+                            idx = doris::date_time_add<UNIT::value, SourceDataPType, Int32>(
+                                    idx, step_row);
+                        }
                     }
                     dest_offsets.push_back(offset);
                 }

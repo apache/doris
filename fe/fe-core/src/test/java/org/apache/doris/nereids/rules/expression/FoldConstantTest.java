@@ -1416,6 +1416,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 TimeRoundSeries.yearCeilTimeStampNs(normal).toSql());
         Assertions.assertEquals("'2024-04-01 00:00:00.000000000'",
                 TimeRoundSeries.quarterCeilTimeStampNs(normal).toSql());
+        TimeStampNsLiteral quarterOrigin = new TimeStampNsLiteral("2024-03-01 00:00:00.000000001");
+        TimeStampNsLiteral valueAfterQuarterOrigin =
+                new TimeStampNsLiteral("2024-04-01 00:00:00.000000002");
+        Assertions.assertEquals("'2024-03-01 00:00:00.000000001'",
+                TimeRoundSeries.quarterFloorTimeStampNs(valueAfterQuarterOrigin, quarterOrigin).toSql());
+        Assertions.assertEquals("'2024-06-01 00:00:00.000000001'",
+                TimeRoundSeries.quarterCeilTimeStampNs(valueAfterQuarterOrigin, quarterOrigin).toSql());
         Assertions.assertEquals("'2024-03-01 00:00:00.000000000'",
                 TimeRoundSeries.monthCeilTimeStampNs(normal).toSql());
         Assertions.assertEquals("'2024-03-01 00:00:00.000000000'",

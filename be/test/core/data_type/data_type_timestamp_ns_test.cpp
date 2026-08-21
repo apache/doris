@@ -203,6 +203,21 @@ TEST(DataTypeTimeStampNsTest, CivilRoundTripPreservesSubMicrosecondDigits) {
     EXPECT_EQ(round_trip.to_date_int_val(), civil.to_date_int_val());
 }
 
+TEST(DataTypeTimeStampNsTest, CheckedIntervalAdditionRejectsEpochOverflow) {
+    const TimeStampNsValue minimum(std::numeric_limits<int64_t>::min());
+    const TimeStampNsValue maximum(std::numeric_limits<int64_t>::max());
+    const TimeInterval three_seconds(TimeUnit::SECOND, 3, false);
+    const TimeInterval negative_three_seconds(TimeUnit::SECOND, 3, true);
+
+    auto below_minimum = minimum;
+    EXPECT_FALSE(below_minimum.date_add_interval<TimeUnit::SECOND>(negative_three_seconds));
+    EXPECT_EQ(below_minimum, minimum);
+
+    auto above_maximum = maximum;
+    EXPECT_FALSE(above_maximum.date_add_interval<TimeUnit::SECOND>(three_seconds));
+    EXPECT_EQ(above_maximum, maximum);
+}
+
 TEST(DataTypeTimeStampNsTest, FactoryKeepsTimestampNsSeparateFromDateTimeV2) {
     const auto microseconds = create_datetimev2(6);
     const auto timestamp_ns = std::make_shared<DataTypeTimeStampNs>();

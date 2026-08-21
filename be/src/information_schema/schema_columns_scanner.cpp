@@ -552,7 +552,8 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnPrecision &&
-                data_type != TPrimitiveType::DATETIMEV2) {
+                data_type != TPrimitiveType::DATETIMEV2 &&
+                data_type != TPrimitiveType::TIMESTAMP_NS) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnPrecision;
                 datas[i] = srcs.data() + i;
             } else {
@@ -567,7 +568,8 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
-                data_type != TPrimitiveType::DATETIMEV2) {
+                data_type != TPrimitiveType::DATETIMEV2 &&
+                data_type != TPrimitiveType::TIMESTAMP_NS) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
             } else {
@@ -583,6 +585,7 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
                 (data_type == TPrimitiveType::DATETIMEV2 ||
+                 data_type == TPrimitiveType::TIMESTAMP_NS ||
                  data_type == TPrimitiveType::TIMESTAMPTZ)) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
@@ -663,7 +666,8 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
-                data_type != TPrimitiveType::DATETIMEV2) {
+                data_type != TPrimitiveType::DATETIMEV2 &&
+                data_type != TPrimitiveType::TIMESTAMP_NS) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
             } else {

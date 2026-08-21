@@ -87,6 +87,7 @@ suite("test_timestamp_ns_index") {
         properties(
             "replication_num" = "1",
             "bloom_filter_columns" = "dt_bloom",
+            "inverted_index_storage_format" = "SNII",
             "disable_auto_compaction" = "true"
         )
     """
@@ -112,6 +113,12 @@ suite("test_timestamp_ns_index") {
     order_qt_inverted_index_result """
         select id, dt_inverted from timestamp_ns_pruning_index
         where dt_inverted = '1970-01-01 00:00:00.002048001'
+        order by id
+    """
+    order_qt_snii_inverted_index_range_result """
+        select id, dt_inverted from timestamp_ns_pruning_index
+        where dt_inverted >= '1970-01-01 00:00:00.002047001'
+          and dt_inverted <= '1970-01-01 00:00:00.002049001'
         order by id
     """
     order_qt_bloom_filter_result """
