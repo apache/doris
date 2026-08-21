@@ -57,6 +57,7 @@ Usage:
 import argparse
 import io
 import json
+import math
 import shutil
 import sys
 import tempfile
@@ -99,19 +100,138 @@ HNSW_PQ_BUILD_PARAMS = {**HNSW_BUILD_PARAMS, "num_sub_vectors": 4, "num_bits": 8
 # degradation - the regression suite pins that error too.
 HNSW_SEARCH_PARAMS = {"ef": 100}
 
-# One table per ANN algorithm and element type, identical data, exactly one index named
-# embedding_<the table name without its vs_ prefix>. Naming is vs_<algorithm>_<element
-# type>, so one table is exactly one cell of the algorithm x element type matrix and a
-# missing combination is visible from the table list alone. The build loop and the
-# self-check are driven entirely by these specs; follow-up work for #66495 adds the
-# remaining element types and distance metrics here.
+# The boundary query is symmetric for the ladder profiles - rows r-d and r+d are
+# equidistant - so a top-k that lands mid-pair would pin an arbitrary choice of tie winner
+# in the goldens. 9 is the last cut that ends on a complete pair. This is the regression
+# contract, so the self-check probes at exactly this k: checking 10 here while the suites
+# query 9 would let a retrained index pass the generator and fail the suites.
+BOUNDARY_TOP_K = 9
+# Graph candidate widths for the ef discriminator: with a narrow ef the traversal has to
+# settle for worse candidates than with a wide one. Same purpose as nprobes=1 for IVF - it
+# proves the parameter reached the index instead of being quietly dropped.
+EF_DISCRIMINATOR_ROW = 518
+EF_TOP_K = 5
+EF_NARROW = 5
+EF_WIDE = 50
+
+
+# ---------------------------------------------------------------------------
+# Vector data profiles
+# ---------------------------------------------------------------------------
+# A profile is the vector data a table stores, together with the query vectors and the
+# closed-form distance ladder that make its goldens hand-checkable. Element type and metric
+# are per table; the data shape is not, because a shape that discriminates under one metric
+# can be degenerate under another. Measured on the collinear data below with pylance 7.0.0:
 #
-# `exact` marks the one algorithm whose full-partition probe is guaranteed to reproduce
-# the flat search: IVF_FLAT stores the original vectors, so probing every partition is an
-# exhaustive scan by another name. Everything else either quantizes the vectors (PQ, SQ)
-# or reaches candidates through a graph that may miss neighbours (IVF_HNSW_*), and for
-# those, agreement with flat search is only ever recorded - never asserted.
+#   dot     every query returns the same top-9 (the highest-norm rows), because dot(q, v_r)
+#           grows linearly in r for any positive query - the answer ignores the query.
+#   cosine  all row directions converge on the all-ones vector, so at rows 250+ the top-9
+#           distances are all 0.0 and the ranking is arbitrary tie-breaking.
+#
+# So L2 tables keep the collinear ladder, cosine and dot tables use DIRECTIONAL, and the
+# uint8 table uses BINARY. Every profile is closed-form: no library RNG, whose stream can
+# change under us between versions.
+
+
+class DataProfile:
+    """The data shape of a vector table, and the queries its goldens are built from."""
+
+    def __init__(self, name, dim, dtype, vector, ladder=None, self_match=True,
+                 boundary_row=256):
+        self.name = name
+        self.dim = dim
+        self.dtype = dtype
+        self.vector = vector
+        # The row whose true neighbourhood straddles an IVF partition edge, so that a real
+        # nprobes=1 probe must miss part of it while a silent flat fallback returns the flat
+        # answer. Which rows have this property is decided by kmeans and moves on every
+        # retrain, so it is asserted per table rather than assumed; see
+        # check_boundary_discriminator.
+        self.boundary_row = boundary_row
+        # ladder(step) -> the exact distance between two rows `step` apart, when the data
+        # shape has a closed form for it. None where no such form exists, in which case the
+        # self-check verifies ordering properties instead of exact distances.
+        self.ladder = ladder
+        # dot is not a proper metric: the nearest row to a query is not necessarily the row
+        # the query was taken from, so the "distance 0 to itself" check does not apply.
+        self.self_match = self_match
+        # A ladder profile is symmetric: rows r-d and r+d tie, so either may fill the last
+        # slot of a top-k and only the distances are stable enough to compare. The
+        # directional profile has no ladder and was verified to have no ties at all, so
+        # there the row ids are the stable thing and the distances carry float noise.
+        self.symmetric_ties = ladder is not None
+        self.head_query = vector(0)
+        self.tail_query = vector(ROWS - 1)
+
+    def query_of(self, row):
+        """The stored vector of a 1-based row id."""
+        return self.vector(row - 1)
+
+
+# Row r holds (r, r+1, ..., r+15): the exact squared L2 distance between rows r and n is
+# 16*(n-r)^2, which is what every L2 golden and suite comment encodes.
+def _collinear_vector(r):
+    return [float(r + j) for j in range(DIM)]
+
+
+# Directions from an irrational rotation - frac(sqrt(prime)) per dimension - so they spread
+# quasi-uniformly instead of converging, and an independently varying norm so that cosine
+# and dot cannot rank the same way. Verified on this data: l2, cosine and dot each return a
+# different top-9 at every probe query, and no top-9 has a tie, in float32 and in float16.
+# That is what lets a suite tell a respected metric from an ignored one.
+_DIRECTION_ALPHA = [math.sqrt(p) % 1.0 for p in
+                    (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53)]
+_NORM_ALPHA = math.sqrt(59) % 1.0
+
+
+def _directional_vector(r):
+    raw = [math.sin(2.0 * math.pi * (((r + 1) * alpha) % 1.0)) for alpha in _DIRECTION_ALPHA]
+    length = math.sqrt(sum(x * x for x in raw)) or 1.0
+    scale = 1.0 + 3.0 * (((r + 1) * _NORM_ALPHA) % 1.0)
+    # Round so the stored values stay short and identical across platforms, and small
+    # enough that float16 reproduces the float32 row ordering exactly.
+    return [round(x / length * scale, 4) for x in raw]
+
+
+# Lance reads uint8 vectors as binary vectors and counts hamming in BITS, not bytes
+# (measured: one byte differing by one bit is distance 1.0, by eight bits is 8.0). A
+# thermometer code - row r sets its first r bits - gives hamming(a, b) == |a - b|, the same
+# symmetric ladder the collinear data produces under L2, so BOUNDARY_TOP_K still ends on a
+# complete pair. It needs one bit per row, hence 128 bytes for 1024 rows: this is the one
+# profile whose dimension differs from DIM, and it has to, because a pseudo-random byte
+# pattern puts every distance in a narrow band around 64 where the top-k ties are unstable.
+BINARY_DIM = 128
+
+
+def _binary_vector(r):
+    return [(1 << max(0, min(8, r - j * 8))) - 1 for j in range(BINARY_DIM)]
+
+
+COLLINEAR = DataProfile(
+    "collinear", DIM, pa.float32(), _collinear_vector,
+    ladder=lambda step: 16.0 * step * step)
+DIRECTIONAL = DataProfile("directional", DIM, pa.float32(), _directional_vector)
+# Measured on the thermometer data: the four partitions come out as contiguous row ranges
+# split near 256, 512 and 768, and only rows within about four of an edge discriminate - on
+# the committed index those are 255-262, 513-520 and 767-774. Which of them holds moves on
+# every retrain, so check_boundary_discriminator reports the current ones when this breaks.
+BINARY = DataProfile(
+    "binary", BINARY_DIM, pa.uint8(), _binary_vector, ladder=lambda step: float(step),
+    boundary_row=513)
+
+# One table per matrix cell: algorithm x element type x metric, identical data within a
+# profile, exactly one index named embedding_<the table name without its vs_ prefix>.
+# Naming is vs_<algorithm>_<element type>[_<metric>], L2 keeping the suffix-free form, so a
+# missing combination is visible from the table list alone. The build loop and the
+# self-check are driven entirely by these specs.
+#
+# `exact` marks the algorithm whose full-partition probe is guaranteed to reproduce the flat
+# search: IVF_FLAT stores the original vectors, so probing every partition is an exhaustive
+# scan by another name. Everything else either quantizes the vectors (PQ, SQ) or reaches
+# candidates through a graph that may miss neighbours (IVF_HNSW_*), and for those, agreement
+# with flat search is only ever recorded - never asserted.
 # `search` carries the per-query parameters an algorithm cannot be searched without.
+# `element_type` and `metric` default to the Float32 + L2 cells that came first.
 VECTOR_TABLES = {
     "vs_ivf_flat_f32": {"index_type": "IVF_FLAT", "params": {}, "exact": True},
     "vs_ivf_pq_f32": {"index_type": "IVF_PQ", "params": PQ_BUILD_PARAMS},
@@ -134,52 +254,73 @@ VECTOR_TABLES = {
         "params": HNSW_PQ_BUILD_PARAMS,
         "search": HNSW_SEARCH_PARAMS,
     },
+    # Metric coverage. Doris only plans an indexed split when the query metric equals the
+    # index metric, so cosine and dot each need an index built with that metric; the L2
+    # tables above cannot stand in for them.
+    "vs_ivf_flat_f32_cosine": {
+        "index_type": "IVF_FLAT", "params": {}, "exact": True,
+        "metric": "cosine", "profile": DIRECTIONAL,
+    },
+    "vs_ivf_pq_f32_cosine": {
+        "index_type": "IVF_PQ", "params": PQ_BUILD_PARAMS,
+        "metric": "cosine", "profile": DIRECTIONAL,
+    },
+    "vs_ivf_pq_f32_dot": {
+        "index_type": "IVF_PQ", "params": PQ_BUILD_PARAMS,
+        "metric": "dot", "profile": DIRECTIONAL,
+    },
+    # Element type coverage, one indexed table each. Float16 uses cosine because building a
+    # float16 L2 index does not complete in the embedded Lance version, and uint8 uses
+    # hamming with IVF_FLAT because that is the only index type Lance accepts for it.
+    "vs_ivf_flat_f64": {
+        "index_type": "IVF_FLAT", "params": {}, "exact": True,
+        "element_type": pa.float64(),
+    },
+    "vs_ivf_flat_f16_cosine": {
+        "index_type": "IVF_FLAT", "params": {}, "exact": True,
+        "element_type": pa.float16(), "metric": "cosine", "profile": DIRECTIONAL,
+    },
+    "vs_ivf_flat_u8": {
+        "index_type": "IVF_FLAT", "params": {}, "exact": True,
+        "metric": "hamming", "profile": BINARY,
+    },
 }
 
-# The head query is exactly row 1's vector; the tail query is row 1024's. Only endpoint
-# vectors are used so that 16 * (n - r)^2 never ties between two different rows n.
-HEAD_QUERY = [float(j) for j in range(DIM)]
-TAIL_QUERY = [float(ROWS - 1 + j) for j in range(DIM)]
-# On this collinear data IVF kmeans yields four contiguous row ranges, and row 256 lands near
-# one of the internal edges - which side, and at exactly which row, changes every time the
-# index is retrained, so nothing here hardcodes it (--check prints the measured range). What
-# matters is only that part of row 256's true neighbourhood falls in an adjacent partition.
-# The regression suites query this row with nprobes=1 as their silent-fallback discriminator:
-# a real single-partition probe must miss those neighbours (result != flat), while a silent
-# flat fallback returns exactly the flat result - verified directly: on an unindexed copy of
-# this data Lance ignores nprobes entirely and returns the flat rows. The self-check pins
-# this property for every vector table, so regenerating the fixture with partition edges that
-# no longer split row 256's neighbourhood fails here instead of in the suites. Each table
-# trains its own IVF clustering, so this is checked per table.
-BOUNDARY_ROW = 256
-BOUNDARY_QUERY = [float(BOUNDARY_ROW - 1 + j) for j in range(DIM)]
-# The boundary query is symmetric - rows 256-d and 256+d are equidistant - so a top-k that
-# lands mid-pair would pin an arbitrary choice of tie winner in the goldens. 9 is the last
-# cut that ends on a complete pair. This is the regression contract, so the self-check below
-# has to probe at exactly this k: checking 10 here while the suites query 9 would let a
-# retrained index pass the generator and fail the suites.
-BOUNDARY_TOP_K = 9
-# Graph candidate widths for the ef discriminator: with a narrow ef the traversal has to
-# settle for worse candidates than with a wide one. Same purpose as nprobes=1 for IVF - it
-# proves the parameter reached the index instead of being quietly dropped. Measured on this
-# fixture: a query at row 512, in the middle of the data, loses a true nearest neighbour at
-# ef=5 that ef=50 finds, on every graph index that reacts to ef at all. The endpoint queries
-# do not work here - row 1 sits where greedy traversal already lands on the exact answer.
-EF_DISCRIMINATOR_ROW = 512
-EF_QUERY = [float(EF_DISCRIMINATOR_ROW - 1 + j) for j in range(DIM)]
-EF_TOP_K = 5
-EF_NARROW = 5
-EF_WIDE = 50
+
+def profile_of(spec: dict) -> DataProfile:
+    return spec.get("profile", COLLINEAR)
 
 
-def make_fragment_table(row_offset_start: int, row_offset_end: int) -> pa.Table:
+def element_type_of(spec: dict):
+    return spec.get("element_type", profile_of(spec).dtype)
+
+
+def metric_of(spec: dict) -> str:
+    return spec.get("metric", "l2")
+
+
+def distance_tolerance_of(spec: dict):
+    """How far the indexed and flat distances may drift apart for this element type.
+
+    The two paths accumulate in a different order, which is exact for the integer L2 and
+    hamming ladders but not for cosine and dot. The drift is bounded by the element type's
+    precision: about 6e-8 relative for float32, and about 5e-4 for float16's 11-bit
+    mantissa, so the tolerance has to follow the type rather than be one global number.
+    """
+    if element_type_of(spec) == pa.float16():
+        return 2e-3, 1e-5
+    return 1e-5, 1e-6
+
+
+def make_fragment_table(profile: DataProfile, element_type,
+                        row_offset_start: int, row_offset_end: int) -> pa.Table:
     offsets = list(range(row_offset_start, row_offset_end))
     embedding = pa.FixedSizeListArray.from_arrays(
         pa.array(
-            [float(offset + j) for offset in offsets for j in range(DIM)],
-            type=pa.float32(),
+            [value for offset in offsets for value in profile.vector(offset)],
+            type=element_type,
         ),
-        DIM,
+        profile.dim,
     )
     table = pa.table(
         {
@@ -204,8 +345,10 @@ def index_name_of(table_name: str) -> str:
     return "embedding_" + table_name.removeprefix("vs_")
 
 
-def create_vector_table(namespace, table_name: str) -> str:
-    first = make_fragment_table(0, FRAGMENT_ROWS)
+def create_vector_table(namespace, table_name: str, spec: dict) -> str:
+    profile = profile_of(spec)
+    element_type = element_type_of(spec)
+    first = make_fragment_table(profile, element_type, 0, FRAGMENT_ROWS)
     buffer = io.BytesIO()
     with ipc.new_stream(buffer, first.schema) as writer:
         writer.write_table(first)
@@ -214,7 +357,9 @@ def create_vector_table(namespace, table_name: str) -> str:
     )
     # Never predict the hashed storage path; always use the location the namespace returns.
     location = response.location
-    lance.write_dataset(make_fragment_table(FRAGMENT_ROWS, ROWS), location, mode="append")
+    lance.write_dataset(
+        make_fragment_table(profile, element_type, FRAGMENT_ROWS, ROWS),
+        location, mode="append")
     return location
 
 
@@ -233,8 +378,11 @@ def compact_manifest(root: Path) -> None:
     for index_dir in (root / MANIFEST_DIR / "_indices").iterdir():
         if index_dir.name not in referenced:
             shutil.rmtree(index_dir)
-    # pylance 4.0.1 does not write the optional latest-version hint. Write it to keep the
-    # fixture shape identical to the previous one for every consuming reader.
+    # The pinned writer maintains the optional latest-version hint itself, but the version
+    # cleanup and the index-directory pruning above both run after it last did. Rewrite it
+    # from the reopened manifest so it names the version that actually survived; check_catalog
+    # asserts the two agree, because a hint pointing at a deleted version would send every
+    # reader to a manifest that is no longer there.
     hint = root / MANIFEST_DIR / "_versions" / "latest_version_hint.json"
     hint.write_text(f'{{"version":{manifest.version}}}')
 
@@ -247,7 +395,7 @@ def build(root: Path, all_types_source: Path) -> None:
     )
     namespace.create_namespace(CreateNamespaceRequest(id=[NAMESPACE]))
     for table_name, spec in VECTOR_TABLES.items():
-        location = create_vector_table(namespace, table_name)
+        location = create_vector_table(namespace, table_name, spec)
         # DirectoryNamespace.create_table_index exists but raises UnsupportedOperationError,
         # so open the physical dataset at the location the namespace returned and index it
         # there. index_file_version V3 is what the Doris BE reads through lance-c; the
@@ -256,7 +404,7 @@ def build(root: Path, all_types_source: Path) -> None:
             "embedding",
             spec["index_type"],
             name=index_name_of(table_name),
-            metric="L2",
+            metric=metric_of(spec),
             num_partitions=NUM_PARTITIONS,
             sample_rate=256,
             index_file_version="V3",
@@ -265,8 +413,12 @@ def build(root: Path, all_types_source: Path) -> None:
     compact_manifest(root)
 
 
-def topk(dataset, query, k: int, use_index: bool, **nearest_kwargs):
-    nearest = {"column": "embedding", "q": query, "k": k, "use_index": use_index}
+def topk(dataset, query, k: int, use_index: bool, metric: str = "l2", **nearest_kwargs):
+    # The metric is never left implicit. Lance defaults to L2, and asking an index built
+    # with another metric for an L2 search is a silent fall back to brute force, not an
+    # error - exactly the failure this fixture exists to detect.
+    nearest = {"column": "embedding", "q": query, "k": k, "use_index": use_index,
+               "metric": metric}
     if use_index:
         nearest.setdefault("nprobes", NUM_PARTITIONS)
     nearest.update(nearest_kwargs)
@@ -279,29 +431,46 @@ def search_params_of(spec: dict) -> dict:
     return dict(spec.get("search", {}))
 
 
-def check_vector_dataset(name: str, location: str, index_type: str, search: dict):
+def check_vector_dataset(name: str, location: str, spec: dict, search: dict):
+    profile = profile_of(spec)
+    element_type = element_type_of(spec)
+    metric = metric_of(spec)
+    index_type = spec["index_type"]
     dataset = lance.dataset(location)
     assert dataset.count_rows() == ROWS, f"{name}: expected {ROWS} rows"
     fragments = dataset.get_fragments()
     assert len(fragments) == 2, f"{name}: expected 2 fragments"
     embedding_type = dataset.schema.field("embedding").type
     assert pa.types.is_fixed_size_list(embedding_type), f"{name}: embedding type"
-    assert embedding_type.list_size == DIM, f"{name}: embedding dimension"
-    assert embedding_type.value_type == pa.float32(), f"{name}: embedding element type"
+    assert embedding_type.list_size == profile.dim, f"{name}: embedding dimension"
+    assert embedding_type.value_type == element_type, f"{name}: embedding element type"
     for field in dataset.schema:
         assert not field.nullable, f"{name}: column {field.name} must be NOT NULL"
 
-    # The regression goldens are hand-checkable only because embedding[j] = (row_id-1)+j,
-    # which makes the exact squared L2 distance between rows r and n equal 16*(n-r)^2. Every
-    # distance in the .out files and every comment in the suites encodes that ladder, so
-    # assert it against a flat scan rather than trusting the row/dimension counts above: a
-    # change to the data shape would otherwise leave the self-check green and surface only
-    # as an opaque golden diff after a full docker regression run.
-    ladder = [(row, 16.0 * step * step) for step, row in enumerate(range(1, 11))]
-    assert topk(dataset, HEAD_QUERY, 10, use_index=False) == ladder, (
-        f"{name}: flat top-10 from row 1 is not the 16*(n-r)^2 ladder; the fixture data "
-        "shape changed and every dependent golden and comment is now stale"
-    )
+    # The regression goldens are hand-checkable only because the data shape has a closed
+    # form: the collinear profile makes the exact squared L2 distance between rows r and n
+    # equal 16*(n-r)^2, and the binary profile makes hamming equal |n-r|. Every distance in
+    # those .out files and every comment in the suites encodes the ladder, so assert it
+    # against a flat scan rather than trusting the row/dimension counts above: a change to
+    # the data shape would otherwise leave the self-check green and surface only as an
+    # opaque golden diff after a full docker regression run.
+    head = topk(dataset, profile.head_query, 10, use_index=False, metric=metric)
+    if profile.ladder is not None:
+        expected = [(row, profile.ladder(step)) for step, row in enumerate(range(1, 11))]
+        assert head == expected, (
+            f"{name}: flat top-10 from row 1 is not the {profile.name} distance ladder; "
+            "the fixture data shape changed and every dependent golden and comment is now "
+            f"stale: {head}"
+        )
+    else:
+        # No closed form for this profile, so pin the property the goldens actually need
+        # instead: strictly increasing distances, i.e. no tie can reorder the top-10 when
+        # the index is retrained or a different Lance version reads the fixture.
+        distances = [distance for _, distance in head]
+        assert all(a < b for a, b in zip(distances, distances[1:])), (
+            f"{name}: flat top-10 has tied distances, so the golden row order is arbitrary "
+            f"and will not survive a rebuild: {head}"
+        )
 
     indices = dataset.list_indices()
     assert len(indices) == 1, f"{name}: expected exactly one index"
@@ -312,79 +481,130 @@ def check_vector_dataset(name: str, location: str, index_type: str, search: dict
     all_fragments = {fragment.fragment_id for fragment in fragments}
     assert indexed_fragments == all_fragments, f"{name}: index does not cover all fragments"
 
-    for query in (HEAD_QUERY, TAIL_QUERY):
+    for query in (profile.head_query, profile.tail_query):
         indexed_plan = dataset.scanner(
-            nearest={"column": "embedding", "q": query, "k": 5,
+            nearest={"column": "embedding", "q": query, "k": 5, "metric": metric,
                      "nprobes": NUM_PARTITIONS, **search}
         ).explain_plan(True)
         assert "ANNSubIndex" in indexed_plan, f"{name}: indexed plan lacks ANNSubIndex"
         assert "ANNIvfPartition" in indexed_plan, f"{name}: plan lacks ANNIvfPartition"
         flat_plan = dataset.scanner(
-            nearest={"column": "embedding", "q": query, "k": 5, "use_index": False}
+            nearest={"column": "embedding", "q": query, "k": 5, "metric": metric,
+                     "use_index": False}
         ).explain_plan(True)
         assert "ANNSubIndex" not in flat_plan, f"{name}: flat plan uses ANN"
         assert "KNNVectorDistance" in flat_plan, f"{name}: flat plan lacks KNN node"
     return dataset
 
 
-def check_exact_results(name: str, dataset, search: dict) -> None:
+def check_exact_results(name: str, dataset, spec: dict, search: dict) -> None:
     # IVF_FLAT keeps the original vectors, so probing every partition visits every row with
     # its true distance: equality with the flat search is the algorithm's guarantee, not a
     # property of this fixture, and it needs no refine_factor to hold. The regression suite
     # asserts the same thing against Doris, which is what turns "the query returned rows"
     # into "the query returned the right rows".
-    for query, nearest_row in ((HEAD_QUERY, 1), (TAIL_QUERY, ROWS)):
-        indexed = topk(dataset, query, 10, use_index=True, **search)
-        flat = topk(dataset, query, 10, use_index=False)
-        assert indexed == flat, (
-            f"{name}: full-probe top-10 differs from flat search, which IVF_FLAT guarantees "
-            f"it cannot: indexed={indexed} flat={flat}"
+    profile = profile_of(spec)
+    metric = metric_of(spec)
+    rel_tol, abs_tol = distance_tolerance_of(spec)
+    for query, nearest_row in ((profile.head_query, 1), (profile.tail_query, ROWS)):
+        indexed = topk(dataset, query, 10, use_index=True, metric=metric, **search)
+        flat = topk(dataset, query, 10, use_index=False, metric=metric)
+        # IVF_FLAT's guarantee is about which rows a full probe visits, so compare row ids
+        # exactly. The distances are only compared to a tolerance: the indexed and flat
+        # paths accumulate in a different order, which is exact for the integer L2 and
+        # hamming ladders but differs in the last ulp or two for cosine and dot.
+        assert [row for row, _ in indexed] == [row for row, _ in flat], (
+            f"{name}: full-probe top-10 rows differ from flat search, which IVF_FLAT "
+            f"guarantees it cannot: indexed={indexed} flat={flat}"
         )
-        assert indexed[0] == (nearest_row, 0.0), (
-            f"{name}: nearest row is {indexed[0]}, expected row {nearest_row} at distance 0"
+        assert all(math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
+                   for (_, a), (_, b) in zip(indexed, flat)), (
+            f"{name}: full-probe top-10 distances differ from flat search by more than "
+            f"{element_type_of(spec)} rounding: indexed={indexed} flat={flat}"
         )
+        if profile.self_match:
+            # The query is a stored row, so that row must come back first at distance zero -
+            # to within the element type's rounding, since a cosine distance is computed
+            # from normalized values rather than read off the ladder.
+            nearest_id, nearest_distance = indexed[0]
+            assert nearest_id == nearest_row, (
+                f"{name}: nearest row is {indexed[0]}, expected row {nearest_row}"
+            )
+            assert math.isclose(nearest_distance, 0.0, abs_tol=abs_tol), (
+                f"{name}: row {nearest_row} is at distance {nearest_distance}, expected 0"
+            )
         distances = [distance for _, distance in indexed]
-        assert distances == [16.0 * step * step for step in range(10)], (
-            f"{name}: indexed distances are not the 16*(n-r)^2 ladder: {distances}"
-        )
+        if profile.ladder is not None:
+            assert distances == [profile.ladder(step) for step in range(10)], (
+                f"{name}: indexed distances are not the {profile.name} ladder: {distances}"
+            )
     print(f"record: {name} full-probe top-10 equals flat search at both endpoints")
 
 
-def check_lossy_results(name: str, dataset, search: dict) -> None:
+def check_lossy_results(name: str, dataset, spec: dict, search: dict) -> None:
     # Quantizing (PQ, SQ) and graph (HNSW) indexes do not promise the flat result:
     # agreement is an observed property of this frozen fixture and the pinned Lance
     # version, never a guarantee. The regression suites therefore query them with
     # refine_factor, which reranks candidates with exact distances; record what those
     # suites will observe.
-    raw = topk(dataset, HEAD_QUERY, 5, use_index=True, **search)
-    flat = topk(dataset, HEAD_QUERY, 5, use_index=False)
+    profile = profile_of(spec)
+    metric = metric_of(spec)
+    raw = topk(dataset, profile.head_query, 5, use_index=True, metric=metric, **search)
+    flat = topk(dataset, profile.head_query, 5, use_index=False, metric=metric)
     assert len(raw) == 5, f"{name}: indexed search must return k rows"
     raw_agreement = "matches" if raw == flat else "differs from"
     print(f"record: {name} full-probe top-5 {raw_agreement} flat search: {raw}")
-    refined = topk(dataset, HEAD_QUERY, 5, use_index=True, refine_factor=10, **search)
+    refined = topk(dataset, profile.head_query, 5, use_index=True, metric=metric,
+                   refine_factor=10, **search)
     refined_agreement = "matches" if refined == flat else "differs from"
     print(f"record: {name} refined top-5 {refined_agreement} flat search: {refined}")
 
 
-def check_boundary_discriminator(name: str, dataset, search: dict) -> None:
-    # See BOUNDARY_ROW above. The lossy index uses refine_factor so the comparison against
-    # flat runs on exact distances, exactly like the regression suite does.
+def check_boundary_discriminator(name: str, dataset, spec: dict, search: dict) -> None:
+    # See DataProfile.boundary_row. The lossy index uses refine_factor so the comparison
+    # against flat runs on exact distances, exactly like the regression suite does.
+    profile = profile_of(spec)
+    metric = metric_of(spec)
+    boundary_row = profile.boundary_row
+    boundary_query = profile.query_of(boundary_row)
     single_rows = topk(
-        dataset, BOUNDARY_QUERY, BOUNDARY_TOP_K, use_index=True, nprobes=1,
+        dataset, boundary_query, BOUNDARY_TOP_K, use_index=True, metric=metric, nprobes=1,
         refine_factor=10, **search)
-    flat_rows = topk(dataset, BOUNDARY_QUERY, BOUNDARY_TOP_K, use_index=False)
-    # Compare distances, not row ids: the boundary query is symmetric, so rows r-d and r+d
-    # tie and either may fill the last slot. Only a missed neighbour changes the distances.
-    single = [distance for _, distance in single_rows]
-    flat = [distance for _, distance in flat_rows]
+    flat_rows = topk(dataset, boundary_query, BOUNDARY_TOP_K, use_index=False, metric=metric)
+    # Compare whichever quantity is stable for this profile. On a symmetric ladder rows r-d
+    # and r+d tie and either may fill the last slot, so only the distances mean anything. On
+    # the tie-free directional profile it is the other way round: the row ids are exact
+    # while the distances carry the float noise that would make any two result sets differ.
+    if profile.symmetric_ties:
+        single = [distance for _, distance in single_rows]
+        flat = [distance for _, distance in flat_rows]
+    else:
+        single = [row for row, _ in single_rows]
+        flat = [row for row, _ in flat_rows]
     assert len(single) == BOUNDARY_TOP_K, (
         f"{name}: boundary nprobes=1 must still return k rows"
     )
-    assert single != flat, (
-        f"{name}: row {BOUNDARY_ROW} no longer discriminates nprobes=1 from flat search; "
-        "the IVF partition boundaries moved. Update BOUNDARY_ROW here and the boundary "
-        "queries in the regression suites together."
-    )
+    if single == flat:
+        # Which rows straddle a partition edge is decided by kmeans and moves on every
+        # rebuild, so search for the ones that still do rather than leaving the next person
+        # to guess. Same shape as the ef discriminator's report below.
+        def discriminates(row):
+            q = profile.query_of(row)
+            probe = topk(dataset, q, BOUNDARY_TOP_K, use_index=True, metric=metric,
+                         nprobes=1, refine_factor=10, **search)
+            straight = topk(dataset, q, BOUNDARY_TOP_K, use_index=False, metric=metric)
+            if profile.symmetric_ties:
+                return [d for _, d in probe] != [d for _, d in straight]
+            return [r for r, _ in probe] != [r for r, _ in straight]
+
+        candidates = [row for row in range(1, ROWS + 1) if discriminates(row)]
+        raise AssertionError(
+            f"{name}: row {boundary_row} no longer discriminates nprobes=1 from flat search; "
+            "the IVF partition boundaries moved. "
+            f"{len(candidates)} rows still discriminate on this build; pick one, set the "
+            "profile's boundary_row to it and update the boundary queries in the regression "
+            f"suites together with it. Candidates (first 30): {candidates[:30]}"
+        )
     print(f"record: {name} boundary nprobes=1 top-{BOUNDARY_TOP_K} rows "
           f"{[row for row, _ in single_rows]} vs flat rows {[row for row, _ in flat_rows]}")
     # The partition edge moves on every retrain, so report where it actually landed. This is
@@ -395,14 +615,14 @@ def check_boundary_discriminator(name: str, dataset, search: dict) -> None:
         # rejects a graph search whose candidate width is narrower than k.
         partition_search["ef"] = ROWS
     probed = sorted(row for row, _ in topk(
-        dataset, BOUNDARY_QUERY, ROWS, use_index=True, nprobes=1, refine_factor=1,
-        **partition_search))
+        dataset, boundary_query, ROWS, use_index=True, metric=metric, nprobes=1,
+        refine_factor=1, **partition_search))
     contiguous = probed == list(range(probed[0], probed[-1] + 1))
-    print(f"record: {name} partition holding row {BOUNDARY_ROW}: rows "
+    print(f"record: {name} partition holding row {boundary_row}: rows "
           f"{probed[0]}-{probed[-1]} ({len(probed)} rows, contiguous={contiguous})")
 
 
-def check_ef_discriminator(name: str, dataset, assert_it: bool) -> None:
+def check_ef_discriminator(name: str, dataset, spec: dict, assert_it: bool) -> None:
     # The graph counterpart of the nprobes discriminator: a narrow candidate width has to
     # settle for worse neighbours than a wide one. Without it, a backend that dropped ef on
     # the floor would still return plausible rows. Both queries probe every partition, so
@@ -415,17 +635,32 @@ def check_ef_discriminator(name: str, dataset, assert_it: bool) -> None:
     # does not need the extra candidates on 1024 collinear vectors. So the discriminator is
     # asserted where it holds and recorded everywhere else; `assert_it` is the spec flag,
     # and the regression suite must query the same table this asserts on.
-    narrow = topk(dataset, EF_QUERY, EF_TOP_K, use_index=True, ef=EF_NARROW)
-    wide = topk(dataset, EF_QUERY, EF_TOP_K, use_index=True, ef=EF_WIDE)
+    profile = profile_of(spec)
+    metric = metric_of(spec)
+    ef_query = profile.query_of(EF_DISCRIMINATOR_ROW)
+    narrow = topk(dataset, ef_query, EF_TOP_K, use_index=True, metric=metric, ef=EF_NARROW)
+    wide = topk(dataset, ef_query, EF_TOP_K, use_index=True, metric=metric, ef=EF_WIDE)
     # Compare distances rather than row ids: rows 512-d and 512+d tie, so the row order
     # inside a tie group is arbitrary while a missed neighbour always changes a distance.
     differs = [d for _, d in narrow] != [d for _, d in wide]
-    if assert_it:
-        assert differs, (
-            f"{name}: ef={EF_NARROW} and ef={EF_WIDE} return the same distances, so the "
-            "regression suite can no longer prove ef reached the index. The retrained graph "
-            f"made the narrow search good enough at row {EF_DISCRIMINATOR_ROW}; find a row "
-            "that still discriminates and update the suite's ef queries together with this."
+    if assert_it and not differs:
+        # Which rows react to ef is decided by the graph draw and changes on every rebuild,
+        # so do the search here rather than making the next person write it: report the rows
+        # that still discriminate on this freshly built index, and they can pin one.
+        candidates = [
+            row for row in range(1, ROWS + 1)
+            if [d for _, d in topk(dataset, profile.query_of(row), EF_TOP_K,
+                                   use_index=True, metric=metric, ef=EF_NARROW)]
+            != [d for _, d in topk(dataset, profile.query_of(row), EF_TOP_K,
+                                   use_index=True, metric=metric, ef=EF_WIDE)]
+        ]
+        raise AssertionError(
+            f"{name}: ef={EF_NARROW} and ef={EF_WIDE} return the same distances at row "
+            f"{EF_DISCRIMINATOR_ROW}, so the regression suite can no longer prove ef reached "
+            "the index - the retrained graph made the narrow search good enough there. "
+            f"{len(candidates)} rows still discriminate on this build; pick one, set "
+            "EF_DISCRIMINATOR_ROW to it and update the suite's ef queries together with it. "
+            f"Candidates (first 30): {candidates[:30]}"
         )
     print(f"record: {name} ef={EF_NARROW} rows {[row for row, _ in narrow]} vs ef={EF_WIDE} "
           f"rows {[row for row, _ in wide]} (differs={differs}, asserted={assert_it})")
@@ -468,16 +703,15 @@ def check_catalog(root: Path) -> None:
         path = Path(described.location.removeprefix("file://"))
         assert path.is_dir(), f"{table_name} location missing: {described.location}"
         search = search_params_of(spec)
-        dataset = check_vector_dataset(
-            table_name, described.location, spec["index_type"], search
-        )
+        dataset = check_vector_dataset(table_name, described.location, spec, search)
         if spec.get("exact"):
-            check_exact_results(table_name, dataset, search)
+            check_exact_results(table_name, dataset, spec, search)
         else:
-            check_lossy_results(table_name, dataset, search)
-        check_boundary_discriminator(table_name, dataset, search)
+            check_lossy_results(table_name, dataset, spec, search)
+        check_boundary_discriminator(table_name, dataset, spec, search)
         if search.get("ef"):
-            check_ef_discriminator(table_name, dataset, spec.get("ef_discriminator", False))
+            check_ef_discriminator(
+                table_name, dataset, spec, spec.get("ef_discriminator", False))
     print(f"self-check OK: {root}")
 
 

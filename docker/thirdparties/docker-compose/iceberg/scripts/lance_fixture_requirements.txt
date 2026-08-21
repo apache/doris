@@ -19,21 +19,23 @@
 #
 # The fixture has several readers and they do not all run the same Lance version:
 #
-#   lance-c v0.1.6 (lance-rs 7.0.0-beta)  BE, both from source and from the prebuilt
-#                                         doris-thirdparty package - thirdparty/vars.sh
-#   lance-java 4.0.0                      Spark, via lance-spark-bundle 0.4.0; it registers
-#                                         runtime tables into the same __manifest
-#   lance-java (FE)                       Doris FE Directory Namespace client
+#   lance-c v0.1.6 (lance-rs 7.0.0-beta.7)  BE, both from source and from the prebuilt
+#                                           doris-thirdparty package - thirdparty/vars.sh
+#   lance-java 4.0.0                        Spark, via lance-spark-bundle 0.4.0; it
+#                                           registers runtime tables into the same __manifest
+#   lance-java 9.1.0-beta.3                 Doris FE Directory Namespace client - fe/pom.xml
 #
-# So pin the writer to the oldest Lance in that set rather than to whichever one the BE
-# happens to use: an older writer is readable by every reader above, while a newer one
-# would leave the Spark cell unverified. Verified for the committed fixture, which now
-# carries one index per ANN algorithm: pylance 7.0.0 - the same Lance generation the BE
-# reads through lance-c v0.1.6 - reproduces every line of the generator self-check that
-# pylance 4.0.1 produces, for all six tables. Same index type and coverage, same exact and
-# refined top-k, same nprobes=1 boundary rows, same IVF partition ranges, same ef=5 vs
-# ef=50 graph rows. The regression goldens therefore do not depend on which Lance version
-# reads the fixture, only on the frozen bytes this writer produced.
-pylance==4.0.1
-lance-namespace==0.6.1
+# The writer is pinned to the Lance generation the BE actually reads. It used to be pinned
+# to the oldest reader instead, on the theory that an older writer is readable by every
+# reader above; that stopped being possible once the fixture had to carry non-Float32
+# indexes. Measured on pylance 4.0.1 (Lance 4): IVF_HNSW_FLAT + float64 and
+# IVF_HNSW_FLAT + uint8/hamming panic during index creation, and IVF_FLAT + float64 builds
+# but every search against it fails with "Task was aborted". All of those work on Lance 7.
+#
+# So Spark/lance-java 4.0.0 compatibility with this fixture is no longer something the pin
+# guarantees; it is something the regression run verifies. external_table_p0/lance covers
+# it: the Spark and REST catalog suites read and register into the same __manifest this
+# writer produces, and they must pass for a fixture rebuild to be acceptable.
+pylance==7.0.0
+lance-namespace==0.7.7
 pyarrow==25.0.0
