@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -150,6 +152,26 @@ TEST(JniTableReaderTest, TimestampNsTypeDescriptorPreservesNestedTypes) {
     EXPECT_EQ(JniDataBridge::get_jni_type(timestamp_ns), "timestamp_ns");
     EXPECT_EQ(JniDataBridge::get_jni_type(type),
               "struct<ts:timestamp_ns,items:array<timestamp_ns>,by_name:map<string,timestamp_ns>>");
+}
+
+TEST(JniTableReaderTest, FillTimestampNsColumnFromEpochNanoseconds) {
+    const std::array<Int64, 5> epoch_nanos = {std::numeric_limits<Int64>::min(), -1, 0,
+                                              1'708'000'496'123'456'789,
+                                              std::numeric_limits<Int64>::max()};
+    const std::array<bool, epoch_nanos.size()> null_map = {};
+    const std::array<long, 2> meta = {reinterpret_cast<long>(null_map.data()),
+                                      reinterpret_cast<long>(epoch_nanos.data())};
+    JniDataBridge::TableMetaAddress address(reinterpret_cast<long>(meta.data()));
+    const DataTypePtr data_type = std::make_shared<DataTypeTimeStampNs>();
+    ColumnPtr column = data_type->create_column();
+
+    ASSERT_TRUE(JniDataBridge::fill_column(address, column, data_type, epoch_nanos.size()).ok());
+
+    const auto& column_data = assert_cast<const ColumnTimeStampNs&>(*column).get_data();
+    ASSERT_EQ(column_data.size(), epoch_nanos.size());
+    for (size_t i = 0; i < epoch_nanos.size(); ++i) {
+        EXPECT_EQ(column_data[i].epoch_nanos(), epoch_nanos[i]);
+    }
 }
 
 TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
