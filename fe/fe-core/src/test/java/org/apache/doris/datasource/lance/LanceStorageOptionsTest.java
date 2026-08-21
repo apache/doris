@@ -65,7 +65,8 @@ public class LanceStorageOptionsTest {
         Map<String, String> properties = minioProperties();
         properties.put("s3.session_token", "token");
 
-        Map<String, String> options = LanceStorageOptions.toLanceOptions(createAll(properties));
+        Map<String, String> options =
+                LanceStorageOptions.forDataset(S3_URI, createAll(properties), null);
         Assertions.assertEquals("ak", options.get("aws_access_key_id"));
         Assertions.assertEquals("sk", options.get("aws_secret_access_key"));
         Assertions.assertEquals("token", options.get("aws_session_token"));
@@ -89,7 +90,8 @@ public class LanceStorageOptionsTest {
         properties.put("s3.endpoint", "https://s3.amazonaws.com");
         properties.put("s3.region", "us-east-1");
 
-        Map<String, String> options = LanceStorageOptions.toLanceOptions(createAll(properties));
+        Map<String, String> options =
+                LanceStorageOptions.forDataset(S3_URI, createAll(properties), null);
         Assertions.assertNull(options.get("aws_access_key_id"));
         Assertions.assertNull(options.get("aws_secret_access_key"));
         Assertions.assertNull(options.get("aws_session_token"));
@@ -191,6 +193,20 @@ public class LanceStorageOptionsTest {
         }
     }
 
+    /**
+     * A filesystem catalog routes on its warehouse URL, so a local warehouse must not be handed
+     * S3 options - and a REST namespace, which is reached over HTTP and reads no storage of its
+     * own, reports no URL at all and gets nothing.
+     */
+    @Test
+    public void testCatalogWithoutAnS3UrlGetsNoS3Options() {
+        for (String uri : new String[] {"file:///warehouse/lance", "", null}) {
+            Assertions.assertTrue(
+                    LanceStorageOptions.forDataset(uri, minioCatalog(), null).isEmpty(),
+                    "expected no options for " + uri);
+        }
+    }
+
     /** Doris has no Lance vocabulary for a non-S3 provider yet, so it contributes none. */
     @Test
     public void testCatalogPropertiesAreNotAppliedToANonS3Dataset() {
@@ -209,7 +225,7 @@ public class LanceStorageOptionsTest {
         Assertions.assertTrue(catalog.size() > 1,
                 "expected Doris to add its default non-S3 entry ahead of the S3 one");
         Assertions.assertEquals("ak",
-                LanceStorageOptions.toLanceOptions(catalog).get("aws_access_key_id"));
+                LanceStorageOptions.forDataset(S3_URI, catalog, null).get("aws_access_key_id"));
     }
 
     @Test
@@ -228,7 +244,8 @@ public class LanceStorageOptionsTest {
 
     @Test
     public void testAbsentVendedOptionsLeaveCatalogOptionsIntact() {
-        Map<String, String> catalogOptions = LanceStorageOptions.toLanceOptions(minioCatalog());
+        Map<String, String> catalogOptions =
+                LanceStorageOptions.forDataset(S3_URI, minioCatalog(), null);
         Assertions.assertEquals(catalogOptions,
                 LanceStorageOptions.forDataset(S3_URI, minioCatalog(), null));
         Assertions.assertEquals(catalogOptions,

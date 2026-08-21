@@ -95,8 +95,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            Map<String, String> lanceStorageOptions = LanceStorageOptions.toLanceOptions(
-                    catalogProperty.getOrderedStoragePropertiesList());
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forDataset(
+                    properties.getNamespaceStorageUri(),
+                    catalogProperty.getOrderedStoragePropertiesList(), null);
 
             allocator = new RootAllocator(ALLOCATOR_LIMIT);
             namespace = properties.createNamespace(allocator, lanceStorageOptions);
@@ -117,8 +118,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.toLanceOptions(
-                catalogProperty.getOrderedStoragePropertiesList());
+        Map<String, String> storageOptions = LanceStorageOptions.forDataset(
+                properties.getNamespaceStorageUri(),
+                catalogProperty.getOrderedStoragePropertiesList(), null);
         List<String> parent = LanceNamespaceName.parseParentNamespace(
                 properties.getNamespaceParent(), properties.getNamespaceDelimiter());
         String type = properties.getLanceCatalogType();

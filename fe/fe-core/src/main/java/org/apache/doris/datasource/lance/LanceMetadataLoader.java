@@ -53,7 +53,8 @@ public final class LanceMetadataLoader {
             String datasetUri, List<StorageProperties> storageProperties)
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
-            return loadLatest(datasetUri, LanceStorageOptions.toLanceOptions(storageProperties), allocator);
+            return loadLatest(datasetUri,
+                    LanceStorageOptions.forDataset(datasetUri, storageProperties, null), allocator);
         }
     }
 

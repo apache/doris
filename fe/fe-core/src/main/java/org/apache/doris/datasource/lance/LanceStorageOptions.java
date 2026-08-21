@@ -40,18 +40,9 @@ public final class LanceStorageOptions {
     }
 
     /**
-     * Converts a catalog's own storage properties to Lance options.
-     *
-     * <p>Used where there is no dataset to route on - opening the namespace client itself, and the
-     * {@code s3()} table-valued function. Both are S3-compatible storage by construction.
-     */
-    public static Map<String, String> toLanceOptions(List<StorageProperties> storageProperties) {
-        return LanceStorageProvider.forDorisCatalog().fromDorisProperties(storageProperties);
-    }
-
-    /**
-     * Builds the options for one table, from the catalog's storage properties and whatever its
-     * namespace vended for it.
+     * Builds the options for one dataset, from Doris's storage properties and whatever a namespace
+     * vended for it. Pass {@code null} for {@code vendedOptions} where nothing is vended - the
+     * namespace client's own storage, or the {@code s3()} table-valued function.
      *
      * <p>Both halves are put in the vocabulary of the provider Lance will route {@code datasetUri}
      * to, so a vended option lands on the same key as the catalog's and replaces it outright.

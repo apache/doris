@@ -538,8 +538,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setProperties(beProperties);
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
-            Map<String, String> lanceStorageOptions =
-                    LanceStorageOptions.toLanceOptions(Collections.singletonList(storageProperties));
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forDataset(
+                    filePath, Collections.singletonList(storageProperties), null);
             if (!lanceStorageOptions.isEmpty()) {
                 fileScanRangeParams.setLanceStorageOptions(lanceStorageOptions);
             }

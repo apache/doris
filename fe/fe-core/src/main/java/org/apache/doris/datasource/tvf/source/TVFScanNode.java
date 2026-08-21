@@ -132,8 +132,9 @@ public class TVFScanNode extends FileQueryScanNode {
         if (tableValuedFunction.isLanceFormat()) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
             // Set at ScanNode level so credentials are not serialized once per fragment split.
-            Map<String, String> lanceStorageOptions = LanceStorageOptions.toLanceOptions(
-                    Collections.singletonList(tableValuedFunction.getStorageProperties()));
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forDataset(
+                    tableValuedFunction.getFilePath(),
+                    Collections.singletonList(tableValuedFunction.getStorageProperties()), null);
             if (!lanceStorageOptions.isEmpty()) {
                 params.setLanceStorageOptions(lanceStorageOptions);
             }

@@ -64,6 +64,12 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
         return warehouse;
     }
 
+    /** A directory namespace opens the warehouse itself, so its options follow that URL. */
+    @Override
+    public String getNamespaceStorageUri() {
+        return warehouse;
+    }
+
     @Override
     protected void validateCatalogProperties() {
         warehouse = origProps.get(WAREHOUSE);

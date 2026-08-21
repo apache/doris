@@ -74,14 +74,6 @@ public interface LanceStorageProvider {
                 ? LanceS3StorageProvider.INSTANCE : LancePassThroughStorageProvider.INSTANCE;
     }
 
-    /**
-     * The provider for a catalog's own storage configuration, which is described by Doris
-     * properties rather than by a dataset URL. Only S3-compatible storage can be spelled that way.
-     */
-    static LanceStorageProvider forDorisCatalog() {
-        return LanceS3StorageProvider.INSTANCE;
-    }
-
     static String schemeOf(String datasetUri) {
         if (datasetUri == null) {
             return "";
