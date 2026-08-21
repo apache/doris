@@ -30,6 +30,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -68,12 +69,15 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/buffered_reader.h"
+#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
@@ -115,6 +119,94 @@ void annotate_variant_schema(const std::string& file_path) {
     schema_it->__set_logicalType(tparquet::LogicalType());
     schema_it->logicalType.__set_VARIANT(tparquet::VariantType());
     schema_it->logicalType.VARIANT.__set_specification_version(1);
+
+    file_bytes.resize(footer_offset);
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    file_bytes.insert(file_bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, sizeof(uint32_t)> encoded_footer_size {};
+    encode_fixed32_le(encoded_footer_size.data(), cast_set<uint32_t>(footer.size()));
+    file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
+    file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
+
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file_bytes.data()),
+                 cast_set<std::streamsize>(file_bytes.size()));
+    output.close();
+    DORIS_CHECK(output.good());
+}
+
+void rewrite_as_root_only_parquet_file(const std::string& file_path) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
+    std::vector<uint8_t> file_bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(file_bytes.data()), cast_set<std::streamsize>(input_size));
+    DORIS_CHECK(input.good());
+    DORIS_CHECK(memcmp(file_bytes.data() + file_bytes.size() - 4, "PAR1", 4) == 0);
+
+    const uint32_t footer_size = decode_fixed32_le(file_bytes.data() + file_bytes.size() - 8);
+    DORIS_CHECK(footer_size <= file_bytes.size() - 8);
+    const size_t footer_offset = file_bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(
+            deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                    .ok());
+    input.close();
+
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(0);
+    root.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    metadata.__set_schema({root});
+    for (auto& row_group : metadata.row_groups) {
+        row_group.columns.clear();
+    }
+
+    file_bytes.resize(footer_offset);
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    file_bytes.insert(file_bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, sizeof(uint32_t)> encoded_footer_size {};
+    encode_fixed32_le(encoded_footer_size.data(), cast_set<uint32_t>(footer.size()));
+    file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
+    file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
+
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file_bytes.data()),
+                 cast_set<std::streamsize>(file_bytes.size()));
+    output.close();
+    DORIS_CHECK(output.good());
+}
+
+void rewrite_parquet_metadata(
+        const std::string& file_path,
+        const std::function<void(tparquet::FileMetaData*)>& rewrite_metadata) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
+    std::vector<uint8_t> file_bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(file_bytes.data()), cast_set<std::streamsize>(input_size));
+    DORIS_CHECK(input.good());
+    DORIS_CHECK(memcmp(file_bytes.data() + file_bytes.size() - 4, "PAR1", 4) == 0);
+
+    const uint32_t footer_size = decode_fixed32_le(file_bytes.data() + file_bytes.size() - 8);
+    DORIS_CHECK(footer_size <= file_bytes.size() - 8);
+    const size_t footer_offset = file_bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(
+            deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                    .ok());
+    input.close();
+    rewrite_metadata(&metadata);
 
     file_bytes.resize(footer_offset);
     std::vector<uint8_t> footer;
@@ -860,6 +952,58 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
 }
+
+void write_parquet_file_with_explicit_row_groups(
+        const std::string& file_path, const std::vector<std::vector<int32_t>>& row_groups) {
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    const auto id = ::parquet::schema::PrimitiveNode::Make("id", ::parquet::Repetition::REQUIRED,
+                                                           ::parquet::LogicalType::None(),
+                                                           ::parquet::Type::INT32);
+    const auto schema_node =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, {id});
+    const auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node);
+    ::parquet::WriterProperties::Builder properties;
+    properties.compression(::parquet::Compression::UNCOMPRESSED);
+    properties.disable_dictionary();
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema, properties.build());
+    for (const auto& values : row_groups) {
+        auto* row_group = writer->AppendRowGroup();
+        auto* id_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+        if (!values.empty()) {
+            EXPECT_EQ(id_writer->WriteBatch(values.size(), nullptr, nullptr, values.data()),
+                      values.size());
+        }
+        id_writer->Close();
+        row_group->Close();
+    }
+    writer->Close();
+}
+
+class HttpPathFileReader final : public io::FileReader {
+public:
+    explicit HttpPathFileReader(io::FileReaderSPtr delegate)
+            : _delegate(std::move(delegate)),
+              _path("https://example.test/multi-row-group.parquet") {}
+
+    Status close() override { return _delegate->close(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _delegate->size(); }
+    bool closed() const override { return _delegate->closed(); }
+    int64_t mtime() const override { return _delegate->mtime(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        return _delegate->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    io::FileReaderSPtr _delegate;
+    io::Path _path;
+};
 
 void write_mixed_variant_row_groups(const std::string& file_path) {
     auto n_type = arrow::struct_({arrow::field("value", arrow::binary(), true),
@@ -1775,7 +1919,9 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
-            std::string fs_name = {}, int64_t mtime = 0) const {
+            std::string fs_name = {}, int64_t mtime = 0,
+            std::shared_ptr<const FileContext> file_context = nullptr,
+            int64_t format_split_id = -1) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1788,12 +1934,258 @@ protected:
         file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                std::move(file_context), format_split_id);
     }
 
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(NewParquetReaderTest, PhysicalSplitPlanningReturnsFormatLocalDescriptors) {
+    write_parquet_file(_file_path, 2);
+    constexpr int64_t TEST_MTIME = 414141;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> splits;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&splits, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(splits.size(), 3);
+    for (size_t index = 0; index < splits.size(); ++index) {
+        EXPECT_EQ(splits[index].format_split_id, cast_set<int64_t>(index));
+        EXPECT_GT(splits[index].size, 0);
+        EXPECT_NE(splits[index].file_context, nullptr);
+    }
+}
+
+TEST_F(NewParquetReaderTest, RowGroupSplitsShareOnlyParentFooterContext) {
+    write_parquet_file(_file_path, 2);
+    constexpr int64_t TEST_MTIME = 424242;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile parent_profile("row_group_split_parent");
+    auto parent = create_reader(0, -1, &parent_profile, false, nullptr, std::nullopt, false, false,
+                                {}, TEST_MTIME);
+    ASSERT_TRUE(parent->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(parent->build_physical_splits(&children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(children.size(), 3);
+    ASSERT_NE(children[0].file_context, nullptr);
+    for (size_t index = 0; index < children.size(); ++index) {
+        EXPECT_EQ(children[index].file_context, children[0].file_context);
+        EXPECT_EQ(children[index].format_split_id, cast_set<int64_t>(index));
+        EXPECT_GT(children[index].size, 0);
+    }
+    EXPECT_EQ(parent_profile.get_counter("FileFooterReadCalls")->value(), 1);
+
+    RuntimeProfile sibling_profile("same_file_source_split");
+    auto sibling = create_reader(0, -1, &sibling_profile, false, nullptr, std::nullopt, false,
+                                 false, {}, TEST_MTIME);
+    ASSERT_TRUE(sibling->init(&state).ok());
+    std::vector<format::PhysicalFileSplit> sibling_children;
+    ASSERT_TRUE(sibling->build_physical_splits(&sibling_children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(sibling_children.size(), children.size());
+    EXPECT_NE(sibling_children[0].file_context, children[0].file_context);
+    EXPECT_EQ(sibling_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(sibling_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    RuntimeProfile child_profile("row_group_split_child");
+    auto child = create_reader(children[0].start_offset, children[0].size, &child_profile, false,
+                               nullptr, std::nullopt, false, false, {}, TEST_MTIME,
+                               children[0].file_context, children[0].format_split_id);
+    ASSERT_TRUE(child->init(&state).ok());
+    EXPECT_EQ(child_profile.get_counter("FileFooterReadCalls")->value(), 0);
+    EXPECT_EQ(child_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(child->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    for (size_t index = 0; index < schema.size(); ++index) {
+        request->non_predicate_columns.push_back(field_projection(cast_set<int32_t>(index)));
+    }
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(child->open(request).ok());
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        auto block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(child->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 2);
+}
+
+TEST_F(NewParquetReaderTest, PhysicalSplitsApplyOpenedRequestFooterPruning) {
+    write_parquet_file(_file_path, 1);
+    constexpr int64_t TEST_MTIME = 434343;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns.push_back(field_projection(0));
+    request->non_predicate_columns.push_back(field_projection(1));
+    use_schema_order_positions(request.get(), schema);
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 3));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(children.size(), 2);
+    EXPECT_EQ(children[0].format_split_id, 3);
+    EXPECT_EQ(children[1].format_split_id, 4);
+
+    auto all_pruned = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                    TEST_MTIME);
+    ASSERT_TRUE(all_pruned->init(&state).ok());
+    auto all_pruned_request = std::make_shared<format::FileScanRequest>(*request);
+    all_pruned_request->conjuncts = {create_int32_greater_than_conjunct(0, 10)};
+    ASSERT_TRUE(all_pruned->open(all_pruned_request).ok());
+    children.clear();
+    was_split = false;
+    ASSERT_TRUE(all_pruned->build_physical_splits(&children, &was_split).ok());
+    EXPECT_TRUE(was_split);
+    EXPECT_TRUE(children.empty());
+}
+
+TEST_F(NewParquetReaderTest, PhysicalSplitsDeclineWhenUnusedChunkHasInvalidEnvelope) {
+    write_parquet_file(_file_path, 2);
+    rewrite_parquet_metadata(_file_path, [&](tparquet::FileMetaData* metadata) {
+        const auto invalid_offset = cast_set<int64_t>(std::filesystem::file_size(_file_path) + 1);
+        for (auto& row_group : metadata->row_groups) {
+            ASSERT_GE(row_group.columns.size(), 2);
+            auto& unused = row_group.columns[1].meta_data;
+            unused.__set_data_page_offset(invalid_offset);
+            unused.__set_dictionary_page_offset(invalid_offset);
+        }
+    });
+
+    constexpr int64_t TEST_MTIME = 444444;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(field_projection(0));
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        auto block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, ROW_COUNT);
+}
+
+TEST_F(NewParquetReaderTest, PhysicalSplitsSkipEmptyRowGroupsBeforeAndBetweenData) {
+    write_parquet_file_with_explicit_row_groups(_file_path, {{}, {10}, {}, {20}});
+    constexpr int64_t TEST_MTIME = 515151;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(children.size(), 2);
+    EXPECT_EQ(children[0].format_split_id, 1);
+    EXPECT_EQ(children[1].format_split_id, 3);
+}
+
+TEST_F(NewParquetReaderTest, PhysicalSplitsCompleteAnAllEmptyFileWithoutChildren) {
+    write_parquet_file_with_explicit_row_groups(_file_path, {{}, {}});
+    constexpr int64_t TEST_MTIME = 616161;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
+    EXPECT_TRUE(was_split);
+    EXPECT_TRUE(children.empty());
+}
+
+TEST_F(NewParquetReaderTest, PositiveRowRootOnlyFileKeepsInitializedReaderForCount) {
+    write_parquet_file(_file_path, 2);
+    rewrite_as_root_only_parquet_file(_file_path);
+    constexpr int64_t TEST_MTIME = 717171;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, ROW_COUNT);
+}
+
+TEST_F(NewParquetReaderTest, InMemoryStagedFilesDeclinePhysicalSplitRefinement) {
+    write_parquet_file(_file_path, 2);
+    auto parquet_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_GT(parquet_reader->metadata()->num_row_groups(), 1);
+    io::FileReaderSPtr local_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(_file_path, &local_reader).ok());
+
+    format::parquet::ParquetFileContext file_context;
+    io::FileDescription file_description;
+    file_description.path = "https://example.test/multi-row-group.parquet";
+    file_description.file_size = static_cast<int64_t>(local_reader->size());
+    file_description.mtime = 123456;
+    io::IOContext io_context;
+    ASSERT_TRUE(file_context
+                        .open(std::make_shared<HttpPathFileReader>(std::move(local_reader)),
+                              &io_context, false, file_description)
+                        .ok());
+    EXPECT_FALSE(file_context.can_refine_physical_splits());
+
+    io::FileReaderSPtr ordinary_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(_file_path, &ordinary_reader).ok());
+    file_context.native_file = std::move(ordinary_reader);
+    EXPECT_TRUE(file_context.can_refine_physical_splits());
+}
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     auto reader = create_reader();
@@ -3410,19 +3802,33 @@ TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotReuseMutableUnknownVersion)
     _file_path = (_test_dir / "mutable_footer_cache.parquet").string();
     write_parquet_file(_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-
     RuntimeProfile first_profile("native_footer_cache_mutable_first");
-    auto first = create_reader(0, -1, &first_profile);
+    auto first =
+            create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false, false, {}, 0);
     ASSERT_TRUE(first->init(&state).ok());
     EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
     EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
 
     write_parquet_file(_file_path);
     RuntimeProfile second_profile("native_footer_cache_mutable_second");
-    auto second = create_reader(0, -1, &second_profile);
+    auto second = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false, false,
+                                {}, 0);
     ASSERT_TRUE(second->init(&state).ok());
     EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 1);
     EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, MutableUnknownVersionDeclinesPhysicalSplitRefinement) {
+    write_parquet_file(_file_path, 2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
 }
 
 TEST_F(NewParquetReaderTest, NativeFooterSizeIsBoundedBeforeMetadataAllocation) {

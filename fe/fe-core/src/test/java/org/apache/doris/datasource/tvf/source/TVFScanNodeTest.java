@@ -31,6 +31,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -101,6 +102,27 @@ public class TVFScanNodeTest {
         method.setAccessible(true);
         long target = (long) method.invoke(node, statuses);
         Assert.assertEquals(100 * MB, target);
+    }
+
+    @Test
+    public void testDetermineTargetFileSplitSizeUsesCoarseSizeForParquet() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.getTFileFormatType()).thenReturn(TFileFormatType.FORMAT_PARQUET);
+        desc.setTable(table);
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+
+        TBrokerFileStatus status = new TBrokerFileStatus();
+        status.setSize(10_000L * MB);
+        Method method = TVFScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class);
+        method.setAccessible(true);
+
+        Assert.assertEquals(512 * MB,
+                (long) method.invoke(node, Collections.singletonList(status)));
     }
 
     private static TBrokerFileStatus splittableFile(String path, long size) {

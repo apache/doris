@@ -574,9 +574,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                     RawFile file = rawFiles.get(i);
                     LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
                     try {
+                        long splitSize = selectFeSplitSizeForRawFile(
+                                file.path(), targetFileSplitSize, !applyCountPushdown);
                         List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                targetFileSplitSize,
+                                splitSize,
                                 null,
                                 file.length(),
                                 -1,
@@ -628,8 +630,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
-                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize()));
+        long legacyWeightTarget = sessionVariable.getFileSplitSize() > 0
+                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize();
+        splits.stream().filter(s -> ((PaimonSplit) s).getTargetSplitSize() == null)
+                .forEach(s -> s.setTargetSplitSize(legacyWeightTarget));
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
@@ -1013,6 +1017,26 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private String getFileFormat(String path) {
         return FileFormatUtils.getFileFormatBySuffix(path).orElse(source.getFileFormatFromTableProperties());
+    }
+
+    @VisibleForTesting
+    long selectFeSplitSizeForRawFile(String path, long fallbackSize, boolean supportsBeSplit) {
+        // Unsupported semantic paths must not require native-file metadata just to keep the
+        // connector's legacy split target.
+        if (!supportsBeSplit) {
+            return fallbackSize;
+        }
+        String format = FileFormatUtils.getFileFormatBySuffix(path)
+                .orElseGet(() -> source.getFileFormatFromTableProperties());
+        TFileFormatType thriftFormat;
+        if ("parquet".equals(format)) {
+            thriftFormat = TFileFormatType.FORMAT_PARQUET;
+        } else if ("orc".equals(format)) {
+            thriftFormat = TFileFormatType.FORMAT_ORC;
+        } else {
+            return fallbackSize;
+        }
+        return selectFeSplitSizeForBe(fallbackSize, thriftFormat, true);
     }
 
     @VisibleForTesting

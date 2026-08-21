@@ -636,11 +636,53 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups) {
     DORIS_CHECK(row_group_first_rows != nullptr && selected_row_groups != nullptr);
-    if (scan_range.start_offset < 0 || scan_range.size < -1 ||
+    row_group_first_rows->assign(metadata.row_groups.size(), 0);
+    int64_t next_first_row = 0;
+    for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
+        (*row_group_first_rows)[row_group_idx] = next_first_row;
+        const auto row_group_rows = metadata.row_groups[row_group_idx].num_rows;
+        if (row_group_rows < 0) {
+            return Status::Corruption("Invalid negative row count in parquet row group {}",
+                                      row_group_idx);
+        }
+        if (row_group_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
+            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
+        }
+        next_first_row += row_group_rows;
+    }
+    return select_native_row_groups_by_scan_range(metadata, scan_range, *row_group_first_rows,
+                                                  selected_row_groups);
+}
+
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              const std::vector<int64_t>& row_group_first_rows,
+                                              std::vector<int>* selected_row_groups) {
+    DORIS_CHECK(selected_row_groups != nullptr);
+    DORIS_CHECK(row_group_first_rows.size() == metadata.row_groups.size());
+    if (scan_range.start_offset < 0 || scan_range.size < -1 || scan_range.row_group_id < -1 ||
+        scan_range.row_group_id_end < -1 ||
+        scan_range.row_group_id >= cast_set<int64_t>(metadata.row_groups.size()) ||
+        (scan_range.row_group_id_end >= 0 &&
+         (scan_range.row_group_id < 0 || scan_range.row_group_id_end < scan_range.row_group_id ||
+          scan_range.row_group_id_end >= cast_set<int64_t>(metadata.row_groups.size()))) ||
         (scan_range.size >= 0 &&
          scan_range.start_offset > std::numeric_limits<int64_t>::max() - scan_range.size)) {
         return Status::Corruption("Invalid Parquet scan range [{}, {})", scan_range.start_offset,
                                   scan_range.size);
+    }
+    selected_row_groups->clear();
+    if (scan_range.row_group_id >= 0) {
+        const int64_t row_group_id_end = scan_range.row_group_id_end >= 0
+                                                 ? scan_range.row_group_id_end
+                                                 : scan_range.row_group_id;
+        selected_row_groups->reserve(
+                cast_set<size_t>(row_group_id_end - scan_range.row_group_id + 1));
+        for (int64_t row_group_id = scan_range.row_group_id; row_group_id <= row_group_id_end;
+             ++row_group_id) {
+            selected_row_groups->push_back(cast_set<int>(row_group_id));
+        }
+        return Status::OK();
     }
     const uint64_t range_start = static_cast<uint64_t>(scan_range.start_offset);
     const uint64_t range_end = scan_range.size < 0
@@ -653,21 +695,9 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                     range_end >= static_cast<uint64_t>(scan_range.file_size));
     const auto compat = native::parquet_reader_compat(
             metadata.__isset.created_by ? metadata.created_by : std::string {});
-    row_group_first_rows->assign(metadata.row_groups.size(), 0);
-    selected_row_groups->clear();
     selected_row_groups->reserve(metadata.row_groups.size());
-    int64_t next_first_row = 0;
     for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
-        (*row_group_first_rows)[row_group_idx] = next_first_row;
         const auto& row_group = metadata.row_groups[row_group_idx];
-        if (row_group.num_rows < 0) {
-            return Status::Corruption("Invalid negative row count in parquet row group {}",
-                                      row_group_idx);
-        }
-        if (row_group.num_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
-            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
-        }
-        next_first_row += row_group.num_rows;
         bool selected = full_file_range;
         if (!full_file_range) {
             if (row_group.columns.empty()) {
@@ -702,6 +732,30 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
 }
 
 } // namespace detail
+
+detail::ParquetAdaptiveSnapshot ParquetAdaptiveContext::restore(uint64_t predicate_digest) const {
+    std::lock_guard lock(_lock);
+    const auto snapshot = _snapshots.find(predicate_digest);
+    return snapshot == _snapshots.end() ? detail::ParquetAdaptiveSnapshot {} : snapshot->second;
+}
+
+void ParquetAdaptiveContext::publish(uint64_t predicate_digest,
+                                     const detail::ParquetAdaptiveSnapshot& incoming_snapshot) {
+    std::lock_guard lock(_lock);
+    auto& current = _snapshots[predicate_digest];
+    for (const auto& [position, incoming_stats] : incoming_snapshot.predicate_runtime_stats) {
+        auto& current_stats = current.predicate_runtime_stats[position];
+        if (incoming_stats.samples >= current_stats.samples) {
+            current_stats = incoming_stats;
+        }
+    }
+    if (incoming_snapshot.predicate_batch_sequence >= current.predicate_batch_sequence) {
+        current.predicate_batch_sequence = incoming_snapshot.predicate_batch_sequence;
+        current.predicate_survival_ratio = incoming_snapshot.predicate_survival_ratio;
+    }
+    current.empty_predicate_batch_rows = std::max(current.empty_predicate_batch_rows,
+                                                  incoming_snapshot.empty_predicate_batch_rows);
+}
 
 namespace {
 
@@ -825,10 +879,10 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     plan->pruning_stats = {};
     plan->requested_leaf_column_ids = request_leaf_column_ids(file_schema, request);
     plan->enable_bloom_filter = enable_bloom_filter;
-    std::vector<int64_t> row_group_first_rows;
+    const auto& row_group_first_rows = metadata.row_group_first_rows();
     std::vector<int> scan_range_selected;
     RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
-            metadata.to_thrift(), scan_range, &row_group_first_rows, &scan_range_selected));
+            metadata.to_thrift(), scan_range, row_group_first_rows, &scan_range_selected));
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
                                                       scan_range_selected, row_group_first_rows,
                                                       plan, timezone, runtime_state, file_context));
@@ -1214,6 +1268,7 @@ void ParquetScanScheduler::set_scan_request(std::shared_ptr<format::FileScanRequ
     _active_request = std::move(request);
     _pending_request.reset();
     _predicate_schedule_request = nullptr;
+    _restore_adaptive_state(*_active_request);
 }
 
 void ParquetScanScheduler::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
@@ -1239,9 +1294,35 @@ void ParquetScanScheduler::activate_pending_scan_request_at_row_group_boundary()
     _predicate_indices_by_position_scratch.clear();
     _materialized_predicate_positions_scratch.clear();
     _ordered_predicate_positions_scratch.clear();
+    _restore_adaptive_state(*_active_request);
+}
+
+void ParquetScanScheduler::_restore_adaptive_state(const format::FileScanRequest& request) {
     _predicate_runtime_stats.clear();
     _predicate_batch_sequence = 0;
     _predicate_survival_ratio = -1;
+    _empty_predicate_batch_rows = 0;
+    if (_adaptive_context == nullptr || !request.predicate_snapshot_digest.has_value()) {
+        return;
+    }
+    const auto snapshot = _adaptive_context->restore(*request.predicate_snapshot_digest);
+    _predicate_runtime_stats = snapshot.predicate_runtime_stats;
+    _predicate_batch_sequence = snapshot.predicate_batch_sequence;
+    _predicate_survival_ratio = snapshot.predicate_survival_ratio;
+    _empty_predicate_batch_rows = snapshot.empty_predicate_batch_rows;
+}
+
+void ParquetScanScheduler::_publish_adaptive_state(const format::FileScanRequest& request) {
+    if (_adaptive_context == nullptr || !request.predicate_snapshot_digest.has_value()) {
+        return;
+    }
+    // Concurrent children may publish in either order. The adaptive context keeps only monotonic
+    // sample progress for this exact predicate digest, so a cold sibling cannot erase warm state.
+    _adaptive_context->publish(*request.predicate_snapshot_digest,
+                               {.predicate_runtime_stats = _predicate_runtime_stats,
+                                .predicate_survival_ratio = _predicate_survival_ratio,
+                                .predicate_batch_sequence = _predicate_batch_sequence,
+                                .empty_predicate_batch_rows = _empty_predicate_batch_rows});
 }
 
 void ParquetScanScheduler::reset_current_row_group() {
@@ -2904,6 +2985,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     _predicate_survival_ratio = _predicate_survival_ratio < 0
                                         ? batch_survival
                                         : 0.25 * batch_survival + 0.75 * _predicate_survival_ratio;
+    _publish_adaptive_state(request);
     if (_scan_profile.selected_rows != nullptr) {
         COUNTER_UPDATE(_scan_profile.selected_rows, selected_rows);
     }
@@ -3115,7 +3197,7 @@ Status ParquetScanScheduler::read_next_batch(
         *eof = false;
         return Status::OK();
     }
-    int64_t predicate_batch_rows = _batch_size;
+    int64_t predicate_batch_rows = std::max(_batch_size, _empty_predicate_batch_rows);
     const int64_t max_predicate_batch_rows = std::min<int64_t>(
             std::numeric_limits<uint16_t>::max(),
             std::max<int64_t>(DEFAULT_READ_BATCH_SIZE, _runtime_state == nullptr
@@ -3185,6 +3267,8 @@ Status ParquetScanScheduler::read_next_batch(
             // long empty prefixes cheaply; a later non-empty probe is sliced before lazy columns
             // are materialized, so this internal width cannot escape the caller's row cap.
             predicate_batch_rows = grow_empty_predicate_batch(predicate_batch_rows);
+            _empty_predicate_batch_rows = predicate_batch_rows;
+            _publish_adaptive_state(*_active_request);
             continue;
         }
         *eof = false;
