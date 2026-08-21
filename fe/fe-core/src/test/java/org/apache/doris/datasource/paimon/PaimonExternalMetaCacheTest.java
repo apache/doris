@@ -540,6 +540,44 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testGenerationLoadsUseTheAuthenticatorCapturedAtTableLoad() {
+        // A property ALTER resets the catalog (nulling its authenticator) before retiring the
+        // old group. A lookup that already captured the table generation must keep using the
+        // authenticator bound to that generation instead of resolving the resetting catalog.
+        MockedPaimonCatalog mocked = new MockedPaimonCatalog();
+        AtomicInteger boundExecutions = new AtomicInteger();
+        ExecutionAuthenticator boundAuthenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                boundExecutions.incrementAndGet();
+                return task.call();
+            }
+        };
+        // The catalog's current authenticator is mid-reset and must never be consulted.
+        Mockito.when(mocked.catalog.getExecutionAuthenticator())
+                .thenThrow(new IllegalStateException("catalog is resetting"));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            PaimonTableCacheValue tableValue =
+                    new PaimonTableCacheValue(mocked.baseTable, boundAuthenticator);
+            cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, PaimonTableCacheValue.class).put(mocked.mapping, tableValue);
+            ExternalTable dorisTable = mocked.dorisTable();
+
+            Assert.assertEquals(7L, cache.getSnapshotCache(dorisTable).getSnapshot().getSnapshotId());
+            Assert.assertTrue("fence and projection loads must run on the captured authenticator",
+                    boundExecutions.get() >= 2);
+            Assert.assertNotNull(cache.getPaimonSchemaCacheValue(mocked.mapping, 3L));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testContendedPolicyHandoffRetriesInsteadOfFailingTheLookup() {
         // A cache-policy ALTER may hold the lifecycle fence while a lookup re-prepares; the
         // nonblocking preparer then returns empty-handed and the lookup must retry within a

@@ -29,9 +29,14 @@ import org.apache.iceberg.io.SupportsStorageCredentials;
 
 import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class IcebergTableCacheValue {
     private volatile Table icebergTable;
+    // The execution authenticator active when this generation was loaded; see the Paimon
+    // counterpart for the concurrent catalog-reset rationale.
+    @Nullable
+    private volatile org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator;
     private String retainedCurrentSnapshotJson;
     private volatile boolean queryIsolationPrepared;
     private long retainedTablePayloadBytes;
@@ -39,6 +44,16 @@ public class IcebergTableCacheValue {
 
     public IcebergTableCacheValue(Table icebergTable) {
         this.icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(icebergTable);
+    }
+
+    void bindAuthenticator(
+            @Nullable org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator) {
+        this.authenticator = authenticator;
+    }
+
+    @Nullable
+    org.apache.doris.common.security.authentication.ExecutionAuthenticator getAuthenticator() {
+        return authenticator;
     }
 
     public Table getIcebergTable() {

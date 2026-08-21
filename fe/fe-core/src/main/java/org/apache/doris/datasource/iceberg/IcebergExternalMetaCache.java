@@ -176,7 +176,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 IcebergSnapshotEntryKey.tryCreate(nameMapping, retainedTable);
         if (!optionalKey.isPresent()) {
             boolean isolateForQueries = tableValue.isQueryIsolationPrepared();
-            return executeAuthenticated(nameMapping.getCtlId(),
+            return executeForGeneration(tableValue, nameMapping.getCtlId(),
                     () -> loadSnapshotProjection(
                             dorisTable,
                             isolateForQueries ? tableValue.newQueryScopedTable()
@@ -190,7 +190,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         boolean isolateForQueries = tableValue.isQueryIsolationPrepared()
                 || entry.isWeightAccounting();
         Function<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> projectionLoader =
-                ignored -> executeAuthenticated(nameMapping.getCtlId(), () -> {
+                ignored -> executeForGeneration(tableValue, nameMapping.getCtlId(), () -> {
                     Table projectionTable = isolateForQueries
                             ? tableValue.newQueryScopedTable() : tableValue.getIcebergTable();
                     IcebergSnapshotCacheValue value = loadSnapshotProjection(
@@ -320,6 +320,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return executeAuthenticated(catalog, () -> {
             Table table = ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
             IcebergTableCacheValue value = new IcebergTableCacheValue(table);
+            if (catalog instanceof ExternalCatalog) {
+                value.bindAuthenticator(((ExternalCatalog) catalog).getExecutionAuthenticator());
+            }
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
                     tableEntry.getIfInitialized(nameMapping.getCtlId());
             if (currentEntry != null && currentEntry.isWeightAccounting()) {
@@ -464,6 +467,26 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             return (IcebergMetadataOps) (((IcebergExternalCatalog) catalog).getMetadataOps());
         }
         throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
+    }
+
+    /**
+     * Execute on the authenticated context captured with the table generation, falling back to
+     * the catalog's current authenticator for values that predate the capture. A concurrent
+     * property ALTER resets the catalog before retiring the group, so a lookup that already
+     * owns the old generation must not resolve authentication from the resetting catalog.
+     */
+    private <T> T executeForGeneration(
+            IcebergTableCacheValue tableValue, long catalogId, Callable<T> task) {
+        org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator =
+                tableValue.getAuthenticator();
+        if (authenticator == null) {
+            return executeAuthenticated(catalogId, task);
+        }
+        try {
+            return authenticator.execute(task);
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
     }
 
     private <T> T executeAuthenticated(long catalogId, Callable<T> task) {
