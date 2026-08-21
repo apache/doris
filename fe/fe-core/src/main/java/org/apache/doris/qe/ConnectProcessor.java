@@ -757,6 +757,10 @@ public abstract class ConnectProcessor {
                     }
                     throw new RuntimeException("Prepare failed when proxy execute");
                 }
+                // Forwarded PREPARE and EXECUTE share the retained StatementContext, but they are distinct
+                // resource generations. Release any catalog/table leases acquired while analyzing PREPARE
+                // before ExecuteCommand opens the execution generation.
+                ctx.getStatementContext().detachStatementResources().close();
                 handleExecute(preparedStatementContext.command, Long.parseLong(preparedStmtId),
                         preparedStatementContext,
                         ByteBuffer.wrap(request.getPrepareExecuteBuffer()).order(ByteOrder.LITTLE_ENDIAN), queryId);
