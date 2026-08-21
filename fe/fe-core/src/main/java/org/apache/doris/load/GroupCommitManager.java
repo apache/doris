@@ -357,8 +357,16 @@ public class GroupCommitManager {
                 if (backendId == null) {
                     return null;
                 }
-                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (isBackendAvailable(backend, cluster)) {
+                Backend backend;
+                if (cluster != null) {
+                    // The cloud service resolves a cluster or VCG to its current active backend pool.
+                    // Look up the cached backend in that pool to validate membership after topology changes.
+                    backend = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getBackendInCurrentCluster(cluster, backendId);
+                } else {
+                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                }
+                if (isBackendAvailable(backend)) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(encode(cluster, tableId));
@@ -370,15 +378,9 @@ public class GroupCommitManager {
         return null;
     }
 
-    private boolean isBackendAvailable(Backend backend, String cluster) {
-        if (backend == null || !backend.isAlive() || backend.isDecommissioned() || backend.isDecommissioning()
-                || !backend.isLoadAvailable()) {
-            return false;
-        }
-        if (!Config.isCloudMode()) {
-            return true;
-        }
-        return cluster == null || cluster.equals(backend.getCloudClusterName());
+    private boolean isBackendAvailable(Backend backend) {
+        return backend != null && backend.isAlive() && !backend.isDecommissioned()
+                && !backend.isDecommissioning() && backend.isLoadAvailable();
     }
 
     @Nullable
@@ -386,7 +388,7 @@ public class GroupCommitManager {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         for (Backend backend : backends) {
-            if (isBackendAvailable(backend, cluster)) {
+            if (isBackendAvailable(backend)) {
                 tableToBeMap.put(encode(cluster, tableId), backend.getId());
                 tableToPressureMap.put(tableId,
                         new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));

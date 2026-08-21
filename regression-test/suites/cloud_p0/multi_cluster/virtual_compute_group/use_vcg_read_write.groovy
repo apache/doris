@@ -125,6 +125,10 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             }
             log.info("backends of cluster2: ${clusterName2} ${cluster2Ips}".toString())
 
+            def groupCommitStreamLoadFe = options.connectToFollower
+                    ? cluster.getOneFollowerFe() : cluster.getMasterFe()
+            assertNotNull(groupCommitStreamLoadFe)
+
             sql """use @${normalVclusterName}"""
             sql """ drop table if exists ${tableName} """
 
@@ -145,6 +149,9 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
                   `k13` datetime NULL
                 ) ENGINE=OLAP
                 DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                PROPERTIES (
+                    "group_commit_interval_ms" = "200"
+                )
             """
 
             sql """
@@ -188,10 +195,12 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 set 'column_separator', ','
                 set 'cloud_cluster', 'normalVirtualClusterName'
+                set 'group_commit', 'sync_mode'
+                unset 'label'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
-                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
+                setFeAddr groupCommitStreamLoadFe.host, groupCommitStreamLoadFe.httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -370,10 +379,12 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 set 'column_separator', ','
                 set 'cloud_cluster', 'normalVirtualClusterName'
+                set 'group_commit', 'sync_mode'
+                unset 'label'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
-                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
+                setFeAddr groupCommitStreamLoadFe.host, groupCommitStreamLoadFe.httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
