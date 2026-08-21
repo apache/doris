@@ -144,8 +144,7 @@ public class ConfigTest {
 
             Config.inverted_index_storage_format = "V2";
             ConfigException startupException = Assert.assertThrows(ConfigException.class,
-                    () -> new ConfigBase.RejectStartupInvertedIndexV1Handler().handle(
-                            Config.class.getField("inverted_index_storage_format"), " V1 "));
+                    () -> InvertedIndexStorageFormatValidator.rejectStartupV1(" V1 "));
             Assert.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
             Assert.assertEquals("V2", Config.inverted_index_storage_format);
         } finally {
