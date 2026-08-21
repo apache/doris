@@ -1261,13 +1261,14 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
             expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
             add_column_zonemap(&nested_ctx, probe->slot_index, column_schema);
         }
-        const auto result = VExprContext::evaluate_zonemap_filter({conjunct}, nested_ctx);
+        std::vector<bool> ignored_always_true;
+        const auto result =
+                VExprContext::evaluate_zonemap_filter({conjunct}, nested_ctx, &ignored_always_true);
         accumulate_zonemap_stats(nested_ctx, pruning_stats);
         if (result == ZoneMapFilterResult::kNoMatch) {
             return true;
         }
     }
-
     const auto slot_indexes = collect_expr_zonemap_slot_indexes(direct_conjuncts);
     if (slot_indexes.empty()) {
         return false;
@@ -1281,7 +1282,9 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
         const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
         add_column_zonemap(&ctx, slot_index, column_schema);
     }
-    const auto result = VExprContext::evaluate_zonemap_filter(direct_conjuncts, ctx);
+    std::vector<bool> ignored_always_true;
+    const auto result =
+            VExprContext::evaluate_zonemap_filter(direct_conjuncts, ctx, &ignored_always_true);
     accumulate_zonemap_stats(ctx, pruning_stats);
     return result == ZoneMapFilterResult::kNoMatch;
 }
@@ -2267,6 +2270,7 @@ Status select_row_group_ranges_by_native_page_index(
                 metadata, row_group, *column_schema, timezone, null_count_trusted);
         std::vector<RowRange> filter_ranges;
         bool usable = true;
+        std::vector<bool> ignored_always_true;
         for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
              ++page_idx) {
             const auto page_range =
@@ -2281,7 +2285,7 @@ Status select_row_group_ranges_by_native_page_index(
             ZoneMapEvalContext ctx;
             add_slot_zonemap(&ctx, slot_index, column_schema->type,
                              ParquetStatisticsUtils::MakeZoneMap(statistics), has_zero_nan_count);
-            if (VExprContext::evaluate_zonemap_filter(conjuncts, ctx) !=
+            if (VExprContext::evaluate_zonemap_filter(conjuncts, ctx, &ignored_always_true) !=
                 ZoneMapFilterResult::kNoMatch) {
                 append_row_range(page_range, &filter_ranges);
             }

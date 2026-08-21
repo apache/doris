@@ -103,12 +103,15 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
-        // there is null in range, accept it
+    bool support_zonemap() const override { return _nested->support_zonemap(); }
+
+    ZoneMapFilterResult evaluate_zonemap_filter_impl(
+            const segment_v2::ZoneMap& zone_map) const override {
+        // NULL rows are accepted, so a zone holding one always has a matching row.
         if (zone_map.has_null) {
-            return true;
+            return ZoneMapFilterResult::kMayMatch;
         }
-        return _nested->evaluate_and(zone_map);
+        return _nested->evaluate_zonemap_filter(zone_map);
     }
 
     bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
@@ -129,10 +132,6 @@ public:
             }
         }
         return row_ranges->count() > 0;
-    }
-
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
-        return _nested->evaluate_del(zone_map);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }

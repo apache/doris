@@ -70,12 +70,24 @@ public:
     void evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    ZoneMapFilterResult evaluate_zonemap_filter_impl(
+            const segment_v2::ZoneMap& zone_map) const override {
         if (_is_null) {
-            return zone_map.has_null;
-        } else {
-            return zone_map.has_not_null;
+            if (!zone_map.has_null) {
+                return ZoneMapFilterResult::kNoMatch; // no NULL row here
+            }
+            if (!zone_map.has_not_null) {
+                return ZoneMapFilterResult::kAllMatch; // every row is NULL
+            }
+            return ZoneMapFilterResult::kMayMatch;
         }
+        if (!zone_map.has_not_null) {
+            return ZoneMapFilterResult::kNoMatch; // every row is NULL
+        }
+        if (!zone_map.has_null) {
+            return ZoneMapFilterResult::kAllMatch; // no NULL row here
+        }
+        return ZoneMapFilterResult::kMayMatch;
     }
 
     bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
@@ -102,17 +114,6 @@ public:
             }
         };
         return row_ranges->count() > 0;
-    }
-
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
-        // evaluate_del only use for delete condition to filter page, need use delete condition origin value,
-        // when opposite==true, origin value 'is null'->'is not null' and 'is not null'->'is null',
-        // so when _is_null==true, need check 'is not null' and _is_null==false, need check 'is null'
-        if (_is_null) {
-            return !zone_map.has_null;
-        } else {
-            return !zone_map.has_not_null;
-        }
     }
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
