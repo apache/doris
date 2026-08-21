@@ -988,6 +988,7 @@ public class ConnectContext {
     // on this connection, or when the connection is torn down. See #62259.
     private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
     private boolean flightSqlDeferredExecutorsSealed;
+    private int flightSqlResultPublishers;
 
     public boolean addFlightSqlDeferredExecutor(StmtExecutor executor) {
         synchronized (flightSqlDeferredExecutors) {
@@ -997,6 +998,33 @@ public class ConnectContext {
             flightSqlDeferredExecutors.add(executor);
             return true;
         }
+    }
+
+    /** Linearizes GetFlightInfo publication with the terminal session seal. */
+    public boolean canPublishFlightSqlResult() {
+        synchronized (flightSqlDeferredExecutors) {
+            return !flightSqlDeferredExecutorsSealed;
+        }
+    }
+
+    public boolean beginFlightSqlResultPublication() {
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutorsSealed) {
+                return false;
+            }
+            flightSqlResultPublishers++;
+            return true;
+        }
+    }
+
+    public void endFlightSqlResultPublication() {
+        List<StmtExecutor> toClose = null;
+        synchronized (flightSqlDeferredExecutors) {
+            if (--flightSqlResultPublishers == 0 && flightSqlDeferredExecutorsSealed) {
+                toClose = drainFlightSqlDeferredExecutors();
+            }
+        }
+        finalizeFlightSqlDeferredExecutors(toClose);
     }
 
     public void closeFlightSqlDeferredExecutors() {
@@ -1009,16 +1037,34 @@ public class ConnectContext {
     }
 
     private void closeFlightSqlDeferredExecutors(boolean seal) {
-        List<StmtExecutor> toClose;
+        List<StmtExecutor> toClose = null;
         synchronized (flightSqlDeferredExecutors) {
             if (seal) {
                 flightSqlDeferredExecutorsSealed = true;
+                // An in-flight GetFlightInfo owns the coordinator until it either publishes its result or
+                // observes the seal and fails. Let its terminal path perform the drain so teardown cannot
+                // release the query resources while a successful ticket is still being constructed.
+                if (flightSqlResultPublishers != 0) {
+                    return;
+                }
             }
-            if (flightSqlDeferredExecutors.isEmpty()) {
-                return;
-            }
-            toClose = new ArrayList<>(flightSqlDeferredExecutors);
-            flightSqlDeferredExecutors.clear();
+            toClose = drainFlightSqlDeferredExecutors();
+        }
+        finalizeFlightSqlDeferredExecutors(toClose);
+    }
+
+    private List<StmtExecutor> drainFlightSqlDeferredExecutors() {
+        if (flightSqlDeferredExecutors.isEmpty()) {
+            return null;
+        }
+        List<StmtExecutor> toClose = new ArrayList<>(flightSqlDeferredExecutors);
+        flightSqlDeferredExecutors.clear();
+        return toClose;
+    }
+
+    private void finalizeFlightSqlDeferredExecutors(List<StmtExecutor> toClose) {
+        if (toClose == null) {
+            return;
         }
         for (StmtExecutor deferredExecutor : toClose) {
             try {
