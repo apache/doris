@@ -18,7 +18,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { UiApiError } from './client';
-import { legacyGet, legacyPostForm } from './operations';
+import { legacyGet, legacyPostFormMutation } from './operations';
 import type { UiLogSnapshot } from './types';
 
 export const logQueryKey = ['ui', 'log'] as const;
@@ -76,7 +76,9 @@ async function updateVerboseName(parameter: 'add_verbose' | 'del_verbose', rawNa
       requestId: 'client',
     });
   }
-  await legacyPostForm<Record<string, unknown>>('/rest/v1/log', new URLSearchParams({ [parameter]: name }));
+  await legacyPostFormMutation<Record<string, unknown>>(
+    '/rest/v1/log', new URLSearchParams({ [parameter]: name }),
+  );
 }
 
 export function useLog(enabled: boolean) {

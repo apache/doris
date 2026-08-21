@@ -16,6 +16,7 @@
 // under the License.
 
 import { addVerboseName, deleteVerboseName, fetchLog } from './log';
+import { setCsrfToken } from './csrf';
 
 const snapshot = {
   level: 'INFO',
@@ -46,6 +47,11 @@ function mutationSuccess() {
 }
 
 describe('Log UI API', () => {
+  afterEach(() => {
+    setCsrfToken(null);
+    vi.restoreAllMocks();
+  });
+
   it('reads the structured log snapshot', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(legacySuccess());
     await expect(fetchLog()).resolves.toEqual(snapshot);
@@ -56,6 +62,7 @@ describe('Log UI API', () => {
     ['add', addVerboseName],
     ['delete', deleteVerboseName],
   ] as const)('%s reuses the legacy form endpoint', async (label, operation) => {
+    setCsrfToken('csrf-log');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(mutationSuccess());
 
     await operation('org.apache.doris.M10Probe');
@@ -65,6 +72,7 @@ describe('Log UI API', () => {
     expect(fetchSpy.mock.calls[0]?.[0]).toBe('/rest/v1/log');
     expect(init?.method).toBe('POST');
     expect(headers.get('Content-Type')).toContain('application/x-www-form-urlencoded');
+    expect(headers.get('X-Doris-CSRF-Token')).toBe('csrf-log');
     expect(init?.body).toBe(`${label === 'add' ? 'add_verbose' : 'del_verbose'}=org.apache.doris.M10Probe`);
   });
 

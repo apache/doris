@@ -25,6 +25,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -154,6 +155,102 @@ public class WebSqlSessionManagerTest {
                 limits(1, 1, 100, 20));
         WebSqlSession session = manager.createSession("alice", "");
         assertError(WebSqlError.QUERY_ERROR, () -> manager.execute(session.getId(), "alice", "bad sql"));
+        manager.destroy();
+    }
+
+    @Test
+    void slowConnectionOpenDoesNotBlockSessionClose() throws Exception {
+        Connection first = Mockito.mock(Connection.class);
+        Connection second = Mockito.mock(Connection.class);
+        AtomicInteger opens = new AtomicInteger();
+        CountDownLatch opening = new CountDownLatch(1);
+        CountDownLatch releaseOpen = new CountDownLatch(1);
+        WebSqlConnectionFactory factory = (user, password) -> {
+            if (opens.getAndIncrement() == 0) {
+                return first;
+            }
+            opening.countDown();
+            try {
+                releaseOpen.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("connection open interrupted", exception);
+            }
+            return second;
+        };
+        WebSqlSessionManager manager = manager(factory, Mockito.mock(WebSqlStatementExecutor.class),
+                limits(3, 3, 1000, 20));
+        WebSqlSession existing = manager.createSession("alice", "");
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<WebSqlSession> openingSession = pool.submit(() -> manager.createSession("bob", ""));
+        Assertions.assertTrue(opening.await(1, TimeUnit.SECONDS));
+
+        Future<Boolean> closing = pool.submit(() -> manager.closeSession(existing.getId(), "alice"));
+        Assertions.assertTrue(closing.get(1, TimeUnit.SECONDS));
+        Mockito.verify(first).close();
+
+        releaseOpen.countDown();
+        Assertions.assertNotNull(openingSession.get(1, TimeUnit.SECONDS));
+        pool.shutdownNow();
+        manager.destroy();
+    }
+
+    @Test
+    void failedConnectionOpenReleasesReservedQuota() {
+        Connection connection = Mockito.mock(Connection.class);
+        AtomicInteger opens = new AtomicInteger();
+        WebSqlConnectionFactory factory = (user, password) -> {
+            if (opens.getAndIncrement() == 0) {
+                throw new SQLException("first open fails");
+            }
+            return connection;
+        };
+        WebSqlSessionManager manager = manager(factory, Mockito.mock(WebSqlStatementExecutor.class),
+                limits(1, 1, 1000, 20));
+
+        assertError(WebSqlError.CONNECTION_ERROR, () -> manager.createSession("alice", ""));
+        Assertions.assertNotNull(manager.createSession("alice", ""));
+        manager.destroy();
+    }
+
+    @Test
+    void resetCannotInstallAConnectionAfterConcurrentClose() throws Exception {
+        Connection original = Mockito.mock(Connection.class);
+        Connection replacement = Mockito.mock(Connection.class);
+        AtomicInteger opens = new AtomicInteger();
+        CountDownLatch replacementOpening = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+        WebSqlConnectionFactory factory = (user, password) -> {
+            if (opens.getAndIncrement() == 0) {
+                return original;
+            }
+            replacementOpening.countDown();
+            try {
+                releaseReplacement.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("reset interrupted", exception);
+            }
+            return replacement;
+        };
+        WebSqlSessionManager manager = manager(factory, Mockito.mock(WebSqlStatementExecutor.class),
+                limits(2, 2, 1000, 20));
+        WebSqlSession session = manager.createSession("alice", "");
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        Future<WebSqlSession> resetting = pool.submit(() -> manager.reset(session.getId(), "alice", ""));
+        Assertions.assertTrue(replacementOpening.await(1, TimeUnit.SECONDS));
+
+        Assertions.assertTrue(manager.closeSession(session.getId(), "alice"));
+        Mockito.verify(original).close();
+        releaseReplacement.countDown();
+        ExecutionException exception = Assertions.assertThrows(
+                ExecutionException.class, () -> resetting.get(1, TimeUnit.SECONDS));
+        Assertions.assertTrue(exception.getCause() instanceof WebSqlException);
+        Assertions.assertEquals(WebSqlError.CONNECTION_ERROR,
+                ((WebSqlException) exception.getCause()).getError());
+        Mockito.verify(replacement).close();
+        Assertions.assertEquals(0, manager.size());
+        pool.shutdownNow();
         manager.destroy();
     }
 

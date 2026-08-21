@@ -17,6 +17,8 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.analysis.UserIdentity;
+
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,26 +34,28 @@ public class WebSqlSessionControllerTest {
     private WebSqlSessionController controller;
     private HttpServletRequest request;
     private String owner;
+    private UserIdentity userIdentity;
 
     @BeforeEach
     void setUp() {
         manager = Mockito.mock(WebSqlSessionManager.class);
         controller = new WebSqlSessionController(manager);
         request = Mockito.mock(HttpServletRequest.class);
-        owner = "'alice'@'%'";
+        owner = "alice";
+        userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(owner, "10.%");
         Mockito.when(request.getAttribute(WebSqlRequestContext.AUTH_ATTRIBUTE))
-                .thenReturn(new WebSqlRequestContext.Authentication(owner, "secret"));
+                .thenReturn(new WebSqlRequestContext.Authentication(userIdentity, "secret"));
     }
 
     @Test
     void createUsesAuthenticatedCookieIdentityAndPassword() {
         WebSqlSession session = session("session-1");
-        Mockito.when(manager.createSession(owner, "secret")).thenReturn(session);
+        Mockito.when(manager.createSession(userIdentity, "secret")).thenReturn(session);
 
         WebSqlSessionInfo response = controller.create(request);
 
         Assertions.assertEquals("session-1", response.getSessionId());
-        Mockito.verify(manager).createSession(owner, "secret");
+        Mockito.verify(manager).createSession(userIdentity, "secret");
     }
 
     @Test
@@ -61,7 +65,7 @@ public class WebSqlSessionControllerTest {
                 "internal", "tpcds", false);
         Mockito.when(manager.execute("session-1", owner, "SELECT 1")).thenReturn(execution);
         Mockito.when(manager.cancel("session-1", owner)).thenReturn(true);
-        Mockito.when(manager.reset("session-1", owner, "secret")).thenReturn(session("session-1"));
+        Mockito.when(manager.reset("session-1", userIdentity, "secret")).thenReturn(session("session-1"));
         Mockito.when(manager.closeSession("session-1", owner)).thenReturn(true);
         Map<String, String> statement = Collections.singletonMap("sql", "SELECT 1");
 
@@ -72,7 +76,7 @@ public class WebSqlSessionControllerTest {
 
         Mockito.verify(manager).execute("session-1", owner, "SELECT 1");
         Mockito.verify(manager).cancel("session-1", owner);
-        Mockito.verify(manager).reset("session-1", owner, "secret");
+        Mockito.verify(manager).reset("session-1", userIdentity, "secret");
         Mockito.verify(manager).closeSession("session-1", owner);
     }
 

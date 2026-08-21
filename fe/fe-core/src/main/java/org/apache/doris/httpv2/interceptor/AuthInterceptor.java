@@ -48,7 +48,6 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
     private static final Logger LOG = LogManager.getLogger(AuthInterceptor.class);
     private static final String UI_API_PREFIX = "/rest/v1/ui/";
     private static final String WEB_SQL_API_PREFIX = "/rest/v1/sql-sessions";
-    private static final String CONFIG_MUTATION_API_PREFIX = "/rest/v2/manager/node/set_config/";
     private static final Set<String> MUTATING_METHODS = ImmutableSet.of("POST", "PUT", "PATCH", "DELETE");
 
     @Override
@@ -67,8 +66,6 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
             authenticateUiRequest(request, response);
         } else if (isWebSqlApi(request.getRequestURI())) {
             authenticateWebSqlRequest(request, response);
-        } else if (isConfigurationMutation(request)) {
-            authenticateConfigurationMutation(request, response);
         } else {
             checkAuthWithCookie(request, response);
         }
@@ -78,21 +75,6 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
     private boolean isWebSqlApi(String requestUri) {
         return WEB_SQL_API_PREFIX.equals(requestUri)
                 || requestUri.startsWith(WEB_SQL_API_PREFIX + "/");
-    }
-
-    private boolean isConfigurationMutation(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        return "POST".equalsIgnoreCase(request.getMethod())
-                && (CONFIG_MUTATION_API_PREFIX.concat("fe").equals(uri)
-                || CONFIG_MUTATION_API_PREFIX.concat("be").equals(uri));
-    }
-
-    private void authenticateConfigurationMutation(HttpServletRequest request, HttpServletResponse response) {
-        if (request.getHeader("Authorization") != null) {
-            checkAuthWithCookie(request, response);
-            return;
-        }
-        authenticateUiRequest(request, response);
     }
 
     protected void authenticateUiRequest(HttpServletRequest request, HttpServletResponse response) {
@@ -122,7 +104,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
                     checkInstanceOverdue(user);
                 }
                 requireAdmin(user);
-                WebSqlRequestContext.set(request, user.getQualifiedUser(), authInfo.password);
+                WebSqlRequestContext.set(request, user, authInfo.password);
                 return;
             }
 
@@ -133,8 +115,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
                             session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
                 throw new WebSqlException(WebSqlError.CSRF_INVALID);
             }
-            WebSqlRequestContext.set(
-                    request, session.currentUser.getQualifiedUser(), session.password);
+            WebSqlRequestContext.set(request, session.currentUser, session.password);
         } catch (UnauthorizedException exception) {
             throw new WebSqlException(WebSqlError.AUTHENTICATION_REQUIRED, exception);
         }

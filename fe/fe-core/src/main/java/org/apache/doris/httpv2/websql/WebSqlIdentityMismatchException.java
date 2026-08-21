@@ -17,17 +17,11 @@
 
 package org.apache.doris.httpv2.websql;
 
-import org.apache.doris.analysis.UserIdentity;
-
-import java.sql.Connection;
 import java.sql.SQLException;
 
-/** Creates the persistent JDBC connection owned by one Web SQL session. */
-public interface WebSqlConnectionFactory {
-    Connection open(String user, String password) throws SQLException;
-
-    /** Opens a connection that must resolve to the same Doris identity authenticated by HTTP. */
-    default Connection open(UserIdentity userIdentity, String password) throws SQLException {
-        return open(userIdentity.getQualifiedUser(), password);
+/** Signals that loopback JDBC authentication selected a different identity than HTTP authentication. */
+class WebSqlIdentityMismatchException extends SQLException {
+    WebSqlIdentityMismatchException(String expected, String actual) {
+        super("HTTP authenticated as " + expected + " but the local SQL connection resolved as " + actual);
     }
 }

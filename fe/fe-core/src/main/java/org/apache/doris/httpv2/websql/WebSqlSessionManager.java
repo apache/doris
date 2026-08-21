@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 
@@ -32,6 +33,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +60,8 @@ public class WebSqlSessionManager implements DisposableBean {
             .expireAfterWrite(1, TimeUnit.HOURS)
             .build();
     private final Object lifecycleLock = new Object();
+    private int pendingSessions;
+    private volatile boolean destroyed;
     private final WebSqlConnectionFactory connectionFactory;
     private final WebSqlStatementExecutor statementExecutor;
     private final WebSqlLimits limits;
@@ -95,26 +99,43 @@ public class WebSqlSessionManager implements DisposableBean {
     }
 
     public WebSqlSession createSession(String owner, String password) {
+        return createSession(owner, password, null);
+    }
+
+    public WebSqlSession createSession(UserIdentity userIdentity, String password) {
+        return createSession(userIdentity.getQualifiedUser(), password, userIdentity);
+    }
+
+    private WebSqlSession createSession(String owner, String password, UserIdentity userIdentity) {
         requireEnabled();
-        synchronized (lifecycleLock) {
-            int maxSessions = currentMaxSessions();
-            int maxSessionsPerUser = Math.min(maxSessions, limits.maxSessionsPerUser);
-            if (sessions.size() >= maxSessions
-                    || sessionsPerOwner.getOrDefault(owner, 0) >= maxSessionsPerUser) {
-                throw new WebSqlException(WebSqlError.SESSION_LIMIT_EXCEEDED);
-            }
-            Connection connection;
-            try {
-                connection = connectionFactory.open(owner, password);
-            } catch (SQLException exception) {
-                throw new WebSqlException(WebSqlError.CONNECTION_ERROR, exception);
-            }
-            String id = frontendHint + "." + randomToken(32);
-            WebSqlSession session = new WebSqlSession(id, owner, connection, clock.getAsLong());
-            sessions.put(id, session);
-            sessionsPerOwner.merge(owner, 1, Integer::sum);
-            return session;
+        reserveSession(owner);
+        Connection connection;
+        try {
+            connection = userIdentity == null
+                    ? connectionFactory.open(owner, password)
+                    : connectionFactory.open(userIdentity, password);
+        } catch (SQLException exception) {
+            releaseReservation(owner);
+            throw connectionException(exception);
         }
+
+        String id = frontendHint + "." + randomToken(32);
+        WebSqlSession session = new WebSqlSession(id, owner, connection, clock.getAsLong());
+        boolean accepted;
+        synchronized (lifecycleLock) {
+            pendingSessions--;
+            accepted = !destroyed;
+            if (accepted) {
+                sessions.put(id, session);
+            } else {
+                decrementOwnerCount(owner);
+            }
+        }
+        if (!accepted) {
+            closeConnection(session);
+            throw new WebSqlException(WebSqlError.DISABLED);
+        }
+        return session;
     }
 
     /** Returns an existing owner-scoped session after applying the normal enabled, ID, and expiry checks. */
@@ -150,6 +171,14 @@ public class WebSqlSessionManager implements DisposableBean {
     }
 
     public WebSqlSession reset(String id, String owner, String password) {
+        return reset(id, owner, password, null);
+    }
+
+    public WebSqlSession reset(String id, UserIdentity userIdentity, String password) {
+        return reset(id, userIdentity.getQualifiedUser(), password, userIdentity);
+    }
+
+    private WebSqlSession reset(String id, String owner, String password, UserIdentity userIdentity) {
         requireEnabled();
         WebSqlSession session = requireOwnedSession(id, owner);
         enter(session);
@@ -157,9 +186,11 @@ public class WebSqlSessionManager implements DisposableBean {
             session.touch(clock.getAsLong());
             Connection replacement;
             try {
-                replacement = connectionFactory.open(owner, password);
+                replacement = userIdentity == null
+                        ? connectionFactory.open(owner, password)
+                        : connectionFactory.open(userIdentity, password);
             } catch (SQLException exception) {
-                throw new WebSqlException(WebSqlError.CONNECTION_ERROR, exception);
+                throw connectionException(exception);
             }
             try {
                 session.replaceConnection(replacement);
@@ -232,6 +263,7 @@ public class WebSqlSessionManager implements DisposableBean {
         if (cleaner != null) {
             cleaner.shutdownNow();
         }
+        destroyed = true;
         for (WebSqlSession session : new ArrayList<>(sessions.values())) {
             removeAndClose(session, false);
         }
@@ -282,9 +314,44 @@ public class WebSqlSessionManager implements DisposableBean {
     }
 
     private void requireEnabled() {
-        if (!(useRuntimeConfig ? Config.enable_web_ui && Config.enable_web_sql_session : limits.enabled)) {
+        if (destroyed || !(useRuntimeConfig ? Config.enable_web_ui && Config.enable_web_sql_session : limits.enabled)) {
             throw new WebSqlException(WebSqlError.DISABLED);
         }
+    }
+
+    private void reserveSession(String owner) {
+        synchronized (lifecycleLock) {
+            if (destroyed) {
+                throw new WebSqlException(WebSqlError.DISABLED);
+            }
+            int maxSessions = currentMaxSessions();
+            int maxSessionsPerUser = Math.min(maxSessions, limits.maxSessionsPerUser);
+            if (sessions.size() + pendingSessions >= maxSessions
+                    || sessionsPerOwner.getOrDefault(owner, 0) >= maxSessionsPerUser) {
+                throw new WebSqlException(WebSqlError.SESSION_LIMIT_EXCEEDED);
+            }
+            pendingSessions++;
+            sessionsPerOwner.merge(owner, 1, Integer::sum);
+        }
+    }
+
+    private void releaseReservation(String owner) {
+        synchronized (lifecycleLock) {
+            pendingSessions--;
+            decrementOwnerCount(owner);
+        }
+    }
+
+    private void decrementOwnerCount(String owner) {
+        sessionsPerOwner.computeIfPresent(owner, (ignored, count) -> count <= 1 ? null : count - 1);
+    }
+
+    private WebSqlException connectionException(SQLException exception) {
+        if (exception instanceof WebSqlIdentityMismatchException) {
+            return new WebSqlException(WebSqlError.IDENTITY_MISMATCH,
+                    Collections.singletonMap("message", exception.getMessage()), exception);
+        }
+        return new WebSqlException(WebSqlError.CONNECTION_ERROR, exception);
     }
 
     private long currentIdleTimeoutMillis() {
@@ -313,7 +380,7 @@ public class WebSqlSessionManager implements DisposableBean {
             if (!sessions.remove(session.getId(), session)) {
                 return false;
             }
-            sessionsPerOwner.computeIfPresent(session.getOwner(), (ignored, count) -> count <= 1 ? null : count - 1);
+            decrementOwnerCount(session.getOwner());
             if (expired) {
                 expiredSessionIds.put(session.getId(), true);
             }

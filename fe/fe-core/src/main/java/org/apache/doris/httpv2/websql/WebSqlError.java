@@ -38,6 +38,8 @@ public enum WebSqlError {
             "The CSRF token is missing or invalid."),
     QUERY_ERROR(HttpStatus.BAD_REQUEST, "WEB_SQL_QUERY_ERROR", "The SQL statement could not be executed."),
     QUERY_TIMEOUT(HttpStatus.REQUEST_TIMEOUT, "WEB_SQL_QUERY_TIMEOUT", "The SQL statement timed out."),
+    IDENTITY_MISMATCH(HttpStatus.CONFLICT, "WEB_SQL_IDENTITY_MISMATCH",
+            "The local SQL connection resolved to a different Doris user identity."),
     CONNECTION_ERROR(HttpStatus.SERVICE_UNAVAILABLE, "WEB_SQL_CONNECTION_ERROR",
             "A Web SQL connection could not be created.");
 
