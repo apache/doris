@@ -824,11 +824,11 @@ void JniConnector::_collect_profile_before_close() {
         COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
         COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
 
-        int64_t append_data_time = 0;
+        jlong append_data_time = 0;
         auto append_time_status =
                 _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
                         .call(&append_data_time);
-        int64_t create_vector_table_time = 0;
+        jlong create_vector_table_time = 0;
         auto create_table_time_status =
                 _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
                         .call(&create_vector_table_time);

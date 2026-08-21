@@ -692,10 +692,17 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 
 if (ENABLE_PAIMON_CPP)
     if (PAIMON_FACTORY_REGISTRY_LIBS)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-            -Wl,--whole-archive
-            ${PAIMON_FACTORY_REGISTRY_LIBS}
-            -Wl,--no-whole-archive)
+        if (APPLE)
+            foreach(lib ${PAIMON_FACTORY_REGISTRY_LIBS})
+                set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                    -Wl,-force_load,$<TARGET_FILE:${lib}>)
+            endforeach()
+        else()
+            set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                -Wl,--whole-archive
+                ${PAIMON_FACTORY_REGISTRY_LIBS}
+                -Wl,--no-whole-archive)
+        endif()
     endif()
 
     # paimon-cpp internal dependencies (renamed with _paimon suffix)
@@ -779,6 +786,8 @@ else()
         "-framework Foundation"
         "-framework SystemConfiguration"
         "-framework Security"
+        # liblance_c.a pulls in the Rust `sysinfo` crate, whose macOS backend calls IOKit.
+        "-framework IOKit"
     )
     if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
         set(DORIS_LINK_LIBS
