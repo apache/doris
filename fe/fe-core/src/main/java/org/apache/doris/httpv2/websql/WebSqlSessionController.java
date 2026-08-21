@@ -42,7 +42,7 @@ public class WebSqlSessionController {
     @PostMapping
     public WebSqlSessionInfo create(HttpServletRequest request) {
         WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
-        WebSqlSession session = manager.createSession(login.getOwner(), login.getPassword());
+        WebSqlSession session = manager.createSession(login.getUserIdentity(), login.getPassword());
         return new WebSqlSessionInfo(session);
     }
 
@@ -68,7 +68,7 @@ public class WebSqlSessionController {
     @PostMapping("/{id}/reset")
     public WebSqlSessionInfo reset(@PathVariable("id") String id, HttpServletRequest request) {
         WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
-        return new WebSqlSessionInfo(manager.reset(id, login.getOwner(), login.getPassword()));
+        return new WebSqlSessionInfo(manager.reset(id, login.getUserIdentity(), login.getPassword()));
     }
 
     @DeleteMapping("/{id}")

@@ -57,11 +57,13 @@ public class WebSqlStatementExecutor {
         try (Statement statement = connection.createStatement(
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
             statement.setFetchSize(1000);
+            statement.setMaxRows(limits.maxResultRows + 1);
             session.setActiveStatement(statement);
             boolean hasResultSet = statement.execute(validatedSql);
             if (hasResultSet) {
                 try (ResultSet resultSet = statement.getResultSet()) {
-                    queryResult = readResultSet(resultSet, limits.maxResultRows, maxResultBytes);
+                    queryResult = readResultSet(resultSet, statement, connection,
+                            limits.maxResultRows, maxResultBytes);
                 }
             } else {
                 queryResult = new QueryResult(Collections.emptyList(), Collections.emptyList(),
@@ -82,8 +84,8 @@ public class WebSqlStatementExecutor {
                 metadata.catalog, metadata.database, queryResult.truncated);
     }
 
-    private QueryResult readResultSet(ResultSet resultSet, int maxResultRows, long maxResultBytes)
-            throws SQLException {
+    private QueryResult readResultSet(ResultSet resultSet, Statement statement, Connection connection,
+            int maxResultRows, long maxResultBytes) throws SQLException {
         ResultSetMetaData metadata = resultSet.getMetaData();
         int columnCount = metadata.getColumnCount();
         List<WebSqlColumn> columns = Lists.newArrayListWithCapacity(columnCount);
@@ -97,6 +99,7 @@ public class WebSqlStatementExecutor {
         while (resultSet.next()) {
             if (rows.size() >= maxResultRows) {
                 truncated = true;
+                cancelAtResultLimit(statement, connection);
                 break;
             }
             List<Object> row = Lists.newArrayListWithCapacity(columnCount);
@@ -110,12 +113,26 @@ public class WebSqlStatementExecutor {
             }
             if (resultBytes + rowBytes > maxResultBytes) {
                 truncated = true;
+                cancelAtResultLimit(statement, connection);
                 break;
             }
             rows.add(row);
             resultBytes += rowBytes;
         }
         return new QueryResult(columns, rows, 0, truncated);
+    }
+
+    private void cancelAtResultLimit(Statement statement, Connection connection) throws SQLException {
+        try {
+            statement.cancel();
+        } catch (SQLException cancelException) {
+            try {
+                connection.close();
+            } catch (SQLException closeException) {
+                cancelException.addSuppressed(closeException);
+            }
+            throw cancelException;
+        }
     }
 
     long currentMaxResultBytes() {

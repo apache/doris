@@ -92,7 +92,10 @@ public class WebSqlSession {
         return true;
     }
 
-    void replaceConnection(Connection replacement) throws SQLException {
+    synchronized void replaceConnection(Connection replacement) throws SQLException {
+        if (closed) {
+            throw new SQLException("session was closed while its connection was being replaced");
+        }
         Connection previous = connection;
         if (previous != null) {
             previous.close();
@@ -100,7 +103,7 @@ public class WebSqlSession {
         connection = replacement;
     }
 
-    void closeConnection() throws SQLException {
+    synchronized void closeConnection() throws SQLException {
         if (closed) {
             return;
         }

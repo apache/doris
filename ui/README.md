@@ -99,6 +99,10 @@ Playwright requires its Chromium runtime. The browser path may be isolated with 
   Mutable entries expose an ADMIN-only editor, while immutable entries remain
   read-only. Long values are truncated in the table and remain available on
   hover.
+- UI entry and the PR-added bootstrap/Web SQL endpoints require global
+  `ADMIN`. Reused legacy `/rest/v1` endpoints retain their existing controller
+  authorization behavior; this UI replacement does not make every legacy HTTP
+  endpoint globally ADMIN-only.
 - React, TypeScript, Vite, React Router, Ant Design, TanStack Query, CodeMirror,
   React Flow, ELK, Vitest, Testing Library, and Playwright infrastructure.
 

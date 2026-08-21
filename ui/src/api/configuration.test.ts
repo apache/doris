@@ -53,7 +53,8 @@ describe('configuration adapter', () => {
     expect(row).toMatchObject({ name: 'be_port', masterOnly: null, currentValue: '9060', mutable: true });
   });
 
-  it('uses the existing manager endpoint with cookie credentials', async () => {
+  it('uses the existing manager endpoint with cookie credentials and CSRF', async () => {
+    setCsrfToken('csrf-config');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ column_names: [], rows: [] }));
 
     await fetchConfiguration('fe');
@@ -62,6 +63,8 @@ describe('configuration adapter', () => {
       '/rest/v2/manager/node/configuration_info?type=fe',
       expect.objectContaining({ method: 'POST', credentials: 'same-origin', body: '{}' }),
     );
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(new Headers(init?.headers).get('X-Doris-CSRF-Token')).toBe('csrf-config');
   });
 
   it('uses the existing set-config endpoint with CSRF and preserves per-node failures', async () => {

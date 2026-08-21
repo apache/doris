@@ -23,10 +23,12 @@ import org.junit.jupiter.api.Test;
 public class SingleStatementValidatorTest {
     @Test
     void acceptsOneStatementAndSemicolonsInsideLiteralsOrComments() {
-        Assertions.assertEquals("SELECT ';' AS value",
+        Assertions.assertEquals("SELECT ';' AS value;",
                 SingleStatementValidator.requireSingleStatement(" SELECT ';' AS value; "));
-        Assertions.assertEquals("SELECT 1 /* ; */", SingleStatementValidator.requireSingleStatement(
+        Assertions.assertEquals("SELECT 1 /* ; */; -- trailing comment", SingleStatementValidator.requireSingleStatement(
                 "SELECT 1 /* ; */; -- trailing comment"));
+        Assertions.assertEquals("SELECT 1 /* outer /* ; */ inner */;",
+                SingleStatementValidator.requireSingleStatement("SELECT 1 /* outer /* ; */ inner */;"));
     }
 
     @Test
@@ -35,6 +37,8 @@ public class SingleStatementValidatorTest {
         assertInvalid("SELECT 1; SELECT 2");
         assertInvalid("SELECT 'unterminated");
         assertInvalid("SELECT 1 /* unterminated");
+        assertInvalid("SELECT count(*) FROM tbl /* /* */ # */ ; DROP TABLE tbl");
+        assertInvalid("SELECT 'a\\'; SELECT 2 --'");
     }
 
     private void assertInvalid(String sql) {

@@ -62,6 +62,19 @@ export async function legacyPostForm<T>(path: string, form: URLSearchParams): Pr
   });
 }
 
+export async function legacyPostFormMutation<T>(path: string, form: URLSearchParams): Promise<T> {
+  const token = getCsrfToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+  };
+  if (token) headers['X-Doris-CSRF-Token'] = token;
+  return legacyRequest<T>(path, {
+    method: 'POST',
+    headers,
+    body: form.toString(),
+  });
+}
+
 export async function legacyPostJson<T>(path: string, body: unknown): Promise<T> {
   return legacyRequest<T>(path, {
     method: 'POST',

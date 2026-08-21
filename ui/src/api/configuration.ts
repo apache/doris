@@ -17,7 +17,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 
-import { legacyPostJson, legacyPostJsonMutation } from './operations';
+import { legacyPostJsonMutation } from './operations';
 
 export type ConfigurationScope = 'fe' | 'be';
 
@@ -125,7 +125,7 @@ export function adaptConfiguration(payload: ConfigurationPayload, scope: Configu
 }
 
 export async function fetchConfiguration(scope: ConfigurationScope): Promise<ConfigurationRow[]> {
-  const payload = await legacyPostJson<ConfigurationPayload>(
+  const payload = await legacyPostJsonMutation<ConfigurationPayload>(
     `/rest/v2/manager/node/configuration_info?type=${scope}`,
     {},
   );

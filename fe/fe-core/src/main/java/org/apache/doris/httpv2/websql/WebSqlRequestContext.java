@@ -17,6 +17,8 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.analysis.UserIdentity;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 /** Carries the authenticated Doris identity from the HTTP interceptor to the Web SQL controller. */
@@ -26,8 +28,8 @@ public final class WebSqlRequestContext {
     private WebSqlRequestContext() {
     }
 
-    public static void set(HttpServletRequest request, String owner, String password) {
-        request.setAttribute(AUTH_ATTRIBUTE, new Authentication(owner, password));
+    public static void set(HttpServletRequest request, UserIdentity userIdentity, String password) {
+        request.setAttribute(AUTH_ATTRIBUTE, new Authentication(userIdentity, password));
     }
 
     public static Authentication authentication(HttpServletRequest request) {
@@ -40,16 +42,20 @@ public final class WebSqlRequestContext {
 
     /** Authenticated Doris credentials needed to create or reset the session's JDBC connection. */
     public static final class Authentication {
-        private final String owner;
+        private final UserIdentity userIdentity;
         private final String password;
 
-        Authentication(String owner, String password) {
-            this.owner = owner;
+        Authentication(UserIdentity userIdentity, String password) {
+            this.userIdentity = userIdentity;
             this.password = password == null ? "" : password;
         }
 
         public String getOwner() {
-            return owner;
+            return userIdentity.getQualifiedUser();
+        }
+
+        public UserIdentity getUserIdentity() {
+            return userIdentity;
         }
 
         public String getPassword() {

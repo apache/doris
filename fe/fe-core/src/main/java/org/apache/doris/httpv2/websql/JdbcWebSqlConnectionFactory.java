@@ -17,16 +17,23 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 
 /** Opens Web SQL connections to the current FE's MySQL query port with the authenticated Doris user. */
 public class JdbcWebSqlConnectionFactory implements WebSqlConnectionFactory {
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
-    private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/";
+    private static final int CONNECT_TIMEOUT_MILLIS = 10000;
+    private static final int SOCKET_TIMEOUT_MILLIS = 30 * 60 * 1000;
+    private static final String CURRENT_USER_SQL = "SELECT CURRENT_USER()";
+    private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/"
+            + "?connectTimeout=" + CONNECT_TIMEOUT_MILLIS + "&socketTimeout=" + SOCKET_TIMEOUT_MILLIS;
 
     @Override
     public Connection open(String user, String password) throws SQLException {
@@ -35,6 +42,40 @@ public class JdbcWebSqlConnectionFactory implements WebSqlConnectionFactory {
         } catch (ClassNotFoundException exception) {
             throw new SQLException("MariaDB JDBC driver is unavailable", exception);
         }
-        return DriverManager.getConnection(String.format(DB_URL_PATTERN, Config.query_port), user, password);
+        return DriverManager.getConnection(connectionUrl(Config.query_port), user, password);
+    }
+
+    @Override
+    public Connection open(UserIdentity userIdentity, String password) throws SQLException {
+        Connection connection = open(userIdentity.getQualifiedUser(), password);
+        try {
+            String actualIdentity = currentUser(connection);
+            String expectedIdentity = userIdentity.toString();
+            if (!expectedIdentity.equals(actualIdentity)) {
+                throw new WebSqlIdentityMismatchException(expectedIdentity, actualIdentity);
+            }
+            return connection;
+        } catch (SQLException exception) {
+            try {
+                connection.close();
+            } catch (SQLException closeException) {
+                exception.addSuppressed(closeException);
+            }
+            throw exception;
+        }
+    }
+
+    static String connectionUrl(int queryPort) {
+        return String.format(DB_URL_PATTERN, queryPort);
+    }
+
+    String currentUser(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery(CURRENT_USER_SQL)) {
+            if (!resultSet.next()) {
+                throw new SQLException("CURRENT_USER() returned no row");
+            }
+            return resultSet.getString(1);
+        }
     }
 }

@@ -60,7 +60,37 @@ public class WebSqlStatementExecutorTest {
         Assertions.assertTrue(result.isTruncated());
         Assertions.assertEquals("tpcds", result.getDatabase());
         Assertions.assertFalse(session.cancel());
+        Mockito.verify(statement).setMaxRows(11);
+        Mockito.verify(statement).cancel();
         Mockito.verify(connection, Mockito.never()).close();
+    }
+
+    @Test
+    void cancelsServerWorkWhenTheRowLimitIsReached() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
+        Mockito.when(statement.execute("SELECT value")).thenReturn(true);
+        Mockito.when(statement.getResultSet()).thenReturn(resultSet);
+        Mockito.when(resultSet.getMetaData()).thenReturn(metadata);
+        Mockito.when(metadata.getColumnCount()).thenReturn(1);
+        Mockito.when(metadata.getColumnName(1)).thenReturn("value");
+        Mockito.when(metadata.getColumnTypeName(1)).thenReturn("INT");
+        Mockito.when(resultSet.next()).thenReturn(true, true);
+        Mockito.when(resultSet.getObject(1)).thenReturn(1);
+        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+
+        WebSqlExecutionResult result = new WebSqlStatementExecutor().execute(
+                session, "SELECT value", limits(1));
+
+        Assertions.assertEquals(1, result.getRows().size());
+        Assertions.assertTrue(result.isTruncated());
+        Mockito.verify(statement).setMaxRows(2);
+        Mockito.verify(statement).cancel();
     }
 
     @Test
@@ -95,6 +125,32 @@ public class WebSqlStatementExecutorTest {
                 "170141183460469231731687303715884105727",
                 "12345678901234567890123456789.123456789"), result.getRows().get(0));
         Mockito.verify(resultSet, Mockito.never()).getObject(Mockito.anyInt());
+    }
+
+    @Test
+    void closesConnectionIfCancellationAtTheResultLimitFails() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(statement.execute("SELECT value")).thenReturn(true);
+        Mockito.when(statement.getResultSet()).thenReturn(resultSet);
+        Mockito.when(resultSet.getMetaData()).thenReturn(metadata);
+        Mockito.when(metadata.getColumnCount()).thenReturn(1);
+        Mockito.when(metadata.getColumnName(1)).thenReturn("value");
+        Mockito.when(metadata.getColumnTypeName(1)).thenReturn("INT");
+        Mockito.when(resultSet.next()).thenReturn(true, true);
+        Mockito.when(resultSet.getObject(1)).thenReturn(1);
+        Mockito.doThrow(new SQLException("cancel failed")).when(statement).cancel();
+        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+
+        WebSqlException exception = Assertions.assertThrows(WebSqlException.class,
+                () -> new WebSqlStatementExecutor().execute(session, "SELECT value", limits(1)));
+
+        Assertions.assertEquals(WebSqlError.QUERY_ERROR, exception.getError());
+        Mockito.verify(connection).close();
     }
 
     @Test
@@ -153,6 +209,10 @@ public class WebSqlStatementExecutorTest {
     private WebSqlSession activeSession;
 
     private WebSqlLimits limits() {
-        return new WebSqlLimits(true, 1000, 5, 5, 10, 0, 1, 60);
+        return limits(10);
+    }
+
+    private WebSqlLimits limits(int maxResultRows) {
+        return new WebSqlLimits(true, 1000, 5, 5, maxResultRows, 0, 1, 60);
     }
 }
