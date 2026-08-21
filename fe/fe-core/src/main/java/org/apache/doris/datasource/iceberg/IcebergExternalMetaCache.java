@@ -42,11 +42,14 @@ import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -299,14 +302,19 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void invalidateCatalog(long catalogId) {
-        dropManifestFileIoCacheForCatalog(catalogId);
+        // Collect while the entries are still enumerable, drop only after the entries are
+        // detached: a load racing a pre-detach drop could repopulate the SDK content cache
+        // for a FileIO this reset already cleaned.
+        List<FileIO> retainedFileIos = collectManifestFileIos(catalogId);
         super.invalidateCatalog(catalogId);
+        dropManifestFileIoCaches(retainedFileIos);
     }
 
     @Override
     public void invalidateCatalogEntries(long catalogId) {
-        dropManifestFileIoCacheForCatalog(catalogId);
+        List<FileIO> retainedFileIos = collectManifestFileIos(catalogId);
         super.invalidateCatalogEntries(catalogId);
+        dropManifestFileIoCaches(retainedFileIos);
     }
 
     private IcebergTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
@@ -543,18 +551,50 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return builder.build();
     }
 
-    private void dropManifestFileIoCacheForCatalog(long catalogId) {
+    /**
+     * Collect every FileIO a catalog's cached values still retain. A snapshot value can outlive
+     * its weighted/expired/collected table entry while retaining the same frozen table graph, so
+     * both entries are enumerated; identity de-duplication keeps the later drop pass bounded.
+     */
+    private List<FileIO> collectManifestFileIos(long catalogId) {
+        IdentityHashMap<FileIO, Boolean> seen = new IdentityHashMap<>();
+        List<FileIO> fileIos = new ArrayList<>();
         MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.getIfInitialized(catalogId);
         if (tables != null) {
-            tables.forEach((key, value) -> dropManifestFileIoCache(value));
+            tables.forEach((key, value) -> collectManifestFileIo(seen, fileIos,
+                    value == null ? null : value.getIcebergTable()));
+        }
+        MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots =
+                snapshotEntry.getIfInitialized(catalogId);
+        if (snapshots != null) {
+            snapshots.forEach((key, value) -> collectManifestFileIo(seen, fileIos,
+                    value == null ? null : value.getRetainedIcebergTable().orElse(null)));
+        }
+        return fileIos;
+    }
+
+    private void collectManifestFileIo(IdentityHashMap<FileIO, Boolean> seen, List<FileIO> fileIos,
+            @Nullable Table table) {
+        if (table == null) {
+            return;
+        }
+        try {
+            FileIO fileIo = table.io();
+            if (fileIo != null && seen.put(fileIo, Boolean.TRUE) == null) {
+                fileIos.add(fileIo);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to resolve iceberg table FileIO for manifest cache cleanup", e);
         }
     }
 
-    private void dropManifestFileIoCache(IcebergTableCacheValue tableCacheValue) {
-        try {
-            ManifestFiles.dropCache(tableCacheValue.getIcebergTable().io());
-        } catch (Exception e) {
-            LOG.warn("Failed to drop iceberg manifest files cache", e);
+    private void dropManifestFileIoCaches(List<FileIO> fileIos) {
+        for (FileIO fileIo : fileIos) {
+            try {
+                ManifestFiles.dropCache(fileIo);
+            } catch (Exception e) {
+                LOG.warn("Failed to drop iceberg manifest files cache", e);
+            }
         }
     }
 

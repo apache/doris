@@ -41,6 +41,7 @@ import org.apache.iceberg.GenericStatisticsFile;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
@@ -67,6 +68,7 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -211,6 +213,54 @@ public class IcebergExternalMetaCacheTest {
 
             Assert.assertNull(snapshots.peekIfPresent(oldSnapshotKey));
             Assert.assertNull(schemas.peekIfPresent(oldSchemaKey));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testCatalogInvalidationDropsManifestCacheForSnapshotOnlyFileIo() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping sharedMapping = NameMapping.createForTest(catalogId, "db", "shared");
+            NameMapping evictedMapping = NameMapping.createForTest(catalogId, "db", "evicted");
+            PropertiesFileIO sharedIo = new PropertiesFileIO("token", "shared");
+            PropertiesFileIO snapshotOnlyIo = new PropertiesFileIO("token", "snapshot-only");
+            Table sharedTable = tableWithMetadata(
+                    metadataWithLocation("/metadata/shared-v1.json"), sharedIo);
+            Table evictedTable = tableWithMetadata(
+                    metadataWithLocation("/metadata/evicted-v1.json"), snapshotOnlyIo);
+
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_SNAPSHOT,
+                    IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class);
+
+            // The shared generation is retained by both the table entry and its projection: the
+            // reset must drop its per-FileIO manifest cache exactly once.
+            tables.put(sharedMapping, new IcebergTableCacheValue(sharedTable));
+            snapshots.put(IcebergSnapshotEntryKey.tryCreate(sharedMapping, sharedTable).get(),
+                    new IcebergSnapshotCacheValue(IcebergPartitionInfo.empty(),
+                            new IcebergSnapshot(-1L, 0L), Optional.empty(), sharedTable));
+            // The second generation survives only in its independently admitted snapshot
+            // projection, mimicking weight/TTL eviction of the base table entry before reset.
+            snapshots.put(IcebergSnapshotEntryKey.tryCreate(evictedMapping, evictedTable).get(),
+                    new IcebergSnapshotCacheValue(IcebergPartitionInfo.empty(),
+                            new IcebergSnapshot(-1L, 0L), Optional.empty(), evictedTable));
+
+            try (MockedStatic<ManifestFiles> manifestFiles = Mockito.mockStatic(ManifestFiles.class)) {
+                cache.invalidateCatalog(catalogId);
+                manifestFiles.verify(() -> ManifestFiles.dropCache(sharedIo), Mockito.times(1));
+                manifestFiles.verify(() -> ManifestFiles.dropCache(snapshotOnlyIo), Mockito.times(1));
+                manifestFiles.verifyNoMoreInteractions();
+            }
+            Assert.assertNull(tables.peekIfPresent(sharedMapping));
         } finally {
             cache.close();
             executor.shutdownNow();
