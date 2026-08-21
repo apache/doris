@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_alter_database_property") {
+    if (isCloudMode()) {
+        logger.info("Binlog<CCR> database properties are not supported in cloud mode, skip this case.")
+        return
+    }
+
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
