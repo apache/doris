@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -90,6 +91,10 @@ public class CatalogMgrTest {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(catalog.getId());
         log.setNewProps(newProperties);
+        // Pay the one-time Env bootstrap cost here: the first Env.getCurrentEnv() call can take
+        // many seconds on a loaded CI host, and it must not be counted against the latched
+        // validation window below.
+        Assertions.assertNotNull(Env.getCurrentEnv().getExtMetaCacheMgr());
         ExecutorService executor = Executors.newSingleThreadExecutor();
 
         try {
@@ -101,10 +106,10 @@ public class CatalogMgrTest {
                     return e;
                 }
             });
-            Assertions.assertTrue(catalog.validationStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(catalog.validationStarted.await(60, TimeUnit.SECONDS));
 
             Assertions.assertThrows(RuntimeException.class, catalog::makeSureInitialized);
-            DdlException validationFailure = alterResult.get(10, TimeUnit.SECONDS);
+            DdlException validationFailure = alterResult.get(60, TimeUnit.SECONDS);
 
             Assertions.assertNotNull(validationFailure);
             Assertions.assertEquals(oldProperties, catalog.propertiesSeenByInitialization);
@@ -152,7 +157,7 @@ public class CatalogMgrTest {
                 Map<String, String> currentProperties, Map<String, String> updatedProperties) {
             validationStarted.countDown();
             try {
-                Assertions.assertTrue(initializationReadProperties.await(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(initializationReadProperties.await(60, TimeUnit.SECONDS));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException(e);
