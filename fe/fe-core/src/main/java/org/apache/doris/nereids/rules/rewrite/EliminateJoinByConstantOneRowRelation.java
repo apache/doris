@@ -54,13 +54,11 @@ public class EliminateJoinByConstantOneRowRelation implements RewriteRuleFactory
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalJoin(any(), logicalOneRowRelation())
-                        .when(join -> isEnabled())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .when(join -> supportedJoinType(join.getJoinType()))
                         .then(join -> tryRewrite(join, /* constantOnRight= */ true))
                         .toRule(RuleType.ELIMINATE_JOIN_BY_CONSTANT_ONE_ROW_RELATION),
                 logicalJoin(logicalOneRowRelation(), any())
-                        .when(join -> isEnabled())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .when(join -> supportedJoinType(join.getJoinType()))
                         .then(join -> tryRewrite(join, /* constantOnRight= */ false))
