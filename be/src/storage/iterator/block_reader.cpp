@@ -31,6 +31,7 @@
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
@@ -87,6 +88,7 @@ void BlockReader::_init_row_binlog_column_ordinals() {
 
     _min_delta_value_column_pairs.clear();
     _min_delta_value_pairs_complete = false;
+    _min_delta_value_compare_unsupported = false;
     std::vector<binlog::RowBinlogValueColumnPair> physical_pairs;
     if (!binlog::get_row_binlog_value_column_pairs(*_tablet_schema, &physical_pairs)) {
         // Retain the current ReadSchema name-based mapping for malformed legacy layouts, but do
@@ -172,8 +174,9 @@ uint32_t BlockReader::_resolve_source_column_ordinal(uint32_t ordinal, bool use_
     return _row_binlog_before_column_ordinals[ordinal];
 }
 
-bool BlockReader::_min_delta_values_equal(size_t last_row) const {
-    if (!_min_delta_value_pairs_complete || _min_delta_value_column_pairs.empty()) {
+bool BlockReader::_min_delta_values_equal(size_t last_row) {
+    if (!_min_delta_value_pairs_complete || _min_delta_value_column_pairs.empty() ||
+        _min_delta_value_compare_unsupported) {
         return false;
     }
     bool before_image_available = false;
@@ -184,8 +187,19 @@ bool BlockReader::_min_delta_values_equal(size_t last_row) const {
         } else {
             before_image_available = true;
         }
-        if (_stored_data_columns[before_idx]->compare_at(
-                    0, last_row, *_stored_data_columns[after_idx], -1) != 0) {
+        try {
+            if (_stored_data_columns[before_idx]->compare_at(
+                        0, last_row, *_stored_data_columns[after_idx], -1) != 0) {
+                return false;
+            }
+        } catch (const Exception& e) {
+            if (e.code() != ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                throw;
+            }
+            // Column types are stable for the lifetime of this reader. Once one value column
+            // reports that compare_at is unsupported, no row can be proven to be a no-op. Cache
+            // that capability result so BITMAP-like columns pay the exception cost at most once.
+            _min_delta_value_compare_unsupported = true;
             return false;
         }
     }

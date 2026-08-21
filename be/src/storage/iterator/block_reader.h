@@ -83,7 +83,7 @@ private:
 
     uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
 
-    bool _min_delta_values_equal(size_t last_row) const;
+    bool _min_delta_values_equal(size_t last_row);
 
     void _init_pending_row_columns(const Block& block);
 
@@ -165,6 +165,10 @@ private:
     // read-schema ordinals and include comparison-only columns preserved by the FE scan schema.
     std::vector<std::pair<ColumnId, ColumnId>> _min_delta_value_column_pairs;
     bool _min_delta_value_pairs_complete = false;
+
+    // Unsupported compare_at means equality cannot be proven, so MIN_DELTA conservatively keeps
+    // UPDATE rows. Column types are stable within a reader; cache this after the first exception.
+    bool _min_delta_value_compare_unsupported = false;
     Arena _arena;
 };
 

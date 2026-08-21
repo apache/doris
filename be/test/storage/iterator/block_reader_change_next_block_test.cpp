@@ -41,11 +41,14 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_dummy.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/binlog.h"
@@ -79,6 +82,37 @@ struct Row {
     int64_t tso;
     int64_t lsn;
     int64_t op;
+};
+
+class ThrowOnCompareColumn final : public COWHelper<IColumnDummy, ThrowOnCompareColumn> {
+private:
+    friend class COWHelper<IColumnDummy, ThrowOnCompareColumn>;
+
+    ThrowOnCompareColumn(size_t size, int error_code, std::shared_ptr<size_t> compare_calls)
+            : _error_code(error_code), _compare_calls(std::move(compare_calls)) {
+        s = size;
+    }
+    ThrowOnCompareColumn(const ThrowOnCompareColumn&) = default;
+
+public:
+    std::string get_name() const override { return "ThrowOnCompare"; }
+
+    MutableColumnPtr clone_dummy(size_t size) const override {
+        return ThrowOnCompareColumn::create(size, _error_code, _compare_calls);
+    }
+
+    bool structure_equals(const IColumn& rhs) const override {
+        return typeid(rhs) == typeid(ThrowOnCompareColumn);
+    }
+
+    int compare_at(size_t, size_t, const IColumn&, int) const override {
+        ++*_compare_calls;
+        throw Exception(_error_code, "injected compare_at failure");
+    }
+
+private:
+    int _error_code;
+    std::shared_ptr<size_t> _compare_calls;
 };
 
 TabletColumn make_test_column(std::string name, FieldType type, bool is_key, bool is_nullable,
@@ -216,6 +250,37 @@ std::shared_ptr<Block> make_signed_zero_source_block() {
     block->insert({std::move(key_col), int_type, "key"});
     block->insert({std::move(val_col), float_type, "val"});
     block->insert({std::move(before_col), float_type, binlog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
+    block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
+    block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
+    return block;
+}
+
+std::shared_ptr<Block> make_unsupported_compare_source_block(
+        const std::shared_ptr<size_t>& compare_calls) {
+    auto block = std::make_shared<Block>();
+    auto int_type = std::make_shared<DataTypeInt64>();
+    auto nothing_type = std::make_shared<DataTypeNothing>();
+    auto key_col = ColumnInt64::create();
+    auto val_col = ThrowOnCompareColumn::create(0, ErrorCode::NOT_IMPLEMENTED_ERROR, compare_calls);
+    auto before_col =
+            ThrowOnCompareColumn::create(0, ErrorCode::NOT_IMPLEMENTED_ERROR, compare_calls);
+    auto tso_col = ColumnInt64::create();
+    auto lsn_col = ColumnInt64::create();
+    auto op_col = ColumnInt64::create();
+
+    for (int64_t key : {1, 2}) {
+        key_col->insert_value(key);
+        val_col->insert_default();
+        before_col->insert_default();
+        tso_col->insert_value(key);
+        lsn_col->insert_value(key);
+        op_col->insert_value(ROW_BINLOG_UPDATE);
+    }
+
+    block->insert({std::move(key_col), int_type, "key"});
+    block->insert({std::move(val_col), nothing_type, "val"});
+    block->insert({std::move(before_col), nothing_type, binlog::build_before_column_name("val")});
     block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
     block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
     block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
@@ -528,6 +593,56 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSignedZeroUpdateIsSkipped) {
     ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
     EXPECT_EQ(output.rows(), 0);
     EXPECT_TRUE(eof);
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnsupportedCompareIsRetainedAndCached) {
+    auto compare_calls = std::make_shared<size_t>(0);
+    auto source = make_unsupported_compare_source_block(compare_calls);
+    BlockReader reader;
+    configure_reader(reader, source, 16);
+
+    bool eof = false;
+    Block output = source->clone_empty();
+    ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
+
+    // Both equal-value updates must be retained. The second key uses the cached unsupported
+    // capability, so the exception-based capability probe runs exactly once per reader.
+    ASSERT_EQ(output.rows(), 4);
+    EXPECT_EQ(out_i64(output, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, OP_IDX, 2), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 3), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(*compare_calls, 1);
+    EXPECT_TRUE(reader._min_delta_value_compare_unsupported);
+    EXPECT_TRUE(eof);
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnexpectedCompareExceptionIsNotSuppressed) {
+    auto source = make_source_block({{1, 20, 20, 1, 1, ROW_BINLOG_UPDATE}});
+    auto throwing_type = std::make_shared<DataTypeNothing>();
+    auto compare_calls = std::make_shared<size_t>(0);
+    source->get_by_position(VAL_IDX).column =
+            ThrowOnCompareColumn::create(1, ErrorCode::INTERNAL_ERROR, compare_calls);
+    source->get_by_position(VAL_IDX).type = throwing_type;
+    source->get_by_position(VAL_IDX + 1).column =
+            ThrowOnCompareColumn::create(1, ErrorCode::INTERNAL_ERROR, compare_calls);
+    source->get_by_position(VAL_IDX + 1).type = throwing_type;
+    BlockReader reader;
+    configure_reader(reader, source, 16);
+
+    reader._stored_data_columns = source->clone_empty_columns();
+    for (size_t i = 0; i < source->columns(); ++i) {
+        reader._stored_data_columns[i]->insert_from(*source->get_by_position(i).column, 0);
+    }
+
+    try {
+        static_cast<void>(reader._min_delta_values_equal(0));
+        FAIL() << "expected a non-NOT_IMPLEMENTED comparison exception";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+    }
+    EXPECT_EQ(*compare_calls, 1);
+    EXPECT_FALSE(reader._min_delta_value_compare_unsupported);
 }
 
 // The comparison is between the first BEFORE and last AFTER values, so A -> B -> A also has no
