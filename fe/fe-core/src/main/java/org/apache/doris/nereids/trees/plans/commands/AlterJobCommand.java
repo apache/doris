@@ -25,9 +25,11 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -144,7 +146,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 }
                 boolean sqlModified = isSqlModified(streamingJob.getExecuteSql());
                 if (sqlModified) {
-                    checkUnmodifiableProperties(streamingJob.getExecuteSql());
+                    checkUnmodifiableProperties(streamingJob.getExecuteSql(), streamingJob.getJobId());
                 }
                 if (!propModified && !sqlModified) {
                     throw new AnalysisException("No properties or sql changed in ALTER JOB");
@@ -288,7 +290,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     /**
      * Check if there are any unmodifiable properties in TVF
      */
-    private void checkUnmodifiableProperties(String originExecuteSql) throws AnalysisException {
+    private void checkUnmodifiableProperties(String originExecuteSql, long jobId)
+            throws AnalysisException, JobException {
         Pair<List<String>, UnboundTVFRelation> origin = getTargetTableAndTvf(originExecuteSql);
         Pair<List<String>, UnboundTVFRelation> input = getTargetTableAndTvf(sql);
         UnboundTVFRelation originTvf = origin.second;
@@ -306,6 +309,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 Preconditions.checkArgument(Objects.equals(originTvf.getProperties().getMap().get("uri"),
                         inputTvf.getProperties().getMap().get("uri")),
                         "The uri property cannot be modified in ALTER JOB");
+                StreamingJobUtils.validateTvfSource(inputTvf.getFunctionName(),
+                        inputTvf.getProperties().getMap(), String.valueOf(jobId));
                 break;
             case "cdc_stream":
                 // type, jdbc_url, database, schema, and table identify the source and cannot be changed.

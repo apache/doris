@@ -300,6 +300,7 @@ message ObjectStoreInfoPB {
         GCP     = 5;
         AZURE   = 6;
         TOS     = 7;
+        S3EXPRESS = 8;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;

@@ -53,7 +53,7 @@ under the License.
           bumping all four families. See
           plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
         -->
-        <filesystem.plugin.api.version>1.0</filesystem.plugin.api.version>
+        <filesystem.plugin.api.version>2.0</filesystem.plugin.api.version>
     </properties>
 
     <modules>
@@ -61,6 +61,7 @@ under the License.
         <module>fe-filesystem-spi</module>
         <module>fe-filesystem-s3-base</module>
         <module>fe-filesystem-s3</module>
+        <module>fe-filesystem-s3express</module>
         <module>fe-filesystem-gcs</module>
         <module>fe-filesystem-minio</module>
         <module>fe-filesystem-ozone</module>
@@ -94,7 +95,7 @@ under the License.
         <plugins>
             <!--
               Stamps the declared FILESYSTEM plugin API version into every filesystem jar's MANIFEST.
-              Inherited by all child modules, so the fourteen filesystem plugin zips carry it without
+              Inherited by all child modules, so every filesystem plugin zip carries it without
               a per-module pom change; the loader reads it back from the jar that defines the
               FileSystemProvider. Merges with (does not replace) the ASF parent's maven-jar-plugin
               <archive><manifest> configuration.

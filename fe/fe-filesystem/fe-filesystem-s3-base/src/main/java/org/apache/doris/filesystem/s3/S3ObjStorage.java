@@ -161,7 +161,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 buildCredentialsProvider());
     }
 
-    private S3Client buildClient(String endpointStr, String region, AwsCredentialsProvider credentialsProvider)
+    protected S3Client buildClient(String endpointStr, String region,
+            AwsCredentialsProvider credentialsProvider)
             throws IOException {
         S3ClientBuilder builder = S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder()

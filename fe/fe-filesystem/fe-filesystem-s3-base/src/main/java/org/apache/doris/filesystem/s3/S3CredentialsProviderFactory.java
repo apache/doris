@@ -53,10 +53,16 @@ public final class S3CredentialsProviderFactory {
 
     public static AwsCredentialsProvider createClientProvider(S3FileSystemProperties properties,
             BiFunction<AwsCredentialsProvider, String, StsClient> stsClientFactory) {
+        return createClientProvider(properties, stsClientFactory, true);
+    }
+
+    public static AwsCredentialsProvider createClientProvider(S3FileSystemProperties properties,
+            BiFunction<AwsCredentialsProvider, String, StsClient> stsClientFactory,
+            boolean includeAnonymousInDefault) {
         if (properties.hasAssumeRole()) {
             return createAssumeRoleProvider(properties, stsClientFactory);
         }
-        return createBaseProvider(properties, true);
+        return createBaseProvider(properties, includeAnonymousInDefault);
     }
 
     public static AwsCredentialsProvider createStsSourceProvider(S3FileSystemProperties properties) {

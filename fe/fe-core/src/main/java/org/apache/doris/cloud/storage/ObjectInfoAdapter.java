@@ -73,9 +73,16 @@ public class ObjectInfoAdapter {
         switch (obj.getProvider()) {
             case OSS:
                 return StorageAdapter.ofProvider("OSS", buildS3CompatibleProps(obj));
-            case S3:
+            case S3: {
+                Map<String, String> properties = buildS3CompatibleProps(obj);
+                String provider = StorageAdapter.matchesProviderGuess("S3EXPRESS", properties)
+                        ? "S3EXPRESS" : "S3";
+                return StorageAdapter.ofProvider(provider, properties);
+            }
             case GCP:
                 return StorageAdapter.ofProvider("S3", buildS3CompatibleProps(obj));
+            case S3EXPRESS:
+                return StorageAdapter.ofProvider("S3EXPRESS", buildS3CompatibleProps(obj));
             case COS:
                 return StorageAdapter.ofProvider("COS", buildS3CompatibleProps(obj));
             case OBS:

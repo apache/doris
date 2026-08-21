@@ -69,15 +69,18 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
-        s3_fs != nullptr &&
-        !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
-                                           _supports_deferred_azure_multipart)) {
-        // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
-        // compatibility fence, so reject before creating an upload that it could corrupt.
-        return Status::NotSupported(
-                "Azure Hive writes require a coordinator that supports deferred multipart "
-                "completion");
+    if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get()); s3_fs != nullptr) {
+        const auto provider = s3_fs->client_holder()->s3_client_conf().provider;
+        if (provider == io::ObjStorageProvider::S3EXPRESS) {
+            return Status::NotSupported("S3 Express Hive writes are not supported");
+        }
+        if (!hive_multipart_protocol_supported(provider, _supports_deferred_azure_multipart)) {
+            // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
+            // compatibility fence, so reject before creating an upload that it could corrupt.
+            return Status::NotSupported(
+                    "Azure Hive writes require a coordinator that supports deferred multipart "
+                    "completion");
+        }
     }
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));

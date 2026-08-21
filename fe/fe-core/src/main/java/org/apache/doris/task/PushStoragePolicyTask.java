@@ -22,6 +22,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.datasource.storage.S3ThriftAdapter;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
@@ -88,7 +89,8 @@ public class PushStoragePolicyTask extends AgentTask {
             item.setName(r.getName());
             item.setVersion(r.getVersion());
             if (r.getType() == ResourceType.S3) {
-                item.setS3StorageParam(S3ThriftAdapter.getS3TStorageParam(r.getCopiedProperties()));
+                StorageAdapter adapter = StorageAdapter.of(r.getCopiedProperties());
+                item.setS3StorageParam(S3ThriftAdapter.getS3TStorageParam(adapter));
             } else if (r.getType() == ResourceType.HDFS) {
                 item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
             }

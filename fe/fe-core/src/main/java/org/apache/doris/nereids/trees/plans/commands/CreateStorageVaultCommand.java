@@ -28,6 +28,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -36,6 +38,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -124,12 +127,53 @@ public class CreateStorageVaultCommand extends Command implements ForwardWithSyn
         setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
 
-        if (vaultType == StorageVault.StorageVaultType.S3
-                && !properties.containsKey(S3ResourceCompat.USE_PATH_STYLE)) {
-            properties = ImmutableMap.<String, String>builder()
-                    .putAll(properties)
-                    .put(S3ResourceCompat.USE_PATH_STYLE, "true")
-                    .build();
+        if (vaultType == StorageVault.StorageVaultType.S3) {
+            String provider = properties.entrySet().stream()
+                    .filter(entry -> S3ResourceCompat.FS_PROVIDER_KEY.equalsIgnoreCase(entry.getKey()))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
+            provider = provider == null ? null : provider.trim();
+            boolean isS3Express = "S3EXPRESS".equalsIgnoreCase(provider);
+            if (!isS3Express && StorageAdapter.matchesProviderGuess("S3EXPRESS", properties)) {
+                throw new AnalysisException(
+                        "S3 Express storage vault requires provider=S3EXPRESS");
+            }
+            if (isS3Express) {
+                Map<String, String> normalizedProperties = new HashMap<>(properties);
+                normalizedProperties.keySet().removeIf(
+                        key -> S3ResourceCompat.FS_PROVIDER_KEY.equalsIgnoreCase(key));
+                normalizedProperties.put(S3ResourceCompat.FS_PROVIDER_KEY, "S3EXPRESS");
+                properties = ImmutableMap.copyOf(normalizedProperties);
+            }
+            if (isS3Express
+                    && properties.containsKey(S3ResourceCompat.USE_PATH_STYLE)
+                    && !"false".equalsIgnoreCase(
+                            properties.get(S3ResourceCompat.USE_PATH_STYLE))) {
+                throw new AnalysisException(
+                        "S3 Express requires use_path_style=false");
+            }
+            if (!properties.containsKey(S3ResourceCompat.USE_PATH_STYLE)) {
+                properties = ImmutableMap.<String, String>builder()
+                        .putAll(properties)
+                        .put(S3ResourceCompat.USE_PATH_STYLE,
+                                isS3Express ? "false" : "true")
+                        .build();
+            }
+            if (isS3Express) {
+                try {
+                    StorageAdapter adapter = StorageAdapter.ofProvider("S3EXPRESS", properties);
+                    S3CompatibleFileSystemProperties s3Properties =
+                            (S3CompatibleFileSystemProperties) adapter.getSpiProperties();
+                    properties = ImmutableMap.<String, String>builder()
+                            .putAll(properties)
+                            .put(S3ResourceCompat.ENDPOINT, s3Properties.getEndpoint())
+                            .buildKeepingLast();
+                } catch (RuntimeException e) {
+                    throw new AnalysisException(
+                            "Invalid S3 Express storage vault properties: " + e.getMessage(), e);
+                }
+            }
         }
     }
 
