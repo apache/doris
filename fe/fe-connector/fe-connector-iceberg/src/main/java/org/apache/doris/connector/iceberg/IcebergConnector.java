@@ -337,7 +337,7 @@ public class IcebergConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(newCatalogBackedOps(session), catalogProps, context,
                 latestSnapshotCache, tableCache, partitionCache, commentCache,
-                mvccPartitionViewCache, listPartitionsViewCache);
+                mvccPartitionViewCache, listPartitionsViewCache, catalogResourceTracker);
     }
 
     /**
@@ -805,7 +805,7 @@ public class IcebergConnector implements Connector {
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(catalogProps,
                 this::newCatalogBackedOps, context, manifestCache,
-                tableCache, formatCache);
+                tableCache, formatCache, catalogResourceTracker);
     }
 
     @Override
@@ -815,7 +815,7 @@ public class IcebergConnector implements Connector {
         // IcebergConnectorTransaction. It resolves the target via catalogOps.loadTable, so it shares the
         // fully-threaded ops (newCatalogBackedOps) — external_catalog.name must apply to INSERT/DELETE/MERGE.
         return new IcebergWritePlanProvider(catalogProps,
-                this::newCatalogBackedOps, context);
+                this::newCatalogBackedOps, context, catalogResourceTracker);
     }
 
     @Override
@@ -825,7 +825,7 @@ public class IcebergConnector implements Connector {
         // via catalogOps.loadTable, so it shares the fully-threaded ops (newCatalogBackedOps) —
         // external_catalog.name must apply to ALTER TABLE ... EXECUTE on REST 3-level catalogs.
         return new IcebergProcedureOps(properties,
-                this::newCatalogBackedOps, context);
+                this::newCatalogBackedOps, context, catalogResourceTracker);
     }
 
     /**

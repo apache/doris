@@ -144,7 +144,17 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
         } catch (RuntimeException e) {
             LOG.warn("Failed to retire Iceberg table cache before replacing REST client of catalog {}", name(), e);
         }
-        resourceTracker.rotate(() -> closeReplacedDelegate(wedged), () -> delegate = replacement);
+        try {
+            resourceTracker.rotate(() -> closeReplacedDelegate(wedged), () -> delegate = replacement);
+        } catch (RuntimeException replacementFailure) {
+            // Connector teardown may close the tracker after the replacement has been fully built but before
+            // rotate accepts it. It was never published, so this method is its only owner and must close it.
+            // Preserve the catalog's original 401 as the primary failure seen by the caller; the teardown race
+            // remains available as a suppressed diagnostic instead of replacing the useful remote error.
+            closeReplacedDelegate(replacement);
+            cause.addSuppressed(replacementFailure);
+            throw cause;
+        }
     }
 
     private void closeReplacedDelegate(RESTSessionCatalog replaced) {

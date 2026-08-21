@@ -78,6 +78,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -144,6 +145,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // single shared ops regardless of session (constant s -> catalogOps).
     private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     public IcebergWritePlanProvider(IcebergCatalogProperties catalogProps, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
@@ -161,10 +163,17 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     public IcebergWritePlanProvider(IcebergCatalogProperties catalogProps,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context) {
+        this(catalogProps, catalogOpsResolver, context, null);
+    }
+
+    IcebergWritePlanProvider(IcebergCatalogProperties catalogProps,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker) {
         this.catalogProps = catalogProps;
         this.properties = catalogProps.getRaw();
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
+        this.resourceTracker = resourceTracker;
     }
 
     @Override
@@ -1043,7 +1052,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // newTransaction refreshes this object without changing a concurrently planned statement generation.
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        return IcebergStatementScope.sharedWritableTable(session, handle.getDbName(), handle.getTableName(), () -> {
+        Supplier<Table> loader = () -> {
             if (context == null) {
                 return ops.loadTable(handle.getDbName(), handle.getTableName());
             }
@@ -1054,7 +1063,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 throw new DorisConnectorException("Failed to load iceberg table "
                         + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
             }
-        });
+        };
+        return resourceTracker == null
+                ? IcebergStatementScope.sharedWritableTable(
+                        session, handle.getDbName(), handle.getTableName(), loader)
+                : IcebergStatementScope.sharedTrackedWritableTable(
+                        session, handle.getDbName(), handle.getTableName(), resourceTracker, loader).table();
     }
 
     private IcebergWriteSchemaContext resolveWriteSchema(ConnectorSession session,

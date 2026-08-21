@@ -234,6 +234,41 @@ public class IcebergStatementScopeTest {
         Assertions.assertEquals(2, directLoads.get(), "NONE preserves load-every-time behavior");
     }
 
+    @Test
+    public void directTrackedTablePinsCatalogUntilStatementClose() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger catalogCloses = new AtomicInteger();
+
+        Table loaded = IcebergStatementScope.sharedTrackedTable(
+                session, "db1", "t", tracker, () -> table("t"));
+        tracker.close(catalogCloses::incrementAndGet);
+
+        Assertions.assertEquals("t", loaded.name());
+        Assertions.assertEquals(0, catalogCloses.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
+    public void writableTableTransfersItsExactGenerationToTransactionOwner() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger catalogCloses = new AtomicInteger();
+
+        IcebergStatementScope.TrackedTable writable = IcebergStatementScope.sharedTrackedWritableTable(
+                session, "db1", "t", tracker, () -> table("t"));
+        IcebergCatalogResourceTracker.ResourceLease transactionLease = writable.retainLease();
+        tracker.close(catalogCloses::incrementAndGet);
+
+        scope.closeAll();
+        Assertions.assertEquals(0, catalogCloses.get(), "transaction remains the catalog generation owner");
+        transactionLease.close();
+        Assertions.assertEquals(1, catalogCloses.get());
+    }
+
     /** A scope that records the last key handed to {@link #computeIfAbsent}, for the byte-key parity assertion. */
     private static final class KeyCapturingScope implements ConnectorStatementScope {
         private String lastKey;

@@ -101,6 +101,18 @@ final class IcebergStatementScope {
         return borrowed.table;
     }
 
+    /** Statement-owned direct table for credential-dependent catalogs where cross-query caching is disabled. */
+    static Table sharedTrackedTable(ConnectorSession session, String dbName, String tableName,
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return snapshotReadTable(loader.get());
+        }
+        TrackedTable tracked = ConnectorStatementScopes.resolveInStatement(
+                session, TABLE_NAMESPACE, dbName, tableName,
+                () -> new TrackedTable(resourceTracker.load(loader), true));
+        return tracked.table();
+    }
+
     private static final class ScopedBorrow implements AutoCloseable {
         private final IcebergTableCache.TableLease lease;
         private final Table table;
@@ -121,6 +133,45 @@ final class IcebergStatementScope {
             ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {
         return ConnectorStatementScopes.resolveInStatement(
                 session, WRITABLE_TABLE_NAMESPACE, dbName, tableName, loader);
+    }
+
+    /** Mutable table paired with the exact catalog generation that produced it. */
+    static TrackedTable sharedTrackedWritableTable(ConnectorSession session, String dbName, String tableName,
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return new TrackedTable(resourceTracker.load(loader), false);
+        }
+        return ConnectorStatementScopes.resolveInStatement(
+                session, WRITABLE_TABLE_NAMESPACE, dbName, tableName,
+                () -> new TrackedTable(resourceTracker.load(loader), true));
+    }
+
+    static final class TrackedTable implements AutoCloseable {
+        private final IcebergCatalogResourceTracker.TrackedResource<Table> tracked;
+        private final boolean statementOwned;
+
+        private TrackedTable(IcebergCatalogResourceTracker.TrackedResource<Table> tracked,
+                boolean statementOwned) {
+            this.tracked = tracked;
+            this.statementOwned = statementOwned;
+        }
+
+        Table table() {
+            return tracked.resource();
+        }
+
+        IcebergCatalogResourceTracker.ResourceLease retainLease() {
+            return tracked.retainLease();
+        }
+
+        boolean isStatementOwned() {
+            return statementOwned;
+        }
+
+        @Override
+        public void close() {
+            tracked.close();
+        }
     }
 
     private static Table snapshotReadTable(Table table) {

@@ -19,7 +19,9 @@ package org.apache.doris.connector.iceberg;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /** Keeps catalog generations alive while cached tables loaded through them still have borrowers. */
 final class IcebergCatalogResourceTracker {
@@ -42,6 +44,27 @@ final class IcebergCatalogResourceTracker {
         return new LoadGuard(this, generations.size() - 1, current);
     }
 
+    /** Loads a resource while retaining every catalog generation crossed by that load. */
+    <T> TrackedResource<T> load(Supplier<T> loader) {
+        LoadGuard guard = beginLoad();
+        try {
+            T resource = loader.get();
+            return new TrackedResource<>(resource, guard.promote());
+        } finally {
+            guard.close();
+        }
+    }
+
+    /** Runs one synchronous catalog operation under the generation active when it starts. */
+    <T> T call(Callable<T> operation) throws Exception {
+        LoadGuard guard = beginLoad();
+        try {
+            return operation.call();
+        } finally {
+            guard.close();
+        }
+    }
+
     /** Atomically rotates the resource generation with publication of the corresponding REST delegate. */
     synchronized void rotate(Runnable retiredCleanup, Runnable publishReplacement) {
         if (closed) {
@@ -61,6 +84,17 @@ final class IcebergCatalogResourceTracker {
         }
         closed = true;
         current.retire(currentCleanup);
+    }
+
+    /** Test-visible count of retired cleanup closures still retained by the tracker. */
+    synchronized int retainedCleanupCount() {
+        int retained = 0;
+        for (Generation generation : generations) {
+            if (generation.hasCleanup()) {
+                retained++;
+            }
+        }
+        return retained;
     }
 
     private synchronized ResourceLease promote(int firstGeneration) {
@@ -127,8 +161,18 @@ final class IcebergCatalogResourceTracker {
             this.generations = generations;
         }
 
+        synchronized ResourceLease retain() {
+            if (closed.get()) {
+                throw new IllegalStateException("Iceberg catalog resource lease is already closed");
+            }
+            for (Generation generation : generations) {
+                generation.retain();
+            }
+            return new ResourceLease(new ArrayList<>(generations));
+        }
+
         @Override
-        public void close() {
+        public synchronized void close() {
             if (closed.compareAndSet(false, true)) {
                 RuntimeException failure = null;
                 for (Generation generation : generations) {
@@ -146,6 +190,29 @@ final class IcebergCatalogResourceTracker {
                     throw failure;
                 }
             }
+        }
+    }
+
+    static final class TrackedResource<T> implements AutoCloseable {
+        private final T resource;
+        private final ResourceLease lease;
+
+        private TrackedResource(T resource, ResourceLease lease) {
+            this.resource = resource;
+            this.lease = lease;
+        }
+
+        T resource() {
+            return resource;
+        }
+
+        ResourceLease retainLease() {
+            return lease.retain();
+        }
+
+        @Override
+        public void close() {
+            lease.close();
         }
     }
 
@@ -189,8 +256,19 @@ final class IcebergCatalogResourceTracker {
         private void maybeCleanup() {
             if (retired && references == 0 && !cleaned) {
                 cleaned = true;
-                cleanup.run();
+                try {
+                    cleanup.run();
+                } finally {
+                    // A REST-recovery cleanup captures the retired delegate and its auth/FileIO graph. The
+                    // tracker intentionally keeps Generation markers for in-flight-load indexing, but a cleaned
+                    // marker must not retain the heavyweight delegate for the connector's remaining lifetime.
+                    cleanup = null;
+                }
             }
+        }
+
+        private synchronized boolean hasCleanup() {
+            return cleanup != null;
         }
     }
 }

@@ -130,12 +130,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private final long transactionId;
     private final IcebergCatalogOps catalogOps;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
     private final List<TIcebergCommitData> commitDataList = new ArrayList<>();
 
     // The single SDK transaction / table, opened lazily by beginWrite (the write plan binds the target
     // table only when the sink is planned). volatile: addCommitData / commit may run on different threads.
     private volatile Transaction transaction;
     private volatile Table table;
+    private volatile IcebergCatalogResourceTracker.ResourceLease catalogLease;
 
     // Begin-once guard. A normal single-statement write calls beginWrite exactly once. A distributed
     // rewrite_data_files runs N per-group INSERT-SELECTs that SHARE this one transaction, and each group's
@@ -179,9 +181,15 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     public IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
+        this(transactionId, catalogOps, context, null);
+    }
+
+    IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker) {
         this.transactionId = transactionId;
         this.catalogOps = catalogOps;
         this.context = context;
+        this.resourceTracker = resourceTracker;
     }
 
     /**
@@ -216,23 +224,41 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     // Reuse the write planner's mutable table, never the frozen read view: newTransaction
                     // refreshes operations to establish a fresh OCC base without mutating bound read metadata.
                     // The pinned write context is validated on this write-only table and again at the final CAS.
-                    Table loaded = IcebergStatementScope.sharedWritableTable(session, db, tableName,
-                            () -> catalogOps.loadTable(db, tableName));
+                    IcebergStatementScope.TrackedTable tracked = resourceTracker == null ? null
+                            : IcebergStatementScope.sharedTrackedWritableTable(session, db, tableName,
+                                    resourceTracker, () -> catalogOps.loadTable(db, tableName));
+                    Table loaded = tracked == null
+                            ? IcebergStatementScope.sharedWritableTable(session, db, tableName,
+                                    () -> catalogOps.loadTable(db, tableName))
+                            : tracked.table();
+                    IcebergCatalogResourceTracker.ResourceLease retained = tracked == null
+                            ? null : tracked.retainLease();
                     this.table = loaded;
-                    validateBoundWriteGeneration(ctx, loaded);
-                    if (writeSchemaContext != null) {
-                        writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                    try {
+                        validateBoundWriteGeneration(ctx, loaded);
+                        if (writeSchemaContext != null) {
+                            writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                        }
+                        applyBeginGuards(ctx, tableName);
+                        Transaction opened = openTransaction(loaded, ctx.isOverwrite());
+                        // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
+                        // drop/recreate race between the initial generation check and transaction construction.
+                        validateBoundWriteGeneration(ctx, loaded);
+                        if (writeSchemaContext != null) {
+                            writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                        }
+                        this.transaction = opened;
+                        this.catalogLease = retained;
+                        retained = null;
+                        return null;
+                    } finally {
+                        if (retained != null) {
+                            retained.close();
+                        }
+                        if (tracked != null && !tracked.isStatementOwned()) {
+                            tracked.close();
+                        }
                     }
-                    applyBeginGuards(ctx, tableName);
-                    Transaction opened = openTransaction(loaded, ctx.isOverwrite());
-                    // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
-                    // drop/recreate race between the initial generation check and transaction construction.
-                    validateBoundWriteGeneration(ctx, loaded);
-                    if (writeSchemaContext != null) {
-                        writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
-                    }
-                    this.transaction = opened;
-                    return null;
                 });
             } catch (Exception e) {
                 throw new DorisConnectorException(
@@ -1335,7 +1361,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     @Override
     public void close() {
-        // No resources to release: the SDK transaction holds no connections of its own.
+        IcebergCatalogResourceTracker.ResourceLease lease = catalogLease;
+        catalogLease = null;
+        if (lease != null) {
+            lease.close();
+        }
     }
 
     /** Package-visible accessors for the unit tests (and the T05 validation suite). */

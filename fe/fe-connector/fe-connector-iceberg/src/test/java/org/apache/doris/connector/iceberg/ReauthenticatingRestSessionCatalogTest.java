@@ -188,4 +188,27 @@ public class ReauthenticatingRestSessionCatalogTest {
 
         Assertions.assertTrue(delegate.closed);
     }
+
+    @Test
+    public void testCloseWinningReplacementClosesUnpublishedDelegateAndPreserves401() {
+        FakeRestSessionCatalog wedged = new FakeRestSessionCatalog("wedged", notAuthorized());
+        FakeRestSessionCatalog unpublished = new FakeRestSessionCatalog("unpublished", null);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(
+                wedged,
+                () -> {
+                    tracker.close(() -> { });
+                    return unpublished;
+                },
+                tracker,
+                () -> { });
+
+        NotAuthorizedException failure = Assertions.assertThrows(NotAuthorizedException.class,
+                () -> catalog.listNamespaces(SessionContext.createEmpty(), NS));
+
+        Assertions.assertTrue(unpublished.closed, "the rejected replacement must be closed");
+        Assertions.assertSame(wedged, catalog.currentDelegate());
+        Assertions.assertEquals(1, failure.getSuppressed().length);
+        Assertions.assertInstanceOf(IllegalStateException.class, failure.getSuppressed()[0]);
+    }
 }

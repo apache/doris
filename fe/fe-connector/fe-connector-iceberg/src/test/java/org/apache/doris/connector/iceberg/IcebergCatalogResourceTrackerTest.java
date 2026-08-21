@@ -77,4 +77,17 @@ class IcebergCatalogResourceTrackerTest {
         Assertions.assertEquals(1, oldCloseCalls.get());
         Assertions.assertEquals(1, currentCloseCalls.get());
     }
+
+    @Test
+    void cleanedGenerationsReleaseTheirCleanupClosures() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        AtomicInteger closeCalls = new AtomicInteger();
+
+        tracker.rotate(closeCalls::incrementAndGet, () -> { });
+        tracker.rotate(closeCalls::incrementAndGet, () -> { });
+        tracker.close(closeCalls::incrementAndGet);
+
+        Assertions.assertEquals(3, closeCalls.get());
+        Assertions.assertEquals(0, tracker.retainedCleanupCount());
+    }
 }

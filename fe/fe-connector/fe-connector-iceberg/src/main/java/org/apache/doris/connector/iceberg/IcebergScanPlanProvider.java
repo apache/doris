@@ -239,6 +239,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors; when null
     // getScanNodeProperties resolves file_format_type live (matching pre-PERF-03 behaviour, node-memoized per query).
     private final IcebergFormatCache formatCache;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
     // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
@@ -301,6 +302,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
             IcebergFormatCache formatCache) {
+        this(catalogProps, catalogOpsResolver, context, manifestCache, tableCache, formatCache, null);
+    }
+
+    IcebergScanPlanProvider(IcebergCatalogProperties catalogProps,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
+            IcebergFormatCache formatCache, IcebergCatalogResourceTracker resourceTracker) {
         this.catalogProps = catalogProps;
         this.properties = catalogProps.getRaw();
         this.catalogOpsResolver = catalogOpsResolver;
@@ -308,6 +316,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         this.manifestCache = manifestCache;
         this.tableCache = tableCache;
         this.formatCache = formatCache;
+        this.resourceTracker = resourceTracker;
     }
 
     /**
@@ -3031,8 +3040,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         };
         Table raw = tableCache == null
-                ? IcebergStatementScope.sharedTable(
-                        session, handle.getDbName(), handle.getTableName(), directLoader)
+                ? resourceTracker == null
+                        ? IcebergStatementScope.sharedTable(
+                                session, handle.getDbName(), handle.getTableName(), directLoader)
+                        : IcebergStatementScope.sharedTrackedTable(
+                                session, handle.getDbName(), handle.getTableName(), resourceTracker, directLoader)
                 : IcebergStatementScope.sharedBorrowedTable(
                         session, handle.getDbName(), handle.getTableName(),
                         () -> tableCache.borrow(
@@ -3096,8 +3108,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
         Table base = tableCache == null
-                ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                        () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                ? resourceTracker == null
+                        ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                        : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
+                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
                 : IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
