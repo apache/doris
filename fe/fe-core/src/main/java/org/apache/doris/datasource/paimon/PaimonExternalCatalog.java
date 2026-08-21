@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -25,6 +26,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
@@ -154,12 +156,30 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     protected Catalog createCatalog() {
         try {
+            paimonProperties.setDisableSdkMetadataCacheByDefault(isMetaCacheWeightGoverned());
             return paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
                     .getOrderedStoragePropertiesList()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to create catalog, catalog name: " + getName() + ", exception: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    /** Whether any Doris meta cache weight bound (global, catalog or entry level) applies. */
+    private boolean isMetaCacheWeightGoverned() {
+        if (!"0".equals(Config.external_meta_cache_max_weight.trim())) {
+            return true;
+        }
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
+            return true;
+        }
+        for (String key : properties.keySet()) {
+            if (key != null && key.startsWith("meta.cache.") && key.endsWith(".max-weight")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Map<String, String> getPaimonOptionsMap() {
