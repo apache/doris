@@ -21,7 +21,6 @@
 #pragma once
 
 #include <crc32c/crc32c.h>
-#include <gen_cpp/Types_types.h>
 #include <xxh3.h>
 #include <xxhash.h>
 #include <zlib.h>

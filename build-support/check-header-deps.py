@@ -161,6 +161,16 @@ RULES = [
         "of generated headers for the same reason as common/status.h",
     ),
     (
+        "util/hash_util.hpp",
+        "gen_cpp/",
+        set(),
+        "hash_util is carried by string_ref.h, column_string.h, "
+        "vdatetime_value.h and storage/olap_common.h into most of the "
+        "backend; the std::hash specializations for TUniqueId and "
+        "TNetworkAddress live with their carriers (util/uid_util.h, "
+        "util/network_util.h), so no thrift header is needed here",
+    ),
+    (
         "runtime/exec_env.h",
         "gen_cpp/",
         set(),
