@@ -23,8 +23,10 @@
 | REG | 仓库 regression suite 有对应场景；是否在当前环境运行需另行确认 |
 | CODE | 连接器代码声明或实现了该能力，但本文没有足够运行证据 |
 | E2E-FAIL | 在当前环境实际执行，但由 Doris 或远端 Catalog 明确拒绝；不能按“已支持”处理 |
+| UNSUPPORTED-CURRENT | 当前 Doris/Catalog 路径已明确不支持；不代表其他 Catalog 永远不支持 |
 | UNVERIFIED-PERMISSION | 当前身份或 Catalog 权限阻止了验证；不等同于功能不支持 |
-| TODO | 需要专用表、凭据故障注入或其他当前环境没有的前置条件 |
+| UNVERIFIED-FIXTURE | 需要专用表、凭据故障注入或其他当前环境没有的验证夹具 |
+| OUT-OF-SCOPE | 不属于本轮 Azure Databricks 矩阵范围 |
 | N/A | 当前连接器没有声明该通用能力，不能按支持处理 |
 
 ## 2.1 2026-08-21 Azure E2E 补充
@@ -56,9 +58,9 @@
 | OAuth 访问 REST Catalog | E2E | 现有 Catalog 配置为 REST OAuth；凭据值不记录在本文。 |
 | Databricks vended credentials | E2E | `iceberg.rest.vended-credentials-enabled=true`；查询 Azure 表返回真实数据。 |
 | Azure ADLS `abfss` 文件读取 | E2E | 本 PR 修复的路径：vended SAS 经过 Hadoop ABFS 配置并由 `FILE_HDFS` reader 使用。 |
-| vended credential 401/过期后的重认证 | CODE / TODO | `ReauthenticatingRestSessionCatalog` 有重认证实现；尚未在当前 Azure 环境人为制造 401 并验证读写恢复。 |
-| 用户会话隔离 | CODE / TODO | `SUPPORTS_USER_SESSION` 仅在 `iceberg.rest.session=user` 时声明；当前 Catalog 未按多用户会话矩阵验证。 |
-| S3/GCS/HDFS 等其他存储后端 | REG / TODO | 仓库存在对应 Iceberg 场景，但不属于当前 Azure vended E2E 范围。 |
+| vended credential 401/过期后的重认证 | CODE / UNVERIFIED-FIXTURE | `ReauthenticatingRestSessionCatalog` 有重认证实现；当前环境没有可控的过期凭据/401 故障注入夹具。 |
+| 用户会话隔离 | CODE / UNVERIFIED-FIXTURE | `SUPPORTS_USER_SESSION` 仅在 `iceberg.rest.session=user` 时声明；当前环境没有第二个用户会话和可比对的缓存夹具。 |
+| S3/GCS/HDFS 等其他存储后端 | REG / OUT-OF-SCOPE | 仓库存在对应 Iceberg 场景，但本轮只验证 Azure vended credentials。 |
 
 ## 4. 查询与元数据
 
@@ -71,8 +73,8 @@
 | Partition pruning | E2E / REG | 隔离表 `matrix_partition_prune_2304` 有 `p=1/2/3` 三个分区；`WHERE p=2` 的 `EXPLAIN VERBOSE` 显示 `inputSplitNum=1`、`partition=1/3`，`WHERE p IN (1,3)` 显示两个 split、`partition=2/3`，结果分别返回对应行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition 和分区演进后的裁剪证据 |
 | Runtime filter | E2E / REG | `matrix_partition_prune_2304` 与单行 key 表 join 时，静态计划包含 3 个 range，执行 profile 显示 `RuntimeFilterPartitionPrunedRangeNum=2`、RF input rows 5/filtered rows 2，最终只返回 `p=2` 的两行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition、分区演进和 delete-aware 场景 |
 | Nested column pruning | E2E / CODE / REG | `info.label`、`events.*.score` 和 `attrs.*.code` 分别把 STRUCT、ARRAY<STRUCT>、MAP<STRING,STRUCT> 裁成只含目标子字段的类型，结果正确；证据表为 `matrix_nested_*_prune_2304`；`SUPPORTS_NESTED_COLUMN_PRUNE` 和 nested schema suites | 补充 schema evolution 后的裁剪 |
-| Position delete | E2E / REG / TODO | Azure v3 表的 `$position_deletes` 返回 3 条 Puffin deletion-vector 位置记录，`file_path`/`delete_file_path` 均为 `abfss://`；`test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 传统 v2 Parquet position-delete 文件仍需在兼容的远端表上验证 |
-| Equality delete | REG / TODO | `test_iceberg_equality_delete*.groovy` | 验证 schema evolution 后 equality delete 仍正确 |
+| Position delete | E2E / REG / UNVERIFIED-FIXTURE | Azure v3 表的 `$position_deletes` 返回 3 条 Puffin deletion-vector 位置记录，`file_path`/`delete_file_path` 均为 `abfss://`；传统 v2 Parquet position-delete 需要兼容的远端 fixture。 |
+| Equality delete | REG / UNVERIFIED-FIXTURE | `test_iceberg_equality_delete*.groovy`；当前 Azure 表只有 DV/position-delete 证据，没有可控的 equality-delete fixture。 |
 | Deletion vector / row lineage | E2E / REG | format v3 表先执行 `DELETE` 产生 DV，再执行 `UPDATE`、`MERGE INTO` 和 `$position_deletes` 读取，均正确处理已有 DV；deletion-vector 和 v3 row-lineage suites | 增加多 DV、并发提交和大批量删除场景 |
 | Iceberg system tables | E2E / REG | `$entries`、`$all_entries`、`$files`、`$data_files`、`$delete_files`、`$all_files`、`$all_data_files`、`$all_delete_files`、`$history`、`$metadata_log_entries`、`$snapshots`、`$refs`、`$position_deletes`、`$manifests`、`$all_manifests` 和 `$partitions` 均可读；`$files`/`$delete_files` 返回 Azure Parquet/Puffin 路径；`test_iceberg_sys_table*.groovy` | 继续补充 equality delete 和多表格式版本 |
 | `SHOW CREATE TABLE/DATABASE` | E2E / CODE / REG | `SUPPORTS_SHOW_CREATE_DDL`；当前 `SHOW CREATE TABLE` 和 `SHOW CREATE DATABASE` 均成功，LOCATION/PROPERTIES 可见，OAuth token 仍被 `*XXX` 掩码；`test_iceberg_show_create.groovy` | 增加更多敏感属性组合 |
@@ -93,7 +95,7 @@
 | `DELETE` | E2E / REG | format v3 表删除 `id=2` 后仅剩 `id=1/3`；format v2 被远端按“delete files 需要 v3”拒绝，属于表格式前置条件。 |
 | `UPDATE` | E2E / UT / REG | 新表 UPDATE 通过；已有 DELETE DV 的 `matrix_dml_v3_20260820` 更新 `id=1` 后得到 `alice_after_fix/28`。 |
 | `MERGE INTO` | E2E / UT / REG | 在同一张已有 DELETE 和 UPDATE DV 的表上更新 `id=3`、插入 `id=5`，最终得到三行预期结果。 |
-| `rewrite_data_files` | CODE / REG / TODO | 分布式 rewrite 路径；对应 action regression 已存在。 |
+| `rewrite_data_files` | UNSUPPORTED-CURRENT / CODE / REG | 连接器单测明确标记为 “advertised but not yet executable”；对应 action regression 存在，但当前路径不能按支持处理。 |
 
 第一次在已有 v3 DV 上执行 `UPDATE`/`MERGE INTO` 时，BE 的 DV reader 退化为打开空 authority 的 `hdfs://`。普通 scan range 会单独携带 `fs_name`，但 sink 侧 DV helper 只能从 Hadoop 配置读取 `fs.defaultFS`；Databricks vended SAS 配置只包含 account，不包含 container，因此此前没有该键。本 PR 从实际数据位置提取 `abfss://container@account.dfs.core.windows.net` 写入 `fs.defaultFS`，新增 FE 单元测试，并用上述 DELETE -> UPDATE -> MERGE E2E 顺序验证修复。
 
@@ -131,7 +133,7 @@ rewrite_manifests
 remove_orphan_files
 ```
 
-这些操作不能统一标成已支持：`rewrite_manifests` 已在当前表成功并返回 `6 0`；`remove_orphan_files` 因 `gc.enabled=false` 被拒绝；`rewrite_data_files` 在连接器单元测试中仍是“advertised but not yet executable”。rollback、set-current、cherrypick、fast-forward、expire 和 publish 需要专用表及可回滚权限，当前身份无法创建新表，因此保持 `CODE / REG / TODO`，不能用现有业务表冒险验证。
+这些操作不能统一标成已支持：`rewrite_manifests` 已在当前表成功并返回 `6 0`；`remove_orphan_files` 因 `gc.enabled=false` 被拒绝；`rewrite_data_files` 当前路径明确尚未可执行。rollback、set-current、cherrypick、fast-forward、expire 和 publish 需要专用表及可回滚权限，当前身份无法创建新表，因此保持 `CODE / REG / UNVERIFIED-FIXTURE`，不能用现有业务表冒险验证。
 
 ## 6. 明确的未声明能力
 
@@ -156,7 +158,7 @@ remove_orphan_files
 4. 管理：最后验证 `EXECUTE` 操作，并在每一步保存 snapshot/metadata 结果。
 5. 安全：用过期凭据和不同用户会话验证 401 重认证及缓存隔离。
 
-每个条目至少记录：Doris commit、Catalog 类型、云存储、Iceberg format version、执行 SQL、结果、异常（如有）以及 FE/BE 日志中的关键证据。任何只通过源码或通用 regression 的条目，在 Azure E2E 完成前都保持 `CODE / REG / TODO`。
+每个条目至少记录：Doris commit、Catalog 类型、云存储、Iceberg format version、执行 SQL、结果、异常（如有）以及 FE/BE 日志中的关键证据。任何只通过源码或通用 regression 的条目，在 Azure E2E 完成前都保持 `CODE / REG / UNVERIFIED-FIXTURE`，除非它已被标为 `UNSUPPORTED-CURRENT`、`UNVERIFIED-PERMISSION` 或 `OUT-OF-SCOPE`。
 
 ## 8. 主要代码和测试来源
 
