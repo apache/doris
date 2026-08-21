@@ -38,6 +38,7 @@ suite("test_tables_status_column_pruning") {
         contains "col=TABLE_SCHEMA"
         contains "col=UPDATE_TIME"
         notContains "col=TABLE_NAME"
+        notContains "col=TABLE_COMMENT"
         assertNoTabletStatusColumns.delegate = delegate
         assertNoTabletStatusColumns.call()
     }
@@ -93,5 +94,37 @@ suite("test_tables_status_column_pruning") {
         contains "col=DATA_LENGTH"
         contains "col=AVG_ROW_LENGTH"
         contains "col=INDEX_LENGTH"
+        contains "col=TABLE_COMMENT"
+    }
+
+    // TABLE_COMMENT pruning: for external tables the comment fill can be a
+    // remote metadata load, so a projection without it must not request it.
+    explain {
+        verbose true
+        sql """
+            SELECT TABLE_SCHEMA, TABLE_NAME
+            FROM information_schema.tables
+            WHERE TABLE_SCHEMA = 'information_schema'
+        """
+        contains "TABLE: information_schema.tables"
+        contains "col=TABLE_SCHEMA"
+        contains "col=TABLE_NAME"
+        notContains "col=TABLE_COMMENT"
+        assertNoTabletStatusColumns.delegate = delegate
+        assertNoTabletStatusColumns.call()
+    }
+
+    explain {
+        verbose true
+        sql """
+            SELECT TABLE_NAME, TABLE_COMMENT
+            FROM information_schema.tables
+            WHERE TABLE_SCHEMA = 'information_schema'
+        """
+        contains "TABLE: information_schema.tables"
+        contains "col=TABLE_NAME"
+        contains "col=TABLE_COMMENT"
+        assertNoTabletStatusColumns.delegate = delegate
+        assertNoTabletStatusColumns.call()
     }
 }
