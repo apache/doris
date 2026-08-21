@@ -386,6 +386,48 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
+    public void testAnalyzePartitionInvertedIndexFileStorageFormat() throws AnalysisException {
+        String originFormat = Config.inverted_index_storage_format;
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
+        boolean originPartitionFormatRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+
+            Map<String, String> properties = new HashMap<>();
+            Config.inverted_index_storage_format = "SNII";
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V1");
+            AnalysisException v1Exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertTrue(v1Exception.getMessage().contains("only supports V2, V3 and SNII"));
+
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            Assertions.assertNull(PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertFalse(properties.containsKey(
+                    PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
+
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            Config.deploy_mode = "local";
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+            AnalysisException localException = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertTrue(localException.getMessage().contains("only supported in cloud mode"));
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
+            Config.enable_partition_inverted_index_storage_format_rollout = originPartitionFormatRollout;
+        }
+    }
+
+    @Test
     public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "0");

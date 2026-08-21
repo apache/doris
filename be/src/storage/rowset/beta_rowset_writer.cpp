@@ -388,6 +388,10 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    if (_context.persist_inverted_index_storage_format &&
+        _context.inverted_index_storage_format.has_value()) {
+        _rowset_meta->set_inverted_index_storage_format(*_context.inverted_index_storage_format);
+    }
     _rowset_meta->set_compaction_level(_context.compaction_level);
     if (_context.write_binlog_opt().enable) {
         _rowset_meta->mark_row_binlog();

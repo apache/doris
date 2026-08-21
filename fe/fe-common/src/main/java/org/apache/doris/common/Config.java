@@ -2826,6 +2826,12 @@ public class Config extends ConfigBase {
             + "default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PartitionInvertedIndexStorageFormatRolloutConfHandler.class, description = "Whether to "
+            + "enable partition inverted-index storage format rollout, the "
+            + "default value is false.")
+    public static boolean enable_partition_inverted_index_storage_format_rollout = false;
+
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
             + "If enabled, it will enhance the performance of " + "DELETE statements, but partial column updates after "
             + "a DELETE may result in erroneous data. If disabled, "

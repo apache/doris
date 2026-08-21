@@ -843,6 +843,9 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
         context.write_binlog_opt().set_need_before(
                 tablet_meta()->binlog_config().need_historical_value());
     }
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
+    context.persist_inverted_index_storage_format =
+            tablet_meta()->has_inverted_index_storage_format();
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -892,6 +895,9 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
+    context.persist_inverted_index_storage_format =
+            tablet_meta()->has_inverted_index_storage_format();
     // TODO(liaoxin) enable packed file for transient rowset
     context.allow_packed_file = false;
 
