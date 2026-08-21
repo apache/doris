@@ -191,8 +191,8 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
         return Status::InternalError<false>(
                 "binlog<row> blocks must be flushed through flush_single_block");
     }
-    c->lsn_ids = cfg.get_seg_lsn(ctx.segment_id);
-    cfg.remove_seg(ctx.segment_id);
+    c->lsn_ids = ctx.rowset_ctx->get_segment_allocated_lsns(ctx.segment_id);
+    ctx.rowset_ctx->remove_segment_allocated_lsns(ctx.segment_id);
     CHECK(c->lsn_ids->size() >= c->num_rows) << c->lsn_ids->size() << " vs " << c->num_rows;
 
     // Preserve the source writer's layout: system columns may be a prefix or

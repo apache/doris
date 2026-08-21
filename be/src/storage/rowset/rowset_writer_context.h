@@ -21,9 +21,12 @@
 #include <glog/logging.h>
 
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "cloud/config.h"
 #include "common/status.h"
@@ -169,6 +172,29 @@ struct RowsetWriterContext {
     std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
 
     std::string job_id;
+
+    // Per-segment LSNs allocated before memtable flush. The same storage feeds
+    // both the base row LSN column and row-binlog LSN column.
+    std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map = nullptr;
+    bool _need_allocate_lsn = false;
+
+    void insert_segment_allocated_lsns(int64_t segment_id,
+                                       ConstAllocatedLsnVectorSharedPtr allocated_lsns) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->insert_segment_allocated_lsns(segment_id, std::move(allocated_lsns));
+    }
+
+    void remove_segment_allocated_lsns(int64_t segment_id) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->remove_segment(segment_id);
+    }
+
+    ConstAllocatedLsnVectorSharedPtr get_segment_allocated_lsns(int64_t segment_id) const {
+        DCHECK(allocated_lsn_map != nullptr);
+        return allocated_lsn_map->get_segment_allocated_lsns(segment_id);
+    }
+
+    bool need_allocated_lsn() const { return _need_allocate_lsn; }
 
     bool is_local_rowset() const { return !storage_resource; }
 

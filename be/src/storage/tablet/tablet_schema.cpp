@@ -872,6 +872,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _skip_bitmap_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == COMMIT_TSO_COL)) {
         _commit_tso_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == ROW_LSN_COL)) {
+        _row_lsn_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_TSO_COL)) {
         _binlog_tso_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
@@ -1086,6 +1088,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _version_col_idx = schema.version_col_idx();
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
+    _row_lsn_col_idx = schema.row_lsn_col_idx();
     _binlog_tso_col_idx = schema.binlog_tso_col_idx();
     _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
     _binlog_op_col_idx = schema.binlog_op_col_idx();
@@ -1201,6 +1204,7 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
+    _row_lsn_col_idx = -1;
     _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
     _binlog_op_col_idx = -1;
@@ -1269,6 +1273,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
+    _row_lsn_col_idx = -1;
     _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
     _binlog_op_col_idx = -1;
@@ -1299,6 +1304,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _skip_bitmap_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == COMMIT_TSO_COL)) {
             _commit_tso_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == ROW_LSN_COL)) {
+            _row_lsn_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_TSO_COL)) {
             _binlog_tso_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
@@ -1458,6 +1465,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
+    tablet_schema_pb->set_row_lsn_col_idx(_row_lsn_col_idx);
     tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
     tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
     tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
@@ -1863,6 +1871,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._version_col_idx != b._version_col_idx) return false;
     if (a._skip_bitmap_col_idx != b._skip_bitmap_col_idx) return false;
     if (a._commit_tso_col_idx != b._commit_tso_col_idx) return false;
+    if (a._row_lsn_col_idx != b._row_lsn_col_idx) return false;
     if (a._binlog_tso_col_idx != b._binlog_tso_col_idx) return false;
     if (a._binlog_lsn_col_idx != b._binlog_lsn_col_idx) return false;
     if (a._binlog_op_col_idx != b._binlog_op_col_idx) return false;

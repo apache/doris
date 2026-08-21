@@ -500,6 +500,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
     }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
+    }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
     }
@@ -560,6 +563,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     }
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
+    }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
@@ -635,6 +641,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
     }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
+    }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
     }
@@ -696,6 +705,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     }
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
+    }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
