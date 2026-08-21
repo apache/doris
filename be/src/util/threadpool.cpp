@@ -561,21 +561,23 @@ void ThreadPool::dispatch_thread() {
                     _idle_threads.erase(_idle_threads.iterator_to(me));
                 }
             });
-            if (me.not_empty.wait_for(l, _idle_timeout) == std::cv_status::timeout) {
-                // After much investigation, it appears that pthread condition variables have
-                // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
-                // another thread did in fact signal. Apparently after a timeout there is some
-                // brief period during which another thread may actually grab the internal mutex
-                // protecting the state, signal, and release again before we get the mutex. So,
-                // we'll recheck the empty queue case regardless.
-                if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
-                    VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
-                                << std::chrono::duration_cast<std::chrono::milliseconds>(
-                                           _idle_timeout)
-                                           .count()
-                                << "ms of idle time.";
-                    break;
-                }
+            me.not_empty.wait_for(l, _idle_timeout);
+            // After much investigation, it appears that pthread condition variables have
+            // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
+            // another thread did in fact signal. Apparently after a timeout there is some
+            // brief period during which another thread may actually grab the internal mutex
+            // protecting the state, signal, and release again before we get the mutex. So,
+            // we'll recheck the empty queue case regardless. Moreover, we check the shrink
+            // condition unconditionally (not only on timeout) because on some platforms
+            // pthread_cond_timedwait may return success (no_timeout) even when the timeout
+            // has expired, causing idle workers to never shrink.
+            if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
+                VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
+                            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       _idle_timeout)
+                                       .count()
+                            << "ms of idle time.";
+                break;
             }
             continue;
         }
