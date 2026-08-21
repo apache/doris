@@ -51,4 +51,13 @@ public:
     void handle(HttpRequest* req) override;
 };
 
+class QueryContextDelayDeleteAction : public HttpHandlerWithAuth {
+public:
+    QueryContextDelayDeleteAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+
+    ~QueryContextDelayDeleteAction() override = default;
+
+    void handle(HttpRequest* req) override;
+};
+
 } // end namespace doris

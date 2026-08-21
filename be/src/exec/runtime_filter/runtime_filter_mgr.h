@@ -206,6 +206,8 @@ public:
         return _filter_map.empty();
     }
 
+    bool all_filters_published();
+
     Status reset_global_rf(QueryContext* query_ctx,
                            const google::protobuf::RepeatedField<int32_t>& filter_ids);
 

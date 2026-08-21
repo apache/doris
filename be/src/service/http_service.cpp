@@ -193,6 +193,12 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
                                       query_pipeline_task_action);
 
+    // Inspect QueryContexts retained for runtime-filter merging.
+    QueryContextDelayDeleteAction* query_ctx_delay_delete_action =
+            _pool.add(new QueryContextDelayDeleteAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/query_context_delay_delete",
+                                      query_ctx_delay_delete_action);
+
     // Dump all be process thread num
     BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",

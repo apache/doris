@@ -84,4 +84,11 @@ void QueryPipelineTaskAction::handle(HttpRequest* req) {
                             ExecEnv::GetInstance()->fragment_mgr()->dump_pipeline_tasks(query_id));
 }
 
+void QueryContextDelayDeleteAction::handle(HttpRequest* req) {
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; charset=utf-8");
+    HttpChannel::send_reply(
+            req, HttpStatus::OK,
+            ExecEnv::GetInstance()->fragment_mgr()->dump_query_ctx_map_delay_delete());
+}
+
 } // end namespace doris

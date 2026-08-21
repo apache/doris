@@ -193,21 +193,37 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
         // Init
         TRuntimeFilterParams param =
                 TRuntimeFilterParamsBuilder()
-                        .add_rid_to_runtime_filter(
-                                rid,
-                                TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
+                        .add_rid_to_runtime_filter(rid, TRuntimeFilterDescBuilder()
+                                                                .set_mode(false)
+                                                                .add_planId_to_target_expr(0)
+                                                                .build())
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
         EXPECT_FALSE(entity->init(ctx, param).ok());
 
         param = TRuntimeFilterParamsBuilder()
-                        .add_rid_to_runtime_filter(
-                                rid,
-                                TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
+                        .add_rid_to_runtime_filter(rid, TRuntimeFilterDescBuilder()
+                                                                .set_mode(false)
+                                                                .add_planId_to_target_expr(0)
+                                                                .build())
                         .add_runtime_filter_builder_num(rid, 1)
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
         EXPECT_TRUE(entity->init(ctx, param).ok());
+        EXPECT_FALSE(entity->empty());
+    }
+
+    {
+        auto local_entity = std::make_shared<RuntimeFilterMergeControllerEntity>();
+        auto local_param =
+                TRuntimeFilterParamsBuilder()
+                        .add_rid_to_runtime_filter(
+                                rid,
+                                TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
+                        .add_runtime_filter_builder_num(rid, 1)
+                        .build();
+        EXPECT_TRUE(local_entity->init(ctx, local_param).ok());
+        EXPECT_TRUE(local_entity->empty());
     }
 }
 

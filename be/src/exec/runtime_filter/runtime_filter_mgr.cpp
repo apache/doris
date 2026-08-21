@@ -412,6 +412,9 @@ Status RuntimeFilterMergeControllerEntity::init(std::shared_ptr<QueryContext> qu
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
         for (const auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
+            if (!filterid_to_desc.second.has_remote_targets) {
+                continue;
+            }
             int filter_id = filterid_to_desc.first;
             const auto& targetv2_iter = runtime_filter_params.rid_to_target_paramv2.find(filter_id);
             const auto& build_iter =
@@ -432,6 +435,16 @@ Status RuntimeFilterMergeControllerEntity::init(std::shared_ptr<QueryContext> qu
         }
     }
     return Status::OK();
+}
+
+bool RuntimeFilterMergeControllerEntity::all_filters_published() {
+    SharedLockGuard guard(_filter_map_mutex);
+    for (const auto& filter : _filter_map) {
+        if (!filter.second.done.load()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<QueryContext> query_ctx,
