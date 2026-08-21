@@ -341,13 +341,41 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     private PaimonTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
         try {
+            // One catalog generation must supply the loaded table and the captured execution
+            // context together: reading the authenticator only after the load could pair the old
+            // generation's table with the context a concurrent ALTER installed mid-flight (an
+            // ordinary credential ALTER does not retire this engine's cache group). Capture
+            // first, load, then re-validate before publication; a mid-flight reset fails the
+            // miss (the caller retries against the reinitialized catalog) instead of publishing
+            // a spliced synthetic generation that every later fence and schema hydration would
+            // deliberately trust.
             PaimonExternalCatalog catalog = tableLoader.catalog(nameMapping);
-            return new PaimonTableCacheValue(
-                    tableLoader.load(nameMapping), catalog.getExecutionAuthenticator());
+            org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator =
+                    catalog.getExecutionAuthenticator();
+            Table table = tableLoader.load(nameMapping);
+            ensureCatalogGenerationStable(catalog, authenticator, nameMapping);
+            return new PaimonTableCacheValue(table, authenticator);
         } catch (java.io.IOException e) {
             throw new CacheException("failed to load paimon table %s.%s.%s: %s",
                     e, nameMapping.getCtlId(), nameMapping.getLocalDbName(),
                     nameMapping.getLocalTblName(), e.getMessage());
+        }
+    }
+
+    private void ensureCatalogGenerationStable(PaimonExternalCatalog catalog,
+            org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator,
+            NameMapping nameMapping) {
+        boolean stable;
+        try {
+            stable = tableLoader.catalog(nameMapping) == catalog
+                    && catalog.getExecutionAuthenticator() == authenticator;
+        } catch (Exception e) {
+            stable = false;
+        }
+        if (!stable) {
+            throw new CacheException("catalog %s was reset while loading paimon table %s.%s, please retry",
+                    null, nameMapping.getCtlId(), nameMapping.getLocalDbName(),
+                    nameMapping.getLocalTblName());
         }
     }
 

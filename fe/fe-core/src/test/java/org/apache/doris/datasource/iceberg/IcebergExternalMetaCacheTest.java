@@ -334,6 +334,101 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testAcquisitionsFailWhenCatalogResetsMidFlight() {
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps opsOne = Mockito.mock(IcebergMetadataOps.class);
+        IcebergMetadataOps opsTwo = Mockito.mock(IcebergMetadataOps.class);
+        java.util.concurrent.atomic.AtomicReference<IcebergMetadataOps> currentOps =
+                new java.util.concurrent.atomic.AtomicReference<>(opsOne);
+        ExecutionAuthenticator generationOne = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        ExecutionAuthenticator generationTwo = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        java.util.concurrent.atomic.AtomicReference<ExecutionAuthenticator> currentAuthenticator =
+                new java.util.concurrent.atomic.AtomicReference<>(generationOne);
+        java.util.concurrent.atomic.AtomicBoolean alterCompletesDuringLoad =
+                new java.util.concurrent.atomic.AtomicBoolean(true);
+        Mockito.when(catalog.getMetadataOps()).thenAnswer(invocation -> currentOps.get());
+        Mockito.when(catalog.getExecutionAuthenticator()).thenAnswer(
+                invocation -> currentAuthenticator.get());
+        Table table = tableWithMetadataLocation("/metadata/coherent-acquisition-v1.json");
+        org.mockito.stubbing.Answer<Table> loadFlipsGeneration = invocation -> {
+            if (alterCompletesDuringLoad.get()) {
+                // The concurrent property/credential ALTER reinitializes the catalog while the
+                // external load is still in flight.
+                currentAuthenticator.set(generationTwo);
+                currentOps.set(opsTwo);
+            }
+            return table;
+        };
+        Mockito.when(opsOne.loadTable("remote_db", "remote_tbl")).thenAnswer(loadFlipsGeneration);
+        Mockito.when(opsTwo.loadTable("remote_db", "remote_tbl")).thenAnswer(loadFlipsGeneration);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+        };
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+
+            // Miss-load boundary: the spliced acquisition must fail instead of publishing.
+            try {
+                tables.get(mapping);
+                Assert.fail("a table load spliced by a mid-flight catalog reset must not publish");
+            } catch (RuntimeException e) {
+                Assert.assertTrue(String.valueOf(e.getMessage()),
+                        exceptionChainContains(e, "was reset while acquiring iceberg table"));
+            }
+            Assert.assertNull(tables.peekIfPresent(mapping));
+
+            // Writable-handle boundary: same acquisition contract for DDL handles.
+            currentAuthenticator.set(generationOne);
+            currentOps.set(opsOne);
+            try {
+                cache.getWritableIcebergTable(dorisTable);
+                Assert.fail("a writable handle spliced by a mid-flight catalog reset must not be served");
+            } catch (RuntimeException e) {
+                Assert.assertTrue(String.valueOf(e.getMessage()),
+                        exceptionChainContains(e, "was reset while acquiring iceberg table"));
+            }
+
+            // Retries run entirely against the settled second generation and stay coherent.
+            alterCompletesDuringLoad.set(false);
+            IcebergTableCacheValue published = tables.get(mapping);
+            Assert.assertSame(currentAuthenticator.get(), published.getAuthenticator());
+            Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    private static boolean exceptionChainContains(Throwable throwable, String fragment) {
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if (current.getMessage() != null && current.getMessage().contains(fragment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
     public void testRejectedTableGenerationsDoNotAccumulateSnapshotOrSchemaProjections() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -142,11 +143,17 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             throw new RuntimeException("Cannot find catalog " + nameMapping.getCtlId()
                     + " when loading a writable Iceberg table");
         }
-        IcebergMetadataOps ops = resolveMetadataOps(catalog);
         // DDL/actions must start from the live catalog generation. DML that was planned against a
-        // retained read generation wraps this live table separately in IcebergTransaction.
-        return executeAuthenticated(catalog, () -> ops.loadTable(
+        // retained read generation wraps this live table separately in IcebergTransaction. The
+        // authenticator, ops and loaded handle must all come from that one generation, so the
+        // acquisition is re-validated afterwards: a concurrent property/credential ALTER can reset
+        // and reinitialize the catalog mid-flight without retiring this engine's cache group.
+        ExecutionAuthenticator authenticator = requireExecutionAuthenticator(catalog);
+        IcebergMetadataOps ops = resolveMetadataOps(catalog);
+        Table table = execute(authenticator, () -> ops.loadTable(
                 nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
+        ensureCatalogGenerationStable(catalog, ops, authenticator, nameMapping);
+        return table;
     }
 
     Table getQueryScopedIcebergTable(ExternalTable dorisTable) {
@@ -324,20 +331,63 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName()));
         }
 
+        // One catalog generation must supply the ops, the loaded table and the bound
+        // authenticator together: re-reading the mutable catalog after the load could bind a
+        // handle of the old generation to the execution context a concurrent ALTER installed.
+        // The acquisition is re-validated before publication; a mid-flight reset fails the miss
+        // (the caller retries against the reinitialized catalog) instead of publishing a splice.
+        ExecutionAuthenticator authenticator = requireExecutionAuthenticator(catalog);
         IcebergMetadataOps ops = resolveMetadataOps(catalog);
-        return executeAuthenticated(catalog, () -> {
+        IcebergTableCacheValue value = execute(authenticator, () -> {
             Table table = ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
-            IcebergTableCacheValue value = new IcebergTableCacheValue(table);
-            if (catalog instanceof ExternalCatalog) {
-                value.bindAuthenticator(((ExternalCatalog) catalog).getExecutionAuthenticator());
-            }
+            IcebergTableCacheValue loaded = new IcebergTableCacheValue(table);
+            loaded.bindAuthenticator(authenticator);
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
                     tableEntry.getIfInitialized(nameMapping.getCtlId());
             if (currentEntry != null && currentEntry.isWeightAccounting()) {
-                prepareTableForCachePublication(nameMapping, value);
+                prepareTableForCachePublication(nameMapping, loaded);
             }
-            return value;
+            return loaded;
         });
+        ensureCatalogGenerationStable(catalog, ops, authenticator, nameMapping);
+        return value;
+    }
+
+    private static ExecutionAuthenticator requireExecutionAuthenticator(CatalogIf<?> catalog) {
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new RuntimeException("Iceberg metadata cache requires an external catalog");
+        }
+        return ((ExternalCatalog) catalog).getExecutionAuthenticator();
+    }
+
+    private <T> T execute(ExecutionAuthenticator authenticator, Callable<T> task) {
+        try {
+            return authenticator.execute(task);
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    /**
+     * Validate that the catalog still serves the generation this acquisition started from. The
+     * check runs after the external load and before the result is used or published, so a
+     * concurrent reset turns into a clean retryable failure instead of a handle spliced with the
+     * next generation's execution context.
+     */
+    private void ensureCatalogGenerationStable(CatalogIf<?> catalog, IcebergMetadataOps ops,
+            ExecutionAuthenticator authenticator, NameMapping nameMapping) {
+        boolean stable;
+        try {
+            stable = resolveMetadataOps(catalog) == ops
+                    && requireExecutionAuthenticator(catalog) == authenticator;
+        } catch (RuntimeException e) {
+            stable = false;
+        }
+        if (!stable) {
+            throw new RuntimeException(String.format(
+                    "Catalog %d was reset while acquiring iceberg table %s.%s, please retry.",
+                    nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName()));
+        }
     }
 
     MetaCacheSizeEstimate prepareTableForCachePublication(

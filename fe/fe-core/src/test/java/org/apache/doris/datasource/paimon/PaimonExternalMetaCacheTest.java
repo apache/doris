@@ -947,6 +947,79 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testTableLoadSplicedByMidFlightCatalogResetFailsInsteadOfPublishing() {
+        ExecutionAuthenticator generationOne = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        ExecutionAuthenticator generationTwo = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        AtomicReference<ExecutionAuthenticator> currentAuthenticator =
+                new AtomicReference<>(generationOne);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.when(catalog.getExecutionAuthenticator()).thenAnswer(
+                invocation -> currentAuthenticator.get());
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+        Table paimonTable = Mockito.mock(Table.class);
+        java.util.concurrent.atomic.AtomicBoolean alterCompletesDuringLoad =
+                new java.util.concurrent.atomic.AtomicBoolean(true);
+        Mockito.when(catalog.getPaimonTable(mapping)).thenAnswer(invocation -> {
+            if (alterCompletesDuringLoad.get()) {
+                // The concurrent credential ALTER reinitializes the catalog while the external
+                // load is still in flight.
+                currentAuthenticator.set(generationTwo);
+            }
+            return paimonTable;
+        });
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            try {
+                tables.get(mapping);
+                Assert.fail("a table load spliced by a mid-flight catalog reset must not publish");
+            } catch (RuntimeException e) {
+                Assert.assertTrue(String.valueOf(e.getMessage()),
+                        exceptionChainContains(e, "was reset while loading paimon table"));
+            }
+            Assert.assertNull(tables.peekIfPresent(mapping));
+
+            // The retry runs entirely against the settled second generation and publishes a
+            // coherent (table, execution context) pair.
+            alterCompletesDuringLoad.set(false);
+            PaimonTableCacheValue published = tables.get(mapping);
+            Assert.assertSame(generationTwo, published.getAuthenticator());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    private static boolean exceptionChainContains(Throwable throwable, String fragment) {
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if (current.getMessage() != null && current.getMessage().contains(fragment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
     public void testFenceAndRelationHydrationStayOnCapturedGenerationAcrossAlter() {
         AtomicInteger authenticationDepth = new AtomicInteger();
         ExecutionAuthenticator capturedAuthenticator = new ExecutionAuthenticator() {
