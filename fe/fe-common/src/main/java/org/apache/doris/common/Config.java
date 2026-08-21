@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import java.io.File;
+import java.lang.reflect.Field;
 
 public class Config extends ConfigBase {
 
@@ -1516,6 +1517,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_http_server_v2 = true;
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = "Whether to enable the FE Web UI and its dedicated APIs.")
+    public static boolean enable_web_ui = true;
+
     /*
      * Base path is the URL prefix for all API paths.
      * Some deployment environments need to configure additional base path to match resources.
@@ -2784,6 +2789,49 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = "The maximum number of worker threads for the HTTP "
             + "SQL submitter.")
     public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to enable stateful Web SQL HTTP sessions.")
+    public static boolean enable_web_sql_session = true;
+
+    @ConfField(mutable = true, masterOnly = false, callback = PositiveWebSqlIntegerConfHandler.class,
+            description = "Idle timeout for Web SQL sessions, in seconds.")
+    public static int web_sql_session_idle_timeout_seconds = 1800;
+
+    @ConfField(mutable = true, masterOnly = false, callback = PositiveWebSqlIntegerConfHandler.class,
+            description = "Maximum number of Web SQL sessions on one FE.")
+    public static int web_sql_max_sessions = 100;
+
+    /** Rejects non-positive dynamic Web SQL session limits. */
+    public static class PositiveWebSqlIntegerConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static final long WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND = 100L * 1024 * 1024;
+
+    @ConfField(mutable = true, masterOnly = false, callback = WebSqlMaxResultBytesConfHandler.class,
+            description = "Approximate maximum result bytes for one Web SQL statement.")
+    public static long web_sql_max_result_bytes = 10 * 1024 * 1024;
+
+    /** Validates dynamic Web SQL result limits before publishing them to running statements. */
+    public static class WebSqlMaxResultBytesConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            long parsed = Long.parseLong(value);
+            if (parsed <= 0 || parsed > WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+                throw new ConfigException("web_sql_max_result_bytes must be between 1 and "
+                        + WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND);
+            }
+            field.setLong(null, parsed);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true, description = "The threshold of load labels' number. After this "
             + "number is exceeded, the labels of the completed " + "import jobs or tasks will be deleted, and the "

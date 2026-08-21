@@ -131,4 +131,19 @@ public class ConfigTest {
             Assert.assertTrue(e.getMessage().contains("is not mutable"));
         }
     }
+
+    @Test
+    public void testSetWebSqlMaxResultBytes() throws ConfigException {
+        long original = Config.web_sql_max_result_bytes;
+        try {
+            ConfigBase.setMutableConfig("web_sql_max_result_bytes", "32");
+            Assert.assertEquals(32, Config.web_sql_max_result_bytes);
+            Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("web_sql_max_result_bytes", "0"));
+            Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("web_sql_max_result_bytes", "104857601"));
+        } finally {
+            Config.web_sql_max_result_bytes = original;
+        }
+    }
 }

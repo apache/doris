@@ -57,8 +57,10 @@ public class SetConfigAction extends RestBaseController {
 
     @RequestMapping(path = "/api/_set_config", method = RequestMethod.GET)
     protected Object set_config(HttpServletRequest request, HttpServletResponse response) {
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
+        if (!isInternalAuthTokenValid(request)) {
+            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+            checkAdminAuth(authInfo.userIdentity);
+        }
 
         boolean needPersist = false;
         boolean resetPersist = true;

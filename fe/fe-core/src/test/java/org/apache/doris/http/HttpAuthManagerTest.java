@@ -38,6 +38,8 @@ public class HttpAuthManagerTest {
         sessionValue.currentUser = UserIdentity.createAnalyzedUserIdentWithIp(username, "%");
         authMgr.addSessionValue(sessionId, sessionValue);
         Assert.assertEquals(1, authMgr.getAuthSessions().size());
+        Assert.assertNotNull(sessionValue.csrfToken);
+        Assert.assertFalse(sessionValue.csrfToken.isEmpty());
         List<String> sessionIds = new ArrayList<>();
         sessionIds.add(sessionId);
         System.out.println("username in test: " + authMgr.getSessionValue(sessionIds).currentUser);
@@ -49,5 +51,6 @@ public class HttpAuthManagerTest {
         sessionIds.add(noExistSession);
         Assert.assertNull(authMgr.getSessionValue(sessionIds));
         Assert.assertEquals(1, authMgr.getAuthSessions().size());
+        authMgr.removeSession(sessionId);
     }
 }

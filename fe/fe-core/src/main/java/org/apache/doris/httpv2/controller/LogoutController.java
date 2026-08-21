@@ -18,7 +18,9 @@
 package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.httpv2.HttpAuthManager;
+import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.websql.WebSqlSessionManager;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,9 +29,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Collections;
+
 @RestController
 @RequestMapping("/rest/v1")
 public class LogoutController extends BaseController {
+    private final WebSqlSessionManager webSqlSessionManager;
+
+    public LogoutController(WebSqlSessionManager webSqlSessionManager) {
+        this.webSqlSessionManager = webSqlSessionManager;
+    }
 
     @RequestMapping(path = "/logout", method = RequestMethod.POST)
     public Object login(HttpServletRequest request, HttpServletResponse response) {
@@ -38,10 +47,21 @@ public class LogoutController extends BaseController {
             for (Cookie cookie : cookies) {
                 if (cookie.getName() != null && cookie.getName().equals(PALO_SESSION_ID)) {
                     String sessionId = cookie.getValue();
+                    SessionValue session = HttpAuthManager.getInstance()
+                            .getSessionValue(Collections.singletonList(sessionId));
+                    if (session != null) {
+                        webSqlSessionManager.closeSessionsForOwner(session.currentUser.getQualifiedUser());
+                    }
                     HttpAuthManager.getInstance().removeSession(sessionId);
                 }
             }
         }
+        Cookie expiredCookie = new Cookie(PALO_SESSION_ID, "");
+        expiredCookie.setHttpOnly(true);
+        expiredCookie.setMaxAge(0);
+        expiredCookie.setPath("/");
+        expiredCookie.setAttribute("SameSite", "Lax");
+        response.addCookie(expiredCookie);
         return ResponseEntityBuilder.ok();
     }
 }

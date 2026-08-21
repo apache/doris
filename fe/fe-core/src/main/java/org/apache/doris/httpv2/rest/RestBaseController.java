@@ -73,6 +73,7 @@ public class RestBaseController extends BaseController {
     protected static final String TXN_ID_KEY = "txn_id";
     protected static final String TXN_OPERATION_KEY = "txn_operation";
     protected static final String SINGLE_REPLICA_KEY = "single_replica";
+    protected static final String AUTH_TOKEN_HEADER = "Auth-Token";
     protected static final String FORWARD_MASTER_UT_TEST = "forward_master_ut_test";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
@@ -281,6 +282,12 @@ public class RestBaseController extends BaseController {
         } catch (UserException e) {
             throw new UnauthorizedException(e.getMessage());
         }
+    }
+
+    /** Returns whether an internal HTTP caller presented a token issued by this Doris cluster. */
+    protected boolean isInternalAuthTokenValid(HttpServletRequest request) {
+        String token = request.getHeader(AUTH_TOKEN_HEADER);
+        return !Strings.isNullOrEmpty(token) && checkClusterToken(token);
     }
 
 
