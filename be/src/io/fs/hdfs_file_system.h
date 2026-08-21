@@ -84,6 +84,7 @@ private:
 
 private:
     friend class HdfsFileWriter;
+    friend class HdfsFileSystemTest;
     HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
                    RuntimeProfile* profile, std::string root_path);
     const THdfsParams& _hdfs_params; // Only used in init, so we can use reference here

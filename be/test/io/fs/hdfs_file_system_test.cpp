@@ -15,10 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "io/fs/hdfs_file_system.h"
+
 #include <gtest/gtest.h>
+
+#include <map>
+#include <string>
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"
@@ -142,6 +148,64 @@ TEST(HdfsFileSystemTest, Write) {
     // TODO(plat1ko): Check cached content
 
     st = local_fs->delete_directory(test_dir);
+}
+
+// create() returns error when java support is disabled.
+TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
+    config::enable_java_support = false;
+    std::map<std::string, std::string> properties;
+    auto res =
+            io::HdfsFileSystem::create(properties, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    EXPECT_FALSE(res.has_value());
+    config::enable_java_support = true;
+}
+
+// open_file_internal returns IOError when _fs_handler is null.
+TEST(HdfsFileSystemTest, OpenFileFailsWithoutHandler) {
+    THdfsParams params;
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    io::FileReaderSPtr reader;
+    auto st = fs.open_file_internal("/test/file.parquet", &reader, io::FileReaderOptions::DEFAULT);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
+}
+
+// file_size_impl returns IOError when _fs_handler is null.
+TEST(HdfsFileSystemTest, FileSizeFailsWithoutHandler) {
+    THdfsParams params;
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    int64_t file_size = 0;
+    auto st = fs.file_size_impl("/test/file.parquet", &file_size);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
+}
+
+// exists_impl returns IOError when _fs_handler is null.
+TEST(HdfsFileSystemTest, ExistsFailsWithoutHandler) {
+    THdfsParams params;
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    bool exists = false;
+    auto st = fs.exists_impl("/test/file.parquet", &exists);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
+}
+
+// create_directory_impl returns IOError when _fs_handler is null.
+TEST(HdfsFileSystemTest, CreateDirectoryFailsWithoutHandler) {
+    THdfsParams params;
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    auto st = fs.create_directory_impl("/test/dir", false);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
+}
+
+// rename_impl returns IOError when _fs_handler is null.
+TEST(HdfsFileSystemTest, RenameFailsWithoutHandler) {
+    THdfsParams params;
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    auto st = fs.rename_impl("/test/old.parquet", "/test/new.parquet");
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
 }
 
 } // namespace doris
