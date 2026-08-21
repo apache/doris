@@ -388,7 +388,8 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+                        || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
 
