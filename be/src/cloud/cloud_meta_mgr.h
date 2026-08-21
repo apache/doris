@@ -158,8 +158,10 @@ public:
 
     Status cloud_update_delete_bitmap_without_lock(
             const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
-            std::map<std::string, int64_t>& rowset_to_versions, int64_t table_id,
-            int64_t pre_rowset_agg_start_version = 0, int64_t pre_rowset_agg_end_version = 0);
+            std::map<std::string, int64_t>& rowset_to_versions,
+            const CloudTablet::PreRowsetDeleteBitmapStats* pre_rowset_delete_bitmap_stats,
+            int64_t table_id, int64_t pre_rowset_agg_start_version = 0,
+            int64_t pre_rowset_agg_end_version = 0);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
