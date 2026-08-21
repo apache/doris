@@ -1352,7 +1352,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : index.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
+                        TabletMeta tabletMeta = new TabletMeta(
+                                dbId, tableId, partitionId, indexId, schemaHash, medium, index.isRowBinlog());
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
                         for (Replica replica : tablet.getReplicas()) {
@@ -1404,7 +1405,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                 for (Tablet tablet : index.getTablets()) {
-                    TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
+                    TabletMeta tabletMeta = new TabletMeta(
+                            dbId, tableId, partitionId, indexId, schemaHash, medium, index.isRowBinlog());
                     long tabletId = tablet.getId();
                     invertedIndex.addTablet(tabletId, tabletMeta);
                     for (Replica replica : tablet.getReplicas()) {

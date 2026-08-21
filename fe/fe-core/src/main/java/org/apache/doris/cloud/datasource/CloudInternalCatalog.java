@@ -358,7 +358,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
-                    indexId, schemaHash, dataProperty.getStorageMedium());
+                    indexId, schemaHash, dataProperty.getStorageMedium(), isRowBinlogIndex);
             if (isRowBinlogIndex) {
                 createCloudRowBinlogTablets(index, baseIndex, version, tabletMeta, tabletIdSet);
             } else {

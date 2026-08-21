@@ -17,12 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -74,6 +77,54 @@ public class MaterializedIndexTest {
     @Test
     public void getMethodTest() {
         Assert.assertEquals(indexId, index.getId());
+    }
+
+    @Test
+    public void testRowBinlogFlagGsonUpgradeCompatibility() {
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(1L, IndexState.NORMAL);
+        Assert.assertFalse(rowBinlogIndex.isRowBinlog());
+        rowBinlogIndex.setIsRowBinlog(true);
+
+        JsonObject currentJson = JsonParser.parseString(GsonUtils.GSON.toJson(rowBinlogIndex)).getAsJsonObject();
+        MaterializedIndex deserializedRowBinlogIndex = GsonUtils.GSON.fromJson(currentJson, MaterializedIndex.class);
+        Assert.assertTrue(deserializedRowBinlogIndex.isRowBinlog());
+
+        currentJson.remove("isRowBinlog");
+        MaterializedIndex deserializedLegacyIndex = GsonUtils.GSON.fromJson(currentJson, MaterializedIndex.class);
+        Assert.assertFalse(deserializedLegacyIndex.isRowBinlog());
+    }
+
+    @Test
+    public void testPartitionIncludesIndependentRowBinlogIndexForStats() {
+        MaterializedIndex baseIndex = new MaterializedIndex(1L, IndexState.NORMAL);
+        LocalTablet baseTablet = new LocalTablet(10L);
+        LocalReplica baseReplica = new LocalReplica(100L, 1000L, 1L, 0, 100L, 0L, 1L,
+                Replica.ReplicaState.NORMAL, -1L, 1L);
+        baseTablet.addReplica(baseReplica, true);
+        baseIndex.addTablet(baseTablet, null, true);
+        Partition partition = new Partition(1L, "p1", baseIndex, null);
+        String checksumWithoutRowBinlog = partition.getMetaChecksum();
+
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(2L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        LocalTablet rowBinlogTablet = new LocalTablet(20L);
+        rowBinlogTablet.addReplica(new LocalReplica(200L, 1000L, 1L, 0, 20L, 0L, 1L,
+                Replica.ReplicaState.NORMAL, -1L, 1L), true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        partition.createRollupIndex(rowBinlogIndex);
+
+        Assert.assertEquals(1, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        Assert.assertEquals(2, partition.getMaterializedIndices(IndexExtState.VISIBLE, true).size());
+        Assert.assertEquals(1, partition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assert.assertEquals(2, partition.getMaterializedIndices(IndexExtState.ALL, true).size());
+        Assert.assertEquals(0L, baseIndex.getBinlogSize());
+        Assert.assertEquals(20L, rowBinlogIndex.getBinlogSize());
+        Assert.assertEquals(120L, partition.getDataSize(false));
+        Assert.assertEquals(120L, partition.getDataSizeExcludeEmptyReplica(false));
+        Assert.assertEquals(20L, partition.getBinlogDataSize());
+        Assert.assertEquals(2L, partition.getReplicaCount());
+        Assert.assertEquals(2L, partition.getAllReplicaCount());
+        Assert.assertNotEquals(checksumWithoutRowBinlog, partition.getMetaChecksum());
     }
 
     @Test
