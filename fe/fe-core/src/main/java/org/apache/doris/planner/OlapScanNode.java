@@ -1868,6 +1868,10 @@ public class OlapScanNode extends ScanNode {
         this.scanParams = scanParams;
     }
 
+    public TableScanParams getScanParams() {
+        return scanParams;
+    }
+
     public long getIncrementalScanEndTime() {
         if (scanParams != null && scanParams.incrementalRead()
                 && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {

@@ -18,6 +18,11 @@
 suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
+    // The tables here hold a handful of rows, so a matching row is a large fraction of its segment
+    // and the BKD reader would decline the index as unselective (INVERTED_INDEX_BYPASS), leaving
+    // the filtered-row assertions below at 0. A zero threshold turns that selectivity bypass off,
+    // so the assertions measure index participation rather than how the rows happen to be laid out.
+    sql """ set inverted_index_skip_threshold = 0 """
 
     // enable_match_without_inverted_index only gates MATCH_PRED's residual row-level fallback
     // (see match.cpp / olap_scan_operator.cpp); it has no effect on a plain `>` predicate, so a
@@ -60,10 +65,15 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true",
                    "inverted_index_storage_format" = "SNII");
     """
-    sql """insert into ${typed_table} values(1, 'alpha plain', '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')"""
-    sql """insert into ${typed_table} values(2, 'beta plain', '{"a" : 18811, "b" : "hello world", "c" : 1181111}')"""
-    sql """insert into ${typed_table} values(3, 'alpha other', '{"a" : 18811, "b" : "hello wworld", "c" : 11111}')"""
-    sql """insert into ${typed_table} values(4, 'gamma plain', '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
+    // Load in one INSERT so every row lands in the same segment. The filtered-row assertions run
+    // once per segment (SegmentIterator::_get_row_ranges_by_column_conditions) but compare against
+    // a scan-wide counter, so splitting the rows across single-row segments would only reach the
+    // expected total on whichever segment happens to be processed after the filtering one.
+    sql """insert into ${typed_table} values
+               (1, 'alpha plain', '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}'),
+               (2, 'beta plain', '{"a" : 18811, "b" : "hello world", "c" : 1181111}'),
+               (3, 'alpha other', '{"a" : 18811, "b" : "hello wworld", "c" : 11111}'),
+               (4, 'gamma plain', '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
 
     sql """set enable_match_without_inverted_index = false"""
     qt_typed_match """select k from ${typed_table} where cast(v["b"] as string) match 'hello' order by k"""

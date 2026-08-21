@@ -1375,7 +1375,7 @@ protected:
         auto rowset_writer = std::move(res).value();
 
         for (const auto& batch : batches) {
-            Block block = _tablet_schema->create_block();
+            Block block = _tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             auto variant_col = ColumnVariant::create(
                     _tablet_schema->column(0).variant_max_subcolumns_count(), false);
@@ -1416,7 +1416,7 @@ protected:
             return Status::InvalidArgument("writer is null");
         }
 
-        Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
         auto variant_col = ColumnVariant::create(
                 _tablet_schema->column(0).variant_max_subcolumns_count(), false);
@@ -1897,7 +1897,7 @@ protected:
         RETURN_IF_ERROR(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer));
         RETURN_IF_ERROR(writer->init());
 
-        Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
         auto scalar_variant = ColumnVariant::create(0, parent_column.variant_enable_doc_mode());
         for (const auto& json : jsons) {
@@ -3859,7 +3859,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto path_with_size =
@@ -4483,7 +4483,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
 
     // 5. write doc-value-only data into variant
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
@@ -4674,7 +4674,7 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_TRUE(writer->init().ok());
 
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
@@ -4839,7 +4839,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_materialized_v3_uses_v3_enc
     EXPECT_TRUE(writer->init().ok());
 
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
@@ -4948,7 +4948,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
     EXPECT_TRUE(writer->init().ok());
 
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
@@ -5594,7 +5594,7 @@ TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_materialized_a
             R"({"hot":4,"warm":40,"cold3":103})",
     };
 
-    Block block = _tablet_schema->create_block();
+    Block block = _tablet_schema->create_storage_block();
     auto columns = std::move(block).mutate_columns();
     auto scalar_variant = ColumnVariant::create(0, false);
     for (const auto& json : jsons) {
@@ -6254,7 +6254,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
 
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto path_with_size = VariantUtil::fill_object_column_with_nested_test_data(column_object, 1000,
@@ -6813,7 +6813,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     std::unordered_map<int, std::string> inserted_jsonstr;
     variant_util::PathToNoneNullValues path_with_size;
     fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
@@ -7034,7 +7034,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     std::unordered_map<int, std::string> inserted_jsonstr;
     variant_util::PathToNoneNullValues path_with_size;
     fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
@@ -7114,7 +7114,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     std::unordered_map<int, std::string> inserted_jsonstr;
     variant_util::PathToNoneNullValues path_with_size;
     fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
@@ -7194,7 +7194,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     std::unordered_map<int, std::string> inserted_jsonstr;
     variant_util::PathToNoneNullValues path_with_size;
     fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
@@ -7276,7 +7276,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     std::unordered_map<int, std::string> inserted_jsonstr;
     variant_util::PathToNoneNullValues path_with_size;
     fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
@@ -7358,7 +7358,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     // here is nullable variant
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     std::unordered_map<int, std::string> inserted_jsonstr;
     variant_util::PathToNoneNullValues path_with_size;
     fill_nullable_variant_block(&block, &inserted_jsonstr, &path_with_size);
@@ -7437,7 +7437,7 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
 
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     auto type_string = std::make_shared<DataTypeString>();
     auto json_column = type_string->create_column();
@@ -7574,7 +7574,7 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
 
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     auto type_string = std::make_shared<DataTypeString>();
     auto json_column = type_string->create_column();
@@ -7731,7 +7731,7 @@ void test_write_variant_column(StorageEngine* _engine_ref, std::string _absolute
 
     // 5. make test data for column_object
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     VariantUtil::VariantStringCreator simple_column_object = [](ColumnString* column_string,
                                                                 size_t size) {
@@ -8148,7 +8148,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
 
     // 5. write data
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     variant_util::PathToNoneNullValues path_with_size;
     std::unordered_map<int, std::string> inserted_jsonstr;
@@ -8307,7 +8307,7 @@ TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get
 
     // 5. write a small amount of data to build some subcolumns
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    auto block = _tablet_schema->create_block();
+    auto block = _tablet_schema->create_storage_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto path_with_size =

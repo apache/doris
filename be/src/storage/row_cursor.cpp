@@ -43,9 +43,9 @@ RowCursor::RowCursor(RowCursor&&) noexcept = default;
 RowCursor& RowCursor::operator=(RowCursor&&) noexcept = default;
 
 void RowCursor::_init_schema(TabletSchemaSPtr schema, uint32_t column_count) {
-    std::vector<uint32_t> columns(column_count);
-    std::iota(columns.begin(), columns.end(), 0);
-    _schema.reset(new Schema(schema->columns(), columns));
+    std::vector<TabletColumnPtr> columns(schema->columns().begin(),
+                                         schema->columns().begin() + column_count);
+    _schema.reset(new ReadSchema(std::move(columns)));
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple) {
@@ -74,10 +74,10 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fiel
 }
 
 Status RowCursor::_from_tuple(const OlapTuple& tuple) {
-    if (tuple.size() != _schema->num_column_ids()) {
+    if (tuple.size() != _schema->num_read_columns()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "column count does not match. tuple_size={}, field_count={}", tuple.size(),
-                _schema->num_column_ids());
+                _schema->num_read_columns());
     }
     _fields.resize(tuple.size());
     for (size_t i = 0; i < tuple.size(); ++i) {
@@ -88,7 +88,7 @@ Status RowCursor::_from_tuple(const OlapTuple& tuple) {
 
 RowCursor RowCursor::clone() const {
     RowCursor result;
-    result._schema = std::make_unique<Schema>(*_schema);
+    result._schema = std::make_unique<ReadSchema>(*_schema);
     result._fields = _fields;
     return result;
 }
@@ -174,8 +174,7 @@ template <bool is_mow>
 void RowCursor::encode_key_with_padding(std::string* buf, size_t num_keys,
                                         bool padding_minimal) const {
     for (uint32_t cid = 0; cid < num_keys; cid++) {
-        auto* column = _schema->column(cid);
-        if (column == nullptr) {
+        if (cid >= _schema->num_read_columns()) {
             if (padding_minimal) {
                 buf->push_back(KeyConsts::KEY_MINIMAL_MARKER);
             } else {
@@ -194,7 +193,7 @@ void RowCursor::encode_key_with_padding(std::string* buf, size_t num_keys,
         }
 
         buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
-        _encode_column_value(column, _fields[cid], is_mow, buf);
+        _encode_column_value(_schema->column(cid), _fields[cid], is_mow, buf);
     }
 }
 

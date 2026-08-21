@@ -302,8 +302,6 @@ Status OlapScanLocalState::_init_profile() {
             ADD_CHILD_TIMER(_scanner_profile, "TabletReaderInitTimer", "ReaderInitTime");
     _tablet_reader_capture_rs_readers_timer = ADD_CHILD_TIMER(
             _scanner_profile, "TabletReaderCaptureRsReadersTimer", "TabletReaderInitTimer");
-    _tablet_reader_init_return_columns_timer = ADD_CHILD_TIMER(
-            _scanner_profile, "TabletReaderInitReturnColumnsTimer", "TabletReaderInitTimer");
     _tablet_reader_init_keys_param_timer = ADD_CHILD_TIMER(
             _scanner_profile, "TabletReaderInitKeysParamTimer", "TabletReaderInitTimer");
     _tablet_reader_init_orderby_keys_param_timer = ADD_CHILD_TIMER(
@@ -333,8 +331,8 @@ Status OlapScanLocalState::_init_profile() {
 
     _segment_iterator_init_timer =
             ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitTimer", "BlockFetchTime");
-    _segment_iterator_init_return_column_iterators_timer =
-            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer",
+    _segment_iterator_init_column_iterators_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitColumnIteratorsTimer",
                             "SegmentIteratorInitTimer");
     _segment_iterator_init_index_iterators_timer = ADD_CHILD_TIMER(
             _scanner_profile, "SegmentIteratorInitIndexIteratorsTimer", "SegmentIteratorInitTimer");

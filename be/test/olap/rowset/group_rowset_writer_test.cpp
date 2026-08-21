@@ -42,6 +42,7 @@
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_reader_context.h"
+#include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -127,7 +128,7 @@ protected:
     }
 
     Block create_block(int start_key, int num_rows) const {
-        Block block = _tablet->tablet_schema()->create_block();
+        Block block = _tablet->tablet_schema()->create_storage_block();
         {
             auto columns_guard = block.mutate_columns_scoped();
             auto& columns = columns_guard.mutable_columns();
@@ -148,7 +149,7 @@ protected:
     }
 
     Block create_partial_update_block() const {
-        Block block = _tablet->tablet_schema()->create_block_by_cids({0, 1, 2, 3});
+        Block block = _tablet->tablet_schema()->create_storage_block({0, 1, 2, 3});
         auto columns_guard = block.mutate_columns_scoped();
         auto& columns = columns_guard.mutable_columns();
         columns[0]->insert(Field::create_field<PrimitiveType::TYPE_INT>(1));
@@ -388,21 +389,22 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
 
     const auto& row_binlog_schema = _row_binlog_tablet->tablet_schema();
     ASSERT_EQ(7, row_binlog_schema->num_columns());
-    std::vector<uint32_t> return_columns {0, 1, 2, 3, 4, 5, 6};
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = row_binlog_schema;
     reader_context.need_ordered_result = false;
-    reader_context.return_columns = &return_columns;
+    // Read schema covers all row-binlog columns in order.
+    auto read_schema = std::make_shared<ReadSchema>(row_binlog_schema->columns());
+    reader_context.read_schema = read_schema;
 
     RowsetReaderSharedPtr rowset_reader;
     ASSERT_TRUE(row_binlog_rowset->create_reader(&rowset_reader).ok());
     ASSERT_TRUE(rowset_reader->init(&reader_context).ok());
 
-    Block output_block = row_binlog_schema->create_block();
+    Block output_block = read_schema->create_read_block();
     auto status = rowset_reader->next_batch(&output_block);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(1, output_block.rows());
-    ASSERT_EQ(return_columns.size(), output_block.columns());
+    ASSERT_EQ(read_schema->num_block_columns(), output_block.columns());
 
     EXPECT_EQ(1, (*output_block.get_by_position(0).column)[0].get<TYPE_INT>());
     EXPECT_EQ(1001, (*output_block.get_by_position(1).column)[0].get<TYPE_BIGINT>());
@@ -412,7 +414,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     EXPECT_EQ(1000, (*output_block.get_by_position(5).column)[0].get<TYPE_BIGINT>());
     EXPECT_EQ(ROW_BINLOG_APPEND, (*output_block.get_by_position(6).column)[0].get<TYPE_BIGINT>());
 
-    Block eof_block = row_binlog_schema->create_block();
+    Block eof_block = read_schema->create_read_block();
     status = rowset_reader->next_batch(&eof_block);
     EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
 }
@@ -433,7 +435,7 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     ASSERT_TRUE(group_writer_result.has_value()) << group_writer_result.error();
     auto group_writer = std::move(group_writer_result.value());
 
-    Block block = _tablet->tablet_schema()->create_block_by_cids(partial_update_info->update_cids);
+    Block block = _tablet->tablet_schema()->create_storage_block(partial_update_info->update_cids);
     {
         auto columns_guard = block.mutate_columns_scoped();
         auto& columns = columns_guard.mutable_columns();
@@ -454,17 +456,18 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     ASSERT_EQ(2, rowsets.size());
 
     const auto& row_binlog_schema = _row_binlog_tablet->tablet_schema();
-    std::vector<uint32_t> return_columns {0, 1, 2, 3, 4, 5, 6};
+    auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
+            row_binlog_schema->columns(), std::vector<ColumnId> {0, 1, 2, 3, 4, 5, 6}));
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = row_binlog_schema;
     reader_context.need_ordered_result = false;
-    reader_context.return_columns = &return_columns;
+    reader_context.read_schema = read_schema;
 
     RowsetReaderSharedPtr rowset_reader;
     ASSERT_TRUE(rowsets[1]->create_reader(&rowset_reader).ok());
     ASSERT_TRUE(rowset_reader->init(&reader_context).ok());
 
-    Block output_block = row_binlog_schema->create_block();
+    Block output_block = row_binlog_schema->create_storage_block();
     status = rowset_reader->next_batch(&output_block);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(2, output_block.rows());
@@ -481,7 +484,7 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
                   (*output_block.get_by_position(6).column)[row].get<TYPE_BIGINT>());
     }
 
-    Block eof_block = row_binlog_schema->create_block();
+    Block eof_block = row_binlog_schema->create_storage_block();
     status = rowset_reader->next_batch(&eof_block);
     EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
 }
@@ -499,7 +502,7 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdateRejectsInvalidWidths) {
             create_partial_update_row_binlog_writer(partial_update_info, 1, create_mow_context());
     ASSERT_TRUE(too_narrow_writer_result.has_value()) << too_narrow_writer_result.error();
     auto too_narrow_writer = std::move(too_narrow_writer_result.value());
-    Block too_narrow = _tablet->tablet_schema()->create_block_by_cids({0});
+    Block too_narrow = _tablet->tablet_schema()->create_storage_block({0});
     too_narrow.get_by_position(0).column->assert_mutable()->insert(
             Field::create_field<PrimitiveType::TYPE_INT>(1));
     auto status = too_narrow_writer->flush_single_block(&too_narrow);
