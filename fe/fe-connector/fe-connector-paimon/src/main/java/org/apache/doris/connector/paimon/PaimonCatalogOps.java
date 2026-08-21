@@ -83,6 +83,10 @@ public interface PaimonCatalogOps {
     void dropTable(Identifier identifier, boolean ignoreIfNotExists)
             throws Catalog.TableNotExistException;
 
+    /** Renames the table at {@code fromIdentifier} to {@code toIdentifier} within the same database. */
+    void renameTable(Identifier fromIdentifier, Identifier toIdentifier, boolean ignoreIfNotExists)
+            throws Catalog.TableNotExistException, Catalog.TableAlreadyExistException;
+
     /**
      * Applies {@code changes} to the table as ONE paimon schema commit, mirroring the real
      * {@code Catalog.alterTable(Identifier, List, boolean)} exactly (signature and checked exception).
@@ -120,6 +124,19 @@ public interface PaimonCatalogOps {
      */
     void truncatePartitions(Identifier identifier, List<Map<String, String>> partitionSpecs)
             throws Catalog.TableNotExistException;
+
+    /**
+     * Clears ALL data of the table at {@code identifier}, via the paimon committer's
+     * {@code BatchTableCommit.truncateTable}. Backs whole-table {@code TRUNCATE TABLE}: a DATA operation
+     * (empty every partition), NOT a schema change — like {@link #truncatePartitions}, it creates a new
+     * snapshot without bumping the schema id.
+     *
+     * <p>The commit is self-contained (a fresh per-call commit user, like an INSERT OVERWRITE), so it does not
+     * participate in a {@code PaimonConnectorTransaction}: a table truncate is FE-local metadata work with no
+     * BE-produced write fragments to coordinate. The table is (re)loaded through {@link #getTable} so the
+     * committer runs against the CURRENT table generation.
+     */
+    void truncateTable(Identifier identifier) throws Catalog.TableNotExistException;
 
     // ---- E5: MVCC snapshot lookups (T20) ----
     // These return plain {@code long}s (not paimon {@code Snapshot} objects) so the metadata
@@ -361,6 +378,12 @@ public interface PaimonCatalogOps {
         }
 
         @Override
+        public void renameTable(Identifier fromIdentifier, Identifier toIdentifier, boolean ignoreIfNotExists)
+                throws Catalog.TableNotExistException, Catalog.TableAlreadyExistException {
+            catalog.renameTable(fromIdentifier, toIdentifier, ignoreIfNotExists);
+        }
+
+        @Override
         public void alterTable(Identifier identifier, List<SchemaChange> changes, boolean ignoreIfNotExists)
                 throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
                 Catalog.ColumnNotExistException {
@@ -385,6 +408,28 @@ public interface PaimonCatalogOps {
             } catch (Exception e) {
                 // BatchTableCommit.close() declares a checked Exception; surface it as unchecked so the seam
                 // signature matches alterTable (the metadata layer wraps it into a DorisConnectorException).
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public void truncateTable(Identifier identifier) throws Catalog.TableNotExistException {
+            // (Re)load through getTable so the committer runs against the CURRENT table generation, exactly
+            // like truncatePartitions.
+            Table table = getTable(identifier);
+            if (!(table instanceof FileStoreTable)) {
+                throw new UnsupportedOperationException(
+                        "TRUNCATE TABLE is only supported on a Paimon file store table: " + identifier);
+            }
+            // A fresh per-call commit user, like truncatePartitions: this truncate is a self-contained commit,
+            // not part of a distributed transaction, so it needs no stable cross-retry identity.
+            String commitUser = "doris_truncate_table_" + UUID.randomUUID();
+            try (InnerTableCommit commit = ((FileStoreTable) table).newCommit(commitUser)) {
+                commit.truncateTable();
+            } catch (Exception e) {
+                // BatchTableCommit.close() declares a checked Exception; surface it as unchecked so the seam
+                // signature matches truncatePartitions (the metadata layer wraps it into a
+                // DorisConnectorException).
                 throw new RuntimeException(e);
             }
         }

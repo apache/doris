@@ -1076,6 +1076,34 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Renames the Paimon table behind {@code handle} to {@code newName} within the same database.
+     *
+     * <p>The SPI {@code renameTable} carries no {@code ignoreIfNotExists} flag and is handle-based: fe-core
+     * pre-resolves the handle (absent => this is never reached), so the remote rename is issued with
+     * {@code ignoreIfNotExists = false} — the source table is known to exist, so a false-negative "not exist"
+     * here would only mask a genuine race. The remote call is wrapped in
+     * {@link ConnectorContext#executeAuthenticated} (parity with {@link #dropTable}). Cache eviction for both
+     * the old and new remote names is the caller's job ({@code PluginDrivenExternalCatalog.renameTable}),
+     * mirroring how {@link #dropTable}'s cache eviction is likewise a caller concern.
+     */
+    @Override
+    public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        Identifier fromId = Identifier.create(h.getDatabaseName(), h.getTableName());
+        Identifier toId = Identifier.create(h.getDatabaseName(), newName);
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.renameTable(fromId, toId, false);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to rename Paimon table " + fromId + " to " + toId + ": " + e.getMessage(), e);
+        }
+        LOG.info("renamed Paimon table {} to {}", fromId, toId);
+    }
+
+    /**
      * Rejects row-level DML on a table whose shape cannot express it, with a message that says how to fix it.
      *
      * <p>Whether a table can carry a row-level write is a property of the TABLE, not of the connector —
@@ -1926,6 +1954,41 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     + " in Paimon table " + identifier + ": " + e.getMessage(), e);
         }
         LOG.info("truncated {} partition(s) of Paimon table {}", specsToTruncate.size(), identifier);
+    }
+
+    /**
+     * Clears the DATA of {@code handle}: named partitions when {@code partitions} is non-empty, the whole
+     * table otherwise ({@code null} or empty), matching the SPI's {@code truncateTable} contract.
+     *
+     * <p>A non-empty {@code partitions} list is delegated straight to {@link #dropPartitions} with
+     * {@code ifExists = false} — {@code TRUNCATE TABLE t PARTITION (p1)} on an absent partition is an error,
+     * the exact same contract {@code dropPartitions} already enforces for {@code DROP PARTITION} (not
+     * {@code IF EXISTS}), so reusing it keeps a single partition-name-resolution + non-partitioned-table
+     * rejection path instead of a second one that could drift.
+     *
+     * <p>A whole-table truncate goes through the new {@link PaimonCatalogOps#truncateTable} seam instead:
+     * unlike a named-partition truncate, it has no partition names to resolve, so it does not need
+     * {@code dropPartitions}' listing/lookup machinery at all.
+     */
+    @Override
+    public void truncateTable(ConnectorSession session, ConnectorTableHandle handle, List<String> partitions) {
+        if (partitions != null && !partitions.isEmpty()) {
+            dropPartitions(session, handle, partitions, false);
+            return;
+        }
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Identifier identifier = Identifier.create(
+                paimonHandle.getDatabaseName(), paimonHandle.getTableName());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.truncateTable(identifier);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to truncate Paimon table " + identifier + ": " + e.getMessage(), e);
+        }
+        LOG.info("truncated Paimon table {}", identifier);
     }
 
     /**
