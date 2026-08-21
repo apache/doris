@@ -1715,6 +1715,11 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 /** Iceberg sink configurations **/
 DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 
+/** Paimon sink configurations **/
+DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
+DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
+                 [](int64_t bytes) -> bool { return bytes > 0; });
+
 // URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
 // Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
 // local, hdfs, s3, http, broker.

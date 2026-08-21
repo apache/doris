@@ -170,7 +170,7 @@ public final class S3FileSystemProperties
     private String connectionTimeoutMs = DEFAULT_CONNECTION_TIMEOUT_MS;
 
     @Getter
-    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access"},
+    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access", "s3.path.style.access"},
             required = false,
             description = "Whether to use path-style bucket addressing.")
     private String usePathStyle = "false";

@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 
 #include <algorithm>
 #include <cstring>
@@ -491,6 +492,50 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
     return status;
 }
 
+Status write_arrow_variant(const IColumn& column, const NullMap* null_map,
+                           arrow::StructBuilder& builder, size_t start, size_t end) {
+    const auto struct_type = std::dynamic_pointer_cast<arrow::StructType>(builder.type());
+    if (struct_type == nullptr || builder.num_fields() != 2 ||
+        struct_type->field(0)->name() != "value" || struct_type->field(1)->name() != "metadata") {
+        return Status::InvalidArgument(
+                "Variant Arrow output requires struct<value: binary, metadata: binary>");
+    }
+    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
+    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
+    if (value_builder == nullptr || metadata_builder == nullptr) {
+        return Status::InvalidArgument(
+                "Variant Arrow output requires binary value and metadata children");
+    }
+
+    Status status = Status::OK();
+    visit_variant_v2_values(
+            column, start, end, forced_nulls(null_map),
+            [&](size_t) {
+                if (status.ok()) {
+                    status = checkArrowStatus(builder.AppendNull(), column, builder);
+                }
+            },
+            [&](size_t, VariantRef value) {
+                if (!status.ok()) {
+                    return;
+                }
+                status = checkArrowStatus(builder.Append(), column, builder);
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            value_builder->Append(value.value.data,
+                                                  cast_set<int32_t>(value.value.size)),
+                            column, *value_builder);
+                }
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            metadata_builder->Append(value.metadata.data,
+                                                     cast_set<int32_t>(value.metadata.size)),
+                            column, *metadata_builder);
+                }
+            });
+    return status;
+}
+
 } // namespace
 
 void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
@@ -552,6 +597,11 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
             return write_arrow(column, null_map,
                                assert_cast<arrow::LargeStringBuilder&>(*array_builder), first, last,
                                options);
+        }
+        if (array_builder->type()->id() == arrow::Type::STRUCT) {
+            return write_arrow_variant(column, null_map,
+                                       assert_cast<arrow::StructBuilder&>(*array_builder), first,
+                                       last);
         }
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());

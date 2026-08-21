@@ -60,6 +60,27 @@ TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks
     EXPECT_FALSE(second_status.ok());
 }
 
+TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetWithPaimon) {
+    RuntimeState iceberg_state;
+    RuntimeState paimon_state;
+    auto budget = std::make_shared<ExternalFileReportState>();
+    iceberg_state.set_external_file_report_state(budget);
+    paimon_state.set_external_file_report_state(budget);
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 1024 * 1024 + 512;
+    TIcebergCommitData iceberg_data;
+    iceberg_data.__set_file_path(std::string(300, 'x'));
+    TPaimonCommitMessage paimon_data;
+    paimon_data.__set_payload(std::string(300, 'x'));
+
+    Status iceberg_status = iceberg_state.add_iceberg_commit_datas(iceberg_data);
+    Status paimon_status = paimon_state.add_paimon_commit_messages({std::move(paimon_data)});
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_TRUE(iceberg_status.ok()) << iceberg_status;
+    EXPECT_FALSE(paimon_status.ok());
+}
+
 TEST(RuntimeStateIcebergCommitDataTest, UsesTheSmallerCoordinatorThriftLimit) {
     RuntimeState state;
     const int32_t saved_limit = config::thrift_max_message_size;
@@ -91,6 +112,9 @@ TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     ASSERT_TRUE(state.add_iceberg_commit_datas(iceberg_data).ok());
     TMCCommitData mc_data;
     state.add_mc_commit_datas(mc_data);
+    TPaimonCommitMessage paimon_data;
+    paimon_data.__set_payload("paimon-commit");
+    ASSERT_TRUE(state.add_paimon_commit_messages({std::move(paimon_data)}).ok());
     TReportExecStatusParams periodic_params;
 
     state.append_external_file_commit_data(&periodic_params, false);
@@ -98,12 +122,14 @@ TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     EXPECT_FALSE(periodic_params.__isset.hive_partition_updates);
     EXPECT_FALSE(periodic_params.__isset.iceberg_commit_datas);
     EXPECT_FALSE(periodic_params.__isset.mc_commit_datas);
+    EXPECT_FALSE(periodic_params.__isset.paimon_commit_messages);
 
     TReportExecStatusParams final_params;
     state.append_external_file_commit_data(&final_params, true);
     EXPECT_TRUE(final_params.__isset.hive_partition_updates);
     EXPECT_TRUE(final_params.__isset.iceberg_commit_datas);
     EXPECT_TRUE(final_params.__isset.mc_commit_datas);
+    EXPECT_TRUE(final_params.__isset.paimon_commit_messages);
 }
 
 TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledgement) {

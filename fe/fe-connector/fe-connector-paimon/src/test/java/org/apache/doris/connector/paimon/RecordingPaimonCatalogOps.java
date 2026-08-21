@@ -22,6 +22,7 @@ import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
@@ -74,6 +75,10 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     boolean lastCreateTableIgnoreIfExists;
     Identifier lastDroppedTableId;
     boolean lastDropTableIgnoreIfNotExists;
+    Identifier lastRenameFromTableId;
+    Identifier lastRenameToTableId;
+    boolean lastRenameTableIgnoreIfNotExists;
+    Identifier lastTruncatedTableId;
     String lastCreatedDb;
     Map<String, String> lastCreatedDbProps;
     boolean lastCreateDbIgnoreIfExists;
@@ -81,9 +86,26 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     boolean lastDropCascade;
     boolean lastDropDbIgnoreIfNotExists;
 
+    // ---- Column-evolution capture fields (the SchemaChange list the metadata layer built) ----
+    Identifier lastAlteredTableId;
+    List<SchemaChange> lastSchemaChanges;
+    boolean lastAlterTableIgnoreIfNotExists;
+
+    // ---- DROP PARTITION capture fields (the native specs the metadata layer resolved) ----
+    Identifier lastTruncatePartitionsTableId;
+    List<Map<String, String>> lastTruncatedPartitionSpecs;
+
     // ---- B3 DDL throw flags (mirror the read-path throwDatabaseNotExist/throwTableNotExist) ----
     boolean throwTableAlreadyExist;
     boolean throwTableNotExistOnDrop;
+    boolean throwTableNotExistOnAlter;
+    boolean throwTableNotExistOnRename;
+    boolean throwTableAlreadyExistOnRename;
+    boolean throwTableNotExistOnTruncate;
+    boolean throwColumnAlreadyExist;
+    boolean throwColumnNotExist;
+    /** The column name the two column-level alter exceptions above report. */
+    String alterColumnName = "c";
     boolean throwDatabaseAlreadyExist;
     boolean throwDatabaseNotEmpty;
     boolean throwDatabaseNotExistOnDrop;
@@ -236,6 +258,60 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         lastDroppedTableId = identifier;
         lastDropTableIgnoreIfNotExists = ignoreIfNotExists;
         if (throwTableNotExistOnDrop || throwTableNotExist) {
+            throw new Catalog.TableNotExistException(identifier);
+        }
+    }
+
+    @Override
+    public void renameTable(Identifier fromIdentifier, Identifier toIdentifier, boolean ignoreIfNotExists)
+            throws Catalog.TableNotExistException, Catalog.TableAlreadyExistException {
+        log.add("renameTable:" + fromIdentifier.getFullName() + "->" + toIdentifier.getFullName());
+        lastRenameFromTableId = fromIdentifier;
+        lastRenameToTableId = toIdentifier;
+        lastRenameTableIgnoreIfNotExists = ignoreIfNotExists;
+        if (throwTableNotExistOnRename || throwTableNotExist) {
+            throw new Catalog.TableNotExistException(fromIdentifier);
+        }
+        if (throwTableAlreadyExistOnRename || throwTableAlreadyExist) {
+            throw new Catalog.TableAlreadyExistException(toIdentifier);
+        }
+    }
+
+    @Override
+    public void alterTable(Identifier identifier, List<SchemaChange> changes, boolean ignoreIfNotExists)
+            throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+            Catalog.ColumnNotExistException {
+        log.add("alterTable:" + identifier.getFullName() + ",changes=" + changes.size());
+        lastAlteredTableId = identifier;
+        lastSchemaChanges = changes;
+        lastAlterTableIgnoreIfNotExists = ignoreIfNotExists;
+        if (throwTableNotExistOnAlter || throwTableNotExist) {
+            throw new Catalog.TableNotExistException(identifier);
+        }
+        if (throwColumnAlreadyExist) {
+            throw new Catalog.ColumnAlreadyExistException(identifier, alterColumnName);
+        }
+        if (throwColumnNotExist) {
+            throw new Catalog.ColumnNotExistException(identifier, alterColumnName);
+        }
+    }
+
+    @Override
+    public void truncatePartitions(Identifier identifier, List<Map<String, String>> partitionSpecs)
+            throws Catalog.TableNotExistException {
+        log.add("truncatePartitions:" + identifier.getFullName() + ",specs=" + partitionSpecs.size());
+        lastTruncatePartitionsTableId = identifier;
+        lastTruncatedPartitionSpecs = partitionSpecs;
+        if (throwTableNotExist) {
+            throw new Catalog.TableNotExistException(identifier);
+        }
+    }
+
+    @Override
+    public void truncateTable(Identifier identifier) throws Catalog.TableNotExistException {
+        log.add("truncateTable:" + identifier.getFullName());
+        lastTruncatedTableId = identifier;
+        if (throwTableNotExistOnTruncate || throwTableNotExist) {
             throw new Catalog.TableNotExistException(identifier);
         }
     }

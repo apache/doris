@@ -24,6 +24,10 @@
 #include <string>
 #include <utility>
 
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
@@ -229,6 +233,7 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.prepare_split_timer);
         _split_schema_id = -1;
+        _current_split_path = options.current_range.path;
         const auto& paimon_params = options.current_range.table_format_params.paimon_params;
         if (paimon_params.__isset.schema_id) {
             _split_schema_id = paimon_params.schema_id;
@@ -277,13 +282,6 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
     return Status::OK();
 }
 
-Status PaimonReader::customize_file_scan_request(format::FileScanRequest* file_request) {
-    DORIS_CHECK(file_request != nullptr);
-    RETURN_IF_ERROR(format::TableReader::customize_file_scan_request(file_request));
-    file_request->variant_schema_overrides = _variant_schema_overrides;
-    return Status::OK();
-}
-
 Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
                                                  DeleteFileDesc* desc, bool* has_delete_file) {
     DORIS_CHECK(desc != nullptr);
@@ -304,6 +302,110 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
     desc->file_size = -1;
     desc->format = DeleteFileDesc::Format::PAIMON;
     *has_delete_file = true;
+    return Status::OK();
+}
+
+// ---- Row-level DML: the synthetic `__DORIS_PAIMON_ROWID_COL__` locator ----
+// Mirrors IcebergTableReader's ICEBERG_ROWID handling, with a 2-field STRUCT: Paimon deletion
+// vectors key on (data file, row ordinal), so no partition metadata rides along.
+
+Status PaimonReader::customize_file_scan_request(format::FileScanRequest* file_request) {
+    DORIS_CHECK(file_request != nullptr);
+    RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
+    file_request->variant_schema_overrides = _variant_schema_overrides;
+    if (_need_paimon_rowid()) {
+        // Ask the physical reader to emit the per-row ordinal; the framework materializes it as the
+        // ROW_POSITION synthetic column, whose block position is recorded for the STRUCT build below.
+        const auto row_position_column_id = format::LocalColumnId(format::ROW_POSITION_COLUMN_ID);
+        _append_file_scan_column(file_request, row_position_column_id,
+                                 &file_request->non_predicate_columns);
+        _row_position_block_position =
+                file_request->local_positions.at(row_position_column_id).value();
+    }
+    return Status::OK();
+}
+
+Status PaimonReader::materialize_virtual_columns(Block* table_block) {
+    for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
+         ++column_idx) {
+        const auto& mapping = _data_reader.column_mapper->mappings()[column_idx];
+        if (mapping.virtual_column_type == format::TableVirtualColumnType::PAIMON_ROWID) {
+            RETURN_IF_ERROR(_materialize_paimon_rowid(table_block, column_idx));
+        }
+    }
+    return Status::OK();
+}
+
+bool PaimonReader::_need_paimon_rowid() const {
+    if (_data_reader.column_mapper == nullptr) {
+        return false;
+    }
+    for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+        if (mapping.virtual_column_type == format::TableVirtualColumnType::PAIMON_ROWID) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Status PaimonReader::_materialize_paimon_rowid(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    DORIS_CHECK(row_position_column.size() == table_block->rows());
+
+    const auto& type = table_block->get_by_position(column_idx).type;
+    auto column = type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(column.get());
+    auto* struct_column = nullable_column != nullptr
+                                  ? check_and_get_column<ColumnStruct>(
+                                            nullable_column->get_nested_column_ptr().get())
+                                  : check_and_get_column<ColumnStruct>(column.get());
+    DORIS_CHECK(struct_column != nullptr);
+    DORIS_CHECK(struct_column->tuple_size() >= 2);
+
+    // A Paimon deletion vector keys on the data file plus the row's ordinal within it, so the
+    // locator carries exactly that pair. The full path is emitted; the writer trims it to the file
+    // NAME (what the DV index actually keys on) so the trim rule lives in one place.
+    const auto rows = row_position_column.size();
+    std::string file_path = _current_split_path;
+    if (file_path.empty() && _current_task != nullptr && _current_task->data_file != nullptr) {
+        file_path = _current_task->data_file->path;
+    }
+    if (file_path.empty()) {
+        // No single backing data file — a primary-key table's merge-on-read task merges several
+        // files into one keyed stream. Its row-level DML never consumes the locator (deletes and
+        // upserts address rows BY KEY), so the synthetic column is materialized as NULL instead of
+        // failing the scan; only the unaware-bucket append path, which always reads raw single-file
+        // tasks, needs real (file, ordinal) values for the deletion-vector writer.
+        if (nullable_column == nullptr) {
+            return Status::InternalError(
+                    "Paimon row locator column must be nullable when the scan task carries no "
+                    "single data file (merge-on-read)");
+        }
+        auto& file_path_column = struct_column->get_column(0);
+        auto& row_pos_column = struct_column->get_column(1);
+        for (size_t row = 0; row < rows; ++row) {
+            file_path_column.insert_default();
+            row_pos_column.insert_default();
+        }
+        nullable_column->get_null_map_data().resize_fill(rows, 1);
+        table_block->replace_by_position(column_idx, std::move(column));
+        return Status::OK();
+    }
+    auto& file_path_column = struct_column->get_column(0);
+    auto& row_pos_column = struct_column->get_column(1);
+    file_path_column.reserve(rows);
+    row_pos_column.reserve(rows);
+    for (size_t row = 0; row < rows; ++row) {
+        file_path_column.insert_data(file_path.data(), file_path.size());
+        const int64_t row_pos = row_position_column.get_element(row);
+        row_pos_column.insert_data(reinterpret_cast<const char*>(&row_pos), sizeof(row_pos));
+    }
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(rows, 0);
+    }
+    table_block->replace_by_position(column_idx, std::move(column));
     return Status::OK();
 }
 

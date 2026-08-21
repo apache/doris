@@ -19,11 +19,14 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorType;
 
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -90,5 +93,19 @@ public class PaimonTypeMappingReadTest {
 
         Assertions.assertEquals("VARIANT_COMPUTE_V2", variant.getTypeName(),
                 "Paimon Variant must stay queryable in Nereids and the native reader");
+    }
+
+    @Test
+    public void paimon20TypesMapToLosslessDorisTypes() {
+        ConnectorType blob = PaimonTypeMapping.toConnectorType(
+                new BlobType(), PaimonTypeMapping.Options.DEFAULT);
+        Assertions.assertEquals("VARBINARY", blob.getTypeName());
+
+        ConnectorType vector = PaimonTypeMapping.toConnectorType(
+                new VectorType(3, new FloatType(false)), PaimonTypeMapping.Options.DEFAULT);
+        Assertions.assertEquals("ARRAY", vector.getTypeName());
+        Assertions.assertEquals("FLOAT", vector.getChildren().get(0).getTypeName());
+        Assertions.assertFalse(vector.isChildNullable(0),
+                "Paimon VECTOR elements are dense and must remain non-null");
     }
 }

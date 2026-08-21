@@ -84,11 +84,11 @@ public class PaimonConnectorMetadataPartitionTest {
         return handle;
     }
 
-    /** Real Paimon Partition fixture via the verified public 6-arg ctor. */
+    /** Real Paimon Partition fixture via the public statistics constructor. */
     private static Partition partition(Map<String, String> spec, long recordCount,
             long fileSizeInBytes, long lastFileCreationTime) {
         return new Partition(spec, recordCount, fileSizeInBytes, /*fileCount*/ 1, lastFileCreationTime,
-                /*done*/ true);
+                /*totalBuckets*/ 1, /*done*/ true);
     }
 
     @Test
@@ -183,10 +183,10 @@ public class PaimonConnectorMetadataPartitionTest {
         spec.put("region", "cn");
         // Every stat is a DISTINCT value so an arg-swap mutation cannot pass by coincidence.
         // Paimon Partition ctor order: (spec, recordCount, fileSizeInBytes, fileCount,
-        // lastFileCreationTime, done).
+        // lastFileCreationTime, totalBuckets, done).
         ops.partitions = Collections.singletonList(new Partition(
                 spec, /*recordCount*/ 42L, /*fileSizeInBytes*/ 1024L, /*fileCount*/ 7L,
-                /*lastFileCreationTime*/ 1700000000000L, /*done*/ true));
+                /*lastFileCreationTime*/ 1700000000000L, /*totalBuckets*/ 3, /*done*/ true));
 
         ConnectorPartitionInfo info = metadataWith(ops)
                 .listPartitions(null, dtRegionHandle(table), Optional.empty()).get(0);

@@ -91,6 +91,19 @@ public class PaimonConnectorMetadataDdlTest {
                 .build();
     }
 
+    private static ConnectorCreateTableRequest requestWithVortexVariant() {
+        List<ConnectorColumn> columns = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), null, false, null),
+                new ConnectorColumn("doc", ConnectorType.of("VARIANT"), null, true, null));
+        return ConnectorCreateTableRequest.builder()
+                .dbName("db1")
+                .tableName("vortex_variant")
+                .columns(columns)
+                .properties(Collections.singletonMap("file.format", "vortex"))
+                .ifNotExists(false)
+                .build();
+    }
+
     private static PaimonTableHandle handle() {
         return new PaimonTableHandle("db1", "t1",
                 Collections.singletonList("id"), Collections.singletonList("id"));
@@ -232,6 +245,22 @@ public class PaimonConnectorMetadataDdlTest {
                 "schema build failure must abort BEFORE entering the authenticator");
         Assertions.assertTrue(ops.log.isEmpty(),
                 "schema build failure must never reach the remote catalog seam");
+    }
+
+    @Test
+    public void createTableRejectsVortexVariantBeforeRemoteCatalogCall() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).createTable(null, requestWithVortexVariant()));
+
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Vortex file format does not support type VARIANT"));
+        Assertions.assertEquals(0, ctx.authCount,
+                "schema validation must fail before entering the authenticator");
+        Assertions.assertTrue(ops.log.isEmpty(),
+                "an invalid Vortex schema must not leave a table in a remote REST catalog");
     }
 
     // ==================== dropTable ====================

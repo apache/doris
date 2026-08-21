@@ -39,6 +39,7 @@ import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -89,6 +90,10 @@ public final class PaimonTypeMapping {
                 return toBinaryType((BinaryType) dataType, options);
             case VARBINARY:
                 return toVarbinaryType((VarBinaryType) dataType, options);
+            case BLOB:
+                return ConnectorType.of("VARBINARY");
+            case VECTOR:
+                return toVectorType((VectorType) dataType, options);
             case DECIMAL:
                 return toDecimalType((DecimalType) dataType);
             case DATE:
@@ -174,7 +179,13 @@ public final class PaimonTypeMapping {
 
     private static ConnectorType toArrayType(ArrayType type, Options options) {
         ConnectorType elementType = toConnectorType(type.getElementType(), options);
-        return ConnectorType.arrayOf(elementType);
+        return ConnectorType.arrayOf(elementType, type.getElementType().isNullable());
+    }
+
+    private static ConnectorType toVectorType(VectorType type, Options options) {
+        ConnectorType elementType = toConnectorType(type.getElementType(), options);
+        // Paimon vectors are dense fixed-size arrays and reject null elements.
+        return ConnectorType.arrayOf(elementType, false);
     }
 
     private static ConnectorType toMapType(MapType type, Options options) {

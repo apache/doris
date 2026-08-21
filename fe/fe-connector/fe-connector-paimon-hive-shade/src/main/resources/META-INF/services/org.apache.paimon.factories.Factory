@@ -1,0 +1,2 @@
+org.apache.paimon.hive.HiveCatalogFactory
+org.apache.paimon.hive.HiveCatalogLockFactory

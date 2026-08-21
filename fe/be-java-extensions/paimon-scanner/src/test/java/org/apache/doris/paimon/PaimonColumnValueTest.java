@@ -21,14 +21,18 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.BinaryVector;
+import org.apache.paimon.data.Blob;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
@@ -36,6 +40,8 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -238,6 +244,47 @@ public class PaimonColumnValueTest {
         Assert.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+    }
+
+    @Test
+    public void testBlobReturnsMaterializedBytes() {
+        byte[] expected = new byte[] {0, 1, 2, (byte) 0xff};
+        PaimonColumnValue blobValue = new PaimonColumnValue(
+                GenericRow.of(Blob.fromData(expected)), 0,
+                ColumnType.parseType("payload", "varbinary"), new BlobType(), "UTC");
+
+        Assert.assertArrayEquals(expected, blobValue.getBytes());
+    }
+
+    @Test
+    public void testVectorUnpacksDenseElements() {
+        PaimonColumnValue vectorValue = new PaimonColumnValue(
+                GenericRow.of(BinaryVector.fromPrimitiveArray(new float[] {1.5f, -2.0f, 3.25f})), 0,
+                ColumnType.parseType("embedding", "array<float>"),
+                new VectorType(3, new org.apache.paimon.types.FloatType(false)), "UTC");
+        List<ColumnValue> values = new ArrayList<>();
+
+        vectorValue.unpackArray(values);
+
+        Assert.assertEquals(3, values.size());
+        Assert.assertEquals(1.5f, values.get(0).getFloat(), 0.0f);
+        Assert.assertEquals(-2.0f, values.get(1).getFloat(), 0.0f);
+        Assert.assertEquals(3.25f, values.get(2).getFloat(), 0.0f);
+    }
+
+    @Test
+    public void testVariantUnpacksLosslessBinaryChildren() {
+        GenericVariant variant = GenericVariant.fromJson("{\"id\":7,\"tags\":[\"doris\"]}");
+        PaimonColumnValue variantValue = new PaimonColumnValue(
+                GenericRow.of(variant), 0,
+                ColumnType.parseType("payload", "struct<value:varbinary,metadata:varbinary>"),
+                new VariantType(), "UTC");
+        List<ColumnValue> values = new ArrayList<>();
+
+        variantValue.unpackStruct(Arrays.asList(0, 1), values);
+
+        Assert.assertArrayEquals(variant.value(), values.get(0).getBytes());
+        Assert.assertArrayEquals(variant.metadata(), values.get(1).getBytes());
     }
 
     private InternalRow nestedArrayRow(int outerSize, int innerSize, int populatedIndex, int nullIndex) {

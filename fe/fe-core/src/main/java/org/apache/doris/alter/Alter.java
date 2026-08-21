@@ -440,6 +440,11 @@ public class Alter {
                 table.getCatalog().dropPartitionField(table, (DropPartitionFieldOp) alterOp);
             } else if (alterOp instanceof ReplacePartitionFieldOp) {
                 table.getCatalog().replacePartitionField(table, (ReplacePartitionFieldOp) alterOp);
+            } else if (alterOp instanceof DropPartitionOp) {
+                // Unlike DropPartitionFieldOp (a partition-SPEC change), this clears the DATA of the named
+                // partition. Routed to the catalog so a connector that supports it (paimon) truncates the
+                // partition; the base CatalogIf default rejects it for catalogs that do not.
+                table.getCatalog().dropPartition(table, (DropPartitionOp) alterOp);
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterOps);
             }

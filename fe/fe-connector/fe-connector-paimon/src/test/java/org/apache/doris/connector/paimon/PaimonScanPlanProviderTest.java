@@ -50,10 +50,12 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.format.FileFormat;
 import org.apache.paimon.fs.FileStatus;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
@@ -98,6 +100,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Tests for {@link PaimonScanPlanProvider#resolveTable}, pinning the transient-Table reload
@@ -414,10 +417,16 @@ public class PaimonScanPlanProviderTest {
                 .options(Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "csv"))
                 .build();
         List<Split> plannedSplits = table.newReadBuilder().newScan().plan().splits();
-        Assertions.assertTrue(plannedSplits.size() >= 2,
+        List<String> plannedFileNames = new ArrayList<>();
+        for (Split split : plannedSplits) {
+            for (FormatDataSplit.FileMeta fileMeta : ((FormatDataSplit) split).files()) {
+                plannedFileNames.add(fileMeta.filePath().getName());
+            }
+        }
+        Assertions.assertTrue(plannedFileNames.contains("000-empty.csv")
+                        && plannedFileNames.contains("999-live.csv"),
                 "fixture must expose both the empty and live format files");
-        Assertions.assertEquals("000-empty.csv",
-                ((FormatDataSplit) plannedSplits.get(0)).filePath().getName(),
+        Assertions.assertEquals("000-empty.csv", plannedFileNames.get(0),
                 "the unsafe file-count limit must encounter the empty file first");
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
@@ -558,7 +567,7 @@ public class PaimonScanPlanProviderTest {
                 }
             }
 
-            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
             FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
                     pair, new AllGrantedPrivilegeChecker(), mainId);
             for (Table planningTable : Arrays.asList(pair, decorated)) {
@@ -761,6 +770,12 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         false, false, true, Collections.singleton(0L), orcFiles),
                 "a physical Variant field in ORC remains unsupported");
+    }
+
+    @Test
+    public void vortexFormatFactoryIsAvailable() {
+        FileFormat format = FileFormat.fromIdentifier("vortex", new Options());
+        Assertions.assertEquals("vortex", format.getFormatIdentifier());
     }
 
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----
@@ -1468,13 +1483,18 @@ public class PaimonScanPlanProviderTest {
                 "precondition: nativeBinaryEncode really is the paimon::Split::Deserialize format");
     }
 
-    /** A non-DataSplit Split (the only abstract method is rowCount(); Split is Serializable). */
+    /** A non-DataSplit Split used to verify the Java serialization route. */
     private static final class NonDataSplitStub implements Split {
         private static final long serialVersionUID = 1L;
 
         @Override
         public long rowCount() {
             return 0;
+        }
+
+        @Override
+        public OptionalLong mergedRowCount() {
+            return OptionalLong.empty();
         }
     }
 
@@ -1497,13 +1517,13 @@ public class PaimonScanPlanProviderTest {
         // (post-merge / post-deletion-vector) row count, so a COUNT(*) over it can be served from
         // metadata instead of materializing rows.
         DataSplit dataSplit = buildRealDataSplit(warehouse);
-        Assertions.assertTrue(dataSplit.mergedRowCountAvailable(),
+        Assertions.assertTrue(dataSplit.mergedRowCount().isPresent(),
                 "precondition: a freshly written PK split has a precomputed merged row count");
-        Assertions.assertEquals(2L, dataSplit.mergedRowCount(), "two rows were written");
+        Assertions.assertEquals(2L, dataSplit.mergedRowCount().getAsLong(), "two rows were written");
 
         // WHY: the count branch must fire ONLY when BOTH the agg is COUNT (countPushdown) AND the SDK
         // precomputed the post-merge count — mirrors legacy `applyCountPushdown &&
-        // dataSplit.mergedRowCountAvailable()`. MUTATION: dropping `countPushdown &&` (or hard-coding
+        // dataSplit.mergedRowCount().isPresent()`. MUTATION: dropping `countPushdown &&` (or hard-coding
         // the helper to false) -> one of these two assertions flips -> red.
         Assertions.assertTrue(PaimonScanPlanProvider.isCountPushdownSplit(true, dataSplit),
                 "a count query over a split with a precomputed merged count must push the count down");

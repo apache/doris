@@ -188,7 +188,7 @@ DataTypeSerDeSPtr ColumnVariant::Subcolumn::generate_data_serdes(DataTypePtr typ
 
 ColumnVariant::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, bool is_nullable_,
                                     bool is_root_)
-        : least_common_type(type),
+        : least_common_type(type, is_root_),
           is_nullable(is_nullable_),
           is_root(is_root_),
           num_rows(data_->size()) {
@@ -463,6 +463,11 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
         size_t part_end = end - processed_rows;
         insert_from_part(src.data[pos], src.data_types[pos], 0, part_end);
     }
+
+    const size_t trailing_defaults_start = std::max(start, src.num_rows);
+    if (end > trailing_defaults_start) {
+        data.back()->insert_many_defaults(end - trailing_defaults_start);
+    }
 }
 
 bool ColumnVariant::Subcolumn::is_finalized() const {
@@ -488,20 +493,29 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
         auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
         return finalized_object.apply_for_columns(std::forward<Func>(func));
     }
-    auto new_root = std::move(*func(get_root())).mutate();
-    auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode, get_root_type(),
-                                     std::move(new_root));
+    Subcolumns transformed_subcolumns;
     for (const auto& subcolumn : subcolumns) {
-        if (subcolumn->data.is_root) {
+        auto transformed = std::move(*func(subcolumn->data.get_finalized_column_ptr())).mutate();
+        Subcolumn transformed_subcolumn(std::move(transformed),
+                                        subcolumn->data.get_least_common_type(), is_nullable,
+                                        subcolumn->data.is_root);
+        if (subcolumn->data.is_root || subcolumn->path.empty()) {
+            transformed_subcolumns.create_root(std::move(transformed_subcolumn));
             continue;
         }
-        auto new_subcolumn = func(subcolumn->data.get_finalized_column_ptr());
-        if (!res->add_sub_column(subcolumn->path, std::move(*new_subcolumn).mutate(),
-                                 subcolumn->data.get_least_common_type())) {
+        if (!transformed_subcolumns.add(subcolumn->path, std::move(transformed_subcolumn))) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error",
                                    subcolumn->path.get_path());
         }
     }
+    if (transformed_subcolumns.get_root() == nullptr) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "root is nullptr after transforming variant columns");
+    }
+    auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode,
+                                     std::move(transformed_subcolumns));
+    res->typed_path_count = typed_path_count;
+    res->nested_path_count = nested_path_count;
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = IColumn::mutate(std::move(sparse_column));
     auto doc_value_column = func(serialized_doc_value_column);
@@ -869,21 +883,10 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
     const auto* src_v = assert_cast<const ColumnVariant*>(&src);
     ENABLE_CHECK_CONSISTENCY(src_v);
     ENABLE_CHECK_CONSISTENCY(this);
-    // Preserve the original root-only copy path for ordinary variant columns.
-    // Reconstructing through try_insert() loses sparse/doc_value structure for
-    // mixed-shape rows and nested-group data.
-    if (src_v->get_subcolumns().size() == 1 && get_subcolumns().size() == 1) {
-        DCHECK(_enable_doc_mode == src_v->_enable_doc_mode)
-                << "root-only variant copy requires matching doc mode";
-        FieldWithDataType field;
-        src_v->subcolumns.get_root()->data.get(n, field);
-        subcolumns.get_mutable_root()->data.insert(field);
-        serialized_sparse_column->insert_from(*src_v->get_sparse_column(), n);
-        serialized_doc_value_column->insert_from(*src_v->get_doc_value_column(), n);
-        num_rows++;
-    } else {
-        try_insert((*src_v)[n]);
-    }
+    // Keep complex and materialized object paths in their native subcolumns. Reconstructing a
+    // single row as a Field can turn nested objects into TYPE_STRUCT, which is not a scalar type
+    // that Subcolumn::insert() can create through DataTypeFactory.
+    insert_range_from(*src_v, n, 1);
     ENABLE_CHECK_CONSISTENCY(this);
 }
 

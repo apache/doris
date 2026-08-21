@@ -81,7 +81,8 @@ public class ExternalRowLevelUpdatePlanBuilder {
 
     @VisibleForTesting
     LogicalPlan buildMergeProjectPlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                      List<EqualTo> assignments, List<Column> columns, String tableName) {
+                                      List<EqualTo> assignments, List<Column> columns, String tableName,
+                                      ExternalTable targetTable) {
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : assignments) {
             List<String> colNameParts = ((UnboundSlot) equalTo.left()).getNameParts();
@@ -90,7 +91,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
         }
         List<NamedExpression> updateColumns = buildUpdateSelectItems(colNameToExpression, columns, tableName);
         LogicalPlan planWithRowId = RowLevelDmlRowIdUtils.injectRowIdColumn(logicalQuery);
-        NamedExpression rowIdColumn = getRowIdColumnExpr(planWithRowId);
+        NamedExpression rowIdColumn = getRowIdColumnExpr(planWithRowId, targetTable);
         NamedExpression operationColumn = new UnboundAlias(
                 new TinyIntLiteral(MergeOperation.UPDATE_OPERATION_NUMBER),
                 MergeOperation.OPERATION_COLUMN);
@@ -125,7 +126,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
                                 ctx, nameParts, tableAlias))))
                 .collect(Collectors.toList());
         LogicalPlan queryPlan = buildMergeProjectPlan(
-                ctx, logicalQuery, resolvedAssignments, writeColumns, tableName);
+                ctx, logicalQuery, resolvedAssignments, writeColumns, tableName, icebergTable);
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(queryPlan)) {
@@ -151,14 +152,18 @@ public class ExternalRowLevelUpdatePlanBuilder {
                 queryPlan);
     }
 
-    private NamedExpression getRowIdColumnExpr(LogicalPlan planWithRowId) {
+    private NamedExpression getRowIdColumnExpr(LogicalPlan planWithRowId, ExternalTable targetTable) {
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(planWithRowId)) {
             Optional<Slot> rowIdSlot = RowLevelDmlRowIdUtils.findRowIdSlot(planWithRowId.getOutput());
             if (rowIdSlot.isPresent()) {
                 return (NamedExpression) rowIdSlot.get();
             }
         }
-        return new UnboundSlot(Column.ICEBERG_ROWID_COL);
+        // Unbound fallback: name the TARGET connector's locator, not iceberg's. A null table (only the
+        // plan-shape unit tests pass one) keeps the historical iceberg name.
+        return new UnboundSlot(targetTable == null
+                ? Column.ICEBERG_ROWID_COL
+                : RowLevelDmlRowIdUtils.rowIdColumnName(targetTable));
     }
 
     @VisibleForTesting

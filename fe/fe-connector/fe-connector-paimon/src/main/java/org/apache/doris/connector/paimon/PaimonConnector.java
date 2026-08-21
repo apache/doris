@@ -33,6 +33,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
@@ -43,6 +44,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -107,6 +109,18 @@ public class PaimonConnector implements Connector {
     // Legacy default = Config.max_external_table_cache_num.
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
+    // EXTERNAL-CHANGE-POLL: the invalidate* hooks only fire for a Doris-issued (or REFRESH-driven) ALTER; an
+    // external engine's ALTER produces NO Doris event, so every FE's paimon CachingCatalog serves the frozen
+    // pre-ALTER Table until the 24h access-TTL (see PaimonExternalChangePoller). This knob turns on a per-catalog
+    // background poller that detects such out-of-band schema changes (held vs latest schema id) and evicts, so a
+    // query heals within one interval instead of at the TTL. Parsed exactly like the table-cache ttl-second knob:
+    // <= 0 disables it (the prior, event-only behavior — the default), a positive value is the poll period.
+    static final String EXTERNAL_CHANGE_POLL_INTERVAL_SECOND = "meta.cache.paimon.external-change-poll-interval-second";
+    // Off by default: polling is a background cost the operator opts into, and an FE that only ever sees
+    // Doris-issued ALTERs does not need it. A deployment that shares its paimon tables with an external engine
+    // sets this to a modest interval (e.g. 60) to trade a light periodic schema-id probe for automatic healing.
+    static final long DEFAULT_EXTERNAL_CHANGE_POLL_INTERVAL_SECOND = 0L;
+
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 
@@ -150,6 +164,15 @@ public class PaimonConnector implements Connector {
     // connector and overlaid on every table load by CatalogBackedPaimonCatalogOps.getTable.
     private final Map<String, String> tableOptions;
 
+    // EXTERNAL-CHANGE-POLL: the background poller that heals the paimon CachingCatalog after an out-of-band
+    // (external-engine) ALTER by evicting the frozen Table (see PaimonExternalChangePoller). Always non-null;
+    // it is INERT (never schedules a thread) unless meta.cache.paimon.external-change-poll-interval-second is
+    // positive, so the default deployment behaves exactly as before. Reads the catalog lazily via a supplier of
+    // the field (NOT ensureCatalog()) so the poller never forces the catalog build. Bound to the connector's
+    // lifetime: close() shuts it down, so a REFRESH CATALOG / catalog drop that rebuilds the connector also
+    // rebuilds the poller.
+    private final PaimonExternalChangePoller externalChangePoller;
+
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         // Construct-time BIND, not validation: of() carries only what the connector cannot run without,
         // so a catalog created before a rule existed still comes back after an FE restart. The
@@ -168,6 +191,22 @@ public class PaimonConnector implements Connector {
         // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
         // properties via the framework's CacheSpec (default ON / 24h / 1000).
         this.partitionViewCache = new ConnectorMetadataCache<>("paimon", "partition_view", properties);
+        // Supplies the RAW catalog field (never ensureCatalog()): a poll on a never-built catalog is a no-op,
+        // and an invalidation-like background task must not be the thing that first builds (and possibly fails
+        // to build) the catalog. The eviction callback runs BOTH halves REFRESH TABLE runs: invalidateTable
+        // drops all four connector caches AND the CachingCatalog's frozen Table, and
+        // context.notifyExternalTableChanged drops the engine's OWN ExtMetaCache entry (fe-core) so a query
+        // actually sees the new schema on its next read instead of only healing the JNI-level symptom.
+        this.externalChangePoller = new PaimonExternalChangePoller(
+                this.context.getCatalogName(),
+                resolveExternalChangePollIntervalSecond(properties),
+                () -> catalog,
+                (dbName, tableName) -> {
+                    invalidateTable(dbName, tableName);
+                    context.notifyExternalTableChanged(dbName, tableName);
+                });
+        // No-op unless the interval is positive; the daemon thread only starts for an opted-in catalog.
+        this.externalChangePoller.start();
     }
 
     /**
@@ -252,6 +291,27 @@ public class PaimonConnector implements Connector {
         }
     }
 
+    /**
+     * Parses {@code meta.cache.paimon.external-change-poll-interval-second} (default {@code 0} = disabled;
+     * {@code <= 0} means the background poller never starts, so the deployment behaves exactly as before). A
+     * positive value is the poll period in seconds. Mirrors {@link #resolveTableCacheTtlSecond}: an unparseable
+     * value falls back to the (disabled) default rather than failing catalog creation — a mistyped knob must not
+     * take a catalog offline, and the fallback is the safe, prior behavior.
+     */
+    private static long resolveExternalChangePollIntervalSecond(Map<String, String> properties) {
+        String raw = properties.get(EXTERNAL_CHANGE_POLL_INTERVAL_SECOND);
+        if (raw == null || raw.trim().isEmpty()) {
+            return DEFAULT_EXTERNAL_CHANGE_POLL_INTERVAL_SECOND;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            LOG.warn("Invalid {}={}, falling back to default {}s (poller disabled)",
+                    EXTERNAL_CHANGE_POLL_INTERVAL_SECOND, raw, DEFAULT_EXTERNAL_CHANGE_POLL_INTERVAL_SECOND);
+            return DEFAULT_EXTERNAL_CHANGE_POLL_INTERVAL_SECOND;
+        }
+    }
+
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
@@ -289,6 +349,17 @@ public class PaimonConnector implements Connector {
         // PERF-06: also drop this table's cached derived partition-view entries (every snapshotId cached for
         // it), so the next listPartitions re-enumerates live.
         partitionViewCache.invalidateTable(dbName, tableName);
+        // Also evict the paimon SDK catalog's cached Table object. The factory-built catalog is wrapped in
+        // paimon's CachingCatalog (cache.enabled default), whose cached FileStoreTable freezes rowType() at
+        // load time. The metadata path already reads the latest schema live (schemaManager().latest(), see
+        // PaimonCatalogOps.latestSchema), but the SCAN path serializes catalogOps.getTable()'s Table to the
+        // BE: after an ALTER COLUMN executed on ANOTHER FE (DDL forwards to master; only the mutating
+        // CachingCatalog instance self-invalidates) or by an external engine, every JNI merged-read split on
+        // this FE fails with "jni reader fields' size {N} is not matched with paimon fields' size {M}" until
+        // the (default 24h) access-TTL — and without this eviction REFRESH TABLE could not heal it either.
+        // Reached on every FE: the master's DDL hook AND the follower's editlog replay both route through
+        // RefreshManager.refreshTableInternal -> connector.invalidateTable.
+        invalidatePaimonCatalogTable(Identifier.create(dbName, tableName));
     }
 
     /**
@@ -306,6 +377,17 @@ public class PaimonConnector implements Connector {
         latestSnapshotCache.invalidateDb(dbName);
         schemaAtMemo.invalidateDb(dbName);
         partitionViewCache.invalidateDb(dbName);
+        // Db-scoped analogue of invalidateTable's paimon-catalog eviction: drop every cached Table of this
+        // database from the CachingCatalog (paimon exposes no db-scoped API, so filter its table cache).
+        Catalog current = catalog;
+        if (current instanceof CachingCatalog) {
+            try {
+                ((CachingCatalog) current).tableCache().asMap().keySet()
+                        .removeIf(id -> id.getDatabaseName().equals(dbName));
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to evict paimon catalog table cache for db {}: {}", dbName, e.getMessage());
+            }
+        }
     }
 
     @Override
@@ -313,6 +395,41 @@ public class PaimonConnector implements Connector {
         latestSnapshotCache.invalidateAll();
         schemaAtMemo.invalidateAll();
         partitionViewCache.invalidateAll();
+        // Catalog-scoped analogue of invalidateTable's paimon-catalog eviction (REFRESH CATALOG must heal
+        // frozen Table objects too).
+        Catalog current = catalog;
+        if (current instanceof CachingCatalog) {
+            try {
+                ((CachingCatalog) current).tableCache().invalidateAll();
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to evict paimon catalog table cache: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Evicts the paimon catalog's cached {@link org.apache.paimon.table.Table} for {@code id}.
+     * {@code Catalog.invalidateTable} is an interface default (a no-op for a non-caching catalog;
+     * {@code CachingCatalog} overrides it to drop its table cache entry, and {@code DelegateCatalog}
+     * forwards it), so this is safe for every catalog flavor. Reads the field directly instead of
+     * {@code ensureCatalog()}: a never-built catalog has nothing cached, and an invalidation hook must
+     * not be the thing that first builds (and possibly fails to build) the catalog.
+     */
+    private void invalidatePaimonCatalogTable(Identifier id) {
+        Catalog current = catalog;
+        if (current == null) {
+            return;
+        }
+        try {
+            current.invalidateTable(id);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to evict paimon catalog table cache for {}: {}", id, e.getMessage());
+        }
+    }
+
+    /** Test hook: install a pre-built paimon catalog so eviction semantics are testable offline. */
+    void setCatalogForTest(Catalog catalog) {
+        this.catalog = catalog;
     }
 
     @Override
@@ -340,11 +457,18 @@ public class PaimonConnector implements Connector {
                 context, schemaAtMemo);
     }
 
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        return new PaimonWritePlanProvider(catalogProps,
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                context);
+    }
+
     /**
      * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
      * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
      * {@code resolveTimeTravel}.
-     * No write capability is declared: paimon write is not migrated.
+     * Write support is exposed through {@link #getWritePlanProvider()} rather than a capability flag.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
@@ -367,6 +491,12 @@ public class PaimonConnector implements Connector {
                 // on a capability instead of an engine string). Paimon emits no partition/sort show.* keys, so
                 // it renders no PARTITION BY / ORDER BY — byte-faithful with its prior SHOW CREATE output.
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
+                // Paimon models column DDL as SchemaChanges committed through Catalog.alterTable, and its
+                // API carries a String[] field path for every op, so nested (dotted-path) ADD/DROP/RENAME/
+                // MODIFY and MODIFY COLUMN ... COMMENT are all expressible. PaimonConnectorMetadata
+                // implements the full ConnectorColumnEvolutionOps group (the flat six plus the nested five);
+                // declaring this is what admits the schema-change clause set in nereids AlterTableCommand.
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
                 // Paimon owns a relation-scoped scan-option vocabulary (CoreOptions scan.* keys), so it
                 // accepts @options(...). fe-core's BindRelation consults this to reject the clause up front
                 // for every other table type; the vocabulary itself is validated by PaimonScanParams while
@@ -642,6 +772,10 @@ public class PaimonConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        // Stop the background external-change poller FIRST (no-op if it was never enabled), so its daemon thread
+        // does not touch a catalog being closed. shutdownNow does not wait for an in-flight poll; an eviction is
+        // idempotent, so a poll that races the close is harmless.
+        externalChangePoller.close();
         Catalog cat = catalog;
         if (cat != null) {
             try {
@@ -650,6 +784,11 @@ public class PaimonConnector implements Connector {
                 LOG.warn("Failed to close Paimon catalog", e);
             }
         }
+    }
+
+    /** Test hook: the background external-change poller, so a test can drive one synchronous {@code pollOnce}. */
+    PaimonExternalChangePoller externalChangePollerForTest() {
+        return externalChangePoller;
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

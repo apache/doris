@@ -176,4 +176,23 @@ public interface ConnectorContext {
     default ConnectorStorageContext getStorageContext() {
         return ConnectorStorageContext.NOOP;
     }
+
+    /**
+     * Notifies the engine that {@code remoteTableName} in {@code remoteDbName} changed on the remote system
+     * outside of any Doris-issued DDL (a connector-internal detector — e.g. a background poll noticing an
+     * external engine's schema change — found the drift on its own). The engine refreshes ITS OWN caches for
+     * the table the same way a user-issued {@code REFRESH TABLE} would; the connector's own per-table cache is
+     * the connector's responsibility to evict separately (this call does not touch it).
+     *
+     * <p>The default is a no-op, so a connector that never self-detects remote drift (the common case) and the
+     * no-op default context are both unaffected. Names are REMOTE (as the connector knows the table), matching
+     * every other by-name entry point on this interface family (e.g. {@code invalidateTable}); the engine
+     * resolves them to its own local mapping, and a name that does not resolve to a currently-loaded local
+     * table is silently ignored (the table was already dropped, renamed, or never loaded — nothing to refresh).
+     *
+     * @param remoteDbName    the remote database name owning the changed table
+     * @param remoteTableName the remote table name that changed
+     */
+    default void notifyExternalTableChanged(String remoteDbName, String remoteTableName) {
+    }
 }

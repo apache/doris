@@ -22,6 +22,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -52,6 +53,14 @@ class QeProcessorImplReportAckTest {
     @Test
     void rejectsExternalReportWithoutCoordinator() {
         TReportExecStatusResult result = report(params(new TUniqueId(12345, 1)));
+
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
+    }
+
+    @Test
+    void rejectsPaimonReportWithoutCoordinator() {
+        TReportExecStatusResult result = report(paimonParams(new TUniqueId(12345, 6)));
 
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
         Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
@@ -152,13 +161,22 @@ class QeProcessorImplReportAckTest {
     }
 
     private static TReportExecStatusParams params(TUniqueId queryId) {
+        return baseParams(queryId)
+                .setIcebergCommitDatas(Collections.<TIcebergCommitData>emptyList());
+    }
+
+    private static TReportExecStatusParams paimonParams(TUniqueId queryId) {
+        return baseParams(queryId)
+                .setPaimonCommitMessages(Collections.<TPaimonCommitMessage>emptyList());
+    }
+
+    private static TReportExecStatusParams baseParams(TUniqueId queryId) {
         return new TReportExecStatusParams()
                 .setQueryId(queryId)
                 .setFragmentId(7)
                 .setBackendId(9)
                 .setDone(true)
-                .setStatus(new TStatus(TStatusCode.OK))
-                .setIcebergCommitDatas(Collections.<TIcebergCommitData>emptyList());
+                .setStatus(new TStatus(TStatusCode.OK));
     }
 
     private static TReportExecStatusResult report(TReportExecStatusParams params) {

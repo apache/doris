@@ -71,6 +71,7 @@ import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -1221,6 +1222,31 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         long updateTime = System.currentTimeMillis();
         try {
             metadata.replacePartitionField(session, handle, ConnectorPartitionFieldConverter.toReplaceChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... DROP PARTITION [IF EXISTS] p} through the SPI's
+     * {@code ConnectorTableDdlOps.dropPartitions}. Unlike {@link #dropPartitionField} (a partition-SPEC
+     * change), this clears the DATA of the named partition; the connector resolves the display name back to
+     * its native spec and truncates it. Resolves the handle by REMOTE names (like {@link #dropTable}), wraps a
+     * {@link DorisConnectorException} as a {@link DdlException}, and runs {@link #afterExternalDdl} for the
+     * editlog + cache refresh (a data change, same bookkeeping as {@link #truncateTable}). {@code IF EXISTS} is
+     * forwarded so the connector can no-op on an absent partition per the Doris contract.
+     */
+    @Override
+    public void dropPartition(TableIf dorisTable, DropPartitionOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropPartitions(session, handle,
+                    java.util.Collections.singletonList(op.getPartitionName()), op.isSetIfExists());
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }

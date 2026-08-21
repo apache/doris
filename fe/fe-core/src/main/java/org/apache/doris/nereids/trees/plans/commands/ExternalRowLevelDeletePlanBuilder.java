@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -129,7 +128,10 @@ public class ExternalRowLevelDeletePlanBuilder {
      * 3. The $row_id contains (file_path, row_position, partition_spec_id, partition_data)
      * 4. These will be written to Position Delete file
      */
-    private LogicalPlan buildPositionDeletePlan(ConnectContext ctx, LogicalPlan logicalQuery,
+    // Protected: a connector whose delete sink consumes a different row shape (paimon's keyed
+    // delete wants the full data row plus the locator, not iceberg's [operation, locator] pair)
+    // overrides just this projection while reusing the sink wrapping in completeQueryPlan.
+    protected LogicalPlan buildPositionDeletePlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                                 ExternalTable icebergTable) {
         // Step 1: Inject $row_id metadata column into the scan
         LogicalPlan planWithRowId = RowLevelDmlRowIdUtils.injectRowIdColumn(logicalQuery);
@@ -144,7 +146,9 @@ public class ExternalRowLevelDeletePlanBuilder {
                 MergeOperation.OPERATION_COLUMN);
         NamedExpression rowIdColumn = rowIdSlot.isPresent()
                 ? (NamedExpression) rowIdSlot.get()
-                : new UnboundSlot(Column.ICEBERG_ROWID_COL);
+                // Unbound fallback: name the TARGET connector's locator (iceberg and paimon each declare
+                // their own); assuming iceberg's here breaks every other connector at bind time.
+                : new UnboundSlot(RowLevelDmlRowIdUtils.rowIdColumnName(icebergTable));
         List<NamedExpression> projectItems = ImmutableList.of(operationColumn, rowIdColumn);
 
         return new LogicalProject<>(projectItems, planWithRowId);
