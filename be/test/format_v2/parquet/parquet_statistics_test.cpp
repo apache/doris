@@ -42,8 +42,11 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/functions_comparison.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/hybrid_set_min_max.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -98,13 +101,57 @@ private:
     bool _fail_reads = false;
     int _read_count = 0;
 };
+
+std::shared_ptr<HybridSetBase> hybrid_set_from_fields(const DataTypePtr& data_type,
+                                                      const std::vector<Field>& values) {
+    const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
+    std::shared_ptr<HybridSetBase> set(create_set(primitive_type, false));
+    for (const auto& field : values) {
+        if (field.is_null()) {
+            continue;
+        }
+        DORIS_CHECK(expr_zonemap::field_types_compatible(field.get_type(), primitive_type));
+        switch (primitive_type) {
+        case TYPE_BOOLEAN:
+            set->insert(&field.get<TYPE_BOOLEAN>());
+            break;
+        case TYPE_INT:
+            set->insert(&field.get<TYPE_INT>());
+            break;
+        case TYPE_BIGINT:
+            set->insert(&field.get<TYPE_BIGINT>());
+            break;
+        case TYPE_FLOAT:
+            set->insert(&field.get<TYPE_FLOAT>());
+            break;
+        case TYPE_DOUBLE:
+            set->insert(&field.get<TYPE_DOUBLE>());
+            break;
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
+            const auto value = field.as_string_view();
+            StringRef ref(value.data(), value.size());
+            set->insert(&ref);
+            break;
+        }
+        default:
+            DORIS_CHECK(false) << "Unsupported Bloom IN test type " << primitive_type;
+        }
+    }
+    return set;
+}
+
 class BloomInExpr final : public VExpr {
 public:
     BloomInExpr(int column_id, DataTypePtr data_type, std::vector<Field> values)
-            : BloomInExpr(VSlotRef::create_shared(0, column_id, -1, std::move(data_type), "c0"),
-                          std::move(values)) {}
+            : BloomInExpr(VSlotRef::create_shared(0, column_id, -1, data_type, "c0"),
+                          hybrid_set_from_fields(data_type, values)) {}
 
     BloomInExpr(VExprSPtr probe, std::vector<Field> values)
+            : BloomInExpr(probe, hybrid_set_from_fields(probe->data_type(), values)) {}
+
+    BloomInExpr(VExprSPtr probe, std::shared_ptr<HybridSetBase> values)
             : VExpr(std::make_shared<DataTypeUInt8>(), false), _values(std::move(values)) {
         add_child(std::move(probe));
     }
@@ -119,7 +166,7 @@ public:
     bool can_evaluate_bloom_filter() const override { return true; }
 
     ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
-        return expr_zonemap::eval_in_bloom_filter(ctx, get_child(0), false, _values);
+        return expr_zonemap::eval_in_bloom_filter(ctx, get_child(0), false, *_values);
     }
 
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
@@ -127,7 +174,7 @@ public:
     }
 
 private:
-    std::vector<Field> _values;
+    std::shared_ptr<HybridSetBase> _values;
     const std::string _expr_name = "BloomInExpr";
 };
 
@@ -188,6 +235,12 @@ public:
                     Field::create_field<TYPE_DOUBLE>(1.0), TYPE_DOUBLE, 0, 0));
             _not_in_values = {Field::create_field<TYPE_DOUBLE>(0.0)};
         }
+        _values_set = hybrid_set_from_fields(data_type, _values);
+        _not_in_values_set = hybrid_set_from_fields(data_type, _not_in_values);
+        expr_zonemap::get_hybrid_set_min_max_for_zonemap_filter(_values_set, data_type,
+                                                                _values_min_max);
+        expr_zonemap::get_hybrid_set_min_max_for_zonemap_filter(_not_in_values_set, data_type,
+                                                                _not_in_values_min_max);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
@@ -202,8 +255,7 @@ public:
             return comparison_zonemap_detail::evaluate(ctx, {_slot, _nan_literal},
                                                        comparison_zonemap_detail::Op::EQ);
         case Mode::IN:
-            return expr_zonemap::eval_in_zonemap(ctx, _slot, false, _values, true, _values[0],
-                                                 _values[1]);
+            return expr_zonemap::eval_in_zonemap(ctx, _slot, false, _values_min_max, *_values_set);
         case Mode::NE:
             return comparison_zonemap_detail::evaluate(ctx, {_slot, _zero_literal},
                                                        comparison_zonemap_detail::Op::NE);
@@ -220,8 +272,8 @@ public:
             return comparison_zonemap_detail::evaluate(ctx, {_one_literal, _slot},
                                                        comparison_zonemap_detail::Op::LE);
         case Mode::NOT_IN:
-            return expr_zonemap::eval_in_zonemap(ctx, _slot, true, _not_in_values, false,
-                                                 _not_in_values[0], _not_in_values[0]);
+            return expr_zonemap::eval_in_zonemap(ctx, _slot, true, _not_in_values_min_max,
+                                                 *_not_in_values_set);
         }
         __builtin_unreachable();
     }
@@ -237,6 +289,10 @@ private:
     Mode _mode;
     std::vector<Field> _values;
     std::vector<Field> _not_in_values;
+    std::shared_ptr<HybridSetBase> _values_set;
+    std::shared_ptr<HybridSetBase> _not_in_values_set;
+    HybridSetMinMax _values_min_max;
+    HybridSetMinMax _not_in_values_min_max;
     const std::string _expr_name = "MetadataFloatingEqualityExpr";
 };
 

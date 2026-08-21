@@ -1028,6 +1028,10 @@ DECLARE_String(thrift_server_type_of_fe);
 // disable zone map index when page row is too few
 DECLARE_mInt32(zone_map_row_num_threshold);
 
+// Maximum number of IN values checked exactly against a zone map. For larger sets, only the
+// IN-set min/max range is checked.
+DECLARE_mInt32(in_zonemap_point_check_threshold);
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
