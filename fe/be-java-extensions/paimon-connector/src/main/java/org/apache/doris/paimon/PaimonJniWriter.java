@@ -30,7 +30,6 @@ import org.apache.paimon.crosspartition.IndexBootstrap;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
-import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.index.BucketAssigner;
 import org.apache.paimon.index.HashBucketAssigner;
 import org.apache.paimon.index.SimpleHashBucketAssigner;
@@ -43,13 +42,13 @@ import org.apache.paimon.table.sink.PartitionKeyExtractor;
 import org.apache.paimon.table.sink.RowPartitionKeyExtractor;
 import org.apache.paimon.table.sink.SinkRecord;
 import org.apache.paimon.table.sink.TableWriteImpl;
+import org.apache.paimon.utils.ExecutorThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -59,6 +58,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * JNI entry point for Paimon write operations.
@@ -86,6 +88,7 @@ import java.util.Set;
  */
 public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
+    private static final long COMPACTION_CLOSE_TIMEOUT_SECONDS = 60;
 
     private final ClassLoader classLoader;
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
@@ -98,6 +101,7 @@ public class PaimonJniWriter {
     private FileStoreTable table;
     private TableWriteImpl<?> writer;
     private IOManager ioManager;
+    private ExecutorService compactionExecutor;
     private long commitIdentifier;
     private String commitUser;
     private BucketMode bucketMode;
@@ -141,14 +145,15 @@ public class PaimonJniWriter {
      * @param overwrite      whether this is an overwrite write
      * @param changelogWrite whether the first input column contains a row change operation
      * @param timeZone       normalized Doris session timezone used for Paimon LTZ values
-     * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
      * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
+     * @param nativeSpillSession opaque managed spill session used for capacity and I/O accounting
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
-                     boolean overwrite, boolean changelogWrite, String timeZone, String spillDirectories,
-                     long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
+                     boolean overwrite, boolean changelogWrite, String timeZone,
+                     long memoryPoolLimitBytes, long nativeMemoryManager,
+                     long nativeSpillSession) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (memoryPoolLimitBytes <= 0) {
                 throw new IllegalArgumentException(
@@ -183,10 +188,10 @@ public class PaimonJniWriter {
                             table,
                             commitUser,
                             overwrite,
-                            spillDirectories,
                             coreOptions,
                             memoryPoolLimitBytes,
-                            nativeMemoryManager);
+                            nativeMemoryManager,
+                            nativeSpillSession);
                     return null;
                 } catch (Throwable t) {
                     try {
@@ -307,14 +312,17 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void openFileStoreWriter(FileStoreTable table, String commitUser, boolean overwrite,
-            String spillDirectories, CoreOptions coreOptions, long memoryPoolLimitBytes,
-            long nativeMemoryManager) throws Exception {
+            CoreOptions coreOptions, long memoryPoolLimitBytes,
+            long nativeMemoryManager, long nativeSpillSession) throws Exception {
         writer = table.newWrite(commitUser);
+        compactionExecutor = Executors.newSingleThreadExecutor(
+                new ExecutorThreadFactory("doris-paimon-compaction"));
+        writer.withCompactExecutor(compactionExecutor);
         if (overwrite) {
             writer.withIgnorePreviousFiles(true);
         }
-        openMemoryResources(
-                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager);
+        openMemoryResources(coreOptions, memoryPoolLimitBytes,
+                nativeMemoryManager, nativeSpillSession);
         openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
@@ -334,9 +342,9 @@ public class PaimonJniWriter {
 
     private void openMemoryResources(
             CoreOptions coreOptions,
-            String spillDirectories,
             long memoryPoolLimitBytes,
-            long nativeMemoryManager) throws Exception {
+            long nativeMemoryManager,
+            long nativeSpillSession) throws Exception {
         int pageSize = coreOptions.pageSize();
         long effectivePoolLimit = Math.min(coreOptions.writeBufferSize(), memoryPoolLimitBytes);
         DorisMemorySegmentPool memorySegmentPool =
@@ -346,17 +354,12 @@ public class PaimonJniWriter {
         LOG.info("Paimon writer uses Doris-managed memory pool: limit={} bytes, pageSize={}",
                 memoryPoolFactory.totalBufferSize(), pageSize);
 
-        if (!coreOptions.writeBufferSpillable()) {
-            return;
-        }
-
-        String[] splitDirectories = IOManagerImpl.splitPaths(spillDirectories);
-        for (String directory : splitDirectories) {
-            Files.createDirectories(Paths.get(directory));
-        }
-        ioManager = IOManager.create(splitDirectories);
+        // All Paimon temporary files, including lookup and clustering files written directly by
+        // Paimon, use the same Doris-managed directory. DorisIOManager requests that directory only
+        // on its first actual use, so a memory-only writer does not depend on spill storage.
+        ioManager = DorisIOManager.create(nativeSpillSession);
         writer.withIOManager(ioManager);
-        LOG.info("Paimon writer spill enabled: dirs={}", spillDirectories);
+        LOG.info("Paimon writer uses a lazy Doris-managed spill session");
     }
 
     private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,
@@ -543,6 +546,14 @@ public class PaimonJniWriter {
                     "A previous Paimon SDK close failed; native memory cannot be released safely");
         }
         Exception failure = closeResource(writer, null);
+        Exception compactionFailure = closeCompactionExecutor();
+        if (compactionFailure != null) {
+            failure = appendFailure(failure, compactionFailure);
+            // The task may still reference Doris-backed memory and spill files. Leave all dependent
+            // Java resources reachable and open; the native backend will retain their handles.
+            sdkCloseFailed = true;
+            throw failure;
+        }
         failure = closeResource(globalIndexAssigner, failure);
         failure = closeResource(ioManager, failure);
         clearWriterState();
@@ -564,6 +575,35 @@ public class PaimonJniWriter {
             }
             previousFailure.addSuppressed(closeFailure);
         }
+        return previousFailure;
+    }
+
+    private Exception closeCompactionExecutor() {
+        if (compactionExecutor == null) {
+            return null;
+        }
+        ExecutorService executor = compactionExecutor;
+        compactionExecutor = null;
+        executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(COMPACTION_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                IllegalStateException failure = new IllegalStateException(
+                        "Paimon compaction did not stop within "
+                                + COMPACTION_CLOSE_TIMEOUT_SECONDS + " seconds");
+                return failure;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return e;
+        }
+        return null;
+    }
+
+    private static Exception appendFailure(Exception previousFailure, Exception failure) {
+        if (previousFailure == null) {
+            return failure;
+        }
+        previousFailure.addSuppressed(failure);
         return previousFailure;
     }
 
@@ -606,6 +646,15 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     static native ByteBuffer allocatePaimonMemoryPage(long nativeMemoryManager, int bytes);
+
+    static native String getPaimonSpillDirectory(long nativeSpillSession)
+            throws IOException;
+
+    static native void reservePaimonSpill(long nativeSpillSession, long bytes)
+            throws IOException;
+
+    static native void updatePaimonSpillAccounting(
+            long nativeSpillSession, long currentBytesDelta, long writeBytes, long readBytes);
 
     private static class PartitionBucket {
         private final BinaryRow partition;
