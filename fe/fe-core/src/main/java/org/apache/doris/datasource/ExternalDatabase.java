@@ -485,10 +485,37 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return extCatalog.tableExist(sessionContext, remoteName, remoteTblName);
     }
 
-    // ATTN: this method only returned cached tables.
+    // The normal path returns cached tables; session-aware catalogs build uncached objects from live metadata.
     @Override
     public List<T> getTables() {
         makeSureInitialized();
+        SessionContext sessionContext = SessionContext.current();
+        if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
+            // In bypass mode getTableNamesWithLock() lists remotely once and each getTableNullable()
+            // re-lists remotely to resolve its name pair, costing 1 + N remote enumerations for N tables.
+            // List once here and build every table from that single snapshot. listTableNames still runs
+            // the case-insensitive conflict check, so conflicting remote names keep failing the listing.
+            // Dedup by local name with first-win to mirror the Set + findFirst() semantics of the
+            // per-table path when two remote names map to the same local name.
+            Map<String, Pair<String, String>> localNameToPair = Maps.newLinkedHashMap();
+            for (Pair<String, String> namePair : listTableNames(sessionContext)) {
+                localNameToPair.putIfAbsent(namePair.value(), namePair);
+            }
+            List<T> tables = Lists.newArrayListWithCapacity(localNameToPair.size());
+            for (Pair<String, String> namePair : localNameToPair.values()) {
+                try {
+                    T tbl = buildTableForInit(namePair.key(), namePair.value(),
+                            Util.genIdByName(extCatalog.getName(), name, namePair.value()), extCatalog, this, false);
+                    if (tbl != null) {
+                        tables.add(tbl);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to get external table {}.{}.{} in SHOW TABLES path, skip it.",
+                            extCatalog.getName(), name, namePair.value(), e);
+                }
+            }
+            return tables;
+        }
         List<T> tables = Lists.newArrayList();
         Set<String> tblNames = getTableNamesWithLock();
         for (String tblName : tblNames) {
