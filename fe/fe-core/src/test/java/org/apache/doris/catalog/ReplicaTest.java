@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -193,5 +194,35 @@ public class ReplicaTest {
         Assert.assertEquals(18, originalReplica.getLastSuccessVersion());
         Assert.assertEquals(18, originalReplica.getVersion());
         Assert.assertEquals(-1, originalReplica.getLastFailedVersion());
+    }
+
+    @Test
+    public void testLocalReplicaGetSchemaHash() {
+        int schemaHash = 12345;
+        LocalReplica localReplica = new LocalReplica(10000, 20000, 3, schemaHash,
+                100, 0, 78, ReplicaState.NORMAL, 0, 3);
+        Assert.assertEquals(schemaHash, localReplica.getSchemaHash());
+    }
+
+    @Test
+    public void testLocalReplicaSetSchemaHash() {
+        LocalReplica localReplica = new LocalReplica(10000, 20000, 3, 111,
+                100, 0, 78, ReplicaState.NORMAL, 0, 3);
+        Assert.assertEquals(111, localReplica.getSchemaHash());
+        localReplica.setSchemaHash(222);
+        Assert.assertEquals(222, localReplica.getSchemaHash());
+    }
+
+    @Test
+    public void testCloudReplicaSchemaHashReturnsNegativeOne() {
+        // CloudReplica extends Replica (not LocalReplica), so it inherits the base -1 stub.
+        // schemaHash=12345 is passed to the constructor but ignored by the base class.
+        CloudReplica cloudReplica = new CloudReplica(10000L, 20000L, ReplicaState.NORMAL,
+                3, 12345, 1, 2, 3, 4, -1);
+        Assert.assertEquals(-1, cloudReplica.getSchemaHash());
+
+        // setSchemaHash is a no-op on base Replica, so CloudReplica stays at -1
+        cloudReplica.setSchemaHash(999);
+        Assert.assertEquals(-1, cloudReplica.getSchemaHash());
     }
 }
