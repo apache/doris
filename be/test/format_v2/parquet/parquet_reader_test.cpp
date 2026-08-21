@@ -2028,6 +2028,66 @@ TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveT
     EXPECT_EQ(retained.children[0].local_id(), 0);
 }
 
+TEST(ParquetVariantProjectionTest, RepeatedVariantKeepsTheCompleteWrapper) {
+    using format::parquet::ParquetColumnSchema;
+    using format::parquet::ParquetColumnSchemaKind;
+    auto node = [](std::string name, int32_t local_id, ParquetColumnSchemaKind kind,
+                   int leaf_id = -1) {
+        auto result = std::make_unique<ParquetColumnSchema>();
+        result->name = std::move(name);
+        result->local_id = local_id;
+        result->kind = kind;
+        result->leaf_column_id = leaf_id;
+        return result;
+    };
+    auto root = node("v", 0, ParquetColumnSchemaKind::VARIANT);
+    // One physical entry per array element, not per row.
+    root->max_repetition_level = 1;
+    root->children.push_back(node("metadata", 0, ParquetColumnSchemaKind::PRIMITIVE, 0));
+    root->children.push_back(node("value", 1, ParquetColumnSchemaKind::PRIMITIVE, 1));
+    auto root_typed = node("typed_value", 2, ParquetColumnSchemaKind::STRUCT);
+    auto wrapper = node("n", 0, ParquetColumnSchemaKind::STRUCT);
+    wrapper->children.push_back(node("value", 0, ParquetColumnSchemaKind::PRIMITIVE, 2));
+    wrapper->children.push_back(node("typed_value", 1, ParquetColumnSchemaKind::PRIMITIVE, 3));
+    root_typed->children.push_back(std::move(wrapper));
+    root->children.push_back(std::move(root_typed));
+
+    // A projection that does carry its residual and the root dictionary, so the only thing that
+    // can send this row group back to the complete Variant is the repetition level.
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::local(0));
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    auto& typed_projection = projection.children.back();
+    typed_projection.children.push_back(format::LocalColumnIndex::partial_local(0));
+    auto& wrapper_projection = typed_projection.children.back();
+    wrapper_projection.children.push_back(format::LocalColumnIndex::local(0));
+    wrapper_projection.children.push_back(format::LocalColumnIndex::local(1));
+
+    EXPECT_FALSE(format::parquet::detail::variant_projection_carries_residuals(*root, projection));
+
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(10);
+    for (int leaf = 0; leaf < 4; ++leaf) {
+        tparquet::Statistics statistics;
+        statistics.__set_null_count(leaf == 2 ? 10 : 0);
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_num_values(10);
+        column_metadata.__set_statistics(std::move(statistics));
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(std::move(column_metadata));
+        row_group.columns.push_back(std::move(chunk));
+    }
+    auto finalized = projection;
+    size_t residual_projections = 0;
+    size_t full_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &finalized, &residual_projections, &full_projections),
+              0);
+    EXPECT_TRUE(finalized.project_all_children);
+    EXPECT_EQ(residual_projections, 0);
+    EXPECT_EQ(full_projections, 1);
+}
+
 TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPruning) {
     using format::parquet::ParquetColumnSchema;
     using format::parquet::ParquetColumnSchemaKind;

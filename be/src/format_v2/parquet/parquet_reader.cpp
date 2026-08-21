@@ -190,6 +190,12 @@ namespace {
 // them as absent.
 bool variant_projection_carries_residuals_impl(const ParquetColumnSchema& schema,
                                                const format::LocalColumnIndex& projection) {
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT && schema.max_repetition_level != 0) {
+        // A repeated Variant produces one physical entry per array element, not per row. The
+        // per-row residual merge and the row-group statistics both address rows, so a repeated
+        // Variant keeps the complete wrapper exactly as it did before leaf projections existed.
+        return false;
+    }
     const auto* value = schema_child_by_name(schema, "value");
     const auto* typed_value = schema_child_by_name(schema, "typed_value");
     const auto projects = [&projection](int32_t local_id) {

@@ -186,12 +186,13 @@ void append_typed_scalar(const ParquetColumnSchema& schema, const IColumn& colum
         return;
     }
     case TYPE_TIMEV2: {
-        const double seconds = assert_cast<const ColumnTimeV2&>(column).get_data()[row];
-        if (!std::isfinite(seconds) ||
-            std::abs(seconds) > static_cast<double>(std::numeric_limits<int64_t>::max()) / 1e6) {
+        // Doris TIMEV2 already stores signed microseconds in a double; see TimeValue::make_time.
+        const double micros = assert_cast<const ColumnTimeV2&>(column).get_data()[row];
+        if (!std::isfinite(micros) ||
+            std::abs(micros) > static_cast<double>(std::numeric_limits<int64_t>::max())) {
             throw Exception(ErrorCode::CORRUPTION, "Invalid Parquet Variant TIME value");
         }
-        builder.add_time_ntz_micros(static_cast<int64_t>(std::llround(seconds * 1e6)));
+        builder.add_time_ntz_micros(static_cast<int64_t>(std::llround(micros)));
         return;
     }
     case TYPE_DATETIMEV2: {
@@ -1267,44 +1268,12 @@ bool residual_supplies_any_row(const ShreddedPathLevel& level, size_t rows) {
     return false;
 }
 
-// Identifies the metadata dictionary of every row once per decoded batch. Iceberg normally repeats
-// a single dictionary across a batch, so the list stays at one entry. Sharing this across the paths
-// of one batch is what keeps a wide projection from re-scanning the dictionary column per path.
-struct VariantMetadataIndex {
-    static constexpr uint32_t MISSING_DICTIONARY = std::numeric_limits<uint32_t>::max();
-
-    DorisVector<StringRef> dictionaries;
-    DorisVector<uint32_t> row_dictionaries;
-};
-
-std::shared_ptr<const VariantMetadataIndex> build_variant_metadata_index(
-        const NullableColumnView& metadata, size_t rows) {
-    auto index = std::make_shared<VariantMetadataIndex>();
-    index->row_dictionaries.assign(rows, VariantMetadataIndex::MISSING_DICTIONARY);
-    for (size_t row = 0; row < rows; ++row) {
-        if (metadata.is_null(row)) {
-            continue;
-        }
-        const StringRef bytes = metadata.values->get_data_at(row);
-        uint32_t dictionary = 0;
-        while (dictionary < index->dictionaries.size() &&
-               index->dictionaries[dictionary] != bytes) {
-            ++dictionary;
-        }
-        if (dictionary == index->dictionaries.size()) {
-            index->dictionaries.push_back(bytes);
-        }
-        index->row_dictionaries[row] = dictionary;
-    }
-    return index;
-}
-
 // Seeks object paths inside encoded residual bytes. Keys resolve to a dictionary field id once per
 // distinct dictionary instead of once per row, and the dictionary index is built only when a path
 // still has keys to resolve - a residual that already is the requested value needs no dictionary.
 class VariantResidualSeeker {
 public:
-    using MetadataIndexProvider = std::function<const VariantMetadataIndex&()>;
+    using MetadataIndexProvider = std::function<const UnshreddedMetadataIndex&()>;
 
     VariantResidualSeeker(const NullableColumnView& metadata, size_t path_length,
                           MetadataIndexProvider provider)
@@ -1326,15 +1295,12 @@ public:
             return true;
         }
 
-        const VariantMetadataIndex& index = _index == nullptr ? _resolve_index() : *_index;
-        const uint32_t dictionary = index.row_dictionaries[row];
-        if (dictionary == VariantMetadataIndex::MISSING_DICTIONARY) {
+        const UnshreddedMetadataIndex& index = _index == nullptr ? _resolve_index() : *_index;
+        const uint32_t dictionary = index.row_dictionary_ids[row];
+        if (dictionary == UnshreddedMetadataIndex::NULL_ROW) {
             return false;
         }
-        const StringRef dictionary_bytes = index.dictionaries[dictionary];
-        VariantRef current {
-                .metadata = {.data = dictionary_bytes.data, .size = dictionary_bytes.size},
-                .value = value};
+        VariantRef current {.metadata = index.dictionaries[dictionary], .value = value};
         for (size_t position = 0; position < path.size(); ++position) {
             if (path[position].kind != VariantShreddedPathSegment::Kind::OBJECT_KEY) {
                 // Array segments never reach a residual: a shredded array lives in its typed_value,
@@ -1371,7 +1337,7 @@ public:
 private:
     static constexpr int64_t UNRESOLVED_FIELD_ID = -2;
 
-    const VariantMetadataIndex& _resolve_index() {
+    const UnshreddedMetadataIndex& _resolve_index() {
         _index = &_provider();
         _field_ids.assign(_index->dictionaries.size() * _path_length, UNRESOLVED_FIELD_ID);
         return *_index;
@@ -1380,7 +1346,7 @@ private:
     const NullableColumnView& _metadata;
     size_t _path_length;
     MetadataIndexProvider _provider;
-    const VariantMetadataIndex* _index = nullptr;
+    const UnshreddedMetadataIndex* _index = nullptr;
     DorisVector<int64_t> _field_ids;
 };
 
@@ -1620,10 +1586,6 @@ public:
         auto mutable_physical = IColumn::mutate(std::move(_physical));
         append_compatible_column(*mutable_physical, *parquet_source->_physical);
         _physical = std::move(mutable_physical);
-        {
-            std::lock_guard index_lock(_metadata_index_lock);
-            _metadata_index.reset();
-        }
         std::lock_guard lock(_materialization_lock);
         _unshredded_path_cache.reset();
         _unshredded_metadata_index.reset();
@@ -1675,17 +1637,18 @@ public:
         // A key the shredding schema does not describe can only live in the residual beside the
         // object that was searched, so seeking it there answers the path exactly. Rebuilding the
         // canonical root would reach the same value after re-encoding every unrelated field.
-        // Every path of one decoded batch shares the dictionary identification; it is built on the
-        // first path that still has keys to resolve, and never at all for the paths that do not.
-        const auto metadata_index = [this, &metadata]() -> const VariantMetadataIndex& {
-            std::lock_guard lock(_metadata_index_lock);
-            if (!_metadata_index) {
-                _metadata_index = build_variant_metadata_index(metadata, _physical->size());
-            }
-            return *_metadata_index;
+        // Every path of one decoded batch shares the dictionary identification, which the state
+        // caches: it is built on the first path that still has keys to resolve, and never at all
+        // for the paths that do not.
+        size_t metadata_position = 0;
+        const bool has_metadata_child =
+                find_child(*_schema, "metadata", &metadata_position) != nullptr;
+        const auto metadata_index = [this, metadata_position]() -> const UnshreddedMetadataIndex& {
+            return *get_unshredded_metadata_index({metadata_position, metadata_position});
         };
         const auto seek_residual = [&]() -> std::optional<VariantShreddedTypedValue> {
-            if (!metadata.present() || !levels.back().residual_view.present()) {
+            if (!metadata.present() || !has_metadata_child ||
+                !levels.back().residual_view.present()) {
                 return path_miss();
             }
             update_counter(_profile.variant_residual_seek_rows, static_cast<int64_t>(rows));
@@ -1718,11 +1681,12 @@ public:
             add_level(std::move(residual), typed);
 
             if (position + 1 < path.size()) {
-                // Every intermediate typed_value must be an object. A legacy untyped path
-                // produced through an array/explode operation cannot cross a repeated node, so
-                // those rows resolve from the residual beside it instead.
+                // An intermediate typed_value that is not an object cannot carry the rest of the
+                // path, so those rows resolve from the residual of this very wrapper - the object
+                // form of this field is what did not match its shredded type. The level just added
+                // is that residual; dropping it would search the parent instead, where shredding
+                // guarantees this key can never appear.
                 if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
-                    levels.pop_back();
                     return seek_residual();
                 }
                 continue;
@@ -2011,8 +1975,6 @@ private:
     mutable ColumnPtr _normalized_prefix;
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;
-    mutable std::mutex _metadata_index_lock;
-    mutable std::shared_ptr<const VariantMetadataIndex> _metadata_index;
 };
 
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,

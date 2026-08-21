@@ -45,6 +45,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/timestamptz_value.h"
@@ -3500,6 +3501,33 @@ ParquetColumnSchema shredded_object_schema_with_field_residual() {
     return schema;
 }
 
+// Object shredding where an intermediate path field is shredded as a scalar, so a row whose value
+// for that field is an object cannot use the typed leaf and must come from the wrapper's residual.
+ParquetColumnSchema shredded_object_schema_with_scalar_intermediate() {
+    auto schema = unshredded_schema();
+    auto root_typed = std::make_unique<ParquetColumnSchema>();
+    root_typed->name = "typed_value";
+    root_typed->kind = ParquetColumnSchemaKind::STRUCT;
+
+    auto field = std::make_unique<ParquetColumnSchema>();
+    field->name = "b";
+    field->kind = ParquetColumnSchemaKind::STRUCT;
+    auto residual = std::make_unique<ParquetColumnSchema>();
+    residual->name = "value";
+    residual->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    residual->type = make_nullable(std::make_shared<DataTypeString>());
+    auto field_typed = std::make_unique<ParquetColumnSchema>();
+    field_typed->name = "typed_value";
+    field_typed->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    field_typed->type = make_nullable(std::make_shared<DataTypeInt64>());
+    field_typed->type_descriptor.integer_bit_width = 64;
+    field->children.push_back(std::move(residual));
+    field->children.push_back(std::move(field_typed));
+    root_typed->children.push_back(std::move(field));
+    schema.children.push_back(std::move(root_typed));
+    return schema;
+}
+
 // Object shredding where the requested field is stored unshredded: its wrapper carries a residual
 // `value` and no typed_value at all.
 ParquetColumnSchema shredded_object_schema_with_fallback_only_field() {
@@ -4089,6 +4117,67 @@ TEST(VariantColumnReaderTest, FallbackOnlyFieldResolvesFromItsOwnResidual) {
                       .get_value_ref(0)
                       .get_string(),
               StringRef("wrapped"));
+}
+
+TEST(VariantColumnReaderTest, ScalarIntermediateResolvesFromItsOwnResidual) {
+    // "b" is shredded as an int64, so a row whose "b" is an object stores it in b's own residual.
+    // Searching the root residual instead would never find it: shredding keeps "b" out of there.
+    VariantBatchBuilder residual_builder;
+    {
+        auto row = residual_builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("c"));
+        row.add_int(5);
+        object.finish();
+        row.finish();
+    }
+    const VariantBatchBuilder residual_batch = residual_builder.finish_batch();
+    const VariantRef residual = residual_batch.value_at(0);
+
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(
+            nullable_strings({StringRef(residual.value.data, residual.value.size)}, {0}));
+    wrapper_fields.push_back(nullable_int64({0}, {1}));
+    MutableColumns object_fields;
+    object_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(wrapper_fields)),
+                                                   ColumnUInt8::create(1, 0)));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            nullable_strings({StringRef(residual.metadata.data, residual.metadata.size)}, {0}));
+    root_fields.push_back(nullable_strings({empty_bytes()}, {1}));
+    root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                 ColumnUInt8::create(1, 0)));
+    auto physical = root_wrapper(std::move(root_fields));
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(shredded_object_schema_with_scalar_intermediate(),
+                                         *physical, output)
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+
+    const auto extracted = extract_object_key(nullable, {StringRef("b"), StringRef("c")});
+    const auto& extracted_nullable = assert_cast<const ColumnNullable&>(*extracted);
+    ASSERT_EQ(extracted_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(extracted_nullable.get_nested_column())
+                      .get_value_ref(0)
+                      .get_int(),
+              5);
+}
+
+TEST(VariantColumnReaderTest, ShreddedTimeLeafKeepsItsMicrosecondScale) {
+    // Doris TIMEV2 stores microseconds, so encoding must not rescale it.
+    auto schema = shredded_primitive_schema(std::make_shared<DataTypeTimeV2>(6));
+    constexpr double MICROS = 3723000000.0; // 01:02:03
+    auto times = ColumnTimeV2::create();
+    times->get_data().push_back(MICROS);
+    auto physical = shredded_primitive_physical(
+            ColumnNullable::create(std::move(times), ColumnUInt8::create(1, 0)));
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(schema, *physical, output).ok());
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    EXPECT_EQ(variants.get_value_ref(0).get_time_ntz_micros(), static_cast<int64_t>(MICROS));
 }
 
 } // namespace doris::format::parquet
