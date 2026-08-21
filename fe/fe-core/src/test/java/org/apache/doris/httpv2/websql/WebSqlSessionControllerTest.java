@@ -44,18 +44,18 @@ public class WebSqlSessionControllerTest {
         owner = "alice";
         userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(owner, "10.%");
         Mockito.when(request.getAttribute(WebSqlRequestContext.AUTH_ATTRIBUTE))
-                .thenReturn(new WebSqlRequestContext.Authentication(userIdentity, "secret"));
+                .thenReturn(new WebSqlRequestContext.Authentication(userIdentity, "secret", "http-session"));
     }
 
     @Test
     void createUsesAuthenticatedCookieIdentityAndPassword() {
         WebSqlSession session = session("session-1");
-        Mockito.when(manager.createSession(userIdentity, "secret")).thenReturn(session);
+        Mockito.when(manager.createSession(userIdentity, "secret", "http-session")).thenReturn(session);
 
         WebSqlSessionInfo response = controller.create(request);
 
         Assertions.assertEquals("session-1", response.getSessionId());
-        Mockito.verify(manager).createSession(userIdentity, "secret");
+        Mockito.verify(manager).createSession(userIdentity, "secret", "http-session");
     }
 
     @Test
@@ -92,6 +92,6 @@ public class WebSqlSessionControllerTest {
     }
 
     private WebSqlSession session(String id) {
-        return new WebSqlSession(id, owner, Mockito.mock(Connection.class), 10);
+        return new WebSqlSession(id, owner, "http-session", Mockito.mock(Connection.class), 10);
     }
 }

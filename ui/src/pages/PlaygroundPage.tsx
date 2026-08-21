@@ -562,10 +562,15 @@ export function PlaygroundPage() {
     schemaInsertionRef.current = null;
     const view = editorRef.current;
     if (!view) {
-      setEditorValue((document) => {
-        const separator = document.length === 0 ? '' : document.endsWith('\n\n') ? '' : document.endsWith('\n') ? '\n' : '\n\n';
-        return `${document}${separator}${template}`;
-      });
+      const separator = editorValue.length === 0 ? '' : editorValue.endsWith('\n\n') ? '' : editorValue.endsWith('\n') ? '\n' : '\n\n';
+      const starFrom = editorValue.length + separator.length + 'SELECT '.length;
+      const nextDocument = `${editorValue}${separator}${template}`;
+      // Leave the caret on the `*`, exactly as the editor path below does. Without this the
+      // caret stays in whatever statement it was in and the next column click inserts there,
+      // duplicating columns the user already picked.
+      starRangeRef.current = { document: nextDocument, from: starFrom, to: starFrom + 1 };
+      selectionRef.current = { from: starFrom, to: starFrom + 1 };
+      setEditorValue(nextDocument);
       return;
     }
     const document = view.state.doc.toString();

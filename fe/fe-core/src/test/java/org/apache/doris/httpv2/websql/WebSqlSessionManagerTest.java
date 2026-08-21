@@ -17,6 +17,8 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.analysis.UserIdentity;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -279,6 +281,28 @@ public class WebSqlSessionManagerTest {
         running.get(1, TimeUnit.SECONDS);
         Mockito.verify(executor, Mockito.times(1)).execute(Mockito.any(), Mockito.anyString(), Mockito.any());
         pool.shutdownNow();
+        manager.destroy();
+    }
+
+    /**
+     * Signing out of one browser must close only that browser's sessions. Shared accounts such as
+     * root are the norm, so scoping this to the Doris account would cancel other operators' work.
+     */
+    @Test
+    void closesOnlyTheSessionsOfOneBrowserSession() throws Exception {
+        WebSqlConnectionFactory factory = (user, password) -> Mockito.mock(Connection.class);
+        WebSqlSessionManager manager = manager(factory, Mockito.mock(WebSqlStatementExecutor.class),
+                limits(4, 4, 60000, 500));
+        UserIdentity alice = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        WebSqlSession firstBrowser = manager.createSession(alice, "", "browser-1");
+        WebSqlSession secondBrowser = manager.createSession(alice, "", "browser-2");
+
+        Assertions.assertEquals(1, manager.closeSessionsForHttpSession("browser-1"));
+
+        assertError(WebSqlError.SESSION_NOT_FOUND, () -> manager.getSession(firstBrowser.getId(), "alice"));
+        Assertions.assertNotNull(manager.getSession(secondBrowser.getId(), "alice"));
+        // Sessions opened with HTTP Basic belong to no browser session and are never swept by logout.
+        Assertions.assertEquals(0, manager.closeSessionsForHttpSession(null));
         manager.destroy();
     }
 

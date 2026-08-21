@@ -54,6 +54,13 @@ select { font: inherit; }
 
 :focus-visible { outline: 3px solid #006f51 !important; outline-offset: 2px; }
 
+.section-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .ui-label {
   margin: 0;
   color: var(--muted);

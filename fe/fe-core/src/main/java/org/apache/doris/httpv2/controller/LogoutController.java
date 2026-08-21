@@ -50,7 +50,7 @@ public class LogoutController extends BaseController {
                     SessionValue session = HttpAuthManager.getInstance()
                             .getSessionValue(Collections.singletonList(sessionId));
                     if (session != null) {
-                        webSqlSessionManager.closeSessionsForOwner(session.currentUser.getQualifiedUser());
+                        webSqlSessionManager.closeSessionsForHttpSession(session.httpSessionId);
                     }
                     HttpAuthManager.getInstance().removeSession(sessionId);
                 }

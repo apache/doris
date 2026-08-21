@@ -17,6 +17,39 @@
 
 import '@testing-library/jest-dom/vitest';
 
+// Node 22.4 and newer install experimental `localStorage`/`sessionStorage` accessors that stay
+// undefined unless the process was started with --localstorage-file, and they shadow jsdom's own
+// implementation. Anything touching storage therefore breaks on a Node newer than the 22.12 floor.
+// Substitute an in-memory Storage when the global is unusable; on Node 22 jsdom's is left alone.
+function installStorage(name: 'localStorage' | 'sessionStorage'): void {
+  try {
+    if (window[name]) return;
+  } catch {
+    // An unusable accessor throws; fall through and replace it.
+  }
+  const entries = new Map<string, string>();
+  const storage = {
+    get length(): number {
+      return entries.size;
+    },
+    key: (index: number): string | null => Array.from(entries.keys())[index] ?? null,
+    getItem: (key: string): string | null => entries.get(String(key)) ?? null,
+    setItem: (key: string, value: string): void => {
+      entries.set(String(key), String(value));
+    },
+    removeItem: (key: string): void => {
+      entries.delete(String(key));
+    },
+    clear: (): void => {
+      entries.clear();
+    },
+  };
+  Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: storage });
+}
+
+installStorage('localStorage');
+installStorage('sessionStorage');
+
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({

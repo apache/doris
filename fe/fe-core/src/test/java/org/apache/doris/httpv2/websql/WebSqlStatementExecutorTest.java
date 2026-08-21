@@ -50,7 +50,7 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(metadata.getColumnTypeName(1)).thenReturn("VARCHAR");
         Mockito.when(resultSet.next()).thenReturn(true, true, false);
         Mockito.when(resultSet.getObject(1)).thenReturn("small", "this row exceeds the byte budget");
-        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
 
         WebSqlExecutionResult result = new WebSqlStatementExecutor(() -> 20).execute(
                 session, "SELECT value", limits());
@@ -82,7 +82,7 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(metadata.getColumnTypeName(1)).thenReturn("INT");
         Mockito.when(resultSet.next()).thenReturn(true, true);
         Mockito.when(resultSet.getObject(1)).thenReturn(1);
-        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
 
         WebSqlExecutionResult result = new WebSqlStatementExecutor().execute(
                 session, "SELECT value", limits(1));
@@ -116,7 +116,7 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(resultSet.getString(1)).thenReturn("9223372036854775807");
         Mockito.when(resultSet.getString(2)).thenReturn("170141183460469231731687303715884105727");
         Mockito.when(resultSet.getString(3)).thenReturn("12345678901234567890123456789.123456789");
-        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
 
         WebSqlExecutionResult result = new WebSqlStatementExecutor().execute(
                 session, "SELECT wide_values", limits());
@@ -144,7 +144,7 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(resultSet.next()).thenReturn(true, true);
         Mockito.when(resultSet.getObject(1)).thenReturn(1);
         Mockito.doThrow(new SQLException("cancel failed")).when(statement).cancel();
-        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
 
         WebSqlException exception = Assertions.assertThrows(WebSqlException.class,
                 () -> new WebSqlStatementExecutor().execute(session, "SELECT value", limits(1)));
@@ -165,7 +165,7 @@ public class WebSqlStatementExecutorTest {
             return false;
         });
         Mockito.when(statement.getUpdateCount()).thenReturn(0);
-        activeSession = new WebSqlSession("id", "alice", connection, 0);
+        activeSession = new WebSqlSession("id", "alice", "http-session", connection, 0);
 
         new WebSqlStatementExecutor().execute(activeSession, "USE tpcds", limits());
 
@@ -182,7 +182,7 @@ public class WebSqlStatementExecutorTest {
                 .thenReturn(statement);
         Mockito.when(statement.execute("SELECT * FROM missing"))
                 .thenThrow(new SQLException("table secret_table does not exist", "42S02", 2));
-        WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
 
         WebSqlException exception = Assertions.assertThrows(WebSqlException.class,
                 () -> new WebSqlStatementExecutor().execute(session, "SELECT * FROM missing", limits()));

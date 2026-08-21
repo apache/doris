@@ -49,6 +49,8 @@ class WebSqlAuthInterceptorTest {
                 (WebSqlRequestContext.Authentication) attributes.get(WebSqlRequestContext.AUTH_ATTRIBUTE);
         Assertions.assertEquals(admin.getQualifiedUser(), authentication.getOwner());
         Assertions.assertEquals("secret", authentication.getPassword());
+        // Sessions created from this request belong to this browser session, not to the account.
+        Assertions.assertEquals(session.httpSessionId, authentication.getHttpSessionId());
     }
 
     @Test
@@ -85,6 +87,8 @@ class WebSqlAuthInterceptorTest {
         WebSqlRequestContext.Authentication authentication =
                 (WebSqlRequestContext.Authentication) attributes.get(WebSqlRequestContext.AUTH_ATTRIBUTE);
         Assertions.assertEquals(admin.getQualifiedUser(), authentication.getOwner());
+        // HTTP Basic callers belong to no browser session, so logout must never close their sessions.
+        Assertions.assertNull(authentication.getHttpSessionId());
     }
 
     @Test

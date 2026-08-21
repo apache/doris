@@ -31,6 +31,9 @@ import java.util.concurrent.locks.ReentrantLock;
 public class WebSqlSession {
     private final String id;
     private final String owner;
+    // The browser session that opened this Web SQL session, or null when it was opened with
+    // HTTP Basic credentials and therefore belongs to no browser session.
+    private final String httpSessionId;
     private final long createdAtMillis;
     private final ReentrantLock executionLock = new ReentrantLock(true);
     private final AtomicInteger queued = new AtomicInteger();
@@ -39,9 +42,10 @@ public class WebSqlSession {
     private volatile Statement activeStatement;
     private volatile boolean closed;
 
-    WebSqlSession(String id, String owner, Connection connection, long nowMillis) {
+    WebSqlSession(String id, String owner, String httpSessionId, Connection connection, long nowMillis) {
         this.id = id;
         this.owner = owner;
+        this.httpSessionId = httpSessionId;
         this.connection = connection;
         this.createdAtMillis = nowMillis;
         this.lastAccessMillis = nowMillis;
@@ -125,6 +129,10 @@ public class WebSqlSession {
 
     public String getOwner() {
         return owner;
+    }
+
+    public String getHttpSessionId() {
+        return httpSessionId;
     }
 
     public long getCreatedAtMillis() {

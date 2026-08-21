@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 
+import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.apache.logging.log4j.LogManager;
@@ -99,14 +100,15 @@ public class WebSqlSessionManager implements DisposableBean {
     }
 
     public WebSqlSession createSession(String owner, String password) {
-        return createSession(owner, password, null);
+        return createSession(owner, password, null, null);
     }
 
-    public WebSqlSession createSession(UserIdentity userIdentity, String password) {
-        return createSession(userIdentity.getQualifiedUser(), password, userIdentity);
+    public WebSqlSession createSession(UserIdentity userIdentity, String password, String httpSessionId) {
+        return createSession(userIdentity.getQualifiedUser(), password, userIdentity, httpSessionId);
     }
 
-    private WebSqlSession createSession(String owner, String password, UserIdentity userIdentity) {
+    private WebSqlSession createSession(String owner, String password, UserIdentity userIdentity,
+            String httpSessionId) {
         requireEnabled();
         reserveSession(owner);
         Connection connection;
@@ -120,7 +122,7 @@ public class WebSqlSessionManager implements DisposableBean {
         }
 
         String id = frontendHint + "." + randomToken(32);
-        WebSqlSession session = new WebSqlSession(id, owner, connection, clock.getAsLong());
+        WebSqlSession session = new WebSqlSession(id, owner, httpSessionId, connection, clock.getAsLong());
         boolean accepted;
         synchronized (lifecycleLock) {
             pendingSessions--;
@@ -220,10 +222,20 @@ public class WebSqlSessionManager implements DisposableBean {
         return true;
     }
 
-    public int closeSessionsForOwner(String owner) {
+    /**
+     * Closes the Web SQL sessions opened by one browser session.
+     *
+     * <p>Scoped to the browser session rather than to the Doris account: shared accounts such as
+     * root are the norm, and signing out in one browser must not cancel the statements another
+     * browser -- or another operator -- is running.
+     */
+    public int closeSessionsForHttpSession(String httpSessionId) {
+        if (Strings.isNullOrEmpty(httpSessionId)) {
+            return 0;
+        }
         List<WebSqlSession> owned = new ArrayList<>();
         for (WebSqlSession session : sessions.values()) {
-            if (session.getOwner().equals(owner)) {
+            if (httpSessionId.equals(session.getHttpSessionId())) {
                 owned.add(session);
             }
         }

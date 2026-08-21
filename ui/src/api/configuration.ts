@@ -38,29 +38,6 @@ interface ConfigurationPayload {
   rows?: unknown;
 }
 
-export interface ConfigurationUpdate {
-  scope: ConfigurationScope;
-  name: string;
-  nodes: string[];
-  value: string;
-  persist: boolean;
-}
-
-export interface ConfigurationUpdateFailure {
-  configName: string;
-  value: string;
-  node: string;
-  error: string;
-}
-
-export interface ConfigurationUpdateResult {
-  failures: ConfigurationUpdateFailure[];
-}
-
-interface ConfigurationUpdatePayload {
-  failed?: unknown;
-}
-
 const aliases = {
   name: ['配置项', 'Name'],
   node: ['节点', 'Node'],
@@ -124,40 +101,19 @@ export function adaptConfiguration(payload: ConfigurationPayload, scope: Configu
   });
 }
 
+/**
+ * Reads configuration. The UI never writes it: changing a setting goes through
+ * ADMIN SET FRONTEND CONFIG or the backend configuration API, both of which
+ * authenticate the operator directly.
+ *
+ * This is a POST that carries the CSRF header because the FE endpoint is a POST.
+ */
 export async function fetchConfiguration(scope: ConfigurationScope): Promise<ConfigurationRow[]> {
   const payload = await legacyPostJsonMutation<ConfigurationPayload>(
     `/rest/v2/manager/node/configuration_info?type=${scope}`,
     {},
   );
   return adaptConfiguration(payload, scope);
-}
-
-function updateFailure(value: unknown): ConfigurationUpdateFailure | null {
-  if (!value || typeof value !== 'object') return null;
-  const failure = value as Record<string, unknown>;
-  return {
-    configName: cell([failure.config_name], 0),
-    value: cell([failure.value], 0),
-    node: cell([failure.node], 0),
-    error: cell([failure.err_info], 0) || 'The node rejected the configuration change.',
-  };
-}
-
-export async function updateConfiguration(update: ConfigurationUpdate): Promise<ConfigurationUpdateResult> {
-  const payload = await legacyPostJsonMutation<ConfigurationUpdatePayload>(
-    `/rest/v2/manager/node/set_config/${update.scope}`,
-    {
-      [update.name]: {
-        node: update.nodes,
-        value: update.value,
-        persist: update.persist,
-      },
-    },
-  );
-  const failures = Array.isArray(payload.failed)
-    ? payload.failed.map(updateFailure).filter((failure): failure is ConfigurationUpdateFailure => failure !== null)
-    : [];
-  return { failures };
 }
 
 export function useConfiguration(scope: ConfigurationScope) {

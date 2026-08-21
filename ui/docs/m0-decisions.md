@@ -16,7 +16,7 @@ The earlier development-process assumption that a123 FE HTTP used `58330` is obs
 ## Frozen product decisions
 
 1. Ordinary Doris users may sign in, use Playground according to their Doris privileges, and view their own Query Profiles. Operational pages remain capability-gated. Administrators can view all Profiles and perform authorized mutations.
-2. Configuration will contain both FE and BE tabs. Only mutable configurations can be edited, and the server must re-check mutability.
+2. Configuration contains both FE and BE tabs and is read-only. The UI never writes configuration: no configuration mutation endpoint accepts the UI session cookie, and changing a setting goes through `ADMIN SET FRONTEND CONFIG` or the backend configuration API. The `Mutable` column stays visible because it tells an operator whether a setting can be changed at runtime at all.
 3. The exact official-site Visual Profile source is not present locally. M12 is blocked until its repository, path, approved commit, license, dependencies, and fixtures are supplied. This does not block M0-M11 or M13-M16.
 4. Web SQL V1 sessions are FE-process-local and require sticky routing. A session handle will carry an owner-FE hint plus cryptographically random material; ownership and current authenticated user are checked server-side.
 5. Web SQL V1 accepts exactly one SQL statement per execute request. Multi-statement parsing is deferred until a Doris-aware parser contract is approved.

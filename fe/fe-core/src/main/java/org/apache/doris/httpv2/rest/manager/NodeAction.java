@@ -119,8 +119,14 @@ public class NodeAction extends RestBaseController {
     public static final ImmutableList<String> BE_CONFIG_TITLE_NAMES = new ImmutableList.Builder<String>().add(CONFIG)
             .add(NODE_IP_PORT).add(NODE_TYPE).add(CONFIG_TYPE).add(CONFIG_VALUE).add(IS_MUTABLE).build();
 
+    // Header the BE reads its cluster auth token from (BE HttpHeaders::AUTH_TOKEN).
+    private static final String AUTH_TOKEN_HEADER = "Auth-Token";
+    private static final long BACKEND_AUTH_TOKEN_CACHE_MILLIS = TimeUnit.MINUTES.toMillis(30);
+
     private Object httpExecutorLock = new Object();
     private static volatile ExecutorService httpExecutor = null;
+    private static volatile String cachedBackendAuthToken = null;
+    private static volatile long cachedBackendAuthTokenMillis = 0L;
 
     @ExceptionHandler(UiApiException.class)
     public ResponseEntity<Map<String, String>> handleUiApiException(UiApiException exception) {
@@ -281,11 +287,17 @@ public class NodeAction extends RestBaseController {
         // privilege when enable_all_http_auth is true, which an operator can turn off.
         // Sensitive config values (e.g. fe_meta_auth_token) are additionally masked by ConfigBase,
         // so they are never returned in plaintext even to an admin.
-        if (!isInternalAuthTokenValid(request)) {
-            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-            checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
-        }
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
+        return localConfigRows();
+    }
+
+    /**
+     * This FE's own configuration, in the column order the /config endpoint publishes:
+     * name, type, master-only, value, mutable.
+     */
+    private static List<List<String>> localConfigRows() {
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
         configs.sort(Comparator.comparing(o -> o.get(0)));
@@ -346,40 +358,37 @@ public class NodeAction extends RestBaseController {
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         // Reads FE/BE config via fan-out to the per-node config endpoints, so it must be
         // ADMIN-gated too. Unconditional check (see config() above for why checkAdminAuth is not).
-        authenticateConfigurationRequest(request, response, true);
-        String internalAuthToken = acquireInternalAuthToken();
+        String authorization = authenticateConfigurationRequest(request, response);
 
         initHttpExecutor();
 
         if (requestBody == null) {
             requestBody = new ConfigInfoRequestBody();
         }
-        List<Pair<String, Integer>> hostPorts;
         if (type.equalsIgnoreCase("fe")) {
-            if (requestBody.getNodes() != null && !requestBody.getNodes().isEmpty()) {
-                hostPorts = retainClusterMembers(
-                        parseHostPort(requestBody.getNodes()), parseHostPort(getFeList()));
-            } else {
-                hostPorts = parseHostPort(getFeList());
-            }
-
-            List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
-            List<List<String>> data = handleConfigurationInfo(hostPorts, internalAuthToken,
-                    "/rest/v2/manager/node/config", "FE", requestBody.getConfNames(), errNodes);
-            if (!errNodes.isEmpty()) {
-                LOG.warn("Failed to get fe node configuration information from:{}", errNodes.toString());
-            }
-            return ResponseEntityBuilder.ok(new NodeInfo(FE_CONFIG_TITLE_NAMES, data));
+            return ResponseEntityBuilder.ok(
+                    new NodeInfo(FE_CONFIG_TITLE_NAMES, feConfigurationInfo(authorization, requestBody)));
         } else if (type.equalsIgnoreCase("be")) {
-            if (requestBody.getNodes() != null && !requestBody.getNodes().isEmpty()) {
-                hostPorts = retainClusterMembers(
-                        parseHostPort(requestBody.getNodes()), parseHostPort(getBeList()));
+            Map<String, String> headers;
+            if (Strings.isNullOrEmpty(authorization)) {
+                // A cookie caller has no Basic credential to forward. Every BE already accepts the
+                // cluster auth token on its authenticated HTTP handlers, so presenting it here adds
+                // nothing to the BE's surface -- unlike having an FE accept it, which this class
+                // deliberately does not do.
+                try {
+                    headers = ImmutableMap.of(AUTH_TOKEN_HEADER, backendAuthToken());
+                } catch (UserException exception) {
+                    LOG.warn("Failed to acquire the cluster token for the BE configuration fan-out", exception);
+                    return ResponseEntityBuilder.serviceUnavailable(
+                            "Cannot read backend configuration: the master FE is unreachable.");
+                }
             } else {
-                hostPorts = parseHostPort(getBeList());
+                headers = ImmutableMap.of(AUTHORIZATION, authorization);
             }
 
+            List<Pair<String, Integer>> hostPorts = requestedClusterNodes(requestBody, getBeList(), "BE");
             List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
-            List<List<String>> data = handleConfigurationInfo(hostPorts, internalAuthToken,
+            List<List<String>> data = handleConfigurationInfo(hostPorts, headers,
                     "/api/show_config", "BE", requestBody.getConfNames(), errNodes);
             if (!errNodes.isEmpty()) {
                 LOG.warn("Failed to get be node configuration information from:{}", errNodes.toString());
@@ -390,37 +399,115 @@ public class NodeAction extends RestBaseController {
                 "Unsupported type: " + type + ". Only types of fe or be are " + "supported");
     }
 
-    private void authenticateConfigurationRequest(HttpServletRequest request, HttpServletResponse response,
-            boolean requireCsrf) {
-        if (!Strings.isNullOrEmpty(request.getHeader(AUTHORIZATION))) {
+    /**
+     * FE configuration for the caller.
+     *
+     * <p>A caller that authenticated with HTTP Basic gets the historical behaviour: their own
+     * Authorization header is forwarded to each frontend, so every FE answers as that operator.
+     *
+     * <p>A caller that authenticated with the UI session cookie has no credential this FE could
+     * present to its peers. Rather than letting an FE accept some cluster-wide shared secret on
+     * /config -- which would turn possession of that secret into a cluster configuration read --
+     * this FE answers with its own configuration, read in process.
+     */
+    private List<List<String>> feConfigurationInfo(String authorization, ConfigInfoRequestBody requestBody) {
+        if (Strings.isNullOrEmpty(authorization)) {
+            return localFeConfigurationRows(requestBody.getConfNames());
+        }
+
+        List<Pair<String, Integer>> hostPorts = requestedClusterNodes(requestBody, getFeList(), "FE");
+        List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
+        List<List<String>> data = handleConfigurationInfo(hostPorts, ImmutableMap.of(AUTHORIZATION, authorization),
+                "/rest/v2/manager/node/config", "FE", requestBody.getConfNames(), errNodes);
+        if (!errNodes.isEmpty()) {
+            LOG.warn("Failed to get fe node configuration information from:{}", errNodes.toString());
+        }
+        return data;
+    }
+
+    /** This FE's configuration, shaped like a fan-out row: name, node, node type, then the rest. */
+    private static List<List<String>> localFeConfigurationRows(List<String> confNames) {
+        String address = NetUtils.getHostPortInAccessibleFormat(
+                Env.getCurrentEnv().getSelfNode().getHost(), HttpURLUtil.getHttpPort());
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<String> config : localConfigRows()) {
+            if (confNames != null && !confNames.isEmpty() && !confNames.contains(config.get(0))) {
+                continue;
+            }
+            List<String> row = Lists.newArrayList(config);
+            row.add(1, address);
+            row.add(2, "FE");
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /**
+     * The nodes to fan out to: the ones the caller named, restricted to current cluster members,
+     * or every member when the caller named none. Nodes that are not cluster members are dropped
+     * and logged rather than contacted -- this endpoint must never make the FE issue an
+     * authenticated request to a host chosen by the caller.
+     */
+    private static List<Pair<String, Integer>> requestedClusterNodes(ConfigInfoRequestBody requestBody,
+            List<String> clusterNodes, String nodeType) {
+        List<Pair<String, Integer>> members = parseHostPort(clusterNodes);
+        if (requestBody.getNodes() == null || requestBody.getNodes().isEmpty()) {
+            return members;
+        }
+        List<Pair<String, Integer>> requested = parseHostPort(requestBody.getNodes());
+        List<Pair<String, Integer>> retained = retainClusterMembers(requested, members);
+        if (retained.size() != requested.size()) {
+            List<Pair<String, Integer>> dropped = Lists.newArrayList(requested);
+            dropped.removeAll(retained);
+            LOG.warn("Ignored {} requested node(s) that are not {} cluster members: {}",
+                    dropped.size(), nodeType, dropped);
+        }
+        return retained;
+    }
+
+    /**
+     * Authenticates a configuration read. Returns the caller's Authorization header when they
+     * used HTTP Basic, or null when they authenticated with the UI session cookie.
+     */
+    private String authenticateConfigurationRequest(HttpServletRequest request, HttpServletResponse response) {
+        String authorization = request.getHeader(AUTHORIZATION);
+        if (!Strings.isNullOrEmpty(authorization)) {
             ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
             checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
-            return;
+            return authorization;
         }
 
         SessionValue session = requireCookieSession(request, response);
         checkGlobalAuth(session.currentUser, PrivPredicate.ADMIN);
-        if (requireCsrf && !CsrfTokenUtils.csrfTokenMatches(
+        if (!CsrfTokenUtils.csrfTokenMatches(
                 session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
             throw UiApiException.invalidCsrf();
         }
+        return null;
     }
 
-    private String acquireInternalAuthToken() {
-        try {
-            return Env.getCurrentEnv().getTokenManager().acquireToken();
-        } catch (UserException exception) {
-            throw new IllegalStateException("Failed to acquire the internal configuration fan-out token", exception);
+    /**
+     * The cluster auth token, used only as a client credential towards backends. A non-master FE
+     * has to ask the master for it, so it is cached: the token rotates every
+     * Config.token_generate_period_hour hours and the master keeps the last
+     * Config.token_queue_size of them valid.
+     */
+    private static String backendAuthToken() throws UserException {
+        long now = System.currentTimeMillis();
+        String token = cachedBackendAuthToken;
+        if (token != null && now - cachedBackendAuthTokenMillis < BACKEND_AUTH_TOKEN_CACHE_MILLIS) {
+            return token;
         }
-    }
-
-    static Map<String, String> internalAuthHeaders(String token) {
-        return ImmutableMap.of(AUTH_TOKEN_HEADER, token);
+        token = Env.getCurrentEnv().getTokenManager().acquireToken();
+        cachedBackendAuthToken = token;
+        cachedBackendAuthTokenMillis = now;
+        return token;
     }
 
     // Use thread pool to concurrently fetch configuration information from specified fe or be nodes.
-    private List<List<String>> handleConfigurationInfo(List<Pair<String, Integer>> hostPorts, String internalAuthToken,
-            String questPath, String nodeType, List<String> confNames, List<Map.Entry<String, Integer>> errNodes) {
+    private List<List<String>> handleConfigurationInfo(List<Pair<String, Integer>> hostPorts,
+            Map<String, String> headers, String questPath, String nodeType, List<String> confNames,
+            List<Map.Entry<String, Integer>> errNodes) {
         // The configuration information returned by each node is a List<List<String>> type,
         // configInfoTotal is used to store the configuration information of all nodes.
         List<List<List<String>>> configInfoTotal = Lists.newArrayList();
@@ -436,7 +523,7 @@ public class NodeAction extends RestBaseController {
             String scheme = (Config.enable_https && "FE".equals(nodeType)) ? "https://" : "http://";
             String url = scheme + address + questPath;
             httpExecutor.submit(
-                    new HttpConfigInfoTask(url, hostPort, internalAuthToken, nodeType, confNames,
+                    new HttpConfigInfoTask(url, hostPort, headers, nodeType, confNames,
                             configRequestDoneSignal, configInfoTotal.get(i)));
         }
         List<List<String>> resultConfigs = Lists.newArrayList();
@@ -489,18 +576,18 @@ public class NodeAction extends RestBaseController {
     private class HttpConfigInfoTask implements Runnable {
         private String url;
         private Pair<String, Integer> hostPort;
-        private String internalAuthToken;
+        private Map<String, String> headers;
         private String nodeType;
         private List<String> confNames;
         private MarkedCountDownLatch<String, Integer> configRequestDoneSignal;
         private List<List<String>> config;
 
-        public HttpConfigInfoTask(String url, Pair<String, Integer> hostPort, String internalAuthToken, String nodeType,
-                List<String> confNames, MarkedCountDownLatch<String, Integer> configRequestDoneSignal,
-                List<List<String>> config) {
+        public HttpConfigInfoTask(String url, Pair<String, Integer> hostPort, Map<String, String> headers,
+                String nodeType, List<String> confNames,
+                MarkedCountDownLatch<String, Integer> configRequestDoneSignal, List<List<String>> config) {
             this.url = url;
             this.hostPort = hostPort;
-            this.internalAuthToken = internalAuthToken;
+            this.headers = headers;
             this.nodeType = nodeType;
             this.confNames = confNames;
             this.configRequestDoneSignal = configRequestDoneSignal;
@@ -511,8 +598,7 @@ public class NodeAction extends RestBaseController {
         public void run() {
             String configInfo;
             try {
-                configInfo = HttpUtils.doGet(url,
-                        internalAuthHeaders(internalAuthToken));
+                configInfo = HttpUtils.doGet(url, headers);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(configInfo, new TypeToken<List<List<String>>>() {
                 }.getType());
                 for (List<String> conf : configs) {
@@ -563,8 +649,8 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/fe", method = RequestMethod.POST)
     public Object setConfigFe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        authenticateConfigurationRequest(request, response, true);
-        String internalAuthToken = acquireInternalAuthToken();
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
@@ -574,7 +660,7 @@ public class NodeAction extends RestBaseController {
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
-        header.putAll(internalAuthHeaders(internalAuthToken));
+        header.put(AUTHORIZATION, request.getHeader(AUTHORIZATION));
 
         for (NodeConfigs nodeConfigs : nodeConfigList) {
             if (!nodeConfigs.getConfigs(true).isEmpty()) {
@@ -675,8 +761,8 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/be", method = RequestMethod.POST)
     public Object setConfigBe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        authenticateConfigurationRequest(request, response, true);
-        String internalAuthToken = acquireInternalAuthToken();
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
@@ -686,7 +772,7 @@ public class NodeAction extends RestBaseController {
         }).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveBe, failedTotal);
 
-        handleBeSetConfig(nodeConfigList, internalAuthToken, failedTotal);
+        handleBeSetConfig(nodeConfigList, request.getHeader(AUTHORIZATION), failedTotal);
         failedTotal = failedTotal.stream().filter(e -> !e.isEmpty()).collect(Collectors.toList());
 
         Map<String, List<Map<String, String>>> data = Maps.newHashMap();
@@ -901,7 +987,7 @@ public class NodeAction extends RestBaseController {
         }
     }
 
-    private List<Map<String, String>> handleBeSetConfig(List<NodeConfigs> nodeConfigList, String internalAuthToken,
+    private List<Map<String, String>> handleBeSetConfig(List<NodeConfigs> nodeConfigList, String authorization,
             List<Map<String, String>> failedTotal) {
         initHttpExecutor();
 
@@ -909,8 +995,8 @@ public class NodeAction extends RestBaseController {
                 .sum();
         MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal = new MarkedCountDownLatch<>(configNum);
         for (NodeConfigs nodeConfigs : nodeConfigList) {
-            submitBeSetConfigTask(nodeConfigs, true, internalAuthToken, beSetConfigCountDownSignal, failedTotal);
-            submitBeSetConfigTask(nodeConfigs, false, internalAuthToken, beSetConfigCountDownSignal, failedTotal);
+            submitBeSetConfigTask(nodeConfigs, true, authorization, beSetConfigCountDownSignal, failedTotal);
+            submitBeSetConfigTask(nodeConfigs, false, authorization, beSetConfigCountDownSignal, failedTotal);
         }
         try {
             beSetConfigCountDownSignal.await(HTTP_WAIT_TIME_SECONDS, TimeUnit.SECONDS);
@@ -929,7 +1015,7 @@ public class NodeAction extends RestBaseController {
         return failedTotal;
     }
 
-    private void submitBeSetConfigTask(NodeConfigs nodeConfigs, boolean isPersist, String internalAuthToken,
+    private void submitBeSetConfigTask(NodeConfigs nodeConfigs, boolean isPersist, String authorization,
             MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal, List<Map<String, String>> failedTotal) {
         if (!nodeConfigs.getConfigs(isPersist).isEmpty()) {
             for (Map.Entry<String, String> entry : nodeConfigs.getConfigs(isPersist).entrySet()) {
@@ -941,7 +1027,7 @@ public class NodeAction extends RestBaseController {
                 String url = concatBeSetConfigUrl(hostPort.first, hostPort.second, entry.getKey(), entry.getValue(),
                         isPersist);
                 httpExecutor.submit(
-                        new HttpSetConfigTask(url, hostPort, internalAuthToken, entry.getKey(), entry.getValue(),
+                        new HttpSetConfigTask(url, hostPort, authorization, entry.getKey(), entry.getValue(),
                                 beSetConfigCountDownSignal, failedTotal.get(failedTotal.size() - 1)));
             }
         }
@@ -975,18 +1061,18 @@ public class NodeAction extends RestBaseController {
     private class HttpSetConfigTask implements Runnable {
         private String url;
         private Pair<String, Integer> hostPort;
-        private String internalAuthToken;
+        private String authorization;
         private String configName;
         private String configValue;
         private MarkedCountDownLatch<String, Integer> beSetConfigDoneSignal;
         private Map<String, String> failed;
 
-        public HttpSetConfigTask(String url, Pair<String, Integer> hostPort, String internalAuthToken,
-                String configName, String configValue, MarkedCountDownLatch<String, Integer> beSetConfigDoneSignal,
+        public HttpSetConfigTask(String url, Pair<String, Integer> hostPort, String authorization, String configName,
+                String configValue, MarkedCountDownLatch<String, Integer> beSetConfigDoneSignal,
                 Map<String, String> failed) {
             this.url = url;
             this.hostPort = hostPort;
-            this.internalAuthToken = internalAuthToken;
+            this.authorization = authorization;
             this.configName = configName;
             this.configValue = configValue;
             this.beSetConfigDoneSignal = beSetConfigDoneSignal;
@@ -997,7 +1083,7 @@ public class NodeAction extends RestBaseController {
         public void run() {
             try {
                 String response = HttpUtils.doPost(url,
-                        internalAuthHeaders(internalAuthToken), null);
+                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), null);
                 JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
                 String status = jsonObject.get("status").getAsString();
                 if (!status.equals("OK")) {

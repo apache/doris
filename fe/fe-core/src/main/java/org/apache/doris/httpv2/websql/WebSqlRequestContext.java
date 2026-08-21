@@ -28,8 +28,9 @@ public final class WebSqlRequestContext {
     private WebSqlRequestContext() {
     }
 
-    public static void set(HttpServletRequest request, UserIdentity userIdentity, String password) {
-        request.setAttribute(AUTH_ATTRIBUTE, new Authentication(userIdentity, password));
+    public static void set(HttpServletRequest request, UserIdentity userIdentity, String password,
+            String httpSessionId) {
+        request.setAttribute(AUTH_ATTRIBUTE, new Authentication(userIdentity, password, httpSessionId));
     }
 
     public static Authentication authentication(HttpServletRequest request) {
@@ -44,10 +45,12 @@ public final class WebSqlRequestContext {
     public static final class Authentication {
         private final UserIdentity userIdentity;
         private final String password;
+        private final String httpSessionId;
 
-        Authentication(UserIdentity userIdentity, String password) {
+        Authentication(UserIdentity userIdentity, String password, String httpSessionId) {
             this.userIdentity = userIdentity;
             this.password = password == null ? "" : password;
+            this.httpSessionId = httpSessionId;
         }
 
         public String getOwner() {
@@ -56,6 +59,11 @@ public final class WebSqlRequestContext {
 
         public UserIdentity getUserIdentity() {
             return userIdentity;
+        }
+
+        /** The browser session that authenticated, or null for HTTP Basic callers. */
+        public String getHttpSessionId() {
+            return httpSessionId;
         }
 
         public String getPassword() {

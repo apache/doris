@@ -15,20 +15,17 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM almalinux:8 AS builder
+FROM centos:7 AS builder
 
 # install epel repo for ccache
-RUN dnf install -y dnf-plugins-core epel-release \
-    && dnf config-manager --set-enabled powertools \
-    && dnf clean all \
-    && dnf makecache
+RUN yum install epel-release -y && yum clean all && yum makecache
 
 # install dependencies
-RUN dnf install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
+RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
     ccache wget git python2 bison java-11-openjdk-devel java-1.8.0-openjdk-devel
 
 # clean cache
-RUN dnf clean all
+RUN yum clean all
 
 # install maven 3.9.9
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
@@ -38,13 +35,11 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
     ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-ARG NODEJS_VERSION=22.12.0
-RUN wget https://nodejs.org/dist/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
-    -q -O /tmp/node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
-    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
-    && cp -r node-v${NODEJS_VERSION}-linux-arm64/* /usr/local/ \
-    && rm /tmp/node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
-    && rm -rf node-v${NODEJS_VERSION}-linux-arm64
+RUN wget https://nodejs.org/dist/v16.3.0/node-v16.3.0-linux-arm64.tar.xz \
+    -q -O /tmp/node-v16.3.0-linux-arm64.tar.xz \
+    && cd /tmp/ && tar -xf node-v16.3.0-linux-arm64.tar.xz \
+    && cp -r node-v16.3.0-linux-arm64/* /usr/local/ \
+    && rm /tmp/node-v16.3.0-linux-arm64.tar.xz && rm -rf node-v16.3.0-linux-arm64
 
 # install ldb-toolchain
 RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh \

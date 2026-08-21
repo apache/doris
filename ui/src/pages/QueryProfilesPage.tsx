@@ -55,6 +55,10 @@ function QueryProfileList() {
           <div><p className="ui-label">Finished queries</p><h2 id="query-profiles-heading">Retained profiles</h2></div>
           <Statistic title="Profiles" value={query.data?.rows.length ?? 0} />
         </div>
+        <p className="section-note">
+          {"Profiles are read from this FE's in-memory ProfileManager, so the list covers only the "
+            + 'queries this frontend ran, and only Task Type: QUERY entries are shown.'}
+        </p>
         <OperationState
           loading={query.isPending}
           error={query.error}

@@ -52,14 +52,16 @@ describe('M13 and M14 Configuration page', () => {
     vi.restoreAllMocks();
   });
 
-  it('filters FE rows, exposes mutable state and never offers Edit for an immutable row', async () => {
+  it('filters FE rows, exposes mutable state and offers no way to change a setting', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(response('fe')));
     const { container } = renderPage();
 
     await screen.findByText('web_sql_max_result_bytes');
     expect(screen.getByRole('columnheader', { name: 'Master Only' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Edit web_sql_max_result_bytes on fe-a:8030' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Edit http_port on fe-a:8030' })).toBeInTheDocument();
+    // The page is read-only: no Edit affordance, and no Actions column to host one.
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Edit / })).not.toBeInTheDocument();
+    expect(screen.getByText('This page is read-only')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Filter by name'), { target: { value: 'http_port' } });
     expect(screen.queryByText('web_sql_max_result_bytes')).not.toBeInTheDocument();
@@ -86,44 +88,6 @@ describe('M13 and M14 Configuration page', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(longValue);
   }, 15_000);
 
-  it('updates all mutable nodes through the existing endpoint and displays a partial failure', async () => {
-    setCsrfToken('csrf-config-page');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes('/set_config/fe')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          code: 0,
-          msg: 'success',
-          data: { failed: [{ config_name: 'runtime_filter_type', value: '4', node: 'fe-b:8030', err_info: 'rejected' }] },
-        }), { headers: { 'Content-Type': 'application/json' } }));
-      }
-      return Promise.resolve(response('fe'));
-    });
-    renderPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit runtime_filter_type on fe-a:8030' }));
-    fireEvent.change(screen.getByLabelText('New value'), { target: { value: '4' } });
-    fireEvent.click(screen.getByText('Apply to all 2 mutable FE nodes that expose this setting'));
-    fireEvent.click(screen.getByText('Persist after node restart'));
-    fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Apply' }));
-
-    expect(await screen.findByText('1 of 2 nodes updated')).toBeInTheDocument();
-    expect(screen.getByText(/rejected/)).toBeInTheDocument();
-    const mutationCall = fetchSpy.mock.calls.find(([input]) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      return url.includes('/set_config/fe');
-    });
-    expect(mutationCall).toBeDefined();
-    const headers = new Headers(mutationCall?.[1]?.headers);
-    expect(headers.get('X-Doris-CSRF-Token')).toBe('csrf-config-page');
-    const requestBody = mutationCall?.[1]?.body;
-    if (typeof requestBody !== 'string') throw new Error('Expected a JSON request body.');
-    expect(JSON.parse(requestBody)).toEqual({
-      runtime_filter_type: { node: ['fe-a:8030', 'fe-b:8030'], value: '4', persist: true },
-    });
-  }, 20_000);
-
   it('loads and displays the different BE schema', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -135,7 +99,8 @@ describe('M13 and M14 Configuration page', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Backend' }));
 
     await screen.findByText('be_port');
-    expect(screen.getByText('be-a:8040')).toBeInTheDocument();
+    // The address shows up twice: as the node tab and in the table's Node column.
+    expect(screen.getAllByText('be-a:8040').length).toBeGreaterThan(0);
     expect(fetchSpy).toHaveBeenCalledWith(
       '/rest/v2/manager/node/configuration_info?type=be',
       expect.objectContaining({ method: 'POST' }),

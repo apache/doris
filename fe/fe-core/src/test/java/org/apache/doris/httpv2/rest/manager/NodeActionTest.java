@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Pair;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.ui.UiApiException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
@@ -34,12 +35,6 @@ import java.util.Map;
 
 class NodeActionTest {
     @Test
-    void internalFanOutHeadersNeverContainUserAuthorization() {
-        Assertions.assertEquals("cluster-token", NodeAction.internalAuthHeaders("cluster-token").get("Auth-Token"));
-        Assertions.assertFalse(NodeAction.internalAuthHeaders("cluster-token").containsKey("Authorization"));
-    }
-
-    @Test
     void retainsOnlyRequestedClusterMembers() {
         List<Pair<String, Integer>> requested = List.of(
                 Pair.of("127.0.0.1", 8030), Pair.of("evil.example.com", 8030));
@@ -53,25 +48,32 @@ class NodeActionTest {
     }
 
     @Test
-    void setConfigHandlerRejectsCookieWithoutCsrf() {
-        SessionValue session = new SessionValue();
-        session.currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
-        NodeAction action = actionWithAuthorizedSession(session);
+    void retainsNothingWhenNoRequestedNodeIsAClusterMember() {
+        List<Pair<String, Integer>> requested = List.of(Pair.of("evil.example.com", 8030));
+        List<Pair<String, Integer>> members = List.of(Pair.of("127.0.0.1", 8030));
+
+        Assertions.assertTrue(NodeAction.retainClusterMembers(requested, members).isEmpty());
+    }
+
+    /**
+     * The configuration write surface stays password-authenticated. A caller with no Authorization
+     * header must be rejected before any node is contacted, whatever cookie or token they present.
+     */
+    @Test
+    void setConfigRejectsCallersWithoutBasicCredentials() {
+        NodeAction action = actionWithAuthorizedSession(adminSession());
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
 
-        UiApiException exception = Assertions.assertThrows(
-                UiApiException.class, () -> action.setConfigFe(request, response, Map.of()));
-
-        Assertions.assertEquals(403, exception.getStatus().value());
-        Assertions.assertEquals("UI_CSRF_INVALID", exception.getCode());
+        Assertions.assertThrows(UnauthorizedException.class,
+                () -> action.setConfigFe(request, response, Map.of()));
+        Assertions.assertThrows(UnauthorizedException.class,
+                () -> action.setConfigBe(request, response, Map.of()));
     }
 
     @Test
     void configurationInfoHandlerRejectsCookieWithoutCsrf() {
-        SessionValue session = new SessionValue();
-        session.currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
-        NodeAction action = actionWithAuthorizedSession(session);
+        NodeAction action = actionWithAuthorizedSession(adminSession());
 
         UiApiException exception = Assertions.assertThrows(UiApiException.class,
                 () -> action.configurationInfo(
@@ -85,6 +87,12 @@ class NodeActionTest {
     void encodesConfigurationNamesAndValuesForDownstreamRequests() {
         Assertions.assertEquals("name+with+space", NodeAction.encodeQueryParameter("name with space"));
         Assertions.assertEquals("8+%26+4%3D2", NodeAction.encodeQueryParameter("8 & 4=2"));
+    }
+
+    private SessionValue adminSession() {
+        SessionValue session = new SessionValue();
+        session.currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
+        return session;
     }
 
     private NodeAction actionWithAuthorizedSession(SessionValue session) {

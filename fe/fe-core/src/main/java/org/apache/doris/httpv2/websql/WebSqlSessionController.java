@@ -42,7 +42,8 @@ public class WebSqlSessionController {
     @PostMapping
     public WebSqlSessionInfo create(HttpServletRequest request) {
         WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
-        WebSqlSession session = manager.createSession(login.getUserIdentity(), login.getPassword());
+        WebSqlSession session = manager.createSession(
+                login.getUserIdentity(), login.getPassword(), login.getHttpSessionId());
         return new WebSqlSessionInfo(session);
     }
 

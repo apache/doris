@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
 
@@ -182,11 +182,17 @@ describe('PlaygroundPage', () => {
       }));
     });
 
-    renderPage();
+    const { container } = renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
-    expect(await screen.findByText(/SELECT COUNT/)).toBeInTheDocument();
-    expect(screen.getByText(/Unknown column/)).toBeInTheDocument();
-    expect(screen.getByText(/WEB_SQL_QUERY_ERROR/)).toBeInTheDocument();
+    // The statement is echoed in Messages. It also lives in the editor, so scope to the list.
+    await waitFor(() => expect(container.querySelector('.message-list')).not.toBeNull());
+    const messages = () => within(container.querySelector('.message-list') as HTMLElement);
+    // Messages carry both "Running: <statement>" and "Failed: <statement> - <error>";
+    // the failure line is the one under test.
+    await waitFor(() => expect(messages().getByText(/^Failed: SELECT COUNT/)).toBeInTheDocument());
+    const failure = messages().getByText(/^Failed: SELECT COUNT/);
+    expect(failure).toHaveTextContent(/Unknown column/);
+    expect(failure).toHaveTextContent(/WEB_SQL_QUERY_ERROR/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset connection' }));
     await waitFor(() => expect(sessionMocks.reset).toHaveBeenCalledTimes(1));
@@ -219,14 +225,17 @@ describe('PlaygroundPage', () => {
     fireEvent.click(screen.getByText('ss_store_sk'));
     expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;');
 
+    // Query table appends a statement and leaves the caret on its `*`; it never rewrites the
+    // statement the user was already editing.
     fireEvent.click(screen.getByRole('button', { name: 'Query table' }));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
 
+    // Column clicks now build the appended statement, replacing its `*`.
     fireEvent.click(screen.getByText('ss_item_sk'));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT `ss_item_sk` FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
 
     fireEvent.click(screen.getByText('ss_store_sk'));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT * FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;\n\nSELECT `ss_item_sk`, `ss_store_sk` FROM `internal`.`tpcds`.`store_sales` LIMIT 100;');
   });
 
   it('filters only loaded metadata and refreshes databases without loading every table', async () => {
@@ -311,7 +320,7 @@ describe('PlaygroundPage', () => {
     await screen.findByText('store_sales');
 
     fireEvent.mouseDown(screen.getByLabelText('Catalog'));
-    fireEvent.click(await screen.findByText('iceberg · internal'));
+    fireEvent.click(await screen.findByText('iceberg | internal'));
     expect(await screen.findByText('lakehouse')).toBeInTheDocument();
     expect(screen.queryByText('store_sales')).not.toBeInTheDocument();
     expect(sessionMocks.execute).toHaveBeenCalledWith('SHOW DATABASES FROM `iceberg`');

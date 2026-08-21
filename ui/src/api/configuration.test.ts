@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { adaptConfiguration, fetchConfiguration, updateConfiguration } from './configuration';
+import { adaptConfiguration, fetchConfiguration } from './configuration';
 import { setCsrfToken } from './csrf';
 
 function json(data: unknown) {
@@ -67,37 +67,4 @@ describe('configuration adapter', () => {
     expect(new Headers(init?.headers).get('X-Doris-CSRF-Token')).toBe('csrf-config');
   });
 
-  it('uses the existing set-config endpoint with CSRF and preserves per-node failures', async () => {
-    setCsrfToken('csrf-config');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
-      failed: [{ config_name: 'runtime_filter_type', value: '8 & 4', node: 'fe-b:8030', err_info: 'invalid value' }],
-    }));
-
-    await expect(updateConfiguration({
-      scope: 'fe',
-      name: 'runtime_filter_type',
-      nodes: ['fe-a:8030', 'fe-b:8030'],
-      value: '8 & 4',
-      persist: true,
-    })).resolves.toEqual({
-      failures: [{
-        configName: 'runtime_filter_type',
-        value: '8 & 4',
-        node: 'fe-b:8030',
-        error: 'invalid value',
-      }],
-    });
-
-    const [, init] = fetchSpy.mock.calls[0];
-    expect(fetchSpy.mock.calls[0][0]).toBe('/rest/v2/manager/node/set_config/fe');
-    expect(new Headers(init?.headers).get('X-Doris-CSRF-Token')).toBe('csrf-config');
-    if (typeof init?.body !== 'string') throw new Error('Expected a JSON request body.');
-    expect(JSON.parse(init.body)).toEqual({
-      runtime_filter_type: {
-        node: ['fe-a:8030', 'fe-b:8030'],
-        value: '8 & 4',
-        persist: true,
-      },
-    });
-  });
 });

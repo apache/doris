@@ -15,16 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { useMutation } from '@tanstack/react-query';
-import { Alert, Button, Checkbox, Descriptions, Drawer, Input, message, Modal, Popconfirm, Table, Tabs, Tag, Tooltip } from 'antd';
+import { Alert, Button, Checkbox, Descriptions, Drawer, Input, Table, Tabs, Tag, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
 
 import {
   type ConfigurationRow,
   type ConfigurationScope,
-  type ConfigurationUpdateFailure,
-  updateConfiguration,
   useConfiguration,
 } from '../api/configuration';
 import { OperationState } from '../components/operations/OperationState';
@@ -45,15 +42,6 @@ export function ConfigurationPage() {
   const [valueFilter, setValueFilter] = useState('');
   const [mutableOnly, setMutableOnly] = useState(false);
   const [selected, setSelected] = useState<ConfigurationRow | null>(null);
-  const [editing, setEditing] = useState<ConfigurationRow | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const [persist, setPersist] = useState(false);
-  const [allNodes, setAllNodes] = useState(false);
-  const [updateResult, setUpdateResult] = useState<{
-    targetCount: number;
-    failures: ConfigurationUpdateFailure[];
-  } | null>(null);
-  const [messageApi, messageContext] = message.useMessage();
   const query = useConfiguration(scope);
 
   const nodes = useMemo(() => Array.from(new Set((query.data ?? [])
@@ -69,44 +57,6 @@ export function ConfigurationPage() {
     && includes(row.currentValue, valueFilter)
     && (!mutableOnly || row.mutable)
   )), [activeNode, mutableOnly, nameFilter, nodeFilter, query.data, valueFilter]);
-
-  const editableNodes = useMemo(() => editing === null ? [] : Array.from(new Set(
-    (query.data ?? [])
-      .filter((row) => row.name === editing.name && row.mutable)
-      .map((row) => row.node),
-  )), [editing, query.data]);
-  const targetNodes = allNodes ? editableNodes : editing ? [editing.node] : [];
-
-  const closeEditor = () => {
-    setEditing(null);
-    setEditValue('');
-    setPersist(false);
-    setAllNodes(false);
-    setUpdateResult(null);
-  };
-
-  const updateMutation = useMutation({
-    mutationFn: updateConfiguration,
-    onSuccess: (result, variables) => {
-      void query.refetch();
-      if (result.failures.length === 0) {
-        void messageApi.success(`Updated ${variables.name} on ${variables.nodes.length} node${variables.nodes.length === 1 ? '' : 's'}.`);
-        closeEditor();
-        return;
-      }
-      setUpdateResult({ targetCount: variables.nodes.length, failures: result.failures });
-    },
-  });
-
-  const openEditor = (row: ConfigurationRow) => {
-    if (!row.mutable) return;
-    setEditing(row);
-    setEditValue(row.currentValue);
-    setPersist(false);
-    setAllNodes(false);
-    setUpdateResult(null);
-    updateMutation.reset();
-  };
 
   const columns: TableColumnsType<ConfigurationRow> = [
     {
@@ -146,19 +96,6 @@ export function ConfigurationPage() {
       sorter: (left, right) => Number(left.mutable) - Number(right.mutable),
       render: (value: boolean) => <Tag color={value ? 'green' : 'default'}>{value ? 'Yes' : 'No'}</Tag>,
     },
-    {
-      title: 'Actions', key: 'actions', width: 90, fixed: 'right',
-      render: (_value, row) => row.mutable ? (
-        <Button
-          size="small"
-          aria-label={`Edit ${row.name} on ${row.node}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            openEditor(row);
-          }}
-        >Edit</Button>
-      ) : null,
-    },
   ];
 
   const clearFilters = () => {
@@ -170,10 +107,18 @@ export function ConfigurationPage() {
 
   return (
     <main className="module-page operations-page configuration-page">
-      {messageContext}
       <header className="page-heading">
         <h1>Configuration</h1>
       </header>
+      <Alert
+        className="configuration-notice"
+        type="info"
+        showIcon
+        message="This page is read-only"
+        description={scope === 'fe'
+          ? 'Frontend settings are reported by the FE serving this page; open another FE web port to read its settings. Change a mutable setting with ADMIN SET FRONTEND CONFIG.'
+          : 'Backend settings are read from every backend in the cluster. Change a mutable setting with the backend configuration API.'}
+      />
       <section className="operations-section" aria-labelledby="configuration-heading">
         <div className="section-heading configuration-heading">
           <div><p className="ui-label">Cluster configuration</p><h2 id="configuration-heading">{scope.toUpperCase()} settings</h2></div>
@@ -267,88 +212,6 @@ export function ConfigurationPage() {
           </Descriptions>
         )}
       </Drawer>
-      <Modal
-        className="configuration-editor"
-        title="Edit configuration"
-        open={editing !== null}
-        onCancel={closeEditor}
-        footer={editing ? [
-          <Button key="cancel" onClick={closeEditor}>Cancel</Button>,
-          <Popconfirm
-            key="apply"
-            title="Apply this configuration change?"
-            description={`This will update ${targetNodes.length} ${scope.toUpperCase()} node${targetNodes.length === 1 ? '' : 's'}.`}
-            okText="Apply"
-            cancelText="Go back"
-            onConfirm={() => updateMutation.mutate({
-              scope,
-              name: editing.name,
-              nodes: targetNodes,
-              value: editValue,
-              persist,
-            })}
-          >
-            <Button type="primary" loading={updateMutation.isPending} disabled={targetNodes.length === 0}>
-              Apply change
-            </Button>
-          </Popconfirm>,
-        ] : null}
-      >
-        {editing && (
-          <div className="configuration-editor__body">
-            <Alert
-              type="warning"
-              showIcon
-              title="Configuration changes can affect running workloads."
-              description="The server will verify administrator access, mutability, value validity, and node availability before applying this change."
-            />
-            <Descriptions bordered column={1} size="small">
-              <Descriptions.Item label="Name"><code>{editing.name}</code></Descriptions.Item>
-              <Descriptions.Item label="Selected node"><code>{editing.node}</code></Descriptions.Item>
-              <Descriptions.Item label="Value type">{editing.valueType || '—'}</Descriptions.Item>
-              <Descriptions.Item label="Current value"><code className="configuration-detail-value">{editing.currentValue || '—'}</code></Descriptions.Item>
-            </Descriptions>
-            <label className="configuration-editor__field">
-              <span>New value</span>
-              <Input.TextArea
-                aria-label="New value"
-                autoSize={{ minRows: 2, maxRows: 8 }}
-                value={editValue}
-                onChange={(event) => {
-                  setEditValue(event.target.value);
-                  setUpdateResult(null);
-                  updateMutation.reset();
-                }}
-              />
-            </label>
-            {editableNodes.length > 1 && (
-              <Checkbox checked={allNodes} onChange={(event) => setAllNodes(event.target.checked)}>
-                Apply to all {editableNodes.length} mutable {scope.toUpperCase()} nodes that expose this setting
-              </Checkbox>
-            )}
-            <Checkbox checked={persist} onChange={(event) => setPersist(event.target.checked)}>
-              Persist after node restart
-            </Checkbox>
-            {updateMutation.error && (
-              <Alert type="error" showIcon title="The configuration change failed" description={updateMutation.error.message} />
-            )}
-            {updateResult && (
-              <Alert
-                type={updateResult.failures.length < updateResult.targetCount ? 'warning' : 'error'}
-                showIcon
-                title={`${updateResult.targetCount - updateResult.failures.length} of ${updateResult.targetCount} nodes updated`}
-                description={(
-                  <ul className="configuration-update-failures">
-                    {updateResult.failures.map((failure, index) => (
-                      <li key={`${failure.node}:${index}`}><code>{failure.node || 'Unknown node'}</code>: {failure.error}</li>
-                    ))}
-                  </ul>
-                )}
-              />
-            )}
-          </div>
-        )}
-      </Modal>
     </main>
   );
 }

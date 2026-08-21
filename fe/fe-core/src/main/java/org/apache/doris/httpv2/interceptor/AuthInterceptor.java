@@ -104,7 +104,9 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
                     checkInstanceOverdue(user);
                 }
                 requireAdmin(user);
-                WebSqlRequestContext.set(request, user, authInfo.password);
+                // HTTP Basic callers belong to no browser session, so logout never closes them;
+                // they are reclaimed by the idle sweep.
+                WebSqlRequestContext.set(request, user, authInfo.password, null);
                 return;
             }
 
@@ -115,7 +117,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
                             session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
                 throw new WebSqlException(WebSqlError.CSRF_INVALID);
             }
-            WebSqlRequestContext.set(request, session.currentUser, session.password);
+            WebSqlRequestContext.set(request, session.currentUser, session.password, session.httpSessionId);
         } catch (UnauthorizedException exception) {
             throw new WebSqlException(WebSqlError.AUTHENTICATION_REQUIRED, exception);
         }

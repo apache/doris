@@ -70,7 +70,7 @@ describe('AppRoutes authentication', () => {
     await waitFor(() => expect(signIn).toBeEnabled());
     fireEvent.click(signIn);
 
-    await screen.findByRole('heading', { name: 'Home' });
+    await screen.findByRole('heading', { name: 'Cluster Overview' });
     expect(screen.getByText(/signed in with an empty password/i)).toBeInTheDocument();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
@@ -86,7 +86,7 @@ describe('AppRoutes authentication', () => {
 
     renderRoutes('/home');
 
-    await screen.findByRole('heading', { name: 'Home' });
+    await screen.findByRole('heading', { name: 'Cluster Overview' });
     expect(screen.getAllByText('admin')).toHaveLength(2);
     expect(screen.getByText('Playground')).toBeInTheDocument();
     expect(screen.getByText('Configuration')).toBeInTheDocument();

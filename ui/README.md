@@ -96,8 +96,12 @@ Playwright requires its Chromium runtime. The browser path may be isolated with 
   ELK, and renders a read-only React Flow canvas with slow-operator focus,
   search, Fragment visibility, Fit/Reset, MiniMap, and operator details.
 - FE and BE Configuration tables backed by the existing configuration APIs.
-  Mutable entries expose an ADMIN-only editor, while immutable entries remain
-  read-only. Long values are truncated in the table and remain available on
+  The page is read-only: it never writes configuration, so no configuration
+  mutation endpoint accepts the UI session cookie. Changing a setting goes
+  through `ADMIN SET FRONTEND CONFIG` or the backend configuration API, which
+  authenticate the operator directly. The FE table shows the configuration of
+  the FE serving the page; open another FE web port to read that node's
+  settings. Long values are truncated in the table and remain available on
   hover.
 - UI entry and the PR-added bootstrap/Web SQL endpoints require global
   `ADMIN`. Reused legacy `/rest/v1` endpoints retain their existing controller
