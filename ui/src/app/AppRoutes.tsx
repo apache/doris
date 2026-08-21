@@ -56,7 +56,7 @@ export function AppRoutes() {
         />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/configuration" element={<ConfigurationPage />} />
-        <Route path="*" element={<ModulePlaceholder name="Page not found" milestone="No module" />} />
+        <Route path="*" element={<ModulePlaceholder name="Page not found" />} />
       </Route>
     </Routes>
   );

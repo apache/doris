@@ -155,9 +155,12 @@ function errorText(error: unknown): string {
     } else if (error.details && typeof error.details === 'object') {
       const details = error.details as { message?: unknown; sqlState?: unknown; vendorCode?: unknown };
       if (typeof details.message === 'string' && details.message) primary = details.message;
+      const vendorCode = typeof details.vendorCode === 'string' || typeof details.vendorCode === 'number'
+        ? String(details.vendorCode)
+        : '';
       const fields = [
         typeof details.sqlState === 'string' && details.sqlState ? `SQLState ${details.sqlState}` : '',
-        details.vendorCode !== undefined && details.vendorCode !== null ? `code ${details.vendorCode}` : '',
+        vendorCode ? `code ${vendorCode}` : '',
       ].filter(Boolean);
       metadata = fields.length > 0 ? `(${fields.join(', ')})` : '';
     }
