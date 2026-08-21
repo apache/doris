@@ -28,12 +28,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -124,9 +126,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         } else {
             child = (LogicalPlan) cteProducer.child();
             child = tryToConstructFilter(cascadesContext, cteProducer.getCteId(), child);
+            child = tryToConstructLimit(cascadesContext, cteProducer.getCteId(), child);
             Set<Slot> producerOutputs = cascadesContext.getStatementContext()
                     .getCteIdToOutputIds().get(cteProducer.getCteId());
-            if (producerOutputs.size() < child.getOutput().size()) {
+            if (producerOutputs != null && producerOutputs.size() < child.getOutput().size()) {
                 ImmutableList.Builder<NamedExpression> projectsBuilder
                         = ImmutableList.builderWithExpectedSize(producerOutputs.size());
                 for (Slot slot : child.getOutput()) {
@@ -160,6 +163,19 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
                     plan.child(0).child(0), pushPlanUnderAnchor(child));
         }
         return plan;
+    }
+
+    private LogicalPlan tryToConstructLimit(CascadesContext cascadesContext, CTEId cteId, LogicalPlan child) {
+        Set<LogicalCTEConsumer> consumers = cascadesContext.getCteIdToConsumers().get(cteId);
+        long limit = 0;
+        for (LogicalCTEConsumer consumer : consumers) {
+            Long rowsNeeded = cascadesContext.getConsumerIdToLimitRows().get(consumer.getRelationId());
+            if (rowsNeeded == null) {
+                return child;
+            }
+            limit = Math.max(limit, rowsNeeded);
+        }
+        return pushPlanUnderAnchor(new LogicalLimit<>(limit, 0, LimitPhase.ORIGIN, child));
     }
 
     /*
