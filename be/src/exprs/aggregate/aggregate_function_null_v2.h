@@ -97,6 +97,32 @@ protected:
         return num;
     }
 
+    template <bool only_selected>
+    void deserialize_and_merge_vec_with_nulls(const AggregateDataPtr* places, size_t offset,
+                                              AggregateDataPtr rhs, const IColumn& nested_column,
+                                              const UInt8* null_map, Arena& arena,
+                                              size_t num_rows) const {
+        IColumn::Filter non_null_filter(num_rows, 0);
+        std::vector<AggregateDataPtr> non_null_places;
+        non_null_places.reserve(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (!null_map[i] && (!only_selected || places[i] != nullptr)) {
+                *(places[i] + offset) |= 1;
+                non_null_filter[i] = 1;
+                non_null_places.push_back(places[i]);
+            }
+        }
+
+        if (non_null_places.empty()) {
+            return;
+        }
+
+        auto non_null_column = nested_column.filter(non_null_filter, non_null_places.size());
+        nested_function->deserialize_and_merge_vec(non_null_places.data(), offset + prefix_size,
+                                                   rhs, non_null_column.get(), arena,
+                                                   non_null_places.size());
+    }
+
 public:
     AggregateFunctionNullBaseInlineV2(IAggregateFunction* nested_function_,
                                       const DataTypes& arguments, bool is_window_function_)
@@ -310,8 +336,14 @@ public:
             const auto& nested_col = nullable_col.get_nested_column();
             const auto* __restrict null_map_data = nullable_col.get_null_map_data().data();
 
+            if (nullable_col.has_null()) {
+                deserialize_and_merge_vec_with_nulls<false>(places, offset, rhs, nested_col,
+                                                            null_map_data, arena, num_rows);
+                return;
+            }
+
             for (size_t i = 0; i < num_rows; ++i) {
-                *(places[i] + offset) |= (!null_map_data[i]);
+                *(places[i] + offset) |= 1;
             }
             nested_function->deserialize_and_merge_vec(places, offset + prefix_size, rhs,
                                                        &nested_col, arena, num_rows);
@@ -329,9 +361,15 @@ public:
             const auto& nested_col = nullable_col.get_nested_column();
             const auto* __restrict null_map_data = nullable_col.get_null_map_data().data();
 
+            if (nullable_col.has_null()) {
+                deserialize_and_merge_vec_with_nulls<true>(places, offset, rhs, nested_col,
+                                                           null_map_data, arena, num_rows);
+                return;
+            }
+
             for (size_t i = 0; i < num_rows; ++i) {
                 if (places[i]) {
-                    *(places[i] + offset) |= (!null_map_data[i]);
+                    *(places[i] + offset) |= 1;
                 }
             }
             nested_function->deserialize_and_merge_vec_selected(places, offset + prefix_size, rhs,
