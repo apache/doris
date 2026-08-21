@@ -987,16 +987,33 @@ public class ConnectContext {
     // with "Split source X is released". These executors are finalized when the next query starts
     // on this connection, or when the connection is torn down. See #62259.
     private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
+    private boolean flightSqlDeferredExecutorsSealed;
 
-    public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
+    public boolean addFlightSqlDeferredExecutor(StmtExecutor executor) {
         synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutorsSealed) {
+                return false;
+            }
             flightSqlDeferredExecutors.add(executor);
+            return true;
         }
     }
 
     public void closeFlightSqlDeferredExecutors() {
+        closeFlightSqlDeferredExecutors(false);
+    }
+
+    /** Prevents a session teardown race from accepting an executor after the final drain. */
+    public void sealAndCloseFlightSqlDeferredExecutors() {
+        closeFlightSqlDeferredExecutors(true);
+    }
+
+    private void closeFlightSqlDeferredExecutors(boolean seal) {
         List<StmtExecutor> toClose;
         synchronized (flightSqlDeferredExecutors) {
+            if (seal) {
+                flightSqlDeferredExecutorsSealed = true;
+            }
             if (flightSqlDeferredExecutors.isEmpty()) {
                 return;
             }
