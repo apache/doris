@@ -178,7 +178,7 @@ public class GCSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
     }
 
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration();
         backendProperties.put("provider", "GCP");
         return backendProperties;

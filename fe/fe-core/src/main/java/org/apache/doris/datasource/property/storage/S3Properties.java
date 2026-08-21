@@ -290,7 +290,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration();
 
         if (StringUtils.isNotBlank(s3IAMRole)) {
