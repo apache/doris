@@ -779,9 +779,18 @@ public class TypeCoercionUtils {
             List<Expression> inputs, List<DataType> expectedTypes) {
         Builder<Optional<DataType>> implicitCastTypes = ImmutableList.builderWithExpectedSize(inputs.size());
         for (int i = 0; i < inputs.size(); i++) {
-            DataType argType = inputs.get(i).getDataType();
+            Expression input = inputs.get(i);
+            DataType argType = input.getDataType();
             DataType expectedType = expectedTypes.get(i);
             Optional<DataType> castType = TypeCoercionUtils.implicitCast(argType, expectedType);
+            // Signature resolution may select another date-like overload when a TIMESTAMP_NS
+            // literal is exactly representable by it. Keep argument coercion consistent with that
+            // value-aware decision without allowing TIMESTAMP_NS columns to lose precision.
+            if (!castType.isPresent()
+                    && argType instanceof TimeStampNsType && expectedType.isDateLikeType()
+                    && TypeCoercionUtils.canExactlyCastTimeStampNsTo(input, expectedType)) {
+                castType = Optional.of(expectedType);
+            }
             implicitCastTypes.add(castType);
         }
         return implicitCastTypes.build();

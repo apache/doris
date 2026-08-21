@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -186,6 +188,12 @@ class TimestampNsFunctionSignatureTest {
                 "2024-01-02 03:04:05.123456001");
         assertSignature(new DateDiff(datetime, exactTimestampNs), IntegerType.INSTANCE,
                 DateTimeV2Type.MAX, DateTimeV2Type.MAX);
+        Expression exactTimestampNsCast = new Cast(
+                new VarcharLiteral("2024-01-02 03:04:05.123456000"), TimeStampNsType.INSTANCE);
+        Expression coerced = TypeCoercionUtils.processBoundFunction(
+                new DateDiff(datetime, exactTimestampNsCast));
+        Assertions.assertEquals(DateTimeV2Type.MAX, coerced.child(1).getDataType());
+        Assertions.assertTrue(coerced.checkInputDataTypes().success());
         Assertions.assertThrows(AnalysisException.class,
                 () -> new DateDiff(datetime, inexactTimestampNs).getSignature());
 
