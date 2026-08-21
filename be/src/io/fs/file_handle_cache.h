@@ -72,6 +72,7 @@ private:
     int64_t _mtime;
     int64_t _file_size = -1;
     std::once_flag _open_once;
+    Status _open_status;
 };
 
 /// CachedHdfsFileHandles are owned by the file handle cache and are used for no

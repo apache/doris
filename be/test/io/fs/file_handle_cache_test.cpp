@@ -19,8 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdint>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "cpp/sync_point.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
@@ -64,6 +68,19 @@ TEST(FileHandleCacheTest, DestructorSafeWithoutOpen) {
     }
 }
 
+// Register a SyncPoint callback that returns a fixed value.
+template <typename T>
+static void set_mock_return(const std::string& point, T value, SyncPoint::CallbackGuard* guard) {
+    SyncPoint::get_instance()->set_call_back(
+            point,
+            [value = std::move(value)](auto&& args) {
+                auto* ret = try_any_cast_ret<T>(args);
+                ret->first = std::move(value);
+                ret->second = true;
+            },
+            guard);
+}
+
 // Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsFreeFileInfo/hdfsUnbufferFile via SyncPoint to avoid JNI.
 struct MockHandleGuard {
     SyncPoint::CallbackGuard open_guard;
@@ -76,46 +93,14 @@ struct MockHandleGuard {
         mock_info.mSize = file_size;
         auto* sp = SyncPoint::get_instance();
         sp->enable_processing();
-        sp->set_call_back(
-                "HdfsFileHandle::ensure_open::hdfsOpenFile",
-                [mock_file](auto&& args) {
-                    auto* ret = try_any_cast_ret<hdfsFile>(args);
-                    ret->first = mock_file;
-                    ret->second = true;
-                },
-                &open_guard);
-        sp->set_call_back(
-                "HdfsFileHandle::close::hdfsCloseFile",
-                [](auto&& args) {
-                    auto* ret = try_any_cast_ret<int>(args);
-                    ret->first = 0;
-                    ret->second = true;
-                },
-                &close_guard);
-        sp->set_call_back(
-                "HdfsFileHandle::init::hdfsGetPathInfo",
-                [](auto&& args) {
-                    auto* ret = try_any_cast_ret<hdfsFileInfo*>(args);
-                    ret->first = &mock_info;
-                    ret->second = true;
-                },
-                &info_guard);
-        sp->set_call_back(
-                "HdfsFileHandle::init::hdfsFreeFileInfo",
-                [](auto&& args) {
-                    auto* ret = try_any_cast_ret<Status>(args);
-                    ret->first = Status::OK();
-                    ret->second = true;
-                },
-                &free_guard);
-        sp->set_call_back(
-                "HdfsFileHandle::close::hdfsUnbufferFile",
-                [](auto&& args) {
-                    auto* ret = try_any_cast_ret<int>(args);
-                    ret->first = 0;
-                    ret->second = true;
-                },
-                &unbuffer_guard);
+        set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", mock_file,
+                                  &open_guard);
+        set_mock_return<int>("HdfsFileHandle::close::hdfsCloseFile", 0, &close_guard);
+        set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", &mock_info,
+                                       &info_guard);
+        set_mock_return<Status>("HdfsFileHandle::init::hdfsFreeFileInfo", Status::OK(),
+                                &free_guard);
+        set_mock_return<int>("HdfsFileHandle::close::hdfsUnbufferFile", 0, &unbuffer_guard);
     }
 };
 
@@ -173,14 +158,7 @@ TEST(FileHandleCacheTest, InitFailsWhenGetPathInfoReturnsNull) {
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
     SyncPoint::CallbackGuard guard;
-    sp->set_call_back(
-            "HdfsFileHandle::init::hdfsGetPathInfo",
-            [](auto&& args) {
-                auto* ret = try_any_cast_ret<hdfsFileInfo*>(args);
-                ret->first = nullptr;
-                ret->second = true;
-            },
-            &guard);
+    set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", nullptr, &guard);
 
     auto st = handle.init(-1);
     ASSERT_FALSE(st.ok());
@@ -196,23 +174,10 @@ TEST(FileHandleCacheTest, EnsureOpenReturnsNotFoundForMissingFile) {
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
     SyncPoint::CallbackGuard open_guard;
-    sp->set_call_back(
-            "HdfsFileHandle::ensure_open::hdfsOpenFile",
-            [](auto&& args) {
-                auto* ret = try_any_cast_ret<hdfsFile>(args);
-                ret->first = nullptr;
-                ret->second = true;
-            },
-            &open_guard);
+    set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
     SyncPoint::CallbackGuard err_guard;
-    sp->set_call_back(
-            "HdfsFileHandle::ensure_open::hdfs_error",
-            [](auto&& args) {
-                auto* ret = try_any_cast_ret<std::string>(args);
-                ret->first = "No such file or directory";
-                ret->second = true;
-            },
-            &err_guard);
+    set_mock_return<std::string>("HdfsFileHandle::ensure_open::hdfs_error",
+                                 "No such file or directory", &err_guard);
 
     auto st = handle.ensure_open();
     ASSERT_FALSE(st.ok());
@@ -302,6 +267,108 @@ TEST(FileHandleCacheTest, ReadAtOpenFailedHandleDestroyedNotCached) {
     FileHandleCache::Accessor accessor2;
     get_handle(*cache, mock_fs, fname, mtime, &accessor2, &cache_hit);
     EXPECT_FALSE(cache_hit);
+}
+
+// Serial ensure_open() preserves Status inside call_once.
+TEST(FileHandleCacheTest, OpenFailurePreservesStatusInsideCallOnce) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/serial_fail.parquet", 12345);
+    ASSERT_TRUE(handle.init(4096).ok());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    SyncPoint::CallbackGuard open_guard;
+    set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
+    SyncPoint::CallbackGuard err_guard;
+    set_mock_return<std::string>("HdfsFileHandle::ensure_open::hdfs_error",
+                                 "No such file or directory", &err_guard);
+
+    // First call opens and fails -> NotFound.
+    auto st1 = handle.ensure_open();
+    ASSERT_FALSE(st1.ok());
+    EXPECT_EQ(st1.code(), TStatusCode::NOT_FOUND);
+
+    // Change hdfs_error mock to a different value; _open_status must be preserved.
+    sp->clear_call_back("HdfsFileHandle::ensure_open::hdfs_error");
+    set_mock_return<std::string>("HdfsFileHandle::ensure_open::hdfs_error", "Permission denied",
+                                 &err_guard);
+
+    auto st2 = handle.ensure_open();
+    ASSERT_FALSE(st2.ok());
+    EXPECT_EQ(st2.code(), TStatusCode::NOT_FOUND);
+}
+
+// Concurrent ensure_open() must return the same Status to all callers.
+TEST(FileHandleCacheTest, ConcurrentOpenFailureReturnsSameStatusToAllCallers) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/concurrent_fail.parquet", 12345);
+    ASSERT_TRUE(handle.init(4096).ok());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    SyncPoint::CallbackGuard open_guard;
+    set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
+
+    // Simulate libhdfs thread-local last-error: only first call returns real message.
+    std::atomic<int> err_call_count {0};
+    SyncPoint::CallbackGuard err_guard;
+    sp->set_call_back(
+            "HdfsFileHandle::ensure_open::hdfs_error",
+            [&err_call_count](auto&& args) {
+                auto* ret = try_any_cast_ret<std::string>(args);
+                if (err_call_count.fetch_add(1) == 0) {
+                    ret->first = "No such file or directory";
+                } else {
+                    ret->first = "";
+                }
+                ret->second = true;
+            },
+            &err_guard);
+
+    constexpr int kNumThreads = 8;
+    std::vector<std::thread> threads;
+    std::vector<TStatusCode::type> codes(kNumThreads);
+    for (int i = 0; i < kNumThreads; ++i) {
+        threads.emplace_back([&handle, &codes, i]() {
+            auto st = handle.ensure_open();
+            codes[i] = static_cast<TStatusCode::type>(st.code());
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    for (int i = 0; i < kNumThreads; ++i) {
+        EXPECT_EQ(codes[i], TStatusCode::NOT_FOUND) << "thread " << i << " got code " << codes[i];
+    }
+}
+
+// Second read_at after a failed read must not dereference null _handle.
+TEST(FileHandleCacheTest, SecondReadAfterFailureDoesNotCrash) {
+    MockHandleGuard mg(reinterpret_cast<hdfsFile>(static_cast<uintptr_t>(0xdeadbeef)));
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    auto cache = make_test_cache();
+    const std::string fname = "/test/second_read.parquet";
+    constexpr int64_t mtime = 12345;
+
+    bool cache_hit = false;
+    FileHandleCache::Accessor accessor;
+    get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
+    auto reader = std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor),
+                                                   nullptr, mtime);
+
+    char buf[16];
+    size_t bytes_read = 0;
+    // offset > file_size(4096) -> IOError -> read_at_impl sets _handle=nullptr.
+    auto st1 = reader->read_at(5000, {buf, sizeof(buf)}, &bytes_read, nullptr);
+    ASSERT_FALSE(st1.ok());
+    // Confirm error came from do_read_at_impl's offset guard (sets _handle=nullptr).
+    EXPECT_EQ(st1.code(), TStatusCode::IO_ERROR);
+
+    // Second read must not crash; should return InternalError about destroyed handle.
+    auto st2 = reader->read_at(0, {buf, sizeof(buf)}, &bytes_read, nullptr);
+    ASSERT_FALSE(st2.ok());
+    EXPECT_EQ(st2.code(), TStatusCode::INTERNAL_ERROR);
 }
 
 } // namespace doris::io
