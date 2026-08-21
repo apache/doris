@@ -938,11 +938,56 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueriesScoreOccurrenceFrequency
     single_prefix.context->collection_similarity = std::make_shared<CollectionSimilarity>();
     const Field single_prefix_value = Field::create_field<TYPE_STRING>(std::string("be"));
     std::shared_ptr<roaring::Roaring> single_prefix_bitmap;
-    const Status single_prefix_status = opened.index_reader->query(
-            single_prefix.context, "scoring_phrase_content", single_prefix_value,
-            InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, single_prefix_bitmap, &analyzer_ctx);
-    EXPECT_EQ(single_prefix_status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED)
-            << single_prefix_status;
+    assert_ok(opened.index_reader->query(single_prefix.context, "scoring_phrase_content",
+                                         single_prefix_value,
+                                         InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
+                                         single_prefix_bitmap, &analyzer_ctx));
+    ASSERT_NE(single_prefix_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*single_prefix_bitmap), (std::vector<uint32_t> {1, 2}));
+    EXPECT_FLOAT_EQ(score_for_doc(*single_prefix.context->collection_similarity, 1), 0.0F);
+    EXPECT_FLOAT_EQ(score_for_doc(*single_prefix.context->collection_similarity, 2), 0.0F);
+}
+
+TEST_F(SniiIndexReaderCountFallback,
+       PublicSingleTokenPhrasePrefixWithSimilarityDoesNotRequireScoringMetadata) {
+    const auto provider = make_common_grams_provider();
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer_provider = provider;
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("ord"));
+
+    QueryExecutionContext first(/*enable_query_cache=*/true);
+    first.context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    first.context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    std::shared_ptr<roaring::Roaring> first_bitmap;
+    const Status first_status = _index_reader->query(
+            first.context, "single_prefix_no_scoring_metadata", query_value,
+            InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, first_bitmap, &analyzer_ctx);
+
+    ASSERT_TRUE(first_status.ok()) << first_status;
+    ASSERT_NE(first_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*first_bitmap), (std::vector<uint32_t> {0, 1, 2, 3, 4, 5}));
+    EXPECT_FLOAT_EQ(score_for_doc(*first.context->collection_similarity, 0), 0.0F);
+    EXPECT_EQ(first.stats.inverted_index_query_cache_lookup, 1);
+    EXPECT_EQ(first.stats.inverted_index_query_cache_miss, 1);
+    EXPECT_EQ(first.stats.inverted_index_query_cache_insert, 1);
+
+    QueryExecutionContext second(/*enable_query_cache=*/true);
+    second.context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    second.context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    std::shared_ptr<roaring::Roaring> second_bitmap;
+    const Status second_status = _index_reader->query(
+            second.context, "single_prefix_no_scoring_metadata", query_value,
+            InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, second_bitmap, &analyzer_ctx);
+
+    ASSERT_TRUE(second_status.ok()) << second_status;
+    ASSERT_NE(second_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*second_bitmap), bitmap_docids(*first_bitmap));
+    EXPECT_FLOAT_EQ(score_for_doc(*second.context->collection_similarity, 0), 0.0F);
+    EXPECT_EQ(second.stats.inverted_index_query_cache_lookup, 1);
+    EXPECT_EQ(second.stats.inverted_index_query_cache_hit, 1);
+    EXPECT_EQ(second.stats.inverted_index_query_cache_miss, 0);
+    EXPECT_EQ(second.stats.inverted_index_query_cache_insert, 0);
 }
 
 TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueryCacheHitLeavesPrxStatsUnchanged) {
