@@ -47,7 +47,7 @@ describe('Web SQL API', () => {
     await executeWebSql('fe.session/one', 'SELECT 1');
     await cancelWebSql('fe.session/one');
     await resetWebSqlSession('fe.session/one');
-    await closeWebSqlSession('fe.session/one');
+    await closeWebSqlSession('fe.session/one', true);
 
     expect(fetchSpy.mock.calls.map(([path]) => path)).toEqual([
       '/rest/v1/sql-sessions',
@@ -63,5 +63,6 @@ describe('Web SQL API', () => {
     const statementRequest = fetchSpy.mock.calls[2][1] as RequestInit;
     expect(statementRequest.body).toBe(JSON.stringify({ sql: 'SELECT 1' }));
     expect(new Headers(statementRequest.headers).get('X-Doris-CSRF-Token')).toBe('csrf-sql');
+    expect((fetchSpy.mock.calls[5][1] as RequestInit).keepalive).toBe(true);
   });
 });

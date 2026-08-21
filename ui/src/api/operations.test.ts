@@ -96,4 +96,18 @@ describe('legacy operational API adapter', () => {
     expect(listener).toHaveBeenCalledOnce();
     window.removeEventListener('doris-ui:unauthorized', listener);
   });
+
+  it('announces an expired legacy session carried in an HTTP 200 envelope', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ code: 401, msg: 'expired' }));
+    const listener = vi.fn();
+    window.addEventListener('doris-ui:unauthorized', listener);
+
+    await expect(fetchSessions()).rejects.toMatchObject({
+      status: 401,
+      code: 'UI_UNAUTHENTICATED',
+      message: 'expired',
+    });
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener('doris-ui:unauthorized', listener);
+  });
 });

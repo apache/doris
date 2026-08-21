@@ -55,8 +55,28 @@ export function useWebSqlSession() {
   const queueRef = useRef<Promise<unknown>>(Promise.resolve());
   const releaseClaimRef = useRef<() => void>(() => undefined);
   const mountedRef = useRef(true);
+  const closingSessionIdsRef = useRef(new Set<string>());
+
+  const closeInBackground = useCallback((id: string, keepalive: boolean) => {
+    if (closingSessionIdsRef.current.has(id)) return;
+    closingSessionIdsRef.current.add(id);
+    void closeWebSqlSession(id, keepalive).catch(() => undefined);
+  }, []);
+
+  const disposeOwnedSession = useCallback((keepalive: boolean) => {
+    const id = sessionIdRef.current;
+    sessionIdRef.current = null;
+    storeSessionId(null);
+    releaseClaimRef.current();
+    releaseClaimRef.current = () => undefined;
+    if (id) closeInBackground(id, keepalive);
+  }, [closeInBackground]);
 
   const adoptSession = useCallback((id: string) => {
+    if (!mountedRef.current) {
+      closeInBackground(id, true);
+      return id;
+    }
     releaseClaimRef.current();
     sessionIdRef.current = id;
     storeSessionId(id);
@@ -67,7 +87,7 @@ export function useWebSqlSession() {
       setStatus('ready');
     }
     return id;
-  }, []);
+  }, [closeInBackground]);
 
   const createSession = useCallback(async () => {
     if (initializationRef.current) return initializationRef.current;
@@ -82,6 +102,12 @@ export function useWebSqlSession() {
 
   useEffect(() => {
     mountedRef.current = true;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      mountedRef.current = false;
+      disposeOwnedSession(true);
+    };
+    window.addEventListener('pagehide', handlePageHide);
     const initialize = async () => {
       try {
         const stored = storedSessionId();
@@ -107,11 +133,11 @@ export function useWebSqlSession() {
     };
     void initialize();
     return () => {
+      window.removeEventListener('pagehide', handlePageHide);
       mountedRef.current = false;
-      releaseClaimRef.current();
-      releaseClaimRef.current = () => undefined;
+      disposeOwnedSession(false);
     };
-  }, [adoptSession, createSession]);
+  }, [adoptSession, createSession, disposeOwnedSession]);
 
   const ensureSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;
@@ -177,8 +203,10 @@ export function useWebSqlSession() {
       if (id) {
         try {
           await closeWebSqlSession(id);
+          closingSessionIdsRef.current.add(id);
         } catch (cause) {
           if (!isRecoverable(cause)) throw cause;
+          closingSessionIdsRef.current.add(id);
         }
       }
       releaseClaimRef.current();
