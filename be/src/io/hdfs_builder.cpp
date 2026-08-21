@@ -207,7 +207,8 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         // set other conf
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
             builder->set_hdfs_conf(conf.key, conf.value);
-            LOG(INFO) << "set hdfs config key: " << conf.key << ", value: " << conf.value;
+            // HDFS configuration may contain short-lived storage credentials such as an ADLS SAS token.
+            LOG(INFO) << "set hdfs config key: " << conf.key;
             if (strcmp(conf.key.c_str(), "hadoop.security.authentication") == 0) {
                 auth_type = conf.value;
             }

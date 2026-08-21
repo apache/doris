@@ -1496,6 +1496,16 @@ under the License.
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-azure</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-azure-bundle</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
             <!-- S3Tables catalog impl for the iceberg s3tables flavor; not part of the AWS SDK BOM. -->
             <dependency>
                 <groupId>software.amazon.s3tables</groupId>

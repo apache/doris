@@ -367,6 +367,10 @@ public class LocationPath {
     }
 
     public TFileType getTFileTypeForBE() {
+        if (storageAdapter != null && storageAdapter.isAzureSasStorage()
+                && StorageTypeId.AZURE.equals(StorageRegistry.fromScheme(schema))) {
+            return TFileType.FILE_HDFS;
+        }
         if (("abfs".equals(schema) || "abfss".equals(schema))
                 && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
             return TFileType.FILE_HDFS;
