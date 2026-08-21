@@ -328,7 +328,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     REGISTER_ENTITY_HOOK_METRIC(_entity, this, query_ctx_delay_delete_count,
                                 [this]() { return _query_ctx_map_delay_delete.num_items(); });
     REGISTER_ENTITY_HOOK_METRIC(_entity, this, query_ctx_delay_delete_oldest_age_seconds, [this]() {
-        return get_query_ctx_map_delay_delete_stats().oldest_retained_millis / MILLIS_PER_SEC;
+        return get_query_ctx_map_delay_delete_oldest_retained_millis() / MILLIS_PER_SEC;
     });
 
     auto s = Thread::create(
@@ -653,7 +653,8 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 RuntimeFilterQueryContextStats FragmentMgr::get_query_ctx_map_delay_delete_stats() {
     const int64_t now_millis = MonotonicMillis();
     RuntimeFilterQueryContextStats stats;
-    _query_ctx_map_delay_delete.apply(
+    stats.contexts.reserve(_query_ctx_map_delay_delete.num_items());
+    _query_ctx_map_delay_delete.apply_readonly(
             [&](const phmap::flat_hash_map<TUniqueId, std::shared_ptr<QueryContext>>& map) {
                 for (const auto& [query_id, query_ctx] : map) {
                     const int64_t retained_millis = std::max<int64_t>(
@@ -664,9 +665,25 @@ RuntimeFilterQueryContextStats FragmentMgr::get_query_ctx_map_delay_delete_stats
                                               .retained_millis = retained_millis,
                                               .cancelled = query_ctx->is_cancelled()});
                 }
-                return Status::OK();
             });
     return stats;
+}
+
+int64_t FragmentMgr::get_query_ctx_map_delay_delete_oldest_retained_millis() const {
+    const int64_t now_millis = MonotonicMillis();
+    int64_t oldest_retained_millis = 0;
+    _query_ctx_map_delay_delete.apply_readonly(
+            [&](const phmap::flat_hash_map<TUniqueId, std::shared_ptr<QueryContext>>& map) {
+                for (const auto& entry : map) {
+                    const auto& query_ctx = entry.second;
+                    oldest_retained_millis = std::max(
+                            oldest_retained_millis,
+                            std::max<int64_t>(
+                                    0,
+                                    now_millis - query_ctx->runtime_filter_retained_at_millis()));
+                }
+            });
+    return oldest_retained_millis;
 }
 
 std::string FragmentMgr::dump_query_ctx_map_delay_delete() {
@@ -1242,15 +1259,35 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
             return Status::InternalError("Merge filter failed: Merge controller handler is null");
         }
         auto status = handler->merge(q_ctx, request, attach_data);
-        if (handler->all_filters_published()) {
-            _query_ctx_map_delay_delete.erase(query_id);
-        }
+        _release_query_context_if_runtime_filters_published(query_id, handler);
         return status;
     } else {
         return Status::EndOfFile(
                 "Merge filter size failed: Query context (query-id: {}) already finished",
                 queryid.to_string());
     }
+}
+
+void FragmentMgr::_release_query_context_if_runtime_filters_published(
+        const TUniqueId& query_id,
+        const std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+    if (!handler->all_filters_published()) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_rerunnable_params_lock);
+        // all_filters_published() is scoped to one recursive CTE round. Rerunnable entries
+        // survive reset_global_rf() and are removed only by FINAL_CLOSE, so their absence is the
+        // explicit signal that no later runtime-filter generation can be started.
+        const auto query_has_rerunnable_fragment = std::ranges::any_of(
+                _rerunnable_params_map,
+                [&](const auto& entry) { return entry.first.first == query_id; });
+        if (query_has_rerunnable_fragment) {
+            return;
+        }
+    }
+    _query_ctx_map_delay_delete.erase(query_id);
 }
 
 void FragmentMgr::get_runtime_query_info(
@@ -1365,6 +1402,9 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
             {
                 std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
                 final_close_info = _rerunnable_params_map.extract({query_id, fragment_id});
+            }
+            if (auto handler = query_ctx->get_merge_controller_handler()) {
+                _release_query_context_if_runtime_filters_published(query_id, handler);
             }
         }
         fragment_ctx->notify_close();

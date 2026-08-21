@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "exec/pipeline/thrift_builder.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -188,7 +189,7 @@ TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryCon
     exec_env->_fragment_mgr = previous_fragment_mgr;
 }
 
-TEST(FragmentMgrDelayDeleteMapTest, ReleaseQueryContextAfterAllRuntimeFiltersPublished) {
+TEST(FragmentMgrDelayDeleteMapTest, ReleaseQueryContextAfterFinalRecursiveRuntimeFilterRound) {
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_fragment_mgr = exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = new FragmentMgr(exec_env);
@@ -210,14 +211,17 @@ TEST(FragmentMgrDelayDeleteMapTest, ReleaseQueryContextAfterAllRuntimeFiltersPub
             QueryContext::create(query_id, exec_env, query_options, fe_addr,
                                  /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
     auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>();
-    TRuntimeFilterParams runtime_filter_params;
-    ASSERT_TRUE(handler->init(query_ctx, runtime_filter_params).ok());
     constexpr int filter_id = 1;
-    {
-        LockGuard guard(handler->_filter_map_mutex);
-        auto [filter, inserted] = handler->_filter_map.try_emplace(filter_id);
-        ASSERT_TRUE(inserted);
-    }
+    auto runtime_filter_params =
+            TRuntimeFilterParamsBuilder()
+                    .add_rid_to_runtime_filter(filter_id, TRuntimeFilterDescBuilder(filter_id)
+                                                                  .set_mode(false)
+                                                                  .add_planId_to_target_expr(0)
+                                                                  .build())
+                    .add_runtime_filter_builder_num(filter_id, 1)
+                    .add_rid_to_target_paramv2(filter_id, {TRuntimeFilterTargetParamsV2()})
+                    .build();
+    ASSERT_TRUE(handler->init(query_ctx, runtime_filter_params).ok());
     query_ctx->set_merge_controller_handler(handler);
 
     std::shared_ptr<QueryContext> existing_query_ctx;
@@ -229,32 +233,68 @@ TEST(FragmentMgrDelayDeleteMapTest, ReleaseQueryContextAfterAllRuntimeFiltersPub
                                              })
                         .ok());
     exec_env->_fragment_mgr->_retain_query_context_for_runtime_filter(query_id, query_ctx);
+    {
+        std::lock_guard<std::mutex> lock(exec_env->_fragment_mgr->_rerunnable_params_lock);
+        exec_env->_fragment_mgr->_rerunnable_params_map[{query_id, 1}].query_ctx = query_ctx;
+    }
 
     PMergeFilterRequest request;
     request.mutable_query_id()->set_hi(query_id.hi);
     request.mutable_query_id()->set_lo(query_id.lo);
     request.set_filter_id(filter_id);
+    // The ownership test drives done explicitly; a different stage makes merge() skip payload
+    // deserialization while still exercising FragmentMgr's post-merge release decision.
     request.set_stage(1);
 
-    ASSERT_TRUE(exec_env->_fragment_mgr->merge_filter(&request, nullptr).ok());
-    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 1);
-
-    auto stats = exec_env->_fragment_mgr->get_query_ctx_map_delay_delete_stats();
-    ASSERT_EQ(stats.contexts.size(), 1);
-    EXPECT_EQ(stats.contexts[0].query_id, query_id);
-    auto dump = exec_env->_fragment_mgr->dump_query_ctx_map_delay_delete();
-    EXPECT_NE(dump.find(print_id(query_id)), std::string::npos);
-    EXPECT_NE(dump.find("state=waiting_runtime_filters"), std::string::npos);
-
+    // Round 0 is complete, but the rerunnable entry proves another generation may follow.
     {
         LockGuard guard(handler->_filter_map_mutex);
         handler->_filter_map.at(filter_id).done = true;
     }
     ASSERT_TRUE(exec_env->_fragment_mgr->merge_filter(&request, nullptr).ok());
-    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 0);
+    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 1);
+
+    google::protobuf::RepeatedField<int32_t> filter_ids;
+    filter_ids.Add(filter_id);
+    ASSERT_TRUE(exec_env->_fragment_mgr->reset_global_rf(query_id, filter_ids).ok());
+    {
+        LockGuard guard(handler->_filter_map_mutex);
+        EXPECT_FALSE(handler->_filter_map.at(filter_id).done);
+        EXPECT_EQ(handler->_filter_map.at(filter_id).stage, 1);
+    }
+
+    auto stats = exec_env->_fragment_mgr->get_query_ctx_map_delay_delete_stats();
+    ASSERT_EQ(stats.contexts.size(), 1);
+    EXPECT_EQ(stats.contexts[0].query_id, query_id);
+    EXPECT_GE(exec_env->_fragment_mgr->get_query_ctx_map_delay_delete_oldest_retained_millis(),
+              stats.oldest_retained_millis);
+    auto dump = exec_env->_fragment_mgr->dump_query_ctx_map_delay_delete();
+    EXPECT_NE(dump.find(print_id(query_id)), std::string::npos);
+    EXPECT_NE(dump.find("state=waiting_runtime_filters"), std::string::npos);
 
     std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
+    {
+        decltype(exec_env->_fragment_mgr->_rerunnable_params_map)::node_type final_close_info;
+        {
+            std::lock_guard<std::mutex> lock(exec_env->_fragment_mgr->_rerunnable_params_lock);
+            final_close_info =
+                    exec_env->_fragment_mgr->_rerunnable_params_map.extract({query_id, 1});
+        }
+        ASSERT_FALSE(final_close_info.empty());
+    }
+    exec_env->_fragment_mgr->_release_query_context_if_runtime_filters_published(query_id, handler);
+    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 1);
     query_ctx.reset();
+    EXPECT_FALSE(weak_query_ctx.expired());
+
+    // The final generation's merge arrives after FINAL_CLOSE and still finds QueryContext.
+    {
+        LockGuard guard(handler->_filter_map_mutex);
+        handler->_filter_map.at(filter_id).done = true;
+    }
+    request.set_stage(2);
+    ASSERT_TRUE(exec_env->_fragment_mgr->merge_filter(&request, nullptr).ok());
+    EXPECT_EQ(exec_env->_fragment_mgr->_query_ctx_map_delay_delete.num_items(), 0);
     EXPECT_TRUE(weak_query_ctx.expired());
 
     exec_env->_fragment_mgr->stop();

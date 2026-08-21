@@ -95,6 +95,13 @@ public:
             static_cast<void>(function(pair.second));
         }
     }
+    template <typename Function>
+    void apply_readonly(Function&& function) const {
+        for (const auto& pair : _internal_map) {
+            std::shared_lock lock(*pair.first);
+            function(pair.second);
+        }
+    }
 
     Status apply_if_not_exists(const Key& query_id, std::shared_ptr<ValueType>& query_ctx,
                                ApplyFunction&& function);
@@ -181,6 +188,7 @@ public:
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
+    int64_t get_query_ctx_map_delay_delete_oldest_retained_millis() const;
     RuntimeFilterQueryContextStats get_query_ctx_map_delay_delete_stats();
     std::string dump_query_ctx_map_delay_delete();
 
@@ -218,6 +226,9 @@ private:
 
     void _retain_query_context_for_runtime_filter(const TUniqueId& query_id,
                                                   std::shared_ptr<QueryContext> query_ctx);
+    void _release_query_context_if_runtime_filters_published(
+            const TUniqueId& query_id,
+            const std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler);
 
     void _collect_timeout_queries_and_brpc_items(
             std::vector<TUniqueId>& queries_timeout,
