@@ -149,8 +149,6 @@ public class StructInfo {
                     shuttledExpressionsToExpressionsMap,
             Map<ExpressionPosition, Map<Expression, Expression>> expressionToShuttledExpressionToMap,
             BitSet relationIdSet,
-            SplitPredicate splitPredicate,
-            EquivalenceClass equivalenceClass,
             List<? extends Expression> planOutputShuttledExpressions) {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
@@ -163,8 +161,6 @@ public class StructInfo {
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
         this.groupingId = groupingId;
-        this.splitPredicate = splitPredicate;
-        this.equivalenceClass = equivalenceClass;
         this.shuttledExpressionsToExpressionsMap = shuttledExpressionsToExpressionsMap;
         this.expressionToShuttledExpressionToMap = expressionToShuttledExpressionToMap;
         this.planOutputShuttledExpressions = planOutputShuttledExpressions;
@@ -177,7 +173,7 @@ public class StructInfo {
         return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
                 this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates, this.groupingId,
                 this.shuttledExpressionsToExpressionsMap, this.expressionToShuttledExpressionToMap,
-                this.relationBitSet, null, null, this.planOutputShuttledExpressions);
+                this.relationBitSet, this.planOutputShuttledExpressions);
     }
 
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
@@ -258,7 +254,7 @@ public class StructInfo {
     private static Pair<SplitPredicate, EquivalenceClass> predicatesDerive(Predicates predicates, Plan originalPlan) {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        new ArrayList<>(predicates.getPulledUpPredicates()), originalPlan).stream()
+                        new ArrayList<>(predicates.getSemanticPredicates()), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
@@ -327,15 +323,19 @@ public class StructInfo {
         // collect predicate from top plan which not in hyper graph
         PredicateCollectorContext predicateCollectorContext = new PredicateCollectorContext();
         topPlan.accept(PREDICATE_COLLECTOR, predicateCollectorContext);
+        Set<Expression> relationImpliedPredicates = relationList.stream()
+                .flatMap(relation -> relation.getRelationImpliedPredicates().stream())
+                .collect(Collectors.toSet());
         Predicates predicates = Predicates.of(predicateCollectorContext.getCouldPullUpPredicates(),
-                predicateCollectorContext.getCouldNotPullUpPredicates());
+                predicateCollectorContext.getCouldNotPullUpPredicates(),
+                relationImpliedPredicates);
         // this should use the output of originalPlan to make sure the output right order
         List<? extends Expression> planOutputShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(originalPlan.getOutput(), originalPlan);
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
                 relationList, relationIdStructInfoNodeMap, predicates, planSplitContext.getGroupingId(),
                 shuttledHashConjunctsToConjunctsMap, expressionToShuttledExpressionToMap,
-                relationBitSet, null, null, planOutputShuttledExpressions);
+                relationBitSet, planOutputShuttledExpressions);
     }
 
     public List<CatalogRelation> getRelations() {

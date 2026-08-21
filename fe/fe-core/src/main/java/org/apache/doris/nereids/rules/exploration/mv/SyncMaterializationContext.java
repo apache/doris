@@ -64,8 +64,8 @@ public class SyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
+    LogicalOlapScan doGenerateOlapScanPlan(CascadesContext cascadesContext) {
+        return MaterializedViewUtils.generateMvOlapScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
                 PreAggStatus.unset(), cascadesContext);
     }
 
@@ -99,8 +99,8 @@ public class SyncMaterializationContext extends MaterializationContext {
     @Override
     Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext) {
         RelationId relationId = null;
-        Optional<LogicalOlapScan> scanObj = this.getScanPlan(null, cascadesContext)
-                .collectFirst(LogicalOlapScan.class::isInstance);
+        Plan scanPlan = this.getScanPlan(null, cascadesContext);
+        Optional<LogicalOlapScan> scanObj = scanPlan.collectFirst(LogicalOlapScan.class::isInstance);
         if (scanObj.isPresent()) {
             relationId = scanObj.get().getRelationId();
         }
