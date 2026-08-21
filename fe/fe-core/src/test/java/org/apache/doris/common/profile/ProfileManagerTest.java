@@ -54,7 +54,10 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @ResourceLock("global")
 class ProfileManagerTest {
@@ -797,6 +800,68 @@ class ProfileManagerTest {
 
         // Verify all profiles are loaded
         Assertions.assertEquals(numProfiles, profileManager.queryIdToProfileMap.size());
+    }
+
+    @Test
+    public void testOnlyOneProfileLoaderCanRun() throws Exception {
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch duplicateLoadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoadToFinish = new CountDownLatch(1);
+        AtomicInteger scanCount = new AtomicInteger();
+        ProfileManager manager = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                if (scanCount.incrementAndGet() > 1) {
+                    duplicateLoadStarted.countDown();
+                }
+                loadStarted.countDown();
+                try {
+                    allowLoadToFinish.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                return Lists.newArrayList();
+            }
+        };
+        Thread initialLoad = new Thread(() -> manager.loadProfilesFromStorageIfFirstTime(true));
+
+        try {
+            initialLoad.start();
+            Assertions.assertTrue(loadStarted.await(5, TimeUnit.SECONDS));
+
+            for (int i = 0; i < 10; i++) {
+                manager.loadProfilesFromStorageIfFirstTime(false);
+            }
+
+            Assertions.assertFalse(duplicateLoadStarted.await(500, TimeUnit.MILLISECONDS));
+            Assertions.assertEquals(1, scanCount.get());
+        } finally {
+            allowLoadToFinish.countDown();
+            initialLoad.join(5000);
+            Assertions.assertFalse(initialLoad.isAlive());
+        }
+    }
+
+    @Test
+    public void testProfileLoaderCanRetryAfterFailure() {
+        AtomicInteger scanCount = new AtomicInteger();
+        ProfileManager manager = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                if (scanCount.incrementAndGet() == 1) {
+                    throw new RuntimeException("injected load failure");
+                }
+                return Lists.newArrayList();
+            }
+        };
+
+        manager.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertFalse(manager.isProfileLoaded);
+
+        manager.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertTrue(manager.isProfileLoaded);
+        Assertions.assertEquals(2, scanCount.get());
     }
 
     @Test

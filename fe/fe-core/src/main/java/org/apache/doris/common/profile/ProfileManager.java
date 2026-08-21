@@ -56,6 +56,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -126,6 +127,7 @@ public class ProfileManager extends MasterDaemon {
     // no further write operation, so no data race
     private final ReentrantReadWriteLock isProfileLoadedLock = new ReentrantReadWriteLock();
     volatile boolean isProfileLoaded = false;
+    private final AtomicBoolean isProfileLoading = new AtomicBoolean(false);
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
@@ -599,7 +601,13 @@ public class ProfileManager extends MasterDaemon {
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
     protected void loadProfilesFromStorageIfFirstTime(boolean sync) {
+        if (checkIfProfileLoaded() || !isProfileLoading.compareAndSet(false, true)) {
+            return;
+        }
+
+        // The previous loader may finish between the first loaded check and updating isProfileLoading.
         if (checkIfProfileLoaded()) {
+            isProfileLoading.set(false);
             return;
         }
 
@@ -662,6 +670,8 @@ public class ProfileManager extends MasterDaemon {
                 }
             } catch (Exception e) {
                 LOG.error("Failed to load query profile from storage", e);
+            } finally {
+                isProfileLoading.set(false);
             }
         });
 
