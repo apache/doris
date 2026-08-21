@@ -1063,6 +1063,23 @@ public class StmtExecutor {
         return deferredForArrowFlight;
     }
 
+    void deferArrowFlightQuery() {
+        deferredForArrowFlight = true;
+        boolean registered;
+        try {
+            registered = context.addFlightSqlDeferredExecutor(this);
+        } catch (RuntimeException | Error t) {
+            deferredForArrowFlight = false;
+            throw t;
+        }
+        if (!registered) {
+            // Session teardown sealed and drained the registry before this registration. Finalize directly:
+            // no later owner can reach this executor, and the deferred flag prevents the ordinary finally block
+            // from closing the same coordinator a second time.
+            finalizeArrowFlightQuery();
+        }
+    }
+
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
     // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
     // SplitSources and the query queue slot) and then unregister the query. See #62259.
@@ -1531,8 +1548,7 @@ public class StmtExecutor {
                 // at the end of GetFlightInfo. Point queries use a different coordBase (not
                 // deferred). See #62259.
                 if (coordBase == coord) {
-                    deferredForArrowFlight = true;
-                    context.addFlightSqlDeferredExecutor(this);
+                    deferArrowFlightQuery();
                 }
                 return;
             }

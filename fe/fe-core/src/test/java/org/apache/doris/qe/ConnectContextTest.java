@@ -811,4 +811,17 @@ public class ConnectContextTest {
         Mockito.verify(failing, Mockito.times(1)).finalizeArrowFlightQuery();
         Mockito.verify(healthy, Mockito.times(1)).finalizeArrowFlightQuery();
     }
+
+    @Test
+    public void testSessionTeardownRejectsLateDeferredExecutorRegistration() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor late = Mockito.mock(StmtExecutor.class);
+
+        ctx.sealAndCloseFlightSqlDeferredExecutors();
+
+        Assert.assertFalse("an executor registered after the final teardown drain must not become unreachable",
+                ctx.addFlightSqlDeferredExecutor(late));
+        ctx.closeFlightSqlDeferredExecutors();
+        Mockito.verifyNoInteractions(late);
+    }
 }
