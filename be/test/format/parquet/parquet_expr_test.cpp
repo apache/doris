@@ -2480,4 +2480,175 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
     EXPECT_EQ(2, loader_calls);
 }
 
+TEST_F(ParquetExprTest, struct_column_reader_fails_query_when_projected_nested_field_unknown) {
+    // #61225: StructColumnReader::read_column_data must fail the query with InternalError when a
+    // projected nested field is absent from the table-side schema tree (FE/BE contract mismatch),
+    // instead of aborting the BE via StructNode::children.at() (std::out_of_range in release,
+    // DCHECK in debug). The guard runs before any child reader is consulted, so the unknown
+    // field is placed first and no child readers are needed.
+    auto element_type = std::make_shared<DataTypeInt64>();
+    auto struct_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {element_type, element_type},
+            std::vector<std::string> {"ghost_field", "known_field"});
+    ColumnPtr column = struct_type->create_column();
+
+    FieldSchema field;
+    field.name = "struct_col";
+    field.data_type = struct_type;
+
+    RowRanges row_ranges = RowRanges::create_single(1);
+    StructColumnReader reader(row_ranges, 1, nullptr, nullptr);
+    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> child_readers;
+    ASSERT_TRUE(reader.init(std::move(child_readers), &field).ok());
+
+    // The table-side schema tree only knows "known_field"; "ghost_field" is the projected
+    // nested field the schema info from FE never registered.
+    auto root_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    root_node->add_children("known_field", "known_field",
+                            TableSchemaChangeHelper::ConstNode::get_instance());
+
+    FilterMap filter_map;
+    size_t read_rows = 0;
+    bool eof = false;
+    Status status = reader.read_column_data(column, struct_type, root_node, filter_map, 1,
+                                            &read_rows, &eof, false);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("missing projected nested field 'ghost_field'"))
+            << status;
+}
+
+TEST_F(ParquetExprTest, dict_filter_falls_back_to_plain_conjunct_when_predicate_column_unknown) {
+    // #61225: RowGroupReader::init collects dict-filter candidates from the predicate columns.
+    // A predicate column the table-side schema tree does not know (FE/BE contract mismatch)
+    // cannot be dict-filtered; its conjuncts must fall back to plain filtering instead of
+    // crashing on StructNode::children.at().
+    TDescriptorTable local_desc_table;
+    TTableDescriptor local_table_desc;
+    create_table_desc(local_desc_table, local_table_desc, {"string_col", "ghost_predicate_col"},
+                      {TPrimitiveType::STRING, TPrimitiveType::STRING});
+    DescriptorTbl* local_desc_tbl = nullptr;
+    ObjectPool local_obj_pool;
+    ASSERT_TRUE(DescriptorTbl::create(&local_obj_pool, local_desc_table, &local_desc_tbl).ok());
+    auto* tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
+    RowDescriptor row_desc(tuple_desc);
+
+    RuntimeState state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    state.set_desc_tbl(local_desc_tbl);
+    const int ghost_slot_id = tuple_desc->slots()[1]->id();
+    auto ghost_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[1]),
+                                create_string_literal("keep"));
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(file_path, &file_reader).ok());
+    const auto& row_group = doris_metadata.row_groups[0];
+
+    // The table-side schema tree knows only the read column; the predicate column is absent.
+    auto table_info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    table_info_node->add_children("string_col", "string_col",
+                                  TableSchemaChangeHelper::ConstNode::get_instance());
+
+    RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
+    RowGroupReader::LazyReadContext lazy_read_ctx;
+    lazy_read_ctx.predicate_columns.first = {"ghost_predicate_col"};
+    lazy_read_ctx.predicate_columns.second = {ghost_slot_id};
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+    RowGroupReader group_reader(file_reader, {"string_col"}, 0, row_group, &ctz, nullptr,
+                                position_delete_ctx, lazy_read_ctx, &state, column_ids,
+                                filter_column_ids);
+    group_reader._table_info_node_ptr = table_info_node;
+    group_reader.set_table_format_reader(p_reader.get());
+
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts = {
+            {ghost_slot_id, {ghost_conjunct}}};
+    RowRanges row_ranges = RowRanges::create_single(row_group.num_rows);
+    std::unordered_map<int, tparquet::OffsetIndex> col_offsets;
+    std::unordered_map<std::string, int> col_name_to_slot_id = {
+            {"string_col", tuple_desc->slots()[0]->id()}};
+    ASSERT_TRUE(group_reader
+                        .init(doris_file_metadata->schema(), row_ranges, col_offsets, tuple_desc,
+                              &row_desc, &col_name_to_slot_id, nullptr,
+                              &slot_id_to_filter_conjuncts)
+                        .ok());
+
+    // Fallback happened: the conjunct moved to plain filtering and no dict filter registered.
+    EXPECT_TRUE(group_reader._dict_filter_cols.empty());
+    ASSERT_EQ(1, group_reader._filter_conjuncts.size());
+    EXPECT_EQ(ghost_conjunct, group_reader._filter_conjuncts.front());
+}
+
+TEST_F(ParquetExprTest, test_column_stat_filter_skips_slot_absent_from_schema_mapping) {
+    // #61225: the min-max and bloom-filter stat lambdas of _process_column_stat_filter must skip
+    // a slot the table-side schema tree does not know (FE/BE contract mismatch) instead of
+    // crashing on StructNode::children.at().
+    // Control: with the intact schema tree, an EQ predicate outside the file min/max range
+    // (int64_col holds 10000000000..10000000005 in row group 0) filters the row group out.
+    std::unique_ptr<MutilColumnBlockPredicate> control_pred =
+            AndBlockColumnPredicate::create_unique();
+    control_pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+            ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>::create_shared(
+                    2, "", Field::create_field<TYPE_BIGINT>(-1))));
+    p_reader->_push_down_predicates.push_back(std::move(control_pred));
+
+    bool filter_group = false;
+    bool filtered_by_min_max = false;
+    bool filtered_by_bloom_filter = false;
+    ASSERT_TRUE(p_reader
+                        ->_process_column_stat_filter(doris_metadata.row_groups[0],
+                                                      p_reader->_push_down_predicates,
+                                                      &filter_group, &filtered_by_min_max,
+                                                      &filtered_by_bloom_filter)
+                        .ok());
+    EXPECT_TRUE(filter_group);
+    EXPECT_TRUE(filtered_by_min_max);
+
+    // Contract mismatch: the schema tree no longer knows int64_col (cid 2). The same predicate
+    // must be skipped (both stat and bloom lambdas return false), keeping the row group,
+    // instead of throwing std::out_of_range / hitting the DCHECK.
+    auto table_info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    table_info_node->add_children("int32_partial_null_col", "int32_partial_null_col",
+                                  TableSchemaChangeHelper::ConstNode::get_instance());
+    p_reader->_table_info_node_ptr = table_info_node;
+
+    p_reader->_push_down_predicates.clear();
+    std::unique_ptr<MutilColumnBlockPredicate> mismatch_pred =
+            AndBlockColumnPredicate::create_unique();
+    mismatch_pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+            ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>::create_shared(
+                    2, "", Field::create_field<TYPE_BIGINT>(-1))));
+    p_reader->_push_down_predicates.push_back(std::move(mismatch_pred));
+
+    filter_group = false;
+    filtered_by_min_max = false;
+    filtered_by_bloom_filter = false;
+    ASSERT_TRUE(p_reader
+                        ->_process_column_stat_filter(doris_metadata.row_groups[0],
+                                                      p_reader->_push_down_predicates,
+                                                      &filter_group, &filtered_by_min_max,
+                                                      &filtered_by_bloom_filter)
+                        .ok());
+    EXPECT_FALSE(filter_group);
+    EXPECT_FALSE(filtered_by_min_max);
+    EXPECT_FALSE(filtered_by_bloom_filter);
+}
+
+TEST_F(ParquetExprTest, test_exists_in_file_false_for_column_absent_from_schema_mapping) {
+    // #61225: _exists_in_file must report a column the table-side schema tree never registered
+    // (FE/BE contract mismatch) as absent without touching StructNode::children.at().
+    // Baseline: the fixture hive-style name mapping knows every column of the file.
+    EXPECT_TRUE(p_reader->_exists_in_file("int64_col"));
+
+    // Swap in a table-side schema tree that registered only int32_partial_null_col.
+    auto table_info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    table_info_node->add_children("int32_partial_null_col", "int32_partial_null_col",
+                                  TableSchemaChangeHelper::ConstNode::get_instance());
+    p_reader->_table_info_node_ptr = table_info_node;
+
+    EXPECT_FALSE(p_reader->_exists_in_file("int64_col"));
+    EXPECT_TRUE(p_reader->_exists_in_file("int32_partial_null_col"));
+}
+
 } // namespace doris

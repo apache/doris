@@ -63,6 +63,7 @@
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/iceberg_default_value.h"
+#include "format/table/iceberg_position_delete_sys_table_reader.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -935,6 +936,35 @@ schema::external::TFieldPtr make_external_struct_field(
     return field_ptr;
 }
 
+schema::external::TFieldPtr make_external_scalar_field(const std::string& name, int32_t field_id,
+                                                       TPrimitiveType::type primitive_type) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name(name);
+    field->__set_id(field_id);
+    TColumnType type;
+    type.__set_type(primitive_type);
+    field->__set_type(type);
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.__set_field_ptr(std::move(field));
+    return field_ptr;
+}
+
+SlotDescriptor* make_position_delete_sys_table_slot(ObjectPool* pool, int32_t id,
+                                                    const std::string& name, DataTypePtr type) {
+    TSlotDescriptor slot_desc;
+    slot_desc.__set_id(id);
+    slot_desc.__set_parent(0);
+    slot_desc.__set_slotType(type->to_thrift());
+    slot_desc.__set_columnPos(id);
+    slot_desc.__set_byteOffset(0);
+    slot_desc.__set_nullIndicatorByte(id / 8);
+    slot_desc.__set_nullIndicatorBit(id % 8);
+    slot_desc.__set_slotIdx(id);
+    slot_desc.__set_isMaterialized(true);
+    slot_desc.__set_colName(name);
+    return pool->add(new SlotDescriptor(slot_desc));
+}
+
 class IcebergReaderTestHelper : public IcebergTableReader {
 public:
     using IcebergTableReader::_is_fully_dictionary_encoded;
@@ -1739,6 +1769,369 @@ TEST_F(IcebergReaderTest, parquet_init_fails_loudly_when_schema_mapping_misses_p
     EXPECT_NE(st.to_string().find("schema mapping is missing projected column 'name'"),
               std::string::npos)
             << st;
+}
+
+TEST_F(IcebergReaderTest, parquet_init_fails_loudly_when_partition_key_missing_from_schema_mapping) {
+    // #61225 pattern B, IcebergParquetReader PARTITION_KEY branch: the schema info from FE
+    // (history_schema_info) does not contain the projected partition column, so the table-side
+    // schema tree has no key for it. init_reader must fail with InternalError instead of letting
+    // children_column_exists's bare map::at throw std::out_of_range, which kills the BE process.
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_parquet_partition_key_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.parquet").string();
+    write_iceberg_three_int_parquet_file(data_file, "id", 0, {1, 2, 3}, "part_col", 1, {4, 5, 6},
+                                         "value", 2, {7, 8, 9});
+
+    // The FE schema info only knows "id"; the projected partition column "part_col" is absent —
+    // an FE/BE contract violation.
+    schema::external::TStructField root_field;
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    // A partition column would normally carry its value from the file path.
+    scan_range.__set_columns_from_path({"2024-01-01"});
+    scan_range.__set_columns_from_path_keys({"part_col"});
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "part_col", 1, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
+                                &runtime_state, cache.get());
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &file_reader).ok());
+    reader.set_file_reader(file_reader);
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "part_col";
+    column_descriptors[0].category = ColumnCategory::PARTITION_KEY;
+    std::unordered_map<std::string, uint32_t> block_positions = {{"part_col", 0}};
+    ParquetInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto status = reader.init_reader(&context);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("schema mapping is missing projected column 'part_col'"),
+              std::string::npos)
+            << status;
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, orc_init_fails_loudly_when_schema_mapping_misses_projected_column) {
+    // #61225 pattern B, IcebergOrcReader REGULAR branch: same contract violation as the parquet
+    // case — the FE schema info lacks the projected column, so the table-side schema tree has no
+    // key for it and init_reader must return InternalError instead of crashing the BE process.
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_orc_regular_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.orc").string();
+    write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "value", 1, {4, 5, 6}, "extra",
+                                     2, {7, 8, 9});
+
+    // The FE schema info only knows "id"; the projected "value" below is absent — an FE/BE
+    // contract violation.
+    schema::external::TStructField root_field;
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "value", 1, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                            "UTC", &io_ctx, cache.get());
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "value";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"value", 0}};
+    OrcInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto status = reader.init_reader(&context);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("schema mapping is missing projected column 'value'"),
+              std::string::npos)
+            << status;
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, orc_init_fails_loudly_when_partition_key_missing_from_schema_mapping) {
+    // #61225 pattern B, IcebergOrcReader PARTITION_KEY branch: the FE schema info does not know
+    // the projected partition column, so the guard must turn the would-be children.at() crash
+    // into a per-query InternalError.
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_orc_partition_key_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.orc").string();
+    write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "part_col", 1, {4, 5, 6},
+                                     "value", 2, {7, 8, 9});
+
+    // The FE schema info only knows "id"; the projected partition column "part_col" is absent —
+    // an FE/BE contract violation.
+    schema::external::TStructField root_field;
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    // A partition column would normally carry its value from the file path.
+    scan_range.__set_columns_from_path({"2024-01-01"});
+    scan_range.__set_columns_from_path_keys({"part_col"});
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "part_col", 1, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                            "UTC", &io_ctx, cache.get());
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "part_col";
+    column_descriptors[0].category = ColumnCategory::PARTITION_KEY;
+    std::unordered_map<std::string, uint32_t> block_positions = {{"part_col", 0}};
+    OrcInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto status = reader.init_reader(&context);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("schema mapping is missing projected column 'part_col'"),
+              std::string::npos)
+            << status;
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest,
+       position_delete_sys_table_parquet_init_fails_loudly_when_row_missing_from_schema_mapping) {
+    // #61225, IcebergPositionDeleteSysTableReader parquet branch: the query projects the "row"
+    // column but the FE schema info for the delete file has no "row" field, so the mapped
+    // delete-file schema tree has no key for it. init_reader must fail with InternalError instead
+    // of crashing the BE process on children.at().
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_position_delete_row_schema_mismatch_parquet_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto delete_path = (test_dir / "delete.parquet").string();
+    // The delete file physically stores file_path/pos/row (ids follow the Iceberg spec), but the
+    // FE schema info below only knows file_path/pos — an FE/BE contract violation.
+    write_iceberg_three_int_parquet_file(delete_path, "file_path", 2147483546, {1}, "pos",
+                                         2147483545, {5}, "row", 2147483544, {42});
+
+    ObjectPool object_pool;
+    const auto row_type = make_nullable(std::make_shared<DataTypeInt32>());
+    std::vector<SlotDescriptor*> slots {
+            make_position_delete_sys_table_slot(&object_pool, 0, "row", row_type)};
+
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    RuntimeProfile profile("test_profile");
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_external_scalar_field("file_path", 2147483546, TPrimitiveType::STRING),
+             make_external_scalar_field("pos", 2147483545, TPrimitiveType::BIGINT)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io::FileReaderStats file_reader_stats;
+    io_ctx->file_reader_stats = &file_reader_stats;
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(1); // position delete content
+    delete_file.__set_path(delete_path);
+    delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    TIcebergFileDesc iceberg_descriptor;
+    iceberg_descriptor.__set_delete_files({delete_file});
+    TTableFormatFileDesc table_format_descriptor;
+    table_format_descriptor.__set_iceberg_params(iceberg_descriptor);
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(delete_path);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(delete_path)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(delete_path)));
+    scan_range.__set_table_format_params(table_format_descriptor);
+
+    IcebergPositionDeleteSysTableReader reader(slots, &runtime_state, &profile, scan_range,
+                                               &scan_params, io_ctx, nullptr);
+    ReaderInitContext context;
+    const auto status = reader.init_reader(&context);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("position delete system table schema is missing"),
+              std::string::npos)
+            << status;
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest,
+       position_delete_sys_table_orc_init_fails_loudly_when_row_missing_from_schema_mapping) {
+    // #61225, IcebergPositionDeleteSysTableReader orc branch: same contract violation as the
+    // parquet branch — "row" is projected but absent from the FE schema info, so init_reader must
+    // return InternalError instead of crashing the BE process on children.at().
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_position_delete_row_schema_mismatch_orc_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto delete_path = (test_dir / "delete.orc").string();
+    // The delete file physically stores file_path/pos/row (ids follow the Iceberg spec), but the
+    // FE schema info below only knows file_path/pos — an FE/BE contract violation.
+    write_iceberg_three_int_orc_file(delete_path, "file_path", 2147483546, {1}, "pos", 2147483545,
+                                     {5}, "row", 2147483544, {42});
+
+    ObjectPool object_pool;
+    const auto row_type = make_nullable(std::make_shared<DataTypeInt32>());
+    std::vector<SlotDescriptor*> slots {
+            make_position_delete_sys_table_slot(&object_pool, 0, "row", row_type)};
+
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    RuntimeProfile profile("test_profile");
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_external_scalar_field("file_path", 2147483546, TPrimitiveType::STRING),
+             make_external_scalar_field("pos", 2147483545, TPrimitiveType::BIGINT)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io::FileReaderStats file_reader_stats;
+    io_ctx->file_reader_stats = &file_reader_stats;
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(1); // position delete content
+    delete_file.__set_path(delete_path);
+    delete_file.__set_file_format(TFileFormatType::FORMAT_ORC);
+    TIcebergFileDesc iceberg_descriptor;
+    iceberg_descriptor.__set_delete_files({delete_file});
+    TTableFormatFileDesc table_format_descriptor;
+    table_format_descriptor.__set_iceberg_params(iceberg_descriptor);
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(delete_path);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(delete_path)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(delete_path)));
+    scan_range.__set_table_format_params(table_format_descriptor);
+
+    IcebergPositionDeleteSysTableReader reader(slots, &runtime_state, &profile, scan_range,
+                                               &scan_params, io_ctx, nullptr);
+    ReaderInitContext context;
+    const auto status = reader.init_reader(&context);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("position delete system table schema is missing"),
+              std::string::npos)
+            << status;
+
+    std::filesystem::remove_all(test_dir);
 }
 
 TEST_F(IcebergReaderTest, v1_deletion_vector_read_error_releases_cache_entry) {
