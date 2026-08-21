@@ -22,8 +22,10 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <map>
 #include <memory>
 #include <semaphore>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -101,6 +103,10 @@ public:
     static const std::string InitReaderAvgTimeProfile;
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
+    static const std::string LanceDatasetOpenTimeProfile;
+    static const std::string LanceTakeRowsTimeProfile;
+    static const std::string LanceFillBlockTimeProfile;
+    static const std::string LanceRowIdFetchTimeProfile;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOBytes;
     static const std::string TopNLazyMaterializationSecondPhaseRemoteIOCount;
@@ -165,6 +171,7 @@ private:
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;
         int64_t get_block_ms = 0;
+        std::map<std::string, int64_t> lance_fetch_times_ns;
         std::string file_read_bytes;
         std::string file_read_times;
     };

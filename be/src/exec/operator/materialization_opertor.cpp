@@ -449,16 +449,20 @@ Status MaterializationSharedState::validate_rpc_results(int node_id) {
 
 void MaterializationSharedState::_update_profile_info(int64_t backend_id,
                                                       RuntimeProfile* response_profile) {
+    DORIS_CHECK(response_profile != nullptr);
     if (!backend_profile_info_string.contains(backend_id)) {
         backend_profile_info_string.emplace(backend_id,
                                             std::map<std::string, fmt::memory_buffer> {});
     }
     auto& info_map = backend_profile_info_string[backend_id];
 
-    auto update_profile_info_key = [&](const std::string& info_key) {
+    auto update_profile_info_key = [&](const std::string& info_key, bool warn_if_missing = true) {
         const auto* info_value = response_profile->get_info_string(info_key);
         if (info_value == nullptr) [[unlikely]] {
-            LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :" << info_key;
+            if (warn_if_missing) {
+                LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :"
+                             << info_key;
+            }
             return;
         }
         if (!info_map.contains(info_key)) {
@@ -473,6 +477,10 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
     update_profile_info_key(FileScanner::FileReadBytesProfile);
     update_profile_info_key(FileScanner::FileReadTimeProfile);
+    update_profile_info_key(RowIdStorageReader::LanceDatasetOpenTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceTakeRowsTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceFillBlockTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceRowIdFetchTimeProfile, false);
 }
 
 Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos,
@@ -654,8 +662,7 @@ Status MaterializationOperator::pull(RuntimeState* state, Block* output_block, b
              local_state._materialization_state.backend_profile_info_string) {
             auto* child_profile = local_state.operator_profile()->create_child(
                     "RowIDFetcher: BackendId:" + std::to_string(backend_id));
-            for (const auto& [info_key, info_value] :
-                 local_state._materialization_state.backend_profile_info_string[backend_id]) {
+            for (const auto& [info_key, info_value] : child_info) {
                 child_profile->add_info_string(info_key, "{" + fmt::to_string(info_value) + "}");
             }
             local_state.operator_profile()->add_child(child_profile, true);

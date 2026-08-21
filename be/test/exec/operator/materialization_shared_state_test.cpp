@@ -37,6 +37,21 @@ void add_request_row(PRequestBlockDesc* request_block_desc, uint64_t row_id, uin
     request_block_desc->add_file_id(file_id);
 }
 
+void set_lance_fetch_profile(PMultiGetBlockV2* response_block, int64_t scale) {
+    RuntimeProfile profile("ExternalRowIDFetcher");
+    profile.add_info_string("LanceDatasetOpenTime", std::to_string(scale) + "ns");
+    profile.add_info_string("LanceTakeRowsTime", std::to_string(2 * scale) + "ns");
+    profile.add_info_string("LanceFillBlockTime", std::to_string(3 * scale) + "ns");
+    profile.add_info_string("LanceRowIdFetchTime", std::to_string(4 * scale) + "ns");
+    profile.add_info_string("ScannersRunningTime", "0ms");
+    profile.add_info_string("InitReaderAvgTime", "0ms");
+    profile.add_info_string("GetBlockAvgTime", "0ms");
+    profile.add_info_string("FileReadLines", "[]");
+    profile.add_info_string("FileReadBytes", "[]");
+    profile.add_info_string("FileReadTime", "[]");
+    profile.to_proto(response_block->mutable_profile(), 2);
+}
+
 } // namespace
 
 class MaterializationSharedStateTest : public testing::Test {
@@ -242,6 +257,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
+        set_lance_fetch_profile(response_.mutable_blocks(0), 10);
 
         _shared_state->rpc_struct_map[_backend_id1].response = std::move(response_);
         // init the response blocks
@@ -268,6 +284,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
+        set_lance_fetch_profile(response_.mutable_blocks(0), 1);
 
         _shared_state->rpc_struct_map[_backend_id2].response = std::move(response_);
     }
@@ -294,6 +311,16 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     EXPECT_EQ(merged_value_col->get_data_at(1).data,
               nullptr); // Second value from BE1, replace by null
     EXPECT_EQ(*((int*)merged_value_col->get_data_at(2).data), 200); // Third value from BE2
+    const auto& backend1_info = _shared_state->backend_profile_info_string.at(_backend_id1);
+    EXPECT_EQ("10ns, ", fmt::to_string(backend1_info.at("LanceDatasetOpenTime")));
+    EXPECT_EQ("20ns, ", fmt::to_string(backend1_info.at("LanceTakeRowsTime")));
+    EXPECT_EQ("30ns, ", fmt::to_string(backend1_info.at("LanceFillBlockTime")));
+    EXPECT_EQ("40ns, ", fmt::to_string(backend1_info.at("LanceRowIdFetchTime")));
+    const auto& backend2_info = _shared_state->backend_profile_info_string.at(_backend_id2);
+    EXPECT_EQ("1ns, ", fmt::to_string(backend2_info.at("LanceDatasetOpenTime")));
+    EXPECT_EQ("2ns, ", fmt::to_string(backend2_info.at("LanceTakeRowsTime")));
+    EXPECT_EQ("3ns, ", fmt::to_string(backend2_info.at("LanceFillBlockTime")));
+    EXPECT_EQ("4ns, ", fmt::to_string(backend2_info.at("LanceRowIdFetchTime")));
 }
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
