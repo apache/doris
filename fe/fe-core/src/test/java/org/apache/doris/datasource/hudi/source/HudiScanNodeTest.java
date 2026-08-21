@@ -387,12 +387,12 @@ public class HudiScanNodeTest {
             throws Exception {
         Class<?> keyClass = Class.forName(HudiScanNode.class.getName() + "$HudiFileScanTaskCacheKey");
         Constructor<?> constructor = keyClass.getDeclaredConstructor(
-                long.class, long.class, String.class, boolean.class, boolean.class,
+                long.class, long.class, long.class, String.class, boolean.class, boolean.class,
                 String.class, String.class, String.class, List.class, List.class, List.class,
                 String.class, HivePartition.class);
         constructor.setAccessible(true);
         return constructor.newInstance(
-                1L, 2L, instant, nativeReader, runtimePrune,
+                1L, 2L, 3L, instant, nativeReader, runtimePrune,
                 "file:///table", "parquet", serdeLib,
                 Collections.singletonList("id"), Collections.singletonList("int"),
                 partitionColumnNames, storagePropertiesFingerprint, partition);
