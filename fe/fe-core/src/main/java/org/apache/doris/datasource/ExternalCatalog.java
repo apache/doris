@@ -469,10 +469,15 @@ public abstract class ExternalCatalog
     /**
      * eg:
      * (
-     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
+     * "access_controller.class" = "ranger-hive",
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
+     * <p>
+     * The name the source is published under, not the class name of its factory: a class name ties the
+     * catalog to where the source happens to live today, which is exactly what broke when the Ranger
+     * sources moved out of fe-core. Factory class names are still accepted, see
+     * {@code AccessControllerManager#getPluginIdentifierForAccessController}.
      * <p>
      * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */

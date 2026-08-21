@@ -42,7 +42,7 @@ under the License.
           (org.apache.doris.nereids.lineage) is part of fe-core itself.
 
           Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the lineage SPI
-          surface - additions included. A change to fe-extension-spi means bumping all four families.
+          surface - additions included. A change to fe-extension-spi means bumping all five families.
           See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
         -->
         <lineage.plugin.api.version>1.0</lineage.plugin.api.version>
@@ -152,6 +152,22 @@ under the License.
                     <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!--
+          Completes the Jersey 1.x stack on the FE's own classpath. jersey-core arrives here
+          transitively already, and both com.sun. and javax. are mandatory parent-first for every
+          plugin classloader (ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES), so a plugin that
+          bundles Jersey still links against this copy of com.sun.jersey.core - and that copy needs
+          the javax.ws.rs types and the client half to be reachable from here too, or it fails with
+          NoClassDefFoundError the moment a plugin builds a client. The Ranger authorization sources
+          are the ones that do, through RangerAdminRESTClient. Same shape as
+          FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES making hadoop the host's: one copy of a
+          shared library, the plugin's bundled one only a fallback.
+          Brings javax.ws.rs:jsr311-api with it.
+        -->
+        <dependency>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-client</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -388,6 +404,16 @@ under the License.
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-authentication-role-mapping</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -769,9 +795,29 @@ under the License.
             <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
+        <!--
+            The Ranger authorization sources are plugins now, installed from plugins/authorization/ and
+            reached only through the AuthorizationPlugin contract, so nothing here compiles against Ranger.
+            Test scope, because the access-control behaviour baseline records what a Ranger-governed
+            instance decides for every user and every privilege, and the only way to record that is to run
+            the production controller. Same shape as the connector and filesystem plugin modules below.
+
+            The doris-service source is the one the baseline runs; the hive-service source is here so that
+            the module's own tests run at all. run-fe-ut.sh builds `-pl fe-common,fe-core -am`, which pulls in
+            what fe-core depends on and nothing else - so a plugin module no module in that set depends on
+            never reaches the reactor, and its tests are never executed by any pipeline.
+        -->
         <dependency>
-            <groupId>org.apache.ranger</groupId>
-            <artifactId>ranger-plugins-common</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-plugin-ranger-doris</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-plugin-ranger-hive</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->

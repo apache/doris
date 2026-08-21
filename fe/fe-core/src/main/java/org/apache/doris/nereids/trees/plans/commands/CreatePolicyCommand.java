@@ -32,18 +32,24 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +58,7 @@ import java.util.Optional;
  * Create policy command use for row policy and storage policy.
  */
 public class CreatePolicyCommand extends Command implements ForwardWithSync {
+    private static final Logger LOG = LogManager.getLogger(CreatePolicyCommand.class);
 
     private final PolicyTypeEnum policyType;
     private final String policyName;
@@ -61,14 +68,36 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     private final UserIdentity user;
     private final String roleName;
     private final Optional<Expression> wherePredicate;
+    // The row predicate exactly as written, null for a storage policy.
+    private final String wherePredicateSql;
     private final Map<String, String> properties;
+    /**
+     * The predicate as it will be understood, which is what this statement accepts, stores and shows.
+     *
+     * <p>Not the one the parser handed over: that one was read under the creator's {@code sql_mode}, and the
+     * text is re-read under {@link SqlModeHelper#MODE_FOR_POLICY_TEXT} every time the policy is applied to a
+     * query. Two bits of {@code sql_mode} change what the same text means, so accepting it under one mode and
+     * enforcing it under another lets a policy mean one thing in {@code SHOW ROW POLICY} and another in the
+     * queries it restricts - or, with {@code NO_BACKSLASH_ESCAPES}, be accepted here and fail to parse on
+     * every query it governs from then on. Settled once, in {@link #validate}.
+     */
+    private Optional<Expression> policyPredicate = Optional.empty();
+
+    /**
+     * What the creator wrote that this statement is not storing, when the two readings differ.
+     *
+     * <p>Reported to the client rather than only to {@code fe.log}: the statement succeeds, and the one thing
+     * it drops is the creator's own reading of their own text. Learning that from a query behaving in a way
+     * {@code SHOW ROW POLICY} does not explain is the failure this exists to prevent.
+     */
+    private String droppedReading = null;
 
     /**
      * ctor of this command.
      */
     public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
             TableNameInfo tableNameInfo, Optional<FilterType> filterType, UserIdentity user, String roleName,
-            Optional<Expression> wherePredicate, Map<String, String> properties) {
+            Optional<Expression> wherePredicate, String wherePredicateSql, Map<String, String> properties) {
         super(PlanType.CREATE_POLICY_COMMAND);
         this.policyType = policyType;
         this.policyName = policyName;
@@ -78,11 +107,16 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         this.user = user;
         this.roleName = roleName;
         this.wherePredicate = wherePredicate;
+        this.wherePredicateSql = wherePredicateSql;
         this.properties = properties;
     }
 
     public Optional<Expression> getWherePredicate() {
         return wherePredicate;
+    }
+
+    public String getWherePredicateSql() {
+        return wherePredicateSql;
     }
 
     public Map<String, String> getProperties() {
@@ -99,6 +133,15 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         validate(ctx);
         Policy policy = createPolicy(ctx, executor);
         Env.getCurrentEnv().getPolicyMgr().createPolicy(policy, ifNotExists);
+        if (droppedReading != null) {
+            // Set here rather than left to the executor's plain setOk: this is the only chance to tell the
+            // client that the policy it just created does not say what its session read the text as. Counted as
+            // a warning so a client that only looks at the counters still sees that something was reported.
+            ctx.getState().setOk(0, 1, "this policy's predicate is stored as ["
+                    + policyPredicate.get().toSql() + "], which is how it is read on every query it restricts."
+                    + " Your session's sql_mode reads the same text as [" + droppedReading + "]; policy text is"
+                    + " read under the default sql_mode, not the session's");
+        }
     }
 
     @Override
@@ -148,11 +191,22 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 if (!wherePredicate.isPresent()) {
                     throw new AnalysisException("wherePredicate can not be null");
                 }
+                policyPredicate = Optional.of(predicateUnderPolicyMode());
+                // The same question the planner asks of a row filter before it is applied, asked here so
+                // that it is answered while somebody can act on it. Stored unchecked, a payload that is not
+                // a predicate - USING (1), say - fails every query the policy governs from then on, for
+                // every account it applies to, and the statement that put it there succeeded.
+                DataType notAPredicate = LogicalCheckPolicy.nonPredicateTypeOf(policyPredicate.get());
+                if (notAPredicate != null) {
+                    throw new AnalysisException("the predicate of a row policy has to be a boolean expression"
+                            + " over the table's columns, but [" + policyPredicate.get().toSql() + "] is of"
+                            + " type " + notAPredicate);
+                }
                 TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                         .getDbOrAnalysisException(tableNameInfo.getDb())
                         .getTableOrAnalysisException(tableNameInfo.getTbl());
-                wherePredicate.get().foreach(expr -> {
+                policyPredicate.get().foreach(expr -> {
                     if (expr instanceof UnboundSlot) {
                         UnboundSlot slot = (UnboundSlot) expr;
                         if (tableIf.getColumn(slot.getName()) == null) {
@@ -165,6 +219,45 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         }
     }
 
+    /**
+     * The stored predicate text read under the mode a security policy's text is read under.
+     *
+     * <p>Re-parsed rather than reused because {@code sql_mode} is a session variable any account may set with
+     * no privilege at all, and the account creating a row policy is not the one it restricts: taking the
+     * creator's reading of {@code ||} or of a backslash and enforcing a different one is a policy that does not
+     * say what it was accepted as saying. Text the fixed mode cannot read is refused here, which is the whole
+     * point of doing this at creation time - the alternative is a policy that stores fine and then fails every
+     * single query it governs.
+     */
+    private Expression predicateUnderPolicyMode() throws AnalysisException {
+        if (StringUtils.isEmpty(wherePredicateSql)) {
+            // Nothing to re-read: no statement text was recorded, so the parse that produced the predicate is
+            // all there is. Not reachable from CREATE ROW POLICY, which always records it.
+            return wherePredicate.get();
+        }
+        try {
+            Expression underPolicyMode = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+                    () -> new NereidsParser().parseExpression(wherePredicateSql));
+            if (!underPolicyMode.equals(wherePredicate.get())) {
+                // Both modes read the text, and they read it differently. This statement is the only place
+                // that holds both readings, so it is the only place that can say so; the creator's is the one
+                // being dropped, and the operator would otherwise learn that only from a query behaving in a
+                // way SHOW ROW POLICY does not explain. Also handed back to the client, in run().
+                droppedReading = wherePredicate.get().toSql();
+                LOG.warn("row policy {} on {} was written under a sql_mode that reads it as [{}], and is"
+                                + " stored as [{}], which is how it is read on every query it restricts:"
+                                + " predicate text [{}]", policyName, tableNameInfo,
+                        wherePredicate.get().toSql(), underPolicyMode.toSql(), wherePredicateSql);
+            }
+            return underPolicyMode;
+        } catch (Exception e) {
+            throw new AnalysisException("the predicate of a row policy is read under the default sql_mode"
+                    + " rather than this session's, because it is read again on every query the policy"
+                    + " restricts, on the thread of the very user it restricts. Under that mode this predicate"
+                    + " cannot be parsed: " + wherePredicateSql, e);
+        }
+    }
+
     private Policy createPolicy(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
         long policyId = Env.getCurrentEnv().getNextId();
         switch (policyType) {
@@ -173,10 +266,15 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 storagePolicy.init(properties, ifNotExists);
                 return storagePolicy;
             case ROW:
+                // The predicate text goes in with the policy: this parse already has it, and recovering it
+                // later means parsing the request text again - a request that may hold several statements.
+                // The predicate stored alongside it is the one read under the policy-text mode, so that what
+                // SHOW ROW POLICY renders is what the queries this policy restricts will actually be filtered
+                // by. See predicateUnderPolicyMode().
                 return new RowPolicy(policyId, policyName, tableNameInfo.getCtl(),
                         tableNameInfo.getDb(), tableNameInfo.getTbl(), user, roleName,
                         executor.getOriginStmt().originStmt, executor.getOriginStmt().idx, filterType.get(),
-                        wherePredicate.get());
+                        policyPredicate.get(), wherePredicateSql);
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }

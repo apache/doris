@@ -181,15 +181,30 @@ public class RoutineLoadManager implements Writable {
     public void createRoutineLoadJob(CreateRoutineLoadInfo info, ConnectContext ctx)
             throws UserException {
         // check load auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+        if (info.isMultiTable()) {
+            // A multi table job names no table at all, so LOAD has to be held on the database or above.
+            // This is the same rule the job is checked against later on, in checkPrivAndGetJob().
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                    info.getDBName(),
+                    PrivPredicate.LOAD)) {
+                // A database-scoped code for a database-scoped refusal: the table one renders the database
+                // name as "for table 'mydb'".
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                        ConnectContext.get().getQualifiedUser(),
+                        info.getDBName());
+            }
+        } else if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 InternalCatalog.INTERNAL_CATALOG_NAME,
                 info.getDBName(),
                 info.getTableName(),
                 PrivPredicate.LOAD)) {
+            // Four arguments for the four placeholders this code has: a fifth would be dropped, and it would
+            // be the one naming the table - leaving "for table 'mydb'", the very defect the comment above
+            // describes.
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    info.getDBName(),
                     info.getDBName() + ": " + info.getTableName());
         }
 
@@ -285,10 +300,9 @@ public class RoutineLoadManager implements Writable {
                     InternalCatalog.INTERNAL_CATALOG_NAME,
                     dbFullName,
                     PrivPredicate.LOAD)) {
-                // todo add new error code
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                // As above: a database-scoped refusal gets the database-scoped code.
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                         ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
                         dbFullName);
             }
             return routineLoadJob;
@@ -323,9 +337,17 @@ public class RoutineLoadManager implements Writable {
             for (RoutineLoadJob job : jobs) {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
-                    if (!job.isMultiTable() && !Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                    tableName, PrivPredicate.LOAD)) {
+                    // A multi table job names no table, so LOAD has to be held on the database or above -
+                    // the same rule checkPrivAndGetJob() applies to a single job. Without it the && below
+                    // short-circuits and a multi table job is returned to PAUSE/RESUME ALL ROUTINE LOAD
+                    // without any check at all.
+                    boolean allowed = job.isMultiTable()
+                            ? Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.LOAD)
+                            : Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
+                                    PrivPredicate.LOAD);
+                    if (!allowed) {
                         continue;
                     }
                     result.add(job);

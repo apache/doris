@@ -1959,10 +1959,12 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
+        // "access_controller.class" = "ranger-hive",
         // "access_controller.properties.prop1" = "xxx",
         // "access_controller.properties.prop2" = "yyy",
         // )
+        // The name the source is published under; a factory class name still works but ties the catalog to
+        // where that source happens to live.
         // 1. get access controller class
         if (isAlter) {
             // The 'use_meta_cache' property can not be modified

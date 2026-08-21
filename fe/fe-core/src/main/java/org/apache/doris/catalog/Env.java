@@ -806,7 +806,9 @@ public class Env {
         this.tabletStatMgr = EnvFactory.getInstance().createTabletStatMgr();
 
         this.auth = new Auth();
-        this.accessManager = new AccessControllerManager(auth);
+        // A checkpoint Env only replays metadata; it authorizes nothing, so it must neither sweep the plugin
+        // directory nor build an authorization source - each one starts threads that nothing ever stops.
+        this.accessManager = new AccessControllerManager(auth, isCheckpointCatalog);
         this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfigString());
         this.domainResolver = new DomainResolver(auth);
 

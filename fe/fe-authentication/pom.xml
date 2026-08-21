@@ -37,7 +37,7 @@ under the License.
           is what the FE kernel expects of a plugin.
 
           Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the authentication
-          SPI surface - additions included. A change to fe-extension-spi means bumping all four
+          SPI surface - additions included. A change to fe-extension-spi means bumping all five
           families. See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
         -->
         <authentication.plugin.api.version>1.0</authentication.plugin.api.version>

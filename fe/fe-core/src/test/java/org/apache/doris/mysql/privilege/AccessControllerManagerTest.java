@@ -18,14 +18,25 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -33,21 +44,25 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class AccessControllerManagerTest {
 
     private boolean originalSkipCatalogPrivCheck;
+    private String originalAccessControllerType;
 
     @Before
     public void setUp() {
         originalSkipCatalogPrivCheck = Config.skip_catalog_priv_check;
+        originalAccessControllerType = Config.access_controller_type;
     }
 
     @After
     public void tearDown() {
         Config.skip_catalog_priv_check = originalSkipCatalogPrivCheck;
+        Config.access_controller_type = originalAccessControllerType;
     }
 
     @Test
@@ -62,7 +77,6 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -87,7 +101,6 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -97,6 +110,41 @@ public class AccessControllerManagerTest {
 
             Assert.assertTrue(accessControllerManager.checkCtlPriv(
                     userIdentity, "custom_catalog", PrivPredicate.SHOW));
+        }
+    }
+
+    /**
+     * A catalog naming the built-in model as its own source still has its catalog-level grants checked.
+     *
+     * <p>The exemption {@code skip_catalog_priv_check} grants is built on "a catalog bound to a source of its
+     * own keeps no catalog level grants anywhere, so there is nobody left to ask". That holds for an external
+     * source and not for this one: {@code access_controller.class = "default"} became a legal configuration
+     * in this release, and the built-in model does keep catalog level grants. Treating it like any other
+     * binding would answer yes for every account, including one holding nothing on the catalog.
+     */
+    @Test
+    public void testTheBuiltInModelNamedByACatalogIsStillAsked() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
+
+            Mockito.when(defaultAccessController.checkCtlPriv(
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("builtin_catalog")).thenReturn(catalog);
+            Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+            Mockito.when(catalog.getProperties()).thenReturn(ImmutableMap.of(
+                    CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, InternalAuthorizationPlugin.NAME));
+
+            Assert.assertFalse("a catalog naming the built-in model was exempted from its own grants",
+                    accessControllerManager.checkCtlPriv(userIdentity, "builtin_catalog", PrivPredicate.SELECT));
         }
     }
 
@@ -112,9 +160,8 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             Mockito.when(defaultAccessController.checkCtlPriv(
-                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -137,9 +184,8 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             Mockito.when(defaultAccessController.checkCtlPriv(
-                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(true);
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(true);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
@@ -161,9 +207,8 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             Mockito.when(defaultAccessController.checkCtlPriv(
-                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -187,7 +232,6 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
@@ -284,7 +328,7 @@ public class AccessControllerManagerTest {
             manager.createAccessController(newCatalog, "test-controller", ImmutableMap.of(), false);
             manager.removeAccessController("same_name", oldCatalog.getId());
 
-            Assert.assertSame(newController, manager.getAccessControllerOrDefault("same_name"));
+            Assert.assertSame(newController, controllerOf(manager, "same_name"));
         }
 
         Mockito.verify(oldController).close();
@@ -330,11 +374,164 @@ public class AccessControllerManagerTest {
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("fallback")).thenReturn(catalog);
 
-            Assert.assertSame(defaultAccessController, manager.getAccessControllerOrDefault("fallback"));
+            Assert.assertSame(defaultAccessController, controllerOf(manager, "fallback"));
             manager.removeAccessController("fallback", catalog.getId());
         }
 
         Mockito.verify(defaultAccessController, Mockito.never()).close();
+    }
+
+    /**
+     * The circumstances of a check come from the connection the caller handed over, not from the thread.
+     *
+     * <p>A check can run before its connection is installed on the thread - {@code BaseController.checkCookie}
+     * authorizes before it builds one - and a thread out of a pool carries whatever the request before it
+     * left behind, so reading the thread there yields not "no circumstances" but another client's.
+     */
+    @Test
+    public void testACheckSeesTheConnectionItWasGivenNotTheOneOnTheThread() {
+        AtomicReference<String> seenClientIp = new AtomicReference<>();
+        AccessControllerManager manager = new AccessControllerManager(new Auth());
+        Deencapsulation.setField(manager, "defaultAccessController", recordsClientIp(seenClientIp));
+
+        ConnectContext leftOnTheThread = new ConnectContext();
+        leftOnTheThread.setRemoteIP("10.0.0.1");
+        leftOnTheThread.setCurrentUserIdentity(UserIdentity.ROOT);
+        leftOnTheThread.setThreadLocalInfo();
+        try {
+            ConnectContext handedOver = new ConnectContext();
+            handedOver.setRemoteIP("10.0.0.2");
+            handedOver.setCurrentUserIdentity(UserIdentity.ROOT);
+
+            manager.checkGlobalPriv(handedOver, PrivPredicate.ADMIN);
+            Assert.assertEquals("10.0.0.2", seenClientIp.get());
+
+            // And the thread is still the fallback for the callers that have no connection to hand over.
+            seenClientIp.set(null);
+            manager.checkGlobalPriv(UserIdentity.ROOT, PrivPredicate.ADMIN);
+            Assert.assertEquals("10.0.0.1", seenClientIp.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    /**
+     * A checkpoint {@link Env} builds no authorization source, at startup or when it replays a CREATE CATALOG.
+     *
+     * <p>Such an {@code Env} only replays metadata to write an image; it authorizes nothing. A source, on the
+     * other hand, starts threads that nothing stops - a Ranger one starts a policy refresher and a policy
+     * download timer - and a checkpoint {@code Env} is built and discarded once per checkpoint round for as
+     * long as the FE runs, so one source per round accumulates without bound.
+     *
+     * <p>The configured source here names nothing this FE has: an ordinary manager refuses to start on that,
+     * so a constructor that swept and loaded anything at all could not reach the assertions below.
+     */
+    @Test
+    public void testACheckpointEnvBuildsNoAuthorizationSource() {
+        Config.access_controller_type = "a-source-no-fe-has";
+        Assert.assertThrows("a manager that authorizes for real must refuse a source it cannot find",
+                RuntimeException.class, () -> new AccessControllerManager(new Auth()));
+
+        AccessControllerManager manager = new AccessControllerManager(new Auth(), true);
+        AuthorizationPlugin governing = Deencapsulation.getField(manager, "defaultAccessController");
+        Assert.assertTrue("a checkpoint Env built something other than the built-in model: " + governing,
+                governing instanceof InternalAuthorizationPlugin);
+
+        ExternalCatalog replayed = mockCatalog("replayed_on_a_checkpoint", 40L);
+        withCurrentCatalog(replayed, () -> Assert.assertSame(governing,
+                manager.getAccessControllerOrDefault("replayed_on_a_checkpoint")));
+
+        Mockito.verify(replayed, Mockito.never()).initAccessController(Mockito.anyBoolean());
+        Assert.assertFalse(manager.checkIfAccessControllerExist("replayed_on_a_checkpoint"));
+    }
+
+    /**
+     * A question a source puts back to the engine while answering a check is about the same statement, so it
+     * carries that check's circumstances - not whatever connection happens to be on the thread.
+     *
+     * <p>The source bound to the catalog here defers to whoever governs instance scope, as both Ranger sources
+     * do, and the source that answers for instance scope decides from the client address. The check is handed a
+     * connection explicitly while the thread carries a different one, which is the shape of the HTTP paths: a
+     * check can run before its connection is installed on the thread, and a thread out of a pool carries
+     * whatever the request before it left behind.
+     */
+    @Test
+    public void testANestedGlobalScopeQuestionSeesTheContextOfTheCheck() {
+        AtomicReference<String> seenByTheAuthority = new AtomicReference<>();
+        AccessControllerManager manager = new AccessControllerManager(new Auth());
+        Deencapsulation.setField(manager, "defaultAccessController", recordsClientIp(seenByTheAuthority));
+        ConcurrentHashMap<String, AuthorizationPluginFactory> factories =
+                Deencapsulation.getField(manager, "authorizationPluginFactories");
+        factories.put(DEFERRING_SOURCE, defersToInstanceScope());
+
+        ExternalCatalog catalog = mockCatalog("bound_to_a_deferring_source", 50L);
+        ConnectContext leftOnTheThread = new ConnectContext();
+        leftOnTheThread.setRemoteIP("10.0.0.1");
+        leftOnTheThread.setCurrentUserIdentity(UserIdentity.ROOT);
+        leftOnTheThread.setThreadLocalInfo();
+        try {
+            withCurrentCatalog(catalog, () -> {
+                manager.createAccessController(catalog, DEFERRING_SOURCE, ImmutableMap.of(), false);
+                ConnectContext handedOver = new ConnectContext();
+                handedOver.setRemoteIP("10.0.0.2");
+                handedOver.setCurrentUserIdentity(UserIdentity.ROOT);
+
+                Assert.assertTrue(manager.checkTblPriv(handedOver, catalog.getName(), "db", "tbl",
+                        PrivPredicate.SELECT));
+            });
+
+            Assert.assertEquals("the nested question was answered about another connection",
+                    "10.0.0.2", seenByTheAuthority.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    private static final String DEFERRING_SOURCE = "defers-to-instance-scope";
+
+    /** A source of the current contract whose whole rule is "whoever governs instance scope decides". */
+    private static AuthorizationPluginFactory defersToInstanceScope() {
+        return new AuthorizationPluginFactory() {
+            @Override
+            public String name() {
+                return DEFERRING_SOURCE;
+            }
+
+            @Override
+            public AuthorizationPlugin create(Map<String, String> properties, AuthorizationContext context) {
+                return new AuthorizationPlugin() {
+                    @Override
+                    public String name() {
+                        return DEFERRING_SOURCE;
+                    }
+
+                    @Override
+                    public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                            AccessRequirement requirement, AccessContext checkContext)
+                            throws AccessDeniedException {
+                        if (!context.grantedByGlobalScopeAuthority(subject, requirement)) {
+                            throw AccessDeniedException.of(subject, resource, requirement, name());
+                        }
+                    }
+                };
+            }
+        };
+    }
+
+    /** A source that answers yes and remembers the client address it was told about. */
+    private static AuthorizationPlugin recordsClientIp(AtomicReference<String> seenClientIp) {
+        return new AuthorizationPlugin() {
+            @Override
+            public String name() {
+                return "records-client-ip";
+            }
+
+            @Override
+            public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                    AccessRequirement requirement, AccessContext context) {
+                seenClientIp.set(context.getClientIp().orElse(null));
+            }
+        };
     }
 
     private ExternalCatalog mockCatalog(String name, long id) {
@@ -355,9 +552,36 @@ public class AccessControllerManagerTest {
         }
     }
 
+    /**
+     * A column check naming no column is refused rather than answered.
+     *
+     * <p>Every source decides such a check by walking the columns, so an empty set is a loop with nothing in
+     * it - which each of them answers yes to by construction, each for a reason of its own. Not reachable from
+     * the planner, which branches to the table check when a statement reads no column in particular; reachable
+     * from {@code FrontendServiceImpl.checkAuth}, which takes the column list off the wire.
+     */
+    @Test
+    public void testAColumnCheckNamingNoColumnIsRefused() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        AccessControllerManager manager = createAccessControllerManager(defaultAccessController);
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+
+        Assert.assertThrows(AuthorizationException.class, () -> manager.checkColumnsPriv(userIdentity,
+                "internal", "db", "tbl", ImmutableSet.of(), PrivPredicate.SELECT));
+        Assert.assertThrows(AuthorizationException.class, () -> manager.checkColumnsPriv(userIdentity,
+                "internal", "db", "tbl", null, PrivPredicate.SELECT));
+    }
+
     private AccessControllerManager createAccessControllerManager(CatalogAccessController defaultAccessController) {
         AccessControllerManager accessControllerManager = new AccessControllerManager(new Auth());
-        Deencapsulation.setField(accessControllerManager, "defaultAccessController", defaultAccessController);
+        Deencapsulation.setField(accessControllerManager, "defaultAccessController",
+                new LegacyAccessControllerPlugin("mock", defaultAccessController,
+                        (subject, requirement, context) -> false));
         return accessControllerManager;
+    }
+
+    /** The controller behind an installed source; what the manager holds is the source, not the controller. */
+    private CatalogAccessController controllerOf(AccessControllerManager manager, String ctl) {
+        return ((LegacyAccessControllerPlugin) manager.getAccessControllerOrDefault(ctl)).getController();
     }
 }

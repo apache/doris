@@ -66,6 +66,7 @@ import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
@@ -151,6 +152,58 @@ public class FrontendServiceImplTest extends TestWithFeService {
             Assertions.assertTrue(appender.contains(Level.DEBUG, "priv_hier:GLOBAL"));
             Assertions.assertFalse(appender.contains(Level.DEBUG, "plain_text_secret"));
         }
+    }
+
+    /**
+     * A {@code checkAuth} request has to name what its hierarchy is about, and for everything below a catalog
+     * that includes the catalog.
+     *
+     * <p>Every name in {@code TPrivilegeCtrl} is optional in the IDL, and the names below a catalog end up in
+     * {@code AuthorizedResource}, whose constructors require them. Only the {@code COLUMNS} branch is
+     * exempt - it hard-codes the internal catalog and never reads the one the request carries. The in-repo BE
+     * only ever sends {@code GLOBAL}, so what this pins is what an external client gets: a refusal naming
+     * what it left out, rather than a thrift-level failure out of a null name deep inside.
+     */
+    @Test
+    public void testCheckAuthRefusesARequestThatNamesNoCatalog() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+        for (TPrivilegeHier hier : new TPrivilegeHier[] {TPrivilegeHier.DATABASE, TPrivilegeHier.TABLE}) {
+            TPrivilegeCtrl unnamed = new TPrivilegeCtrl();
+            unnamed.setPrivHier(hier);
+            unnamed.setDb("test");
+            unnamed.setTbl("whatever");
+
+            TStatus refused = impl.checkAuth(rootCheckAuthRequest(unnamed)).getStatus();
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, refused.getStatusCode(),
+                    "a " + hier + " check naming no catalog was answered rather than refused");
+            Assertions.assertTrue(String.valueOf(refused.getErrorMsgs()).contains("must name the catalog"),
+                    "a " + hier + " check naming no catalog failed on something other than the missing name: "
+                            + refused.getErrorMsgs());
+        }
+
+        // The same request with the catalog named is answered, so what the assertions above pin is the
+        // missing name and not the hierarchy being unsupported.
+        TPrivilegeCtrl named = new TPrivilegeCtrl();
+        named.setPrivHier(TPrivilegeHier.DATABASE);
+        named.setCtl(InternalCatalog.INTERNAL_CATALOG_NAME);
+        named.setDb("test");
+
+        TStatus answered = impl.checkAuth(rootCheckAuthRequest(named)).getStatus();
+
+        Assertions.assertEquals(TStatusCode.OK, answered.getStatusCode(),
+                "root was refused LOAD on a database it holds it on: " + answered.getErrorMsgs());
+    }
+
+    private static TCheckAuthRequest rootCheckAuthRequest(TPrivilegeCtrl privilegeCtrl) {
+        TCheckAuthRequest request = new TCheckAuthRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setUserIp("127.0.0.1");
+        request.setPrivCtrl(privilegeCtrl);
+        request.setPrivType(TPrivilegeType.LOAD);
+        return request;
     }
 
     @Test

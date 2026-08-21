@@ -18,6 +18,8 @@
 package org.apache.doris.common.cache;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -34,8 +36,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
@@ -82,8 +82,10 @@ import org.apache.logging.log4j.Logger;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -535,11 +537,11 @@ public class NereidsSqlCacheManager {
     }
 
     private boolean rowPoliciesChanged(UserIdentity currentUserIdentity, Env env, SqlCacheContext sqlCacheContext) {
-        for (Entry<FullTableName, List<RowFilterPolicy>> kv : sqlCacheContext.getRowPolicies().entrySet()) {
+        for (Entry<FullTableName, List<RowFilterSpec>> kv : sqlCacheContext.getRowPolicies().entrySet()) {
             FullTableName qualifiedTable = kv.getKey();
-            List<? extends RowFilterPolicy> cachedPolicies = kv.getValue();
+            List<RowFilterSpec> cachedPolicies = kv.getValue();
 
-            List<? extends RowFilterPolicy> rowPolicies = env.getAccessManager().evalRowFilterPolicies(
+            List<RowFilterSpec> rowPolicies = env.getAccessManager().evalRowFilterPolicies(
                     currentUserIdentity, qualifiedTable.catalog, qualifiedTable.db, qualifiedTable.table);
             if (!CollectionUtils.isEqualCollection(cachedPolicies, rowPolicies)) {
                 return true;
@@ -550,15 +552,29 @@ public class NereidsSqlCacheManager {
 
     private boolean dataMaskPoliciesChanged(
             UserIdentity currentUserIdentity, Env env, SqlCacheContext sqlCacheContext) {
-        for (Entry<FullColumnName, Optional<DataMaskPolicy>> kv : sqlCacheContext.getDataMaskPolicies().entrySet()) {
-            FullColumnName qualifiedColumn = kv.getKey();
-            Optional<DataMaskPolicy> cachedPolicy = kv.getValue();
-
-            Optional<DataMaskPolicy> dataMaskPolicy = env.getAccessManager()
-                    .evalDataMaskPolicy(currentUserIdentity, qualifiedColumn.catalog,
-                            qualifiedColumn.db, qualifiedColumn.table, qualifiedColumn.column);
-            if (!Objects.equals(cachedPolicy, dataMaskPolicy)) {
-                return true;
+        // Grouped by table so the source is asked once per table, not once per cached column - the same
+        // reason the planner asks that way. A hit has to re-check every column it planned with, so this runs
+        // on the cheapest path there is.
+        // Read once: the accessor is synchronized and copies the whole table, so asking twice pays for both
+        // on a path whose whole point is being cheap.
+        Map<FullColumnName, Optional<DataMaskSpec>> cached = sqlCacheContext.getDataMaskPolicies();
+        Map<FullTableName, Set<String>> columnsByTable = new LinkedHashMap<>();
+        for (FullColumnName qualifiedColumn : cached.keySet()) {
+            columnsByTable.computeIfAbsent(
+                    new FullTableName(qualifiedColumn.catalog, qualifiedColumn.db, qualifiedColumn.table),
+                    table -> new LinkedHashSet<>()).add(qualifiedColumn.column);
+        }
+        for (Entry<FullTableName, Set<String>> kv : columnsByTable.entrySet()) {
+            FullTableName table = kv.getKey();
+            Map<String, DataMaskSpec> masks = env.getAccessManager().evalDataMaskPolicies(
+                    currentUserIdentity, table.catalog, table.db, table.table, kv.getValue());
+            for (String column : kv.getValue()) {
+                Optional<DataMaskSpec> now = Optional.ofNullable(masks.get(column.toLowerCase(Locale.ROOT)));
+                FullColumnName qualifiedColumn =
+                        new FullColumnName(table.catalog, table.db, table.table, column);
+                if (!Objects.equals(cached.get(qualifiedColumn), now)) {
+                    return true;
+                }
             }
         }
         return false;

@@ -164,9 +164,12 @@ public class ShowRoutineLoadCommand extends ShowCommand {
         }
 
         if (routineLoadJobList != null) {
-            String tableName = null;
             for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
                 // check auth
+                // Scoped to this job: a job whose table metadata is gone leaves the name unset below, and a
+                // name left over from the previous job would have it decided against a table it has nothing
+                // to do with.
+                String tableName = null;
                 try {
                     tableName = routineLoadJob.getTableName();
                 } catch (MetaNotFoundException e) {
@@ -175,26 +178,22 @@ public class ShowRoutineLoadCommand extends ShowCommand {
                             + "The job will be cancelled automatically")
                             .build(), e);
                 }
-                if (routineLoadJob.isMultiTable()) {
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                            PrivPredicate.LOAD)) {
-                        LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
-                                "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
-                                .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
-                                .add("table_name", tableName).add("error_msg", "The database access denied"));
-                        continue;
-                    }
-                    rows.add(routineLoadJob.getShowInfo());
-                    continue;
-                }
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                        tableName, PrivPredicate.LOAD)) {
+                // A job can name no table at all: a multi table one never does, and neither does one whose
+                // table has since been dropped, which is ordinary here because SHOW ALL ROUTINE LOAD lists
+                // history. Both have to be decided on the database or above - the rule createRoutineLoadJob()
+                // and checkPrivAndGetJob() already apply, and what the absent name used to reduce to.
+                boolean namesNoTable = tableName == null;
+                boolean allowed = namesNoTable
+                        ? Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                                InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName, PrivPredicate.LOAD)
+                        : Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                                InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName, tableName, PrivPredicate.LOAD);
+                if (!allowed) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
                             "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
                             .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
-                            .add("table_name", tableName).add("error_msg", "The table access denied"));
+                            .add("table_name", tableName).add("error_msg",
+                            namesNoTable ? "The database access denied" : "The table access denied"));
                     continue;
                 }
                 // get routine load info

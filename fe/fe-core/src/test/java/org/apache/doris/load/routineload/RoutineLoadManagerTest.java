@@ -951,4 +951,116 @@ public class RoutineLoadManagerTest {
         interval = ScheduleRule.calAutoResumeInterval(jobRoutine);
         Assert.assertEquals(maxBackOffTimeSec, interval);
     }
+
+    /**
+     * Creating a multi table job needs LOAD on the database: it names no table, so there is no table-level
+     * grant that could stand for it.
+     *
+     * <p>The table-level grant is allowed here on purpose, and the job still has to be refused: asking for a
+     * table privilege on a job with no table is a check against the empty string, which is not a table anybody
+     * grants on - and refusing on the database-scoped code is what makes the error name the database instead of
+     * reporting {@code for table 'db1'}.
+     */
+    @Test
+    public void testCreatingAMultiTableJobNeedsTheDatabaseLevelGrant() throws Exception {
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Env env = Mockito.mock(Env.class);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), "topic1");
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), "http://127.0.0.1:8080");
+        LoadSeparator loadSeparator = new LoadSeparator(",");
+        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
+        loadPropertyMap.put(loadSeparator.getClass().getName(), loadSeparator);
+        // No table named: that is what makes it a multi table job.
+        CreateRoutineLoadInfo multiTableInfo = new CreateRoutineLoadInfo(new LabelNameInfo("db1", "job1"), "",
+                loadPropertyMap, properties, LoadDataSourceType.KAFKA.name(), customProperties,
+                LoadTask.MergeType.APPEND, "");
+        Assert.assertTrue(multiTableInfo.isMultiTable());
+        // Resolved by checkDBTable(), which needs a real catalog; the check under test only reads it.
+        Deencapsulation.setField(multiTableInfo, "dbName", "db1");
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            Mockito.when(connectContext.getState()).thenReturn(new org.apache.doris.qe.QueryState());
+            Mockito.when(connectContext.getQualifiedUser()).thenReturn("user1");
+            Mockito.when(connectContext.getRemoteIP()).thenReturn("192.168.1.1");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            // Held on the table, and deliberately not on the database.
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.nullable(String.class),
+                    Mockito.any(PrivPredicate.class))).thenReturn(true);
+            Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            AnalysisException refused = Assert.assertThrows(AnalysisException.class,
+                    () -> routineLoadManager.createRoutineLoadJob(multiTableInfo, connectContext));
+            Assert.assertTrue("the refusal must name the database, not a table nobody granted on: "
+                    + refused.getMessage(), refused.getMessage().contains("database 'db1'"));
+            Mockito.verify(accessManager).checkDbPriv(Mockito.nullable(ConnectContext.class),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD));
+        }
+    }
+
+    /**
+     * A multi table job names no table, so LOAD has to be held on the database or above.
+     *
+     * <p>Three places check a job's privileges - the create path, {@code checkPrivAndGetJob()} behind
+     * PAUSE/RESUME/STOP of one job, and {@code checkPrivAndGetAllJobs()} behind PAUSE/RESUME ALL - and the
+     * rule has to be the same in all three. The last one is what this pins: it used to ask
+     * {@code !job.isMultiTable() && !checkTblPriv(...)}, whose {@code &&} short-circuits for a multi table
+     * job, so the job went back to the caller with no check performed at all. The table-level grant below is
+     * granted on purpose: it must not be what lets the job through.
+     */
+    @Test
+    public void testMultiTableJobsAreFilteredByTheDatabaseLevelGrant() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        RoutineLoadJob multiTableJob = Mockito.mock(RoutineLoadJob.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+
+            Mockito.doReturn(database).when(catalog).getDbOrDdlException("db1");
+            Mockito.when(database.getId()).thenReturn(1L);
+            Mockito.when(multiTableJob.getState()).thenReturn(RoutineLoadJob.JobState.RUNNING);
+            Mockito.when(multiTableJob.isMultiTable()).thenReturn(true);
+            Mockito.when(multiTableJob.getTableName()).thenReturn(null);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.nullable(String.class),
+                    Mockito.any(PrivPredicate.class))).thenReturn(true);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            nameToRoutineLoadJob.put("job1", Lists.newArrayList(multiTableJob));
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+            Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
+            Assert.assertTrue("a multi table job reached a caller holding no database level LOAD",
+                    routineLoadManager.checkPrivAndGetAllJobs("db1").isEmpty());
+
+            Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(true);
+            Assert.assertEquals(Lists.newArrayList(multiTableJob),
+                    routineLoadManager.checkPrivAndGetAllJobs("db1"));
+        }
+    }
 }
