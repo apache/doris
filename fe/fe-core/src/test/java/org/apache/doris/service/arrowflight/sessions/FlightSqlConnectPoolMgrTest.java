@@ -43,7 +43,7 @@ public class FlightSqlConnectPoolMgrTest {
         // The deferred coordinators must be released on teardown even though this connection was
         // never registered in the pool (an abandoned connection is still cleaned up, not leaked).
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
     }
 
     // Cleanup must run before the connection bookkeeping (closeTxn / map removal), so that a failure
@@ -63,7 +63,7 @@ public class FlightSqlConnectPoolMgrTest {
         poolMgr.unregisterConnection(ctx);
 
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
         Assert.assertNull(poolMgr.getConnectionMap().get(7));
     }
 }

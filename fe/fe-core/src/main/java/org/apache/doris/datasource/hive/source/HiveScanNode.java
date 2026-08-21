@@ -94,6 +94,7 @@ public class HiveScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
     protected final HMSExternalTable hmsTable;
+    private final long hmsRuntimeGeneration;
     private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
@@ -127,12 +128,14 @@ public class HiveScanNode extends FileQueryScanNode {
             DirectoryLister directoryLister, ScanContext scanContext) {
         super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
+        hmsRuntimeGeneration = ((HMSExternalCatalog) hmsTable.getCatalog()).getRuntimeGeneration();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
     }
 
     @Override
     protected void doInitialize() throws UserException {
+        ensureHmsRuntimeGeneration();
         super.doInitialize();
 
         if (hmsTable.isHiveTransactionalTable()) {
@@ -141,6 +144,13 @@ public class HiveScanNode extends FileQueryScanNode {
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
             skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
+        }
+        ensureHmsRuntimeGeneration();
+    }
+
+    private void ensureHmsRuntimeGeneration() {
+        if (((HMSExternalCatalog) hmsTable.getCatalog()).getRuntimeGeneration() != hmsRuntimeGeneration) {
+            throw new IllegalStateException("HMS catalog properties changed while planning the Hive scan; retry");
         }
     }
 
@@ -153,6 +163,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
+        ensureHmsRuntimeGeneration();
         long startTime = System.currentTimeMillis();
         List<HivePartition> resPartitions = Lists.newArrayList();
         try {
@@ -191,6 +202,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
                 getSummaryProfile().setGetPartitionsFinishTime();
             }
+            ensureHmsRuntimeGeneration();
             return resPartitions;
         } catch (RuntimeException e) {
             if (getSummaryProfile() != null) {
@@ -202,6 +214,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        ensureHmsRuntimeGeneration();
         long start = System.currentTimeMillis();
         try {
             if (!partitionInit) {
@@ -221,6 +234,7 @@ public class HiveScanNode extends FileQueryScanNode {
                         allFiles.size(), hmsTable.getDbName(), hmsTable.getName(),
                         (System.currentTimeMillis() - start));
             }
+            ensureHmsRuntimeGeneration();
             return allFiles;
         } catch (Throwable t) {
             LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);
@@ -232,6 +246,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public void startSplit(int numBackends) {
+        ensureHmsRuntimeGeneration();
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
             return;
@@ -251,6 +266,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     splittersOnFlight.acquire();
                     CompletableFuture.runAsync(() -> {
                         try {
+                            ensureHmsRuntimeGeneration();
                             List<Split> allFiles = Lists.newArrayList();
                             getFileSplitByPartitions(
                                     cache, Collections.singletonList(partition), allFiles, bindBrokerName,
@@ -259,6 +275,7 @@ public class HiveScanNode extends FileQueryScanNode {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
                             if (splitAssignment.needMoreSplit()) {
+                                ensureHmsRuntimeGeneration();
                                 splitAssignment.addToQueue(allFiles);
                             }
                         } catch (Exception e) {
@@ -335,7 +352,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 List<FileCacheValue> currentFileCaches = cache.getFilesByPartitions(partitions, true,
                         partitions.size() > 1, directoryLister, hmsTable);
                 HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
-                        hmsTable.getCatalog().getId(), hmsTable.getId(), partitions,
+                        hmsTable.getCatalog().getId(), hmsTable.getId(), hmsRuntimeGeneration, partitions,
                         cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()), currentFileCaches);
                 try {
                     fileCaches = getOrLoadExternalScanTasks(cacheKey,
@@ -516,14 +533,17 @@ public class HiveScanNode extends FileQueryScanNode {
             implements ExternalScanTaskCacheKey<FileCacheValue> {
         private final long catalogId;
         private final long tableId;
+        private final long hmsRuntimeGeneration;
         private final List<HivePartitionCacheKey> partitions;
         private final long fileCacheInvalidationGeneration;
         private final List<Long> fileCacheValueGenerations;
 
-        private HiveFileScanTaskCacheKey(long catalogId, long tableId, List<HivePartition> partitions,
+        private HiveFileScanTaskCacheKey(long catalogId, long tableId, long hmsRuntimeGeneration,
+                List<HivePartition> partitions,
                 long fileCacheInvalidationGeneration, List<FileCacheValue> fileCaches) {
             this.catalogId = catalogId;
             this.tableId = tableId;
+            this.hmsRuntimeGeneration = hmsRuntimeGeneration;
             this.partitions = partitions.stream()
                     .map(HivePartitionCacheKey::new)
                     .collect(Collectors.toList());
@@ -544,6 +564,7 @@ public class HiveScanNode extends FileQueryScanNode {
             HiveFileScanTaskCacheKey that = (HiveFileScanTaskCacheKey) object;
             return catalogId == that.catalogId
                     && tableId == that.tableId
+                    && hmsRuntimeGeneration == that.hmsRuntimeGeneration
                     && fileCacheInvalidationGeneration == that.fileCacheInvalidationGeneration
                     && fileCacheValueGenerations.equals(that.fileCacheValueGenerations)
                     && partitions.equals(that.partitions);
@@ -551,7 +572,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogId, tableId, partitions, fileCacheInvalidationGeneration,
+            return Objects.hash(catalogId, tableId, hmsRuntimeGeneration, partitions, fileCacheInvalidationGeneration,
                     fileCacheValueGenerations);
         }
     }
@@ -622,6 +643,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        ensureHmsRuntimeGeneration();
         if (split instanceof  HiveSplit) {
             HiveSplit hiveSplit = (HiveSplit) split;
             if (hiveSplit.isACID()) {
@@ -684,6 +706,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
+        ensureHmsRuntimeGeneration();
         return hmsTable.getBackendStorageProperties();
     }
 

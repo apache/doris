@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -81,6 +82,19 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private final IcebergCatalogResourceTracker icebergResourceTracker = new IcebergCatalogResourceTracker();
 
     private volatile AbstractHiveProperties hmsProperties;
+    private final AtomicLong runtimeGeneration = new AtomicLong();
+
+    public long getRuntimeGeneration() {
+        return runtimeGeneration.get();
+    }
+
+    @Override
+    public synchronized void modifyCatalogProps(Map<String, String> props) {
+        // Fence scans before the mutable CatalogProperty is changed. super invokes resetToUninitialized while
+        // this monitor is still held, so no scan can capture the new properties with the old generation.
+        runtimeGeneration.incrementAndGet();
+        super.modifyCatalogProps(props);
+    }
 
     /**
      * Lazily initializes HMSProperties from catalog properties.
@@ -267,6 +281,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
+        runtimeGeneration.incrementAndGet();
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
         Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         super.resetToUninitialized(invalidCache);
     }

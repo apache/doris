@@ -127,6 +127,27 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testArrowFlightFinalizesImmediatelyWhenSessionTeardownSealedRegistration() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        StatementContext statementContext = connectContext.getStatementContext();
+        AtomicInteger resourceCloseCount = new AtomicInteger();
+        statementContext.getOrRegisterStatementResource("hudi-batch-owner",
+                () -> resourceCloseCount::incrementAndGet);
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        stmtExecutor.setCoord(coord);
+
+        connectContext.sealAndCloseFlightSqlDeferredExecutors();
+        stmtExecutor.deferArrowFlightQuery();
+
+        Assert.assertEquals(1, resourceCloseCount.get());
+        Mockito.verify(coord).close();
+        statementContext.close();
+        Assert.assertEquals("the ordinary statement cleanup must not double-close detached resources",
+                1, resourceCloseCount.get());
+    }
+
+    @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
