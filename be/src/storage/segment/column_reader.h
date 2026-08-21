@@ -195,21 +195,14 @@ public:
 
     virtual bool has_zone_map() const { return _zone_map_index != nullptr; }
     bool has_bloom_filter_index(bool ngram) const;
-    // Check if this column could match `cond' using segment zone map.
-    // Since segment zone map is stored in metadata, this function is fast without I/O.
-    // set matched to true if segment zone map is absent or `cond' could be satisfied, false otherwise.
-    virtual Status match_condition(const AndBlockColumnPredicate* col_predicates,
-                                   bool* matched) const;
-
     Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const;
 
-    // get row ranges with zone map
-    // - cond_column is user's query predicate
-    // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(
-            const AndBlockColumnPredicate* col_predicates,
-            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts);
+    // How many page zone maps this column has, loading the indexes they need. Reports 0 when the
+    // column has no zone map. Call this before get_page_zone_map().
+    Status get_page_zone_map_count(const ColumnIteratorOptions& iter_opts, size_t* count);
+
+    // One page: the rows it covers and its decoded zone map.
+    Status get_page_zone_map(size_t page_index, RowRange* rows, segment_v2::ZoneMap* zone_map);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -220,14 +213,8 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
-    Status prune_predicates_by_zone_map(std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                        const int column_id, bool* pruned) const;
-
+    // The one zone map that covers this whole segment. Callers judge it themselves.
     virtual Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const;
-    Status get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
-                              const std::vector<ZoneMapPB>** zone_maps);
-    Status get_row_range_for_page(uint32_t page_index, const ColumnIteratorOptions& iter_opts,
-                                  RowRange* row_range);
 
     CompressionTypePB get_compression() const { return _meta_compression; }
 
@@ -273,17 +260,6 @@ private:
                                      uint32_t segment_id, size_t rows_of_segment);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
-
-    bool _zone_map_match_condition(const segment_v2::ZoneMap& zone_map,
-                                   const AndBlockColumnPredicate* col_predicates) const;
-
-    Status _get_filtered_pages(
-            const AndBlockColumnPredicate* col_predicates,
-            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
-
-    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
-                                 const ColumnIteratorOptions& iter_opts);
 
     int64_t _meta_length;
     FieldType _meta_type;
@@ -361,11 +337,16 @@ public:
 
     virtual ordinal_t get_current_ordinal() const = 0;
 
-    virtual Status get_row_ranges_by_zone_map(
-            const AndBlockColumnPredicate* col_predicates,
-            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) {
+    // Page zone maps of the column this iterator reads. Iterators that resolve to another
+    // reader (variant subcolumns) forward to it, so callers always reach the real zone map.
+    virtual Status get_page_zone_map_count(size_t* count) {
+        *count = 0;
         return Status::OK();
+    }
+
+    virtual Status get_page_zone_map(size_t page_index, RowRange* rows,
+                                     segment_v2::ZoneMap* zone_map) {
+        return Status::NotSupported("get_page_zone_map is not implemented");
     }
 
     virtual Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -544,13 +525,10 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
-    // get row ranges by zone map
-    // - cond_column is user's query predicate
-    // - delete_condition is delete predicate of one version
-    Status get_row_ranges_by_zone_map(
-            const AndBlockColumnPredicate* col_predicates,
-            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) override;
+    Status get_page_zone_map_count(size_t* count) override;
+
+    Status get_page_zone_map(size_t page_index, RowRange* rows,
+                             segment_v2::ZoneMap* zone_map) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;
@@ -1051,9 +1029,6 @@ public:
     FieldType get_meta_type() override {
         return primitive_type_to_storage_field_type(_value.get_type());
     }
-
-    Status match_condition(const AndBlockColumnPredicate* col_predicates,
-                           bool* matched) const override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
                         const StorageReadOptions* /*opt*/) override {

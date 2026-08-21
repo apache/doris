@@ -303,7 +303,8 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
-    bool matched = single_column_block_pred.evaluate_and(zone_map_info);
+    const bool matched = single_column_block_pred.evaluate_zonemap_filter(zone_map_info) !=
+                         ZoneMapFilterResult::kNoMatch;
     EXPECT_EQ(matched, expect_match);
 }
 
@@ -315,7 +316,8 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
-    bool matched = single_column_block_pred.evaluate_and(zone_map_info);
+    const bool matched = single_column_block_pred.evaluate_zonemap_filter(zone_map_info) !=
+                         ZoneMapFilterResult::kNoMatch;
     EXPECT_EQ(matched, expect_match);
 }
 
@@ -2705,8 +2707,8 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 // Verifies the core algorithm of SegmentIterator::_can_prune_segment_by_tso: on a
 // single-version binlog segment the tso column (__DORIS_BINLOG_TSO__) is replaced at
 // read time with a constant commit_tso, so whole-segment pruning is decided by matching the
-// tso predicates against a degenerate zonemap (min == max == commit_tso). evaluate_and()
-// returns false iff commit_tso fails the predicates, i.e. the whole segment can be pruned.
+// tso predicates against a degenerate zonemap (min == max == commit_tso). kNoMatch means
+// commit_tso fails the predicates, i.e. the whole segment can be pruned.
 TEST_F(BlockColumnPredicateTest, tso_whole_segment_prune_by_commit_tso) {
     // The user-visible raw commit tso (~4.66e17). Physical time part is ~1.78e12.
     constexpr int64_t kCommitTso = 466872251335573505L;
@@ -2719,7 +2721,8 @@ TEST_F(BlockColumnPredicateTest, tso_whole_segment_prune_by_commit_tso) {
     };
     // Mirrors _can_prune_segment_by_tso: returns true if the segment can be pruned.
     auto can_prune = [&](const AndBlockColumnPredicate& preds) {
-        return !preds.evaluate_and(make_tso_zone_map(kCommitTso));
+        return preds.evaluate_zonemap_filter(make_tso_zone_map(kCommitTso)) ==
+               ZoneMapFilterResult::kNoMatch;
     };
 
     auto make_gt = [](int64_t value) {

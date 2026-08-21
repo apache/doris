@@ -176,7 +176,6 @@ private:
     RuntimeProfile::Counter* _output_col_timer = nullptr;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
-    RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     // Number of whole segments skipped by expression ZoneMap evaluation.
     RuntimeProfile::Counter* _expr_zonemap_filtered_segment_counter = nullptr;
     // Number of pages skipped by expression ZoneMap evaluation after page index ranges are built.

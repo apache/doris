@@ -388,9 +388,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
 
     read_options.stats->total_segment_number++;
+    // Predicates the segment zone map proves true for every row here. They are dropped from the
+    // read options further down, once the iterator exists.
+    std::set<const ColumnPredicate*> always_true_predicates;
+
     // trying to prune the current segment by segment-level zone map
     for (const auto& entry : read_options.col_id_to_predicates) {
         int32_t column_id = entry.first;
+        // Every predicate on this column, ANDed together.
+        const auto& col_predicates = entry.second;
         // schema change
         if (_tablet_schema->num_columns() <= column_id) {
             continue;
@@ -406,6 +412,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             column_id == schema->commit_tso_col_idx() && read_options.commit_tso.end_tso() != -1) {
             const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
         }
+        // A zone map made up from a read-time constant is good enough to rule the whole segment
+        // out, but dropping a predicate is only done on evidence from stored data.
+        const bool can_drop_predicate = !const_value.has_value();
         Status st = get_column_reader(col, &reader, read_options.stats, &read_options.io_ctx,
                                       std::move(const_value));
         // not found in this segment, skip
@@ -421,39 +430,57 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         // Placeholder tso column on a single-version binlog segment: its zonemap reflects the
         // NULL placeholder (replaced with commit_tso at read time), so skip pruning by
         // zonemap (min == max == commit_tso) and reuse the predicate's own zonemap matching:
-        // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
-        // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
-        // support zonemap return true (conservative: not pruned, row-level eval handles them).
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            is_tso_placeholder_col(column_id, *schema, read_options)) {
+        // kNoMatch means no value in [min, max] can satisfy the predicates, i.e. commit_tso fails
+        // them and the whole segment can be pruned. Predicates that don't support zonemap report
+        // kMayMatch (conservative: not pruned, row-level eval handles them).
+        if (is_tso_placeholder_col(column_id, *schema, read_options)) {
             const Int64 commit_tso =
                     read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
             ZoneMap zone_map;
             zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
             zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
             zone_map.has_not_null = true;
-            if (!entry.second->evaluate_and(zone_map)) {
+            if (col_predicates->evaluate_zonemap_filter(zone_map) ==
+                ZoneMapFilterResult::kNoMatch) {
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
                 read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
+            // The zone map above is made up rather than read from disk, so it must not drop
+            // a predicate either.
             continue;
         }
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            can_apply_predicate_safely(column_id, *schema,
-                                       read_options.target_cast_type_for_variants, read_options)) {
-            bool matched = true;
-            RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
-            if (!matched) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                read_options.stats->rows_stats_filtered += num_rows();
-                return Status::OK();
+        if (!can_apply_predicate_safely(column_id, *schema,
+                                        read_options.target_cast_type_for_variants, read_options)) {
+            continue;
+        }
+
+        ZoneMap zone_map;
+        RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+        if (col_predicates->evaluate_zonemap_filter(zone_map) == ZoneMapFilterResult::kNoMatch) {
+            // any condition not satisfied, return.
+            *iter = std::make_unique<EmptySegmentIterator>(*schema);
+            read_options.stats->filtered_segment_number++;
+            read_options.stats->rows_stats_filtered += num_rows();
+            return Status::OK();
+        }
+        // The group above answers for the column as a whole. Dropping needs to know which single
+        // predicate the zone map proves redundant, which only a per-predicate answer can tell.
+        if (can_drop_predicate) {
+            for (const auto& predicate : read_options.column_predicates) {
+                if (predicate->column_id() == column_id &&
+                    predicate->evaluate_zonemap_filter(zone_map) ==
+                            ZoneMapFilterResult::kAllMatch) {
+                    always_true_predicates.insert(predicate.get());
+                }
             }
         }
     }
+
+    // Marks the pushed-down conjuncts the segment zone map proves true for every row. They are
+    // dropped from the read options further down, together with the always-true predicates.
+    std::vector<bool> always_true_conjuncts;
 
     // Segment-level expr-zonemap runs before SegmentIterator can rebind storage expressions to
     // the reader schema. Only apply it when scan tuple slot ordinals already match this schema.
@@ -462,8 +489,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         ZoneMapEvalContext ctx;
         RETURN_IF_ERROR(build_segment_zonemap_context(
                 this, *schema, read_options, read_options.common_expr_ctxs_push_down, &ctx));
-        const auto result =
-                VExprContext::evaluate_zonemap_filter(read_options.common_expr_ctxs_push_down, ctx);
+        const auto result = VExprContext::evaluate_zonemap_filter(
+                read_options.common_expr_ctxs_push_down, ctx, &always_true_conjuncts);
         ctx.stats.accumulate_to(read_options.stats);
         if (result == ZoneMapFilterResult::kNoMatch) {
             *iter = std::make_unique<EmptySegmentIterator>(*schema);
@@ -486,26 +513,21 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
-    // TODO: Valid the opt not only in ReaderType::READER_QUERY
-    if (read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
-        !read_options.column_predicates.empty()) {
-        auto pruned_predicates = read_options.column_predicates;
-        auto pruned = false;
-        for (auto& it : _column_reader_cache->get_available_readers(false)) {
-            const auto uid = it.first;
-            const auto column_id = read_options.tablet_schema->field_index(uid);
-            bool tmp_pruned = false;
-            RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, column_id,
-                                                                    &tmp_pruned));
-            pruned |= tmp_pruned;
-        }
-
-        if (pruned) {
-            auto options_with_pruned_predicates = read_options;
-            options_with_pruned_predicates.column_predicates = pruned_predicates;
+    const bool has_always_true_conjunct = std::ranges::any_of(
+            always_true_conjuncts, [](bool always_true) { return always_true; });
+    if (!always_true_predicates.empty() || has_always_true_conjunct) {
+        auto options_with_pruned_predicates = read_options;
+        if (!always_true_predicates.empty()) {
+            auto& pruned_predicates = options_with_pruned_predicates.column_predicates;
+            pruned_predicates.erase(
+                    std::remove_if(pruned_predicates.begin(), pruned_predicates.end(),
+                                   [&](const std::shared_ptr<ColumnPredicate>& pred) {
+                                       return always_true_predicates.contains(pred.get());
+                                   }),
+                    pruned_predicates.end());
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
-            for (auto pred : options_with_pruned_predicates.column_predicates) {
+            for (auto pred : pruned_predicates) {
                 if (!options_with_pruned_predicates.col_id_to_predicates.contains(
                             pred->column_id())) {
                     options_with_pruned_predicates.col_id_to_predicates.insert(
@@ -524,8 +546,19 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                     options_with_pruned_predicates.zonemap_always_true_pred_cols.insert(pred_cid);
                 }
             }
-            return iter->get()->init(options_with_pruned_predicates);
         }
+        if (has_always_true_conjunct) {
+            auto& conjuncts = options_with_pruned_predicates.common_expr_ctxs_push_down;
+            VExprContextSPtrs kept_conjuncts;
+            kept_conjuncts.reserve(conjuncts.size());
+            for (size_t i = 0; i < conjuncts.size(); ++i) {
+                if (!always_true_conjuncts[i]) {
+                    kept_conjuncts.emplace_back(conjuncts[i]);
+                }
+            }
+            conjuncts = std::move(kept_conjuncts);
+        }
+        return iter->get()->init(options_with_pruned_predicates);
     }
     return iter->get()->init(read_options);
 }
