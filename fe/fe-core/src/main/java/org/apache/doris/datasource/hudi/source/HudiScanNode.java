@@ -37,6 +37,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiFsViewCacheValue;
@@ -119,6 +120,7 @@ public class HudiScanNode extends HiveScanNode {
     private List<String> columnTypes;
     private List<String> partitionColumnNames;
     private String storagePropertiesFingerprint;
+    private final long hmsRuntimeGeneration;
 
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
@@ -153,6 +155,7 @@ public class HudiScanNode extends HiveScanNode {
             SessionVariable sv, DirectoryLister directoryLister, ScanContext scanContext) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE,
                 needCheckColumnPriv, sv, directoryLister, scanContext);
+        hmsRuntimeGeneration = ((HMSExternalCatalog) hmsTable.getCatalog()).getRuntimeGeneration();
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {
@@ -179,6 +182,7 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        ensureHmsRuntimeGeneration();
         ExternalTable table = (ExternalTable) desc.getTable();
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
         if (table.isView()) {
@@ -256,10 +260,18 @@ public class HudiScanNode extends HiveScanNode {
         // and `the file column name`.
         // Split planning and FE-BE schema transport must describe the same pinned Hudi instant.
         ExternalUtil.initSchemaInfo(params, -1L, table.getFullSchema(relationSnapshot));
+        ensureHmsRuntimeGeneration();
+    }
+
+    private void ensureHmsRuntimeGeneration() {
+        if (((HMSExternalCatalog) hmsTable.getCatalog()).getRuntimeGeneration() != hmsRuntimeGeneration) {
+            throw new IllegalStateException("HMS catalog properties changed while planning the Hudi scan; retry");
+        }
     }
 
     @Override
     protected Map<String, String> getLocationProperties() {
+        ensureHmsRuntimeGeneration();
         if (incrementalRead) {
             return incrementalRelation.getHoodieParams();
         } else {
@@ -276,6 +288,7 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        ensureHmsRuntimeGeneration();
         if (split instanceof HudiSplit) {
             HudiSplit hudiSplit = (HudiSplit) split;
             if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI
@@ -456,7 +469,7 @@ public class HudiScanNode extends HiveScanNode {
         List<HudiSplit> plannedSplits;
         if (useStatementCache) {
             HudiFileScanTaskCacheKey cacheKey = new HudiFileScanTaskCacheKey(
-                    hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
+                    hmsTable.getCatalog().getId(), hmsTable.getId(), hmsRuntimeGeneration, queryInstant,
                     canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(),
                     basePath, inputFormat, serdeLib, columnNames, columnTypes,
                     partitionColumnNames, storagePropertiesFingerprint, partition);
@@ -527,7 +540,9 @@ public class HudiScanNode extends HiveScanNode {
             try {
                 acceptedTasks.add(CompletableFuture.runAsync(() -> {
                     try {
+                        ensureHmsRuntimeGeneration();
                         getPartitionSplits(partition, splits);
+                        ensureHmsRuntimeGeneration();
                     } catch (Throwable t) {
                         throwable.compareAndSet(null, t);
                     }
@@ -553,6 +568,7 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        ensureHmsRuntimeGeneration();
         acquireFsView();
         try {
             if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
@@ -564,6 +580,7 @@ public class HudiScanNode extends HiveScanNode {
                 getPartitionsSplits(prunedPartitions, splits);
                 return null;
             });
+            ensureHmsRuntimeGeneration();
             return splits;
         } catch (Exception e) {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -573,6 +590,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private void initPrunedPartitions() throws UserException {
+        ensureHmsRuntimeGeneration();
         if (partitionInit) {
             return;
         }
@@ -587,10 +605,12 @@ public class HudiScanNode extends HiveScanNode {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
         }
         partitionInit = true;
+        ensureHmsRuntimeGeneration();
     }
 
     @Override
     public void startSplit(int numBackends) {
+        ensureHmsRuntimeGeneration();
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
             releaseFsViewOnce();
@@ -627,6 +647,7 @@ public class HudiScanNode extends HiveScanNode {
         };
         TerminalTask producerTask = terminalTask(() -> {
             try {
+                ensureHmsRuntimeGeneration();
                 for (HivePartition partition : prunedPartitions) {
                     if (batchException.get() != null || splitAssignment.isStop()) {
                         break;
@@ -645,12 +666,14 @@ public class HudiScanNode extends HiveScanNode {
                     pendingTasks.incrementAndGet();
                     TerminalTask partitionTask = terminalTask(() -> {
                         try {
+                            ensureHmsRuntimeGeneration();
                             List<Split> allFiles = Lists.newArrayList();
                             getPartitionSplits(partition, allFiles, false);
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
                             if (splitAssignment.needMoreSplit()) {
+                                ensureHmsRuntimeGeneration();
                                 splitAssignment.addToQueue(allFiles);
                             }
                         } catch (Throwable t) {
@@ -832,6 +855,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private HudiSplit generateHudiSplit(FileSlice fileSlice, List<String> partitionValues, String queryInstant) {
+        ensureHmsRuntimeGeneration();
         Optional<HoodieBaseFile> baseFile = fileSlice.getBaseFile().toJavaOptional();
         String filePath = baseFile.map(BaseFile::getPath).orElse("");
         long fileSize = baseFile.map(BaseFile::getFileSize).orElse(0L);
@@ -893,6 +917,7 @@ public class HudiScanNode extends HiveScanNode {
             implements ExternalScanTaskCacheKey<HudiSplit> {
         private final long catalogId;
         private final long tableId;
+        private final long hmsRuntimeGeneration;
         private final String queryInstant;
         private final boolean nativeReader;
         private final boolean runtimePartitionPrune;
@@ -908,12 +933,13 @@ public class HudiScanNode extends HiveScanNode {
         private final List<String> partitionValues;
 
         private HudiFileScanTaskCacheKey(
-                long catalogId, long tableId, String queryInstant, boolean nativeReader,
+                long catalogId, long tableId, long hmsRuntimeGeneration, String queryInstant, boolean nativeReader,
                 boolean runtimePartitionPrune, String basePath, String tableInputFormat,
                 String serdeLib, List<String> columnNames, List<String> columnTypes,
                 List<String> partitionColumnNames, String storagePropertiesFingerprint, HivePartition partition) {
             this.catalogId = catalogId;
             this.tableId = tableId;
+            this.hmsRuntimeGeneration = hmsRuntimeGeneration;
             this.queryInstant = queryInstant;
             this.nativeReader = nativeReader;
             this.runtimePartitionPrune = runtimePartitionPrune;
@@ -941,6 +967,7 @@ public class HudiScanNode extends HiveScanNode {
             HudiFileScanTaskCacheKey that = (HudiFileScanTaskCacheKey) object;
             return catalogId == that.catalogId
                     && tableId == that.tableId
+                    && hmsRuntimeGeneration == that.hmsRuntimeGeneration
                     && nativeReader == that.nativeReader
                     && runtimePartitionPrune == that.runtimePartitionPrune
                     && Objects.equals(queryInstant, that.queryInstant)
@@ -959,7 +986,7 @@ public class HudiScanNode extends HiveScanNode {
         @Override
         public int hashCode() {
             return Objects.hash(
-                    catalogId, tableId, queryInstant, nativeReader, runtimePartitionPrune,
+                    catalogId, tableId, hmsRuntimeGeneration, queryInstant, nativeReader, runtimePartitionPrune,
                     basePath, tableInputFormat, serdeLib, columnNames, columnTypes,
                     partitionColumnNames, storagePropertiesFingerprint, inputFormat, path, partitionValues);
         }
