@@ -56,6 +56,8 @@ struct ParquetColumnReaderProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_merged_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_residual_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
@@ -168,6 +170,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* variant_leaf_projections = nullptr;
     // Row-group outcomes for candidate Variant projections, counted per projected column opened.
     RuntimeProfile::Counter* variant_leaf_projection_row_group_columns = nullptr;
+    RuntimeProfile::Counter* variant_residual_projection_row_group_columns = nullptr;
     RuntimeProfile::Counter* variant_full_projection_row_group_columns = nullptr;
 
     // ======== Page Skip ========
@@ -204,6 +207,8 @@ struct ParquetProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_merged_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_residual_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
