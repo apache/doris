@@ -1905,21 +1905,25 @@ TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection
     EXPECT_FALSE(row_group_projection.project_all_children);
     EXPECT_EQ(residual_projections, 0);
 
-    // A conforming partially shredded object keeps unrelated keys in the ancestor residual. The
-    // requested field is still complete when its own value column is all null.
+    // An ancestor residual that is not projected cannot be validated. Even though conforming files
+    // use it only for unrelated keys, this shape must restore the complete Variant rather than hide
+    // a malformed non-object carrier.
     row_group.columns[1].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
     residual_projections = 0;
+    size_t full_projections = 0;
     EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
-                      row_group, *root, &row_group_projection, &residual_projections),
-              1);
-    EXPECT_FALSE(row_group_projection.project_all_children);
+                      row_group, *root, &row_group_projection, &residual_projections,
+                      &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
     EXPECT_EQ(residual_projections, 0);
+    EXPECT_EQ(full_projections, 1);
     row_group.columns[1].meta_data.statistics.__set_null_count(10);
 
     // This projection does not read the residual beside the leaf, so a residual that carries
     // values cannot be served from leaves and the complete Variant comes back.
-    size_t full_projections = 0;
+    full_projections = 0;
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
     residual_projections = 0;
@@ -1976,10 +1980,11 @@ TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveT
     root_typed->children.push_back(std::move(wrapper));
     root->children.push_back(std::move(root_typed));
 
-    // The projection the mapper now produces: root metadata beside typed_value, and the terminal
-    // wrapper's residual beside its typed leaf.
+    // The projection the mapper now produces: root metadata/value beside typed_value, and the
+    // terminal wrapper's residual beside its typed leaf.
     auto projection = format::LocalColumnIndex::partial_local(0);
     projection.children.push_back(format::LocalColumnIndex::local(0));
+    projection.children.push_back(format::LocalColumnIndex::local(1));
     projection.children.push_back(format::LocalColumnIndex::partial_local(2));
     auto& typed_projection = projection.children.back();
     typed_projection.children.push_back(format::LocalColumnIndex::partial_local(0));
@@ -1991,7 +1996,7 @@ TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveT
     row_group.__set_num_rows(10);
     for (int leaf = 0; leaf < 4; ++leaf) {
         tparquet::Statistics statistics;
-        statistics.__set_null_count(leaf == 2 ? 10 : 0);
+        statistics.__set_null_count(leaf == 1 || leaf == 2 ? 10 : 0);
         tparquet::ColumnMetaData column_metadata;
         column_metadata.__set_num_values(10);
         column_metadata.__set_statistics(std::move(statistics));
@@ -2001,16 +2006,17 @@ TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveT
     }
 
     // The terminal residual is entirely NULL, so the shredded leaf alone answers every row and
-    // both the residual and the root dictionary can be dropped from the read.
+    // residual carriers can be dropped, while root metadata remains for direct-result validation.
     auto pruned = projection;
     EXPECT_TRUE(format::parquet::detail::variant_residual_columns_are_prunable_for_row_group(
             row_group, *root, pruned));
     format::parquet::detail::prune_variant_residual_columns(*root, &pruned);
-    ASSERT_EQ(pruned.children.size(), 1);
-    EXPECT_EQ(pruned.children[0].local_id(), 2);
-    ASSERT_EQ(pruned.children[0].children.size(), 1);
-    ASSERT_EQ(pruned.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(pruned.children[0].children[0].children[0].local_id(), 1);
+    ASSERT_EQ(pruned.children.size(), 2);
+    EXPECT_EQ(pruned.children[0].local_id(), 0);
+    EXPECT_EQ(pruned.children[1].local_id(), 2);
+    ASSERT_EQ(pruned.children[1].children.size(), 1);
+    ASSERT_EQ(pruned.children[1].children[0].children.size(), 1);
+    EXPECT_EQ(pruned.children[1].children[0].children[0].local_id(), 1);
 
     // One residual row is enough to keep the columns, but the projection stays a leaf projection:
     // the reader merges those rows instead of rebuilding the complete Variant.
@@ -2024,8 +2030,9 @@ TEST(ParquetVariantProjectionTest, PrunesResidualColumnsOnlyWhenStatisticsProveT
               1);
     EXPECT_FALSE(retained.project_all_children);
     EXPECT_EQ(residual_projections, 1);
-    ASSERT_EQ(retained.children.size(), 2);
+    ASSERT_EQ(retained.children.size(), 3);
     EXPECT_EQ(retained.children[0].local_id(), 0);
+    EXPECT_EQ(retained.children[1].local_id(), 1);
 }
 
 TEST(ParquetVariantProjectionTest, RepeatedVariantKeepsTheCompleteWrapper) {
@@ -2056,6 +2063,7 @@ TEST(ParquetVariantProjectionTest, RepeatedVariantKeepsTheCompleteWrapper) {
     // can send this row group back to the complete Variant is the repetition level.
     auto projection = format::LocalColumnIndex::partial_local(0);
     projection.children.push_back(format::LocalColumnIndex::local(0));
+    projection.children.push_back(format::LocalColumnIndex::local(1));
     projection.children.push_back(format::LocalColumnIndex::partial_local(2));
     auto& typed_projection = projection.children.back();
     typed_projection.children.push_back(format::LocalColumnIndex::partial_local(0));
@@ -2172,10 +2180,11 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
     thrift_metadata.__set_column_orders({order, order, order, order, order});
     format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
 
-    // The shape the mapper builds: the root dictionary and the terminal residual travel with the
-    // typed leaf so a row group whose residual carries values can still be served from leaves.
+    // The shape the mapper builds: the root dictionary, root carrier, and terminal residual travel
+    // with the typed leaf so direct results preserve complete corruption semantics.
     auto leaf_projection = format::LocalColumnIndex::partial_local(1);
     leaf_projection.children.push_back(format::LocalColumnIndex::local(0));
+    leaf_projection.children.push_back(format::LocalColumnIndex::local(1));
     leaf_projection.children.push_back(format::LocalColumnIndex::partial_local(2));
     leaf_projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
     leaf_projection.children.back().children.back().children.push_back(
@@ -2198,11 +2207,10 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
                                                          &plan, nullptr, nullptr, &file_context)
                         .ok());
     EXPECT_TRUE(plan.row_groups.empty());
-    // Footer accounting uses id plus the projected Variant leaves - dictionary, residual and typed
-    // leaf - for the first row group (120 bytes). The fully shredded row group proves its residual
-    // is NULL, so it drops the dictionary and the residual and reads id plus the typed leaf
-    // (60 bytes).
-    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 180);
+    // Footer accounting uses id plus dictionary, root/terminal residual, and typed leaf for the
+    // first row group (150 bytes). The fully shredded row group drops both residuals but retains
+    // required metadata validation, so it reads id, dictionary, and typed leaf (80 bytes).
+    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 230);
 
     request.conjuncts.clear();
     ASSERT_TRUE(format::parquet::plan_parquet_row_groups(metadata, schema, request,

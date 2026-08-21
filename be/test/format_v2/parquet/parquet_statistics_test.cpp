@@ -400,15 +400,20 @@ private:
 
 VExprContextSPtr variant_path_gt_conjunct(int32_t literal_value,
                                           bool add_narrowing_intermediate_cast = false,
-                                          bool decimal_comparison = false) {
+                                          bool decimal_comparison = false,
+                                          std::vector<std::string> path = {"col"}) {
     auto slot = VSlotRef::create_shared(0, 0, -1,
                                         make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
-    auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
-                                       Field::create_field<TYPE_STRING>("col"));
-    auto element_at = std::make_shared<VariantPathTestExpr>(
-            "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
-    element_at->add_child(slot);
-    element_at->add_child(key);
+    VExprSPtr value_expr = slot;
+    for (auto& component : path) {
+        auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                           Field::create_field<TYPE_STRING>(component));
+        auto element_at = std::make_shared<VariantPathTestExpr>(
+                "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+        element_at->add_child(std::move(value_expr));
+        element_at->add_child(std::move(key));
+        value_expr = std::move(element_at);
+    }
     DataTypePtr comparison_type = decimal_comparison
                                           ? DataTypePtr(std::make_shared<DataTypeDecimal128>(38, 9))
                                           : DataTypePtr(std::make_shared<DataTypeInt32>());
@@ -417,10 +422,10 @@ VExprContextSPtr variant_path_gt_conjunct(int32_t literal_value,
     if (add_narrowing_intermediate_cast) {
         auto narrowing = std::make_shared<VariantPathTestExpr>(
                 "CAST", make_nullable(std::make_shared<DataTypeInt8>()), TExprNodeType::CAST_EXPR);
-        narrowing->add_child(element_at);
+        narrowing->add_child(value_expr);
         cast->add_child(narrowing);
     } else {
-        cast->add_child(element_at);
+        cast->add_child(value_expr);
     }
     auto literal = decimal_comparison
                            ? VLiteral::create_shared(
@@ -1992,8 +1997,8 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         .ok());
     EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
 
-    // Object residual keys are disjoint from shredded fields, so an unrelated root residual must
-    // not disable statistics for a complete nested field.
+    // Doris resolves a path from the first level whose typed object is absent. A root residual may
+    // therefore own the requested field, so typed-leaf statistics alone cannot exclude this group.
     footer_only_metadata = metadata;
     footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
             encode_int32(2));
@@ -2003,7 +2008,7 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         nullptr, nullptr, nullptr, nullptr, {},
                         format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
                         .ok());
-    EXPECT_TRUE(selected_row_groups.empty());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
 
     // A contradictory non-repeated value count cannot prove that every row lacks fallback bytes.
     footer_only_metadata = metadata;
@@ -2061,8 +2066,83 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         &selected_ranges, &skip_plans, nullptr)
                         .ok());
     ASSERT_EQ(selected_ranges.size(), 1);
-    EXPECT_EQ(selected_ranges[0].start, 50);
-    EXPECT_EQ(selected_ranges[0].length, 50);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
+
+    // The same rule applies at an intermediate object wrapper: if that level's typed object is
+    // absent, Doris continues the remaining path inside its residual value.
+    auto nested_variant = std::make_unique<format::parquet::ParquetColumnSchema>();
+    nested_variant->name = "v";
+    nested_variant->local_id = 0;
+    nested_variant->kind = format::parquet::ParquetColumnSchemaKind::VARIANT;
+    nested_variant->contains_variant = true;
+    nested_variant->type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    nested_variant->children.push_back(bytes("metadata", 0, 0));
+    nested_variant->children.push_back(bytes("value", 1, 1));
+    auto nested_root_typed = std::make_unique<format::parquet::ParquetColumnSchema>();
+    nested_root_typed->name = "typed_value";
+    nested_root_typed->local_id = 2;
+    nested_root_typed->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    auto parent = std::make_unique<format::parquet::ParquetColumnSchema>();
+    parent->name = "parent";
+    parent->local_id = 0;
+    parent->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    parent->children.push_back(bytes("value", 0, 2));
+    auto parent_typed = std::make_unique<format::parquet::ParquetColumnSchema>();
+    parent_typed->name = "typed_value";
+    parent_typed->local_id = 1;
+    parent_typed->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    auto nested_field = std::make_unique<format::parquet::ParquetColumnSchema>();
+    nested_field->name = "col";
+    nested_field->local_id = 0;
+    nested_field->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    nested_field->children.push_back(bytes("value", 0, 3));
+    nested_field->children.push_back(primitive("typed_value", 1, 4));
+    parent_typed->children.push_back(std::move(nested_field));
+    parent->children.push_back(std::move(parent_typed));
+    nested_root_typed->children.push_back(std::move(parent));
+    nested_variant->children.push_back(std::move(nested_root_typed));
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> nested_schema;
+    nested_schema.push_back(std::move(nested_variant));
+
+    tparquet::RowGroup nested_row_group;
+    nested_row_group.__set_num_rows(100);
+    nested_row_group.__set_columns({chunk(tparquet::Type::BYTE_ARRAY, 100, 0),
+                                    chunk(tparquet::Type::BYTE_ARRAY, 100, 100),
+                                    chunk(tparquet::Type::BYTE_ARRAY, 100, 99),
+                                    chunk(tparquet::Type::BYTE_ARRAY, 100, 100),
+                                    chunk(tparquet::Type::INT32, 100, 0, 1, 2)});
+    tparquet::FileMetaData nested_metadata;
+    nested_metadata.__set_row_groups({nested_row_group});
+    nested_metadata.__set_column_orders({order, order, order, order, order});
+    format::FileScanRequest nested_request;
+    nested_request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    nested_request.predicate_columns = {
+            format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    nested_request.conjuncts = {variant_path_gt_conjunct(50, false, false, {"parent", "col"})};
+
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        nested_metadata, nested_schema, nested_request, nullptr,
+                        &selected_row_groups, false, nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    format::parquet::NativeParquetPageIndex nested_typed_pages;
+    nested_typed_pages.column_index.__set_min_values({encode_int32(1)});
+    nested_typed_pages.column_index.__set_max_values({encode_int32(2)});
+    nested_typed_pages.column_index.__set_null_pages({false});
+    nested_typed_pages.column_index.__set_null_counts({0});
+    nested_typed_pages.offset_index.__set_page_locations({first});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> nested_page_indexes;
+    nested_page_indexes.emplace(4, std::move(nested_typed_pages));
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        nested_metadata, nested_row_group, nested_page_indexes, nested_schema,
+                        nested_request, 100, &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
 
     // Direct Variant numeric comparisons coerce integral literals to a wide DECIMAL domain.
     request.conjuncts = {variant_path_gt_conjunct(50, false, true)};

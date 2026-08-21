@@ -1807,18 +1807,30 @@ public class AppendVariantEqualityDelete {
     // the complete Variant. Reading only the accessed leaves is the entire advantage shredded
     // storage has over unshredded storage.
     String stringLeafToken = "iceberg_variant_string_leaf_" + UUID.randomUUID().toString()
-    sql """
+    List<List<Object>> stringLeafRows = sql """
         SELECT '${stringLeafToken}', COUNT(*)
-        FROM variant_values
-        WHERE CAST(v['name'] AS STRING) = 'name-40'
+        FROM variant_page_pruning FOR VERSION AS OF ${shreddedOnlySnapshot}
+        WHERE CAST(v['padding'] AS STRING) IS NOT NULL
     """
-    String stringLeafProfile = getProfileByToken(stringLeafToken,
-            ["VariantLeafProjections", "VariantDirectLeafRows",
-             "VariantReconstructedRows"]).toString()
-    assertTrue(counterSum(stringLeafProfile, "VariantLeafProjections") > 0,
-               "A STRING leaf predicate did not build a physical leaf projection")
+    assertEquals(1, stringLeafRows.size())
+    assertEquals(4096L, ((Number) stringLeafRows[0][1]).longValue(),
+                 "The pinned shredded STRING fixture did not return all padding rows")
+    String stringLeafProfile = profileAction.getProfileBySql(stringLeafToken,
+            ["VariantLeafProjectionRowGroupColumns",
+             "VariantResidualProjectionRowGroupColumns",
+             "VariantFullProjectionRowGroupColumns",
+             "VariantDirectLeafRows", "VariantReconstructedRows"]).toString()
+    assertTrue(counterSum(stringLeafProfile, "VariantLeafProjectionRowGroupColumns") > 0,
+               "A STRING leaf predicate did not retain its physical row-group leaf projection")
+    assertEquals(0L, counterSum(stringLeafProfile,
+                                "VariantResidualProjectionRowGroupColumns"),
+               "The fully shredded STRING fixture unexpectedly retained residual columns")
+    assertEquals(0L, counterSum(stringLeafProfile, "VariantFullProjectionRowGroupColumns"),
+               "A STRING leaf predicate unexpectedly read the complete Variant wrapper")
     assertTrue(counterSum(stringLeafProfile, "VariantDirectLeafRows") > 0,
                "A STRING leaf predicate did not evaluate rows from the shredded typed leaf")
+    assertEquals(0L, counterSum(stringLeafProfile, "VariantReconstructedRows"),
+               "A STRING leaf-only predicate unexpectedly reconstructed complete Variant rows")
 
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.

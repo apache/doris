@@ -49,6 +49,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_metadata.h"
 #include "core/value/variant/variant_scalar.h"
 #include "format_v2/parquet/parquet_column_schema.h"
@@ -688,6 +689,24 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     }
 }
 
+void validate_direct_typed_variant_state(const ParquetColumnSchema& schema,
+                                         const ColumnPtr& typed) {
+    if (schema.type == nullptr ||
+        remove_nullable(schema.type)->get_primitive_type() != TYPE_STRING ||
+        !schema.type_descriptor.is_string_annotation || schema.type_descriptor.is_uuid) {
+        return;
+    }
+    const auto& nullable = assert_cast<const ColumnNullable&>(*typed);
+    const auto& strings = assert_cast<const ColumnString&>(nullable.get_nested_column());
+    for (size_t row = 0; row < nullable.size(); ++row) {
+        if (nullable.get_null_map_data()[row] == 0) {
+            // The typed ColumnVariantV2 path otherwise publishes the decoded bytes without ever
+            // reaching VariantScalarRef::string(), whose UTF-8 check protects canonical values.
+            static_cast<void>(VariantScalarRef::string(strings.get_data_at(row)));
+        }
+    }
+}
+
 ColumnPtr normalize_projected_primitive_leaf(const ParquetColumnSchema& schema,
                                              const ColumnPtr& typed) {
     const auto& nullable = assert_cast<const ColumnNullable&>(*typed);
@@ -759,6 +778,15 @@ std::shared_ptr<const UnshreddedMetadataIndex> build_unshredded_metadata_index(
                                std::equal_to<std::string_view>,
                                CustomStdAllocator<std::pair<const std::string_view, uint32_t>>>;
     MetadataIdMap dictionary_ids;
+    const auto append_dictionary = [&](StringRef bytes) {
+        VariantMetadataRef metadata {.data = bytes.data, .size = bytes.size};
+        validate_variant_metadata(metadata);
+        if (index->dictionaries.size() == std::numeric_limits<uint32_t>::max()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Parquet Variant metadata dictionary exceeds the uint32 id limit");
+        }
+        index->dictionaries.push_back(metadata);
+    };
     for (size_t row = 0; row < physical.size(); ++row) {
         if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
             continue;
@@ -771,7 +799,7 @@ std::shared_ptr<const UnshreddedMetadataIndex> build_unshredded_metadata_index(
         const StringRef bytes = metadata.column->get_data_at(row);
         uint32_t dictionary_id = 0;
         if (index->dictionaries.empty()) {
-            index->dictionaries.push_back({.data = bytes.data, .size = bytes.size});
+            append_dictionary(bytes);
         } else if (index->dictionaries.size() == 1 && dictionary_ids.empty() &&
                    StringRef(index->dictionaries.front().data, index->dictionaries.front().size) ==
                            bytes) {
@@ -787,7 +815,7 @@ std::shared_ptr<const UnshreddedMetadataIndex> build_unshredded_metadata_index(
                 dictionary_id = found->second;
             } else {
                 dictionary_id = static_cast<uint32_t>(index->dictionaries.size());
-                index->dictionaries.push_back({.data = bytes.data, .size = bytes.size});
+                append_dictionary(bytes);
                 dictionary_ids.emplace(key, dictionary_id);
             }
         }
@@ -1251,6 +1279,7 @@ struct ShreddedPathLevel {
     ColumnPtr typed;
     NullableColumnView residual_view;
     NullableColumnView typed_view;
+    const ParquetColumnSchema* typed_schema = nullptr;
 };
 
 // A residual can only supply the requested path for rows whose typed value is null. Shredding keeps
@@ -1266,6 +1295,70 @@ bool residual_supplies_any_row(const ShreddedPathLevel& level, size_t rows) {
         }
     }
     return false;
+}
+
+void validate_shredded_path_levels(const UnshreddedMetadataIndex* metadata_index, size_t rows,
+                                   std::span<const ShreddedPathLevel> levels) {
+    if (metadata_index != nullptr) {
+        DORIS_CHECK_EQ(metadata_index->row_dictionary_ids.size(), rows);
+    }
+    for (size_t row = 0; row < rows; ++row) {
+        uint32_t dictionary_id = UnshreddedMetadataIndex::NULL_ROW;
+        if (metadata_index != nullptr) {
+            dictionary_id = metadata_index->row_dictionary_ids[row];
+            if (dictionary_id == UnshreddedMetadataIndex::NULL_ROW) {
+                // The metadata index uses NULL_ROW only for an outer-null Variant row. Its child
+                // columns carry decoder defaults that are not part of the logical value.
+                continue;
+            }
+            DORIS_CHECK_LT(dictionary_id, metadata_index->dictionaries.size());
+        }
+
+        for (const auto& level : levels) {
+            if (level.residual_view.is_null(row)) {
+                continue;
+            }
+            const StringRef bytes = level.residual_view.values->get_data_at(row);
+            VariantRef residual {.metadata = metadata_index == nullptr
+                                                     ? VariantMetadataRef {}
+                                                     : metadata_index->dictionaries[dictionary_id],
+                                 .value = bytes};
+            if (!level.typed_view.is_null(row)) {
+                if (level.typed_schema == nullptr) {
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "Parquet Variant wrapper has conflicting carriers without a "
+                                    "typed schema");
+                }
+                switch (level.typed_schema->kind) {
+                case ParquetColumnSchemaKind::PRIMITIVE:
+                    throw Exception(
+                            ErrorCode::CORRUPTION,
+                            "Parquet Variant scalar typed_value cannot have residual value bytes");
+                case ParquetColumnSchemaKind::STRUCT:
+                    if (residual.basic_type() != VariantBasicType::OBJECT) {
+                        throw Exception(
+                                ErrorCode::CORRUPTION,
+                                "Parquet Variant object typed_value has non-object residual value");
+                    }
+                    break;
+                case ParquetColumnSchemaKind::LIST:
+                    throw Exception(
+                            ErrorCode::CORRUPTION,
+                            "Parquet Variant array typed_value cannot have residual value bytes");
+                case ParquetColumnSchemaKind::MAP:
+                case ParquetColumnSchemaKind::VARIANT:
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "Invalid Parquet Variant typed_value schema {}",
+                                    level.typed_schema->name);
+                }
+            }
+            if (metadata_index != nullptr) {
+                // Direct lookup may touch only one child. Validate the complete residual once here
+                // so malformed sibling IDs, offsets, values, and UTF-8 cannot be hidden by a hit.
+                validate_variant_payload(residual);
+            }
+        }
+    }
 }
 
 // Seeks object paths inside encoded residual bytes. Keys resolve to a dictionary field id once per
@@ -1610,6 +1703,25 @@ public:
                     .column = nullptr, .type = nullptr, .normalized = direct_unshredded_path(path)};
         }
 
+        size_t metadata_position = 0;
+        const bool has_metadata_child =
+                find_child(*_schema, "metadata", &metadata_position) != nullptr;
+        ColumnPtr metadata_column = has_metadata_child
+                                            ? struct_child(*_schema, _physical, "metadata", nullptr)
+                                            : nullptr;
+        const NullableColumnView metadata = view_column(metadata_column);
+        std::shared_ptr<const UnshreddedMetadataIndex> validated_metadata_index;
+        if (has_metadata_child && metadata.present()) {
+            // The index validates each distinct required dictionary exactly once. Keep the shared
+            // result alive for carrier validation and every residual seek performed by this path.
+            validated_metadata_index =
+                    get_unshredded_metadata_index({metadata_position, metadata_position});
+        }
+        const auto metadata_index = [validated_metadata_index]() -> const UnshreddedMetadataIndex& {
+            DORIS_CHECK(validated_metadata_index != nullptr);
+            return *validated_metadata_index;
+        };
+
         const ParquetColumnSchema* typed_schema = nullptr;
         ColumnPtr typed = struct_child(*_schema, _physical, "typed_value", &typed_schema);
         if (!typed || typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
@@ -1621,32 +1733,30 @@ public:
         // residual can contribute, so those levels simply carry an absent residual view.
         DorisVector<ShreddedPathLevel> levels;
         levels.reserve(path.size() + 1);
-        const auto add_level = [&levels](ColumnPtr residual, ColumnPtr typed_value) {
+        const auto add_level = [&levels](ColumnPtr residual, ColumnPtr typed_value,
+                                         const ParquetColumnSchema* level_typed_schema) {
             ShreddedPathLevel level;
             level.residual_view = view_column(residual);
             level.typed_view = view_column(typed_value);
             level.residual = std::move(residual);
             level.typed = std::move(typed_value);
+            level.typed_schema = level_typed_schema;
             levels.push_back(std::move(level));
         };
-        add_level(struct_child(*_schema, _physical, "value", nullptr), typed);
+        add_level(struct_child(*_schema, _physical, "value", nullptr), typed, typed_schema);
 
         const size_t rows = _physical->size();
-        ColumnPtr metadata_column = struct_child(*_schema, _physical, "metadata", nullptr);
-        const NullableColumnView metadata = view_column(metadata_column);
         // A key the shredding schema does not describe can only live in the residual beside the
         // object that was searched, so seeking it there answers the path exactly. Rebuilding the
         // canonical root would reach the same value after re-encoding every unrelated field.
         // Every path of one decoded batch shares the dictionary identification, which the state
         // caches: it is built on the first path that still has keys to resolve, and never at all
         // for the paths that do not.
-        size_t metadata_position = 0;
-        const bool has_metadata_child =
-                find_child(*_schema, "metadata", &metadata_position) != nullptr;
-        const auto metadata_index = [this, metadata_position]() -> const UnshreddedMetadataIndex& {
-            return *get_unshredded_metadata_index({metadata_position, metadata_position});
+        const auto validate_levels = [&]() {
+            validate_shredded_path_levels(validated_metadata_index.get(), rows, levels);
         };
         const auto seek_residual = [&]() -> std::optional<VariantShreddedTypedValue> {
+            validate_levels();
             if (!metadata.present() || !has_metadata_child ||
                 !levels.back().residual_view.present()) {
                 return path_miss();
@@ -1675,10 +1785,10 @@ public:
             if (!typed) {
                 // The wrapper stores this field unshredded. Its residual holds the whole value, so
                 // the remainder of the path resolves inside those bytes.
-                add_level(std::move(residual), nullptr);
+                add_level(std::move(residual), nullptr, nullptr);
                 return seek_residual();
             }
-            add_level(std::move(residual), typed);
+            add_level(std::move(residual), typed, typed_schema);
 
             if (position + 1 < path.size()) {
                 // An intermediate typed_value that is not an object cannot carry the rest of the
@@ -1694,6 +1804,7 @@ public:
 
             if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
                 check_and_get_column<ColumnNullable>(*typed) == nullptr) {
+                validate_levels();
                 update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
                 if (!_complete) {
                     // Binary element_at evaluates complex prefixes before the validated leaf.
@@ -1706,6 +1817,7 @@ public:
                 return std::nullopt;
             }
 
+            validate_levels();
             const bool needs_row_merge =
                     std::ranges::any_of(levels, [rows](const ShreddedPathLevel& level) {
                         return residual_supplies_any_row(level, rows);
@@ -1745,6 +1857,7 @@ public:
                         .type = nullptr,
                         .normalized = normalize_projected_primitive_leaf(*typed_schema, typed)};
             }
+            validate_direct_typed_variant_state(*typed_schema, typed);
             // The typed ColumnVariantV2 retains the exact decoded Parquet leaf. Only the SQL result
             // null map is produced later, so predicates and casts can consume the leaf without
             // reconstructing canonical Variant rows.
