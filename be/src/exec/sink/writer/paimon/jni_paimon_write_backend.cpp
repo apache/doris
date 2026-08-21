@@ -24,6 +24,7 @@
 #include <arrow/record_batch.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <string_view>
@@ -45,6 +46,11 @@ namespace doris {
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
 
+std::atomic<bool>& paimon_jni_close_failed() {
+    static std::atomic<bool> failed {false};
+    return failed;
+}
+
 std::mutex& retained_memory_managers_mutex() {
     static auto* mutex = new std::mutex();
     return *mutex;
@@ -56,6 +62,10 @@ std::vector<std::unique_ptr<PaimonJniMemoryManager>>& retained_memory_managers()
 }
 
 void retain_memory_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> manager) {
+    // An unconfirmed Java close means a background Paimon task may still reference this manager's
+    // native pages. Quarantine the manager and stop admitting new writers so repeated failures
+    // cannot accumulate process-lifetime native memory without a bound.
+    paimon_jni_close_failed().store(true, std::memory_order_release);
     if (manager == nullptr) {
         return;
     }
@@ -143,8 +153,8 @@ Status JniPaimonWriteBackend::close() {
                     << PrettyPrinter::print_bytes(_memory_manager->native_peak_allocated_bytes());
         }
         // Paimon may still have asynchronous flush or compaction tasks using MemorySegments backed
-        // by these pages. Retain this failed writer's ownership until process exit to prevent UAF,
-        // but keep unrelated Paimon writers available on this BE.
+        // by these pages. Retain this failed writer's ownership until process exit to prevent UAF;
+        // retain_memory_after_failed_close also fences subsequent Paimon JNI writer admission.
         retain_memory_after_failed_close(std::move(_memory_manager));
     }
     _arrow_schema.reset();
@@ -236,6 +246,11 @@ static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID ge
 
 Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
+    if (paimon_jni_close_failed().load(std::memory_order_acquire)) {
+        return Status::InternalError(
+                "Paimon JNI writes are disabled on this BE because a previous Java writer close "
+                "could not be confirmed; restart the BE to reclaim retained native memory safely");
+    }
     _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
