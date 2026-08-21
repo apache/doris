@@ -79,7 +79,11 @@ private:
 
     Status _write_binlog_op(IColumn& col, int64_t op) const;
 
+    void _init_row_binlog_column_ordinals();
+
     uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
+
+    bool _min_delta_values_equal(size_t last_row);
 
     void _init_pending_row_columns(const Block& block);
 
@@ -153,6 +157,18 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
+    // Read-schema ordinal mapping from each AFTER value to its physical BEFORE companion.
+    // Key, metadata, BEFORE, and unpaired columns map to themselves.
+    std::vector<ColumnId> _row_binlog_before_column_ordinals;
+
+    // Complete AFTER/BEFORE value-column pairs used by MIN_DELTA no-op detection. These are
+    // read-schema ordinals and include comparison-only columns preserved by the FE scan schema.
+    std::vector<std::pair<ColumnId, ColumnId>> _min_delta_value_column_pairs;
+    bool _min_delta_value_pairs_complete = false;
+
+    // Unsupported compare_at means equality cannot be proven, so MIN_DELTA conservatively keeps
+    // UPDATE rows. Column types are stable within a reader; cache this after the first exception.
+    bool _min_delta_value_compare_unsupported = false;
     Arena _arena;
 };
 

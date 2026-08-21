@@ -584,6 +584,25 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "incrementType" = "MIN_DELTA")
             ORDER BY __DORIS_BINLOG_OP__
         """
+
+        // BITMAP does not implement compare_at in production. MIN_DELTA must conservatively
+        // retain an equal-value UPDATE instead of failing the query or suppressing an unproven
+        // no-op.
+        sleep(1200)
+        def bitmapEqualT0 = incrTimeFormat.format(new Date())
+        sleep(1200)
+        sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('3,4'))"
+        sql "sync"
+        sleep(1200)
+        def bitmapEqualT1 = incrTimeFormat.format(new Date())
+
+        order_qt_bitmap_equal_min_delta """
+            SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__
+            FROM ${mowBitmapTable}@incr('startTimestamp' = '${bitmapEqualT0}',
+                "endTimestamp" = "${bitmapEqualT1}",
+                "incrementType" = "MIN_DELTA")
+            ORDER BY __DORIS_BINLOG_OP__
+        """
     } finally {
         sql "DROP DATABASE IF EXISTS test_binlog_changes_syntax_db"
     }

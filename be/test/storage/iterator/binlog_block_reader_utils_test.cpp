@@ -19,11 +19,64 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+#include <utility>
+#include <vector>
 namespace doris {
+
+namespace {
+
+TabletColumn make_column(std::string name, FieldType type, bool is_key, int32_t unique_id,
+                         bool is_nullable = true) {
+    TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type, is_nullable,
+                        unique_id, sizeof(int64_t));
+    column.set_name(std::move(name));
+    column.set_is_key(is_key);
+    column.set_index_length(sizeof(int64_t));
+    return column;
+}
+
+TabletSchemaSPtr make_colliding_name_schema() {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(make_column("key", FieldType::OLAP_FIELD_TYPE_BIGINT, true, 0, false));
+    schema->append_column(make_column("v", FieldType::OLAP_FIELD_TYPE_BIGINT, false, 1));
+    schema->append_column(
+            make_column("__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT, false, 2));
+    schema->append_column(make_column(binlog::build_before_column_name("v"),
+                                      FieldType::OLAP_FIELD_TYPE_BIGINT, false, 3));
+    schema->append_column(make_column(binlog::build_before_column_name("__BEFORE__v__"),
+                                      FieldType::OLAP_FIELD_TYPE_BIGINT, false, 4));
+    schema->append_column(make_column(BINLOG_TSO_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false, 5));
+    schema->append_column(make_column(BINLOG_LSN_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false, 6));
+    schema->append_column(make_column(BINLOG_OP_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false, 7));
+    return schema;
+}
+
+} // namespace
 
 class BinlogBlockReaderUtilsTest : public testing::Test {};
 TEST_F(BinlogBlockReaderUtilsTest, BuildBeforeColumnName) {
     EXPECT_EQ(binlog::build_before_column_name("v1"), "__BEFORE__v1__");
 }
 
+TEST_F(BinlogBlockReaderUtilsTest, ResolveValuePairsByPhysicalOrdinal) {
+    TabletSchemaSPtr schema = make_colliding_name_schema();
+    std::vector<binlog::RowBinlogValueColumnPair> pairs;
+
+    ASSERT_TRUE(binlog::get_row_binlog_value_column_pairs(*schema, &pairs));
+    EXPECT_EQ(pairs, (std::vector<binlog::RowBinlogValueColumnPair> {{1, 3}, {2, 4}}));
+}
+
+TEST_F(BinlogBlockReaderUtilsTest, RejectMalformedValuePairLayout) {
+    TabletSchema schema;
+    schema.append_column(make_column("key", FieldType::OLAP_FIELD_TYPE_BIGINT, true, 0, false));
+    schema.append_column(make_column("v", FieldType::OLAP_FIELD_TYPE_BIGINT, false, 1));
+    schema.append_column(make_column(BINLOG_TSO_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false, 2));
+    schema.append_column(make_column(BINLOG_LSN_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false, 3));
+    schema.append_column(make_column(BINLOG_OP_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false, 4));
+    std::vector<binlog::RowBinlogValueColumnPair> pairs;
+
+    EXPECT_FALSE(binlog::get_row_binlog_value_column_pairs(schema, &pairs));
+    EXPECT_TRUE(pairs.empty());
+}
 } // namespace doris

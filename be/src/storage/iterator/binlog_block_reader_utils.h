@@ -20,8 +20,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 #include "storage/binlog.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris::binlog {
 
@@ -32,6 +35,62 @@ constexpr int64_t STREAM_CHANGE_DELETE = 1;
 constexpr int64_t STREAM_CHANGE_UPDATE_BEFORE = 2;
 constexpr int64_t STREAM_CHANGE_UPDATE_AFTER = 3;
 
+using RowBinlogValueColumnPair = std::pair<uint32_t, uint32_t>;
+
+inline bool row_binlog_value_columns_have_same_type(const TabletColumn& lhs,
+                                                    const TabletColumn& rhs) {
+    if (lhs.type() != rhs.type() || lhs.is_nullable() != rhs.is_nullable() ||
+        lhs.length() != rhs.length() || lhs.precision() != rhs.precision() ||
+        lhs.frac() != rhs.frac() || lhs.get_subtype_count() != rhs.get_subtype_count()) {
+        return false;
+    }
+    for (uint32_t i = 0; i < lhs.get_subtype_count(); ++i) {
+        if (!row_binlog_value_columns_have_same_type(lhs.get_sub_column(i),
+                                                     rhs.get_sub_column(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Row-binlog schemas place all AFTER values before all BEFORE values. Metadata can be either a
+// prefix (legacy layout) or a suffix, so remove it by its schema ids, then split the remaining
+// non-key columns in half. Resolving pairs by physical ordinal avoids ambiguity when a user column
+// name itself looks like a generated __BEFORE__ name.
+inline bool get_row_binlog_value_column_pairs(const TabletSchema& schema,
+                                              std::vector<RowBinlogValueColumnPair>* pairs) {
+    pairs->clear();
+    std::vector<uint32_t> value_column_ids;
+    value_column_ids.reserve(schema.num_columns() - schema.num_key_columns());
+    for (uint32_t cid = 0; cid < schema.num_columns(); ++cid) {
+        if (static_cast<int32_t>(cid) == schema.binlog_tso_col_idx() ||
+            static_cast<int32_t>(cid) == schema.binlog_lsn_col_idx() ||
+            static_cast<int32_t>(cid) == schema.binlog_op_col_idx() ||
+            schema.column(cid).is_key()) {
+            continue;
+        }
+        value_column_ids.push_back(cid);
+    }
+
+    if (value_column_ids.empty() || value_column_ids.size() % 2 != 0) {
+        return false;
+    }
+    const size_t value_column_count = value_column_ids.size() / 2;
+    pairs->reserve(value_column_count);
+    for (size_t i = 0; i < value_column_count; ++i) {
+        const uint32_t after_cid = value_column_ids[i];
+        const uint32_t before_cid = value_column_ids[i + value_column_count];
+        const auto& after = schema.column(after_cid);
+        const auto& before = schema.column(before_cid);
+        if (before.name() != build_before_column_name(after.name()) ||
+            !row_binlog_value_columns_have_same_type(after, before)) {
+            pairs->clear();
+            return false;
+        }
+        pairs->emplace_back(after_cid, before_cid);
+    }
+    return true;
+}
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };
 
 // MIN_DELTA uses row binlog op codes as indices into a 2D lookup table, so we guard the op layout here.
