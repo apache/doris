@@ -46,7 +46,6 @@ import org.lance.namespace.model.TableExistsRequest;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -79,8 +78,6 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private transient List<String> parentNamespace = Collections.emptyList();
     private transient String catalogType;
     private transient String rootDatabase;
-    private transient Map<String, String> javaStorageOptions = Collections.emptyMap();
-    private transient Map<String, String> backendStorageOptions = Collections.emptyMap();
     private transient Object namespaceLock = new Object();
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
@@ -98,11 +95,12 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            backendStorageOptions = catalogProperty.getBackendStorageProperties();
-            javaStorageOptions = LanceStorageOptions.forJavaSdk(backendStorageOptions);
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forDataset(
+                    properties.getNamespaceStorageUri(),
+                    catalogProperty.getOrderedStoragePropertiesList(), null);
 
             allocator = new RootAllocator(ALLOCATOR_LIMIT);
-            namespace = properties.createNamespace(allocator, javaStorageOptions);
+            namespace = properties.createNamespace(allocator, lanceStorageOptions);
         } catch (Exception e) {
             closeLanceObjects();
             throw new RuntimeException("Failed to initialize Lance catalog '" + getName()
@@ -120,8 +118,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.forJavaSdk(
-                catalogProperty.getBackendStorageProperties());
+        Map<String, String> storageOptions = LanceStorageOptions.forDataset(
+                properties.getNamespaceStorageUri(),
+                catalogProperty.getOrderedStoragePropertiesList(), null);
         List<String> parent = LanceNamespaceName.parseParentNamespace(
                 properties.getNamespaceParent(), properties.getNamespaceDelimiter());
         String type = properties.getLanceCatalogType();
@@ -294,12 +293,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Lance namespace returned no table URI for " + dbName + "." + tableName);
         }
 
-        Map<String, String> storageOptions = new HashMap<>(javaStorageOptions);
-        if (table.getStorageOptions() != null) {
-            storageOptions.putAll(table.getStorageOptions());
-        }
-        Map<String, String> tableBackendStorageOptions = LanceStorageOptions.forBackend(
-                backendStorageOptions, table.getStorageOptions());
+        // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
+        // and the BE through lance-c, so neither can end up with credentials the other lacks. The
+        // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
+        Map<String, String> storageOptions = LanceStorageOptions.forDataset(datasetUri,
+                catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
         try {
             if (tableSnapshot.isPresent()) {
                 TableSnapshot snapshot = tableSnapshot.get();
@@ -315,14 +313,12 @@ public class LanceExternalCatalog extends ExternalCatalog {
                     version = LanceSnapshotResolver.getVersionAtOrBefore(
                             datasetUri, storageOptions, timestamp, allocator);
                 }
-                return LanceMetadataLoader.loadVersion(datasetUri, storageOptions,
-                        tableBackendStorageOptions, version, allocator);
+                return LanceMetadataLoader.loadVersion(datasetUri, storageOptions, version, allocator);
             }
             return loadIndexSegments
-                    ? LanceMetadataLoader.loadLatestWithIndexSegments(datasetUri, storageOptions,
-                            tableBackendStorageOptions, allocator)
-                    : LanceMetadataLoader.loadLatest(datasetUri, storageOptions,
-                            tableBackendStorageOptions, allocator);
+                    ? LanceMetadataLoader.loadLatestWithIndexSegments(
+                            datasetUri, storageOptions, allocator)
+                    : LanceMetadataLoader.loadLatest(datasetUri, storageOptions, allocator);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
                     + ": " + sanitizedRootCauseMessage(e), safeCause(e));
@@ -358,11 +354,6 @@ public class LanceExternalCatalog extends ExternalCatalog {
         result.addAll(parentNamespace);
         result.addAll(relativeNamespace);
         return result;
-    }
-
-    public Map<String, String> getBackendStorageOptions() {
-        makeSureInitialized();
-        return backendStorageOptions;
     }
 
     public String getLanceCatalogType() {

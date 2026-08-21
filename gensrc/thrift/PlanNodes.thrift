@@ -639,6 +639,15 @@ struct TFileScanRangeParams {
     // query. Lance vector search uses one range per fragment and Doris merges the split-local
     // candidates.
     38: optional TExternalSearchRequest external_search_request
+    // Lance-native storage options, handed to lance-c untranslated. The namespace protocol treats
+    // storage_options as opaque configuration passed directly to Lance, so any key vocabulary the
+    // BE imposed here would drop options it does not happen to know - including credentials a
+    // namespace spelled with a different accepted alias, and every non-S3 provider's keys.
+    // Set at ScanNode level so credentials are not serialized once per fragment split.
+    // These are the initial options for the scan and are never refreshed: lance-c opens datasets
+    // with a static option set, so credentials that expire mid-scan are not re-vended. Renewal
+    // needs a refresh channel of its own, which this field is not.
+    39: optional map<string, string> lance_storage_options
 }
 
 struct TFileRangeDesc {

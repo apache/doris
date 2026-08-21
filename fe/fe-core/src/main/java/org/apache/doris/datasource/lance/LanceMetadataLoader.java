@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.arrow.memory.BufferAllocator;
@@ -49,11 +50,11 @@ public final class LanceMetadataLoader {
      * Lance dataset through an S3 TVF.
      */
     public static LanceTableMetadata loadLatestForTvf(
-            String datasetUri, Map<String, String> backendStorageOptions)
+            String datasetUri, List<StorageProperties> storageProperties)
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
-            return loadLatest(datasetUri, LanceStorageOptions.forJavaSdk(backendStorageOptions),
-                    backendStorageOptions, allocator);
+            return loadLatest(datasetUri,
+                    LanceStorageOptions.forDataset(datasetUri, storageProperties, null), allocator);
         }
     }
 
@@ -65,18 +66,17 @@ public final class LanceMetadataLoader {
      * time-travel version is requested. Schema, version, and fragments are read from the same
      * opened dataset snapshot.
      */
-    public static LanceTableMetadata loadLatest(String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, BufferAllocator allocator) throws Exception {
+    public static LanceTableMetadata loadLatest(String datasetUri,
+            Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator, false);
+                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, false);
     }
 
     /** Loads the latest fixed snapshot together with vector index segment coverage. */
     public static LanceTableMetadata loadLatestWithIndexSegments(
-            String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, BufferAllocator allocator) throws Exception {
+            String datasetUri, Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator, true);
+                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, true);
     }
 
     /**
@@ -86,18 +86,19 @@ public final class LanceMetadataLoader {
      * {@link LanceExternalCatalog#loadTableMetadata(String, String, java.util.Optional)} for both
      * {@code FOR VERSION AS OF} and the version resolved from {@code FOR TIME AS OF}.
      */
-    public static LanceTableMetadata loadVersion(String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, long version, BufferAllocator allocator) throws Exception {
+    public static LanceTableMetadata loadVersion(String datasetUri,
+            Map<String, String> lanceStorageOptions, long version, BufferAllocator allocator)
+            throws Exception {
         return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.of(version), allocator, false);
+                datasetUri, lanceStorageOptions, OptionalLong.of(version), allocator, false);
     }
 
     /** Shared implementation for the latest-version and explicit-version public entry points. */
-    private static LanceTableMetadata loadInternal(String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, OptionalLong version,
+    private static LanceTableMetadata loadInternal(String datasetUri,
+            Map<String, String> lanceStorageOptions, OptionalLong version,
             BufferAllocator allocator, boolean loadIndexSegments) throws Exception {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
-                .readOptions(LanceReadOptions.build(javaStorageOptions, version)).build()) {
+                .readOptions(LanceReadOptions.build(lanceStorageOptions, version)).build()) {
             long resolvedVersion = dataset.version();
             List<LanceFragmentInfo> fragments = new ArrayList<>();
             for (Fragment fragment : dataset.getFragments()) {
@@ -112,9 +113,9 @@ public final class LanceMetadataLoader {
             return loadIndexSegments
                     ? LanceTableMetadata.withIndexSegments(datasetUri, resolvedVersion,
                             dataset.getSchema(), fragments, lanceFieldIds,
-                            indexSegments, backendStorageOptions)
+                            indexSegments, lanceStorageOptions)
                     : LanceTableMetadata.withoutIndexSegments(datasetUri, resolvedVersion,
-                            dataset.getSchema(), fragments, backendStorageOptions);
+                            dataset.getSchema(), fragments, lanceStorageOptions);
         }
     }
 
