@@ -55,7 +55,6 @@ public class Column implements GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
-    public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";

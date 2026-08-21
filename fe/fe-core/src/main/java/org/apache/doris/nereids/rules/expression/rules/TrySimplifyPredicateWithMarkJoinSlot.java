@@ -37,6 +37,21 @@ public class TrySimplifyPredicateWithMarkJoinSlot extends AbstractExpressionRewr
             new TrySimplifyPredicateWithMarkJoinSlot();
 
     @Override
+    public Expression visit(Expression expr, ExpressionRewriteContext context) {
+        /*
+         * the And/Or neutral-element simplification in visitAnd/visitOr is only sound in a
+         * boolean predicate position, i.e. the top level of the predicate or directly
+         * nested under another And/Or. do not descend into other expressions: a mark-free
+         * subtree nested under a NULL-observing wrapper (e.g. ifnull(M, flag OR FALSE)) is
+         * observed by the wrapper when the mark slot is null, so replacing it with the
+         * neutral element would change the semantics and make the inference unsound.
+         * see ExpressionUtils.inferMarkSlotNotNullMap for how the simplified predicate
+         * is used.
+         */
+        return expr;
+    }
+
+    @Override
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         /*
          *  predicate(with mark slot) and   predicate(no mark slot)
@@ -54,9 +69,11 @@ public class TrySimplifyPredicateWithMarkJoinSlot extends AbstractExpressionRewr
          *
          * we can see only 'predicate(with mark slot) and TRUE' may produce different results(*)
          * because in filter predicate, we discard null and false values and only keep true values
-         * we can substitute mark slot with null and false to evaluate the predicate
-         * if the result are true, or result is either false or null, we can use non-nullable mark slot
-         * see ExpressionUtils.canInferNotNullForMarkSlot for more info
+         * we can substitute the target mark slot with null and false, and substitute other mark
+         * slots with true, false and null to evaluate the predicate
+         * if the target slot taking false or null always evaluates to the same boolean value,
+         * we can use non-nullable mark slot
+         * see ExpressionUtils.inferMarkSlotNotNullMap for more info
          * we change 'predicate(with mark slot) and predicate(no mark slot)' -> predicate(with mark slot) and true
          * to evaluate the predicate
          */
@@ -89,8 +106,10 @@ public class TrySimplifyPredicateWithMarkJoinSlot extends AbstractExpressionRewr
          *          true              or       FALSE -> true(x)     -> keep
          *
          * like And operator, even there are more differences. we can get the same conclusion.
-         * by substituting mark slot with null and false to evaluate the predicate
-         * if the result are true, or result is either false or null, we can use non-nullable mark slot
+         * by substituting the target mark slot with null and false, and substituting other mark
+         * slots with true, false and null to evaluate the predicate
+         * if the target slot taking false or null always evaluates to the same boolean value,
+         * we can use non-nullable mark slot
          * we change 'predicate(with mark slot) or predicate(no mark slot)' -> predicate(with mark slot) or false
          * to evaluate the predicate
          */

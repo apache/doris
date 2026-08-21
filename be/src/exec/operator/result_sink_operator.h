@@ -149,7 +149,6 @@ private:
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
 
-    RuntimeProfile::Counter* _fetch_row_id_timer = nullptr;
     RuntimeProfile::Counter* _write_data_timer = nullptr;
 };
 
@@ -164,7 +163,6 @@ public:
 private:
     friend class ResultSinkLocalState;
 
-    Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
     const TResultSinkType::type _sink_type;
     const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
@@ -176,9 +174,6 @@ private:
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
-
-    // for fetch data by rowids
-    const TFetchOption _fetch_option;
 
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };

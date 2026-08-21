@@ -39,7 +39,6 @@ import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.UnboundExpressionToConnectorPredicateConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -69,10 +68,11 @@ import java.util.Optional;
  * then wraps the engine-neutral {@link ConnectorProcedureResult} back into a {@code ResultSet}.</p>
  *
  * <p><b>Engine/connector split (D-062 §2).</b> The engine keeps the command shell — this adapter performs
- * the {@code ALTER} privilege check ({@link #validate}) and the single-row {@code CommonResultSet} wrapping
- * ({@link #execute}); {@code ExecuteActionCommand} keeps the edit-log refresh. The connector owns the
- * procedure body — per-argument validation (the {@code NamedArguments} framework is not reachable across the
- * import gate), the underlying SDK call and the result schema/rows. The connector signals failures with an
+ * the {@code ALTER} privilege check ({@link #validate}), the committed-mutation fence, and the single-row
+ * {@code CommonResultSet} wrapping ({@link #execute}). The connector owns the procedure body — per-argument
+ * validation (the {@code NamedArguments} framework is not reachable across the import gate), the underlying SDK
+ * call and the result schema/rows. The fence persists follower replay identity and refreshes leader caches before
+ * result conversion. The connector signals failures with an
  * unchecked {@link DorisConnectorException}; this adapter converts it to a {@code UserException} so
  * {@code ExecuteActionCommand.run()} re-wraps it with the legacy {@code "Failed to execute action:"} prefix.</p>
  *
@@ -167,7 +167,6 @@ public class ConnectorExecuteAction implements ExecuteAction {
                         loweredWhere);
                 try {
                     ConnectorProcedureResult result = driver.run();
-                    refreshTableCachesAfterMutation();
                     return wrapResult(result);
                 } catch (DorisConnectorException e) {
                     throw new UserException(e.getMessage(), e);
@@ -178,7 +177,7 @@ public class ConnectorExecuteAction implements ExecuteAction {
             try {
                 ConnectorProcedureResult result = procedureOps.execute(
                         session, tableHandle, actionType, properties, null, partitionNames);
-                refreshTableCachesAfterMutation();
+                Env.getCurrentEnv().getRefreshManager().refreshTableAfterExternalMutation(table);
                 return wrapResult(result);
             } catch (DorisConnectorException e) {
                 // Surface the connector's unchecked exception as a checked UserException so
@@ -189,21 +188,6 @@ public class ConnectorExecuteAction implements ExecuteAction {
                 throw new UserException(e.getMessage(), e);
             }
         }
-    }
-
-    /**
-     * After a successful procedure commit, drop this FE's caches for the mutated table through the standard
-     * refresh-table path — exactly what a follower FE does when it replays the refresh-table journal that
-     * {@code ExecuteActionCommand} writes after this returns. {@code refreshTableInternal} clears BOTH the
-     * engine meta cache (keyed by the table's LOCAL names) and the connector's own per-table cache (keyed by
-     * the REMOTE names), resolving both from the {@link PluginDrivenExternalTable}. Without this, the FE that
-     * ran the procedure keeps serving stale connector metadata (the iceberg latest-snapshot cache, default TTL
-     * 24h) until expiry — a leader/follower split. Connector-agnostic: {@code refreshTableInternal}'s connector
-     * arm is a generic SPI call (no-op default).
-     */
-    private void refreshTableCachesAfterMutation() {
-        Env.getCurrentEnv().getRefreshManager()
-                .refreshTableInternal((ExternalDatabase) table.getDatabase(), table, System.currentTimeMillis());
     }
 
     /**

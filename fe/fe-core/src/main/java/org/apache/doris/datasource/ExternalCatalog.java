@@ -728,9 +728,12 @@ public abstract class ExternalCatalog
      */
     public void onRefreshCache(boolean invalidCache) {
         setLastUpdateTime(System.currentTimeMillis());
-        refreshMetaCacheOnly();
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+        try {
+            refreshMetaCacheOnly();
+        } finally {
+            if (invalidCache) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+            }
         }
     }
 
@@ -952,21 +955,37 @@ public abstract class ExternalCatalog
      */
     public Runnable modifyCatalogPropsWithDeferredAccessControllerCleanup(Map<String, String> props) {
         catalogProperty.modifyCatalogProps(props);
-        Runnable accessControllerCleanup = resetToUninitialized(false, true);
-        try {
-            String schemaCacheTtl = props.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
-            if (java.util.Objects.nonNull(schemaCacheTtl)) {
-                Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(id);
-            }
-            return accessControllerCleanup;
-        } catch (RuntimeException | Error e) {
-            accessControllerCleanup.run();
-            throw e;
-        }
+        return resetAfterPropertyUpdate(props, true);
     }
 
     public void tryModifyCatalogProps(Map<String, String> props) {
         catalogProperty.modifyCatalogProps(props);
+    }
+
+    private void invalidateCachesAfterPropertyUpdate(Map<String, String> updatedProps) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null) {
+            cacheMgr.removeCatalog(id);
+        } else {
+            cacheMgr.invalidateCatalog(id);
+        }
+    }
+
+    private Runnable resetAfterPropertyUpdate(Map<String, String> updatedProps,
+            boolean deferAccessControllerCleanup) {
+        Runnable accessControllerCleanup = () -> { };
+        // Property and connector state may already have changed when reset fails, so cache invalidation is mandatory.
+        try {
+            accessControllerCleanup = resetToUninitialized(false, deferAccessControllerCleanup);
+        } finally {
+            try {
+                invalidateCachesAfterPropertyUpdate(updatedProps);
+            } catch (RuntimeException | Error e) {
+                accessControllerCleanup.run();
+                throw e;
+            }
+        }
+        return accessControllerCleanup;
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
@@ -1040,19 +1059,6 @@ public abstract class ExternalCatalog
             return Optional.empty();
         }
         return Optional.ofNullable(databases.getIfPresent(dbName));
-    }
-
-    /**
-     * Resolve the retained local database name for replay without loading database metadata.
-     *
-     * <p>The ID map intentionally outlives object-cache eviction so legacy ID-only refresh edit logs written by
-     * Doris 2.1 and 3.0 can still invalidate independent engine and connector caches during rolling upgrades.
-     */
-    public Optional<String> getDbNameForReplay(long dbId) {
-        if (!isInitialized()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(dbIdNameIndex.getName(dbId));
     }
 
     /**
@@ -1262,8 +1268,7 @@ public abstract class ExternalCatalog
 
     public void replayCreateDb(String dbName) {
         try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
-            // Invalidate the FE cache directly so follower FEs reflect the create on edit-log replay.
-            resetMetaCacheNames();
+            invalidateCreatedDatabase(dbName);
         }
     }
 
@@ -1275,7 +1280,6 @@ public abstract class ExternalCatalog
 
     public void replayDropDb(String dbName) {
         try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
-            // Drop the db from the cache on replay.
             unregisterDatabase(dbName);
         }
     }
@@ -1288,9 +1292,57 @@ public abstract class ExternalCatalog
 
     public void replayCreateTable(String dbName, String tblName) {
         try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
-            // Refresh the db's table-name cache on replay.
-            getDbForReplay(dbName).ifPresent(db -> db.resetMetaCacheNames());
+            invalidateCreatedTable(dbName, tblName);
         }
+    }
+
+    protected final void invalidateCreatedDatabase(String dbName) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        String previousLocalDbName = dbName;
+        try {
+            previousLocalDbName = resolveDatabaseNameForInvalidation(dbName);
+            invalidateDatabaseCache(previousLocalDbName);
+        } finally {
+            try {
+                resetMetaCacheNames();
+            } finally {
+                if (previousLocalDbName.equals(dbName)) {
+                    cacheMgr.invalidateDb(getId(), Util.genIdByName(getName(), dbName), dbName);
+                } else {
+                    // A case-equivalent owner may have a different deterministic identity.
+                    try {
+                        cacheMgr.invalidateDb(getId(),
+                                Util.genIdByName(getName(), previousLocalDbName), previousLocalDbName);
+                    } finally {
+                        cacheMgr.invalidateDb(getId(), Util.genIdByName(getName(), dbName), dbName);
+                    }
+                }
+            }
+        }
+    }
+
+    protected final void invalidateCreatedTable(String dbName, String tableName) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        try {
+            Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(dbName);
+            if (db.isPresent() && db.get().isInitialized()) {
+                db.get().invalidateTableForCreate(tableName);
+            }
+        } finally {
+            cacheMgr.invalidateTable(getId(), Util.genIdByName(getName(), dbName), dbName,
+                    Util.genIdByName(getName(), dbName, tableName), tableName);
+        }
+    }
+
+    protected final void invalidateDroppedTable(String dbName, String tableName) {
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(dbName);
+        if (db.isPresent() && db.get().isInitialized()) {
+            db.get().unregisterTable(tableName);
+            return;
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
+                getId(), Util.genIdByName(getName(), dbName), dbName,
+                Util.genIdByName(getName(), dbName, tableName), tableName);
     }
 
     @Override
@@ -1308,30 +1360,27 @@ public abstract class ExternalCatalog
 
     public void replayDropTable(String dbName, String tblName) {
         try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
-            // Remove the table from the cache on replay.
-            getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tblName));
+            invalidateDroppedTable(dbName, tblName);
         }
     }
 
-    /**
-     * Unregisters a database from the catalog.
-     * Internally, remove the database meta from cache
-     *
-     * @param dbName
-     */
+    /** Removes a database from local metadata and invalidates its FE caches. */
     public void unregisterDatabase(String dbName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
-        String localDbName = resolveDatabaseNameForInvalidation(dbName);
-        if (isInitialized()) {
+        String localDbName = dbName;
+        try {
+            localDbName = resolveDatabaseNameForInvalidation(dbName);
             invalidateDatabaseCache(localDbName);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
+                    getId(), Util.genIdByName(getName(), localDbName), localDbName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), localDbName);
     }
 
-    public void registerDatabase(String dbName) {
-        throw new NotImplementedException("registerDatabase not implemented");
+    public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
+        throw new NotImplementedException("registerDatabaseFromEvent not implemented");
     }
 
     protected Map<String, Boolean> getIncludeDatabaseMap() {
@@ -1430,6 +1479,20 @@ public abstract class ExternalCatalog
             return remoteDbName;
         }
         return localDbName;
+    }
+
+    /** Converts a remote table identity to the canonical local name used by FE metadata and caches. */
+    protected final String canonicalLocalTableNameFromRemote(String remoteDbName, String remoteTableName) {
+        String localTableName = fromRemoteTableName(remoteDbName, remoteTableName);
+        int mode = getLowerCaseTableNames();
+        if (mode == 1) {
+            return localTableName.toLowerCase(Locale.ROOT);
+        }
+        if (mode == 2) {
+            // Mode 2 preserves the original remote case for display and object-cache keys.
+            return remoteTableName;
+        }
+        return localTableName;
     }
 
     /**
@@ -1666,12 +1729,7 @@ public abstract class ExternalCatalog
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
-        resetToUninitialized(false);
-        String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
-        if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-            extMetaCacheMgr.removeCatalog(id);
-        }
+        resetAfterPropertyUpdate(updatedProps, false);
     }
 
     public CatalogProperty getCatalogProperty() {

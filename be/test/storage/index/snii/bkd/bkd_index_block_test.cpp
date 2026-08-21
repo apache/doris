@@ -544,6 +544,50 @@ TEST(SniiBkdIndexBlock, SplitValuesNotAscendingIsCorrupted) {
     EXPECT_TRUE(IsCorrupted(open_raw(raw, &reader)));
 }
 
+TEST(SniiBkdIndexBlock, GlobalMinimumAboveMaximumIsCorrupted) {
+    RawIndexBlock raw = valid_three_leaf_block();
+    raw.point_count = 4;
+    raw.doc_count = 4;
+    raw.leaf_count = 1;
+    raw.min_value = sortable_bigint(20);
+    raw.max_value = sortable_bigint(19);
+    raw.split_values.clear();
+    raw.leaf_offset_deltas = {0};
+    raw.leaf_counts = {4};
+
+    BkdIndexBlockReader reader;
+    EXPECT_TRUE(IsCorrupted(open_raw(raw, &reader)));
+}
+
+TEST(SniiBkdIndexBlock, SplitValueBelowGlobalMinimumIsCorrupted) {
+    RawIndexBlock raw = valid_three_leaf_block();
+    raw.split_values.clear();
+    append_bytes(&raw.split_values, sortable_bigint(-6));
+    append_bytes(&raw.split_values, sortable_bigint(200));
+
+    BkdIndexBlockReader reader;
+    EXPECT_TRUE(IsCorrupted(open_raw(raw, &reader)));
+}
+
+TEST(SniiBkdIndexBlock, SplitValueAboveGlobalMaximumIsCorrupted) {
+    RawIndexBlock raw = valid_three_leaf_block();
+    raw.split_values.clear();
+    append_bytes(&raw.split_values, sortable_bigint(100));
+    append_bytes(&raw.split_values, sortable_bigint(301));
+
+    BkdIndexBlockReader reader;
+    EXPECT_TRUE(IsCorrupted(open_raw(raw, &reader)));
+}
+
+TEST(SniiBkdIndexBlock, SplitValuesMayEqualInclusiveGlobalBounds) {
+    RawIndexBlock raw = valid_three_leaf_block();
+    raw.min_value = sortable_bigint(100);
+    raw.max_value = sortable_bigint(200);
+
+    BkdIndexBlockReader reader;
+    EXPECT_TRUE(open_raw(raw, &reader).ok());
+}
+
 // Ordering is UNSIGNED byte comparison, MSB first (INV-1). 0x80.. sorts above
 // 0x7F.. even though the same bytes read as a signed value would not.
 TEST(SniiBkdIndexBlock, SplitValueOrderingIsUnsignedByteWise) {

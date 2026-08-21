@@ -24,12 +24,30 @@ every translation unit, so one stray include can multiply rebuild cost by an ord
 of magnitude and does so silently: the code still compiles, only the build slows
 down. This script turns that into a build error instead.
 
-Each rule names a hub header and a directory prefix it must not reach. Keeping a
-hub out of a subsystem is what lets that subsystem's headers be edited cheaply.
+Four kinds of guard, all on the same text include graph (be/src + be/test, all
+ifdef branches -- not comparable to ninja-measured radii, each baseline compares
+only with itself):
+
+  RULES                    a hub header must not reach a subsystem. Keeping a
+                           hub out of a subsystem is what lets that subsystem's
+                           headers be edited cheaply.
+  ANGLE_BANS               a header must not include a named third-party header
+                           whose template machinery was deliberately moved out
+                           of line.
+  FORWARD/REVERSE budgets  the two-axis safety net for edges no rule names:
+                           light hubs must stay light (closure budget, zero
+                           slack), heavy payloads must not spread (reach
+                           baseline +10%).
+  PCH whitelist            pch/pch.h's quoted project includes are pinned
+                           exactly; the PCH is the single most leveraged
+                           regression surface in the repo.
 
 Usage:
-    build-support/check-header-deps.py            # enforce the rules
-    build-support/check-header-deps.py --report   # rank headers by rebuild cost
+    build-support/check-header-deps.py                  # enforce everything
+    build-support/check-header-deps.py --report         # rank headers by rebuild cost
+    build-support/check-header-deps.py --budget         # budgets only (rebaselining)
+    build-support/check-header-deps.py --closure HEADER # list a hub's closure, with chains
+    build-support/check-header-deps.py --reach HEADER   # rank an includer's edge weights
 """
 
 import argparse
@@ -288,19 +306,213 @@ RULES = [
         "rec_cte_shared_state.cpp; the brpc client stack must not ride a "
         "SharedState header",
     ),
+    (
+        "exprs/function/function.h",
+        "storage/",
+        {
+            # Plain result struct (<cstdint> only); the sanctioned carrier left
+            # behind when the zonemap machinery edge was cut.
+            "storage/index/zone_map/zonemap_filter_result.h",
+            # Plain id struct, methods defined in rowset_id.cpp; rides in via
+            # core/column/column.h.
+            "storage/rowset_id.h",
+        },
+        "function.h is the base header of every scalar function; cutting its "
+        "three storage edges (expr_zonemap_filter, inverted_index_iterator, "
+        "inverted_index_parser) removed 122,885 preprocessed lines from the "
+        "exprs TUs, and one edge flowing back re-couples the whole expression "
+        "layer to the storage stack",
+    ),
+    (
+        "core/field.h",
+        "util/json/path_in_data.h",
+        set(),
+        "a single using-alias here used to drag path_in_data.h and with it "
+        "gen_cpp/segment_v2.pb.h (11.6k lines) into every TU that sees a "
+        "Field; the alias users include path_in_data.h themselves now",
+    ),
+    (
+        "core/data_type/primitive_type.h",
+        "util/json/path_in_data.h",
+        set(),
+        "primitive_type.h is included by ~44 project headers transitively; "
+        "the path_in_data edge would put gen_cpp/segment_v2.pb.h behind the "
+        "most basic type-enum header in the backend",
+    ),
+    (
+        "core/value/variant/variant_field.h",
+        "util/json/path_in_data.h",
+        set(),
+        "the field.h cut moved the variant alias down here, so this header "
+        "is where the path_in_data edge would most naturally regrow; variant "
+        "consumers that need PathInData include it directly",
+    ),
+    (
+        "core/types.h",
+        "storage/olap_common.h",
+        set(),
+        "the int128/uint128 typedefs moved to core/extended_types.h precisely "
+        "so core/types.h stops paying for the storage domain; the binary_cast "
+        "include chain used to put all of olap_common behind two lines of "
+        "typedef",
+    ),
+    (
+        "pch/pch.h",
+        "storage/olap_common.h",
+        set(),
+        "every header on the PCH is on the everything-rebuilds line: touch it "
+        "and the whole backend plus the precompiled header itself rebuild; "
+        "olap_common.h alone used to carry 22 project headers onto that line",
+    ),
 ]
 
-# Not expressible as RULES entries (the scanner only follows quoted project
-# includes and <gen_cpp/...>): core/uint24.h and core/value/large_int_value.h
-# must not regain <fmt/compile.h> / <fmt/format.h>. Their to_string/to_buffer
-# bodies live in the matching .cpp files precisely so the FMT_COMPILE formatter
-# templates (53.5 CPU s over ~1150 TUs for the uint24 date format alone) are
-# instantiated once instead of in every includer.
+# Third-party bans, (header, banned include, why). The include graph above only
+# follows quoted project includes and <gen_cpp/...>, so forbidden *third-party*
+# edges get their own single-file check: the named header must not include the
+# banned spelling (a trailing '/' bans the whole directory, otherwise the match
+# is exact; angle and quoted forms are both caught). These are headers whose
+# formatting/queueing bodies were deliberately moved out of line -- the ban keeps
+# the heavy third-party template machinery from re-entering every includer.
+ANGLE_BANS = [
+    (
+        "core/uint24.h",
+        "fmt/",
+        "to_string/to_buffer bodies live in uint24.cpp precisely so the "
+        "FMT_COMPILE formatter templates (53.5 CPU s over ~1150 TUs for the "
+        "date format alone) are instantiated once instead of in every includer",
+    ),
+    (
+        "core/value/large_int_value.h",
+        "fmt/",
+        "the fmt formatting bodies moved to large_int_value.cpp under the same "
+        "contract as core/uint24.h: the formatter templates must be "
+        "instantiated once, not in every includer",
+    ),
+    (
+        "exec/pipeline/dependency.h",
+        "concurrentqueue.h",
+        "was a dead 152 KB third-party include here; the moodycamel users "
+        "(local_exchanger.h, scanner_context.h, async_result_writer.h) "
+        "include it themselves",
+    ),
+    (
+        "util/pretty_printer.h",
+        "boost/",
+        "one boost::algorithm::join dragged ~60k preprocessed lines into every "
+        "TU that sees runtime_profile.h; the join is a plain loop in "
+        "pretty_printer.cpp now",
+    ),
+    # <ranges> is both a heavy header (object_pool.h alone reaches most of the
+    # backend) and a build breaker: libc++'s <ranges> rejects the
+    # -fno-access-control flag that doris_be_test builds with, so a <ranges>
+    # include in a src header can take the whole UT build down (#66615).
+    (
+        "common/object_pool.h",
+        "ranges",
+        "widely-included header; <ranges> is heavy for every includer and "
+        "breaks the -fno-access-control UT build on libc++",
+    ),
+    (
+        "exprs/lambda_function/lambda_execution_context.h",
+        "ranges",
+        "rides into every lambda-capable expression TU; <ranges> is heavy and "
+        "breaks the -fno-access-control UT build on libc++",
+    ),
+    (
+        "format/table/iceberg_reader_mixin.h",
+        "ranges",
+        "rides the table-reader stack; <ranges> is heavy and breaks the "
+        "-fno-access-control UT build on libc++",
+    ),
+    (
+        "storage/index/inverted/query_v2/collect/top_k_collector.h",
+        "ranges",
+        "rides the inverted-index query stack; <ranges> is heavy and breaks "
+        "the -fno-access-control UT build on libc++",
+    ),
+    (
+        "storage/index/inverted/query_v2/composite_reader.h",
+        "ranges",
+        "rides the inverted-index query stack; <ranges> is heavy and breaks "
+        "the -fno-access-control UT build on libc++",
+    ),
+    (
+        "storage/index/inverted/query_v2/wand/block_wand.h",
+        "ranges",
+        "rides the inverted-index query stack; <ranges> is heavy and breaks "
+        "the -fno-access-control UT build on libc++",
+    ),
+]
+
+# Budgets: the edge rules and bans above pin the edges someone has already
+# thought about; the two budget axes below catch the ones nobody thought about.
+# Both read the same text include graph (be/src + be/test, all ifdef branches);
+# neither is comparable to ninja-measured rebuild radii -- each compares only
+# against its own baseline.
 #
-# Likewise <concurrentqueue.h> must not return to exec/pipeline/dependency.h:
-# it was a dead 152 KB third-party include there; the moodycamel users
-# (local_exchanger.h, scanner_context.h, async_result_writer.h) include it
-# themselves.
+# Forward axis, "this header must stay light": the number of project headers
+# transitively reachable from the hub (the hub itself excluded). Slack is ZERO
+# by design -- growing a hub's closure must be a visible, deliberate act, so the
+# legal way over the budget is to bump the number here in the same PR and say
+# why in the commit message.
+# Baselines: master 9a48f8120c0, 2026-08-18.
+FORWARD_CLOSURE_BUDGETS = {
+    "common/logging.h": 0,  # a leaf on purpose: logging must not drag project headers
+    "util/uid_util.h": 1,
+    "common/status.h": 6,
+    "runtime/exec_env.h": 10,
+    "core/pod_array.h": 18,
+    "util/pretty_printer.h": 31,
+    "storage/olap_common.h": 32,
+    "core/types.h": 35,
+    "runtime/runtime_state.h": 43,
+    "core/data_type/primitive_type.h": 44,
+    "runtime/thread_context.h": 55,
+    "core/field.h": 60,
+    "core/column/column.h": 66,
+    "exprs/function/function.h": 106,
+    "exec/pipeline/dependency.h": 357,
+    "pch/pch.h": 8,
+}
+
+# Reverse axis, "this heavy payload must not spread": how many TUs (src + test)
+# transitively include the header. New TUs legitimately reference these, so the
+# limit is baseline +10% (rounded up); rebaseline when the audit cadence
+# re-measures, or in the same PR with justification when a real growth burst is
+# intended.
+# Baselines: master 9a48f8120c0, 2026-08-18.
+REVERSE_REACH_BASELINES = {
+    "gen_cpp/segment_v2.pb.h": 1234,
+    "gen_cpp/PaloInternalService_types.h": 1133,
+    "util/threadpool.h": 988,
+    # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
+    # header, so the whole storage read stack sees the RLE machinery; a live
+    # dependency, budgeted as-is (trimming it is a refactor, not a gate).
+    "util/rle_encoding.h": 823,
+    "gen_cpp/internal_service.pb.h": 741,
+    "gen_cpp/FrontendService_types.h": 576,
+    "storage/options.h": 464,
+    "gen_cpp/cloud.pb.h": 342,
+    "gen_cpp/BackendService_types.h": 222,
+    "gen_cpp/data.pb.h": 220,
+    "io/fs/s3_file_system.h": 109,  # the AWS SDK surface
+    "util/brpc_closure.h": 61,
+    "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
+}
+REVERSE_SLACK = 0.10
+
+# The PCH is the single most leveraged file in the repo: every header on it is
+# on the everything-rebuilds line (touch one and the whole backend plus the
+# precompiled header itself rebuild). Its quoted project includes are therefore
+# pinned exactly; the transitive closure is capped by the pch/pch.h entry in
+# FORWARD_CLOSURE_BUDGETS. Generated <gen_cpp/...> includes are the PCH's whole
+# point and stay out of this lock.
+PCH_HEADER = "pch/pch.h"
+PCH_QUOTED_WHITELIST = {
+    "common/config.h",
+    "common/status.h",
+    "common/version_internal.h",
+}
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry
 # declarations only, so they cost nothing to include.
@@ -398,6 +610,213 @@ def enforce(includes):
     return failures
 
 
+def forward_closure(hub, includes):
+    """Project headers transitively reachable from `hub`, hub excluded."""
+    chains = reachable(hub, includes)
+    return sorted(
+        h for h in chains if h != hub and resolve(h, includes) is not None
+    )
+
+
+ANY_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"]([^>"]+)[>"]')
+
+
+def enforce_angle_bans():
+    failures = 0
+    for header, banned, why in ANGLE_BANS:
+        path = os.path.join(INCLUDE_ROOT, header)
+        if not os.path.exists(path):
+            print(f"error: angle ban names a missing header: {header}", file=sys.stderr)
+            failures += 1
+            continue
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            spellings = [m.group(1) for m in map(ANY_INCLUDE.match, handle) if m]
+        hits = [
+            s
+            for s in spellings
+            if s == banned or (banned.endswith("/") and s.startswith(banned))
+        ]
+        for hit in hits:
+            failures += 1
+            print(f"error: {header} must not include <{hit}>", file=sys.stderr)
+            print(f"  reason: {why}", file=sys.stderr)
+            print(
+                "  fix:    move the code that needs it into the matching .cpp "
+                "(that is where the previous cut put it), or take this ban out "
+                "of ANGLE_BANS in the same PR and justify it in the commit "
+                "message",
+                file=sys.stderr,
+            )
+    return failures
+
+
+def enforce_budgets(includes):
+    failures = 0
+    for hub, budget in FORWARD_CLOSURE_BUDGETS.items():
+        if resolve(hub, includes) is None:
+            print(
+                f"error: forward budget names a missing header: {hub} "
+                "(renamed or moved? update FORWARD_CLOSURE_BUDGETS)",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        actual = len(forward_closure(hub, includes))
+        if actual > budget:
+            failures += 1
+            print(
+                f"error: {hub} include closure grew to {actual} project "
+                f"headers (budget {budget})",
+                file=sys.stderr,
+            )
+            print(
+                "  reason: everything this hub includes is reparsed by every "
+                "TU that includes the hub, so closure growth is a rebuild-cost "
+                "multiplier nobody sees in a diff; the budget makes it visible",
+                file=sys.stderr,
+            )
+            print(
+                f"  list:   build-support/check-header-deps.py --closure {hub}",
+                file=sys.stderr,
+            )
+            print(
+                "  fix:    cut the new edge (forward-declare the type, or "
+                "route it through a *_fwd.h), or bump the budget in "
+                "FORWARD_CLOSURE_BUDGETS in the same PR and justify it in the "
+                "commit message",
+                file=sys.stderr,
+            )
+    counts = translation_units_affected(includes)
+    for header, baseline in REVERSE_REACH_BASELINES.items():
+        limit = -(-baseline * (100 + int(REVERSE_SLACK * 100)) // 100)
+        actual = counts.get(header, 0)
+        is_project = resolve(header, includes) is not None
+        if not is_project and not header.startswith("gen_cpp/"):
+            print(
+                f"error: reverse budget names a missing header: {header} "
+                "(renamed or moved? update REVERSE_REACH_BASELINES)",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        if actual == 0:
+            # A watched header nobody includes any more is either renamed
+            # (the budget is watching nothing) or genuinely dead -- both mean
+            # the table must be updated, loudly.
+            print(
+                f"error: reverse budget sentinel is no longer referenced: "
+                f"{header} (renamed, or truly unused? update "
+                "REVERSE_REACH_BASELINES)",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        if actual > limit:
+            failures += 1
+            print(
+                f"error: {header} now reaches {actual} TUs "
+                f"(baseline {baseline} +{int(REVERSE_SLACK * 100)}% = {limit})",
+                file=sys.stderr,
+            )
+            print(
+                "  reason: this is a heavy payload (generated code / SDK "
+                "surface / template machinery); some header on a popular path "
+                "gained an include of it, taxing every TU downstream",
+                file=sys.stderr,
+            )
+            print(
+                f"  list:   build-support/check-header-deps.py --reach {header}",
+                file=sys.stderr,
+            )
+            print(
+                "  fix:    cut the spreading edge (forward-declare, or move "
+                "the include into the .cpp), or rebaseline in "
+                "REVERSE_REACH_BASELINES in the same PR and justify it in the "
+                "commit message",
+                file=sys.stderr,
+            )
+    return failures
+
+
+def enforce_pch(includes):
+    path = resolve(PCH_HEADER, includes)
+    if path is None:
+        print(f"error: {PCH_HEADER} not found", file=sys.stderr)
+        return 1
+    with open(path, encoding="utf-8", errors="ignore") as handle:
+        quoted = {m.group(1) for m in map(INCLUDE.match, handle) if m}
+    extra = sorted(quoted - PCH_QUOTED_WHITELIST)
+    missing = sorted(PCH_QUOTED_WHITELIST - quoted)
+    if not extra and not missing:
+        return 0
+    print("error: pch/pch.h quoted includes diverged from the whitelist", file=sys.stderr)
+    for header in extra:
+        print(f"  added:   \"{header}\"", file=sys.stderr)
+    for header in missing:
+        print(f"  removed: \"{header}\"", file=sys.stderr)
+    print(
+        "  reason: every header on the PCH is on the everything-rebuilds "
+        "line -- touch it and the whole backend plus the precompiled header "
+        "itself rebuild; adding one is the single most leveraged regression "
+        "in the repo",
+        file=sys.stderr,
+    )
+    print(
+        "  fix:    include the header in the TUs that need it instead, or "
+        "change PCH_QUOTED_WHITELIST in the same PR and justify it in the "
+        "commit message",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def closure_listing(hub, includes):
+    if resolve(hub, includes) is None:
+        print(f"error: no such project header: {hub}", file=sys.stderr)
+        return 1
+    chains = reachable(hub, includes)
+    members = forward_closure(hub, includes)
+    print(f"{hub}: {len(members)} project header(s) in the include closure")
+    for member in members:
+        print("  " + " -> ".join(chains[member]))
+    return 0
+
+
+def reach_listing(header, includes):
+    """Direct includers of `header` ranked by how many TUs each edge carries."""
+    users = collections.defaultdict(set)
+    for path, headers in includes.items():
+        for h in headers:
+            users[h].add(path)
+    if not users.get(header):
+        print(f"error: nothing includes {header}", file=sys.stderr)
+        return 1
+
+    def tus(banned_edge=None):
+        seen, frontier = set(), [header]
+        while frontier:
+            current = frontier.pop()
+            for user in users.get(current, ()):
+                if banned_edge and (user, current) == banned_edge:
+                    continue
+                if user in seen:
+                    continue
+                seen.add(user)
+                if user.startswith(INCLUDE_ROOT + "/"):
+                    frontier.append(user[len(INCLUDE_ROOT) + 1:])
+        return sum(1 for f in seen if f.endswith((".cpp", ".cc")))
+
+    total = tus()
+    print(f"{header}: reaches {total} TU(s); direct includers by edge weight")
+    ranked = sorted(
+        ((total - tus((user, header)), user) for user in users[header]),
+        reverse=True,
+    )
+    for marginal, user in ranked:
+        print(f"  {marginal:>5} via this edge alone  {user}")
+    return 0
+
+
 def report(includes):
     counts = translation_units_affected(includes)
     ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:30]
@@ -413,6 +832,21 @@ def main():
         action="store_true",
         help="rank headers by how many translation units they force a rebuild of",
     )
+    parser.add_argument(
+        "--budget",
+        action="store_true",
+        help="run only the closure/reach budget checks (used when rebaselining)",
+    )
+    parser.add_argument(
+        "--closure",
+        metavar="HEADER",
+        help="list the project headers in HEADER's include closure, with chains",
+    )
+    parser.add_argument(
+        "--reach",
+        metavar="HEADER",
+        help="list HEADER's direct includers ranked by how many TUs each edge carries",
+    )
     args = parser.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -422,12 +856,35 @@ def main():
     if args.report:
         report(includes)
         return 0
+    if args.closure:
+        return closure_listing(args.closure, includes)
+    if args.reach:
+        return reach_listing(args.reach, includes)
 
-    failures = enforce(includes)
+    if args.budget:
+        failures = enforce_budgets(includes)
+    else:
+        failures = (
+            enforce(includes)
+            + enforce_angle_bans()
+            + enforce_budgets(includes)
+            + enforce_pch(includes)
+        )
     if failures:
-        print(f"\n{failures} header layering violation(s)", file=sys.stderr)
+        print(f"\n{failures} header hygiene violation(s)", file=sys.stderr)
         return 1
-    print(f"header layering: {len(RULES)} rule(s) satisfied")
+    if args.budget:
+        print(
+            f"header budgets: {len(FORWARD_CLOSURE_BUDGETS)} forward + "
+            f"{len(REVERSE_REACH_BASELINES)} reverse within budget"
+        )
+    else:
+        print(
+            f"header hygiene: {len(RULES)} layering rule(s), "
+            f"{len(ANGLE_BANS)} third-party ban(s), "
+            f"{len(FORWARD_CLOSURE_BUDGETS)}+{len(REVERSE_REACH_BASELINES)} "
+            "budget(s), pch whitelist: all satisfied"
+        )
     return 0
 
 

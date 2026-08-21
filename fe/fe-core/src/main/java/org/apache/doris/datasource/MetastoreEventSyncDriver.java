@@ -259,51 +259,63 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
 
     private void applyOneInternal(PluginDrivenExternalCatalog catalog, Connector connector,
             MetastoreChangeDescriptor descriptor) throws Exception {
+        EventIdentity before = EventIdentity.from(
+                catalog, descriptor.getDbName(), descriptor.getTableName());
+        EventIdentity after = descriptor.getDbNameAfter() == null ? null : EventIdentity.from(
+                catalog, descriptor.getDbNameAfter(), descriptor.getTableNameAfter());
         String catalogName = catalog.getName();
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
-        invalidateStructuralEventCaches(connector, descriptor);
+        invalidateStructuralEventCaches(connector, descriptor.getOp(), before, after);
         switch (descriptor.getOp()) {
             case REGISTER_DATABASE:
-                catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbName(), catalogName);
+                catalogMgr.registerExternalDatabaseFromEvent(
+                        before.remoteDbName, before.localDbName, catalogName);
                 break;
             case UNREGISTER_DATABASE:
-                catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
+                catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
                 break;
             case RENAME_DATABASE:
                 // Always converge to "old removed, new registered". A normal lookup may already have warmed the
                 // target after the remote rename; treating that as a reason to skip would retain stale old state.
-                catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
-                catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbNameAfter(), catalogName);
+                catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
+                catalogMgr.registerExternalDatabaseFromEvent(
+                        after.remoteDbName, after.localDbName, catalogName);
                 break;
             case REGISTER_TABLE:
-                catalogMgr.registerExternalTableFromEvent(descriptor.getDbName(), descriptor.getTableName(),
-                        catalogName, descriptor.getUpdateTime(), true);
+                catalogMgr.registerExternalTableFromEvent(before.localDbName,
+                        before.remoteTableName, before.localTableName, catalogName, descriptor.getUpdateTime());
                 break;
             case UNREGISTER_TABLE:
-                catalogMgr.unregisterExternalTable(descriptor.getDbName(), descriptor.getTableName(),
-                        catalogName, true);
+                catalogMgr.unregisterExternalTableFromEvent(
+                        before.localDbName, before.localTableName, catalogName);
                 break;
             case RENAME_TABLE:
-                applyRenameTable(catalog, descriptor);
+                // Always converge to "old removed, new registered". The target may already be hot because a normal
+                // lookup raced with the event after the remote rename; it must not prevent cleanup of the old identity.
+                catalogMgr.unregisterExternalTableFromEvent(
+                        before.localDbName, before.localTableName, catalogName);
+                catalogMgr.registerExternalTableFromEvent(after.localDbName,
+                        after.remoteTableName, after.localTableName,
+                        catalogName, descriptor.getUpdateTime());
                 break;
             case REFRESH_TABLE:
-                Env.getCurrentEnv().getRefreshManager().refreshExternalTableFromEvent(catalogName,
-                        descriptor.getDbName(), descriptor.getTableName(), descriptor.getUpdateTime());
+                Env.getCurrentEnv().getRefreshManager().refreshExternalTableFromEvent(
+                        catalogName, before.localDbName, before.localTableName, descriptor.getUpdateTime());
                 break;
             case ADD_PARTITIONS:
-                catalogMgr.addExternalPartitions(catalogName, descriptor.getDbName(),
-                        descriptor.getTableName(), descriptor.getPartitionNames(),
-                        descriptor.getUpdateTime(), true);
+                catalogMgr.addExternalPartitionsFromEvent(catalogName,
+                        before.localDbName, before.localTableName,
+                        descriptor.getPartitionNames(), descriptor.getUpdateTime());
                 break;
             case DROP_PARTITIONS:
-                catalogMgr.dropExternalPartitions(catalogName, descriptor.getDbName(),
-                        descriptor.getTableName(), descriptor.getPartitionNames(),
-                        descriptor.getUpdateTime(), true);
+                catalogMgr.dropExternalPartitionsFromEvent(catalogName,
+                        before.localDbName, before.localTableName,
+                        descriptor.getPartitionNames(), descriptor.getUpdateTime());
                 break;
             case REFRESH_PARTITIONS:
-                Env.getCurrentEnv().getRefreshManager().refreshPartitions(catalogName,
-                        descriptor.getDbName(), descriptor.getTableName(),
-                        descriptor.getPartitionNames(), descriptor.getUpdateTime(), true);
+                Env.getCurrentEnv().getRefreshManager().refreshPartitionsFromEvent(catalogName,
+                        before.localDbName, before.localTableName,
+                        descriptor.getPartitionNames(), descriptor.getUpdateTime());
                 break;
             default:
                 break;
@@ -332,32 +344,30 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
 
     /**
      * Invalidates connector-owned caches for structural events before publishing the corresponding FE mutation.
-     * Descriptor names are remote identities, which is the contract of the connector invalidation SPI. Rename
-     * invalidates both exact keys because case-only changes can address distinct cache entries; same-key
-     * view-recreate invalidates once. Refresh and partition descriptors already invalidate through their existing
-     * engine mutators and are deliberately not duplicated here.
+     * Connector cache keys use remote identities; FE mutators below use the local identities from the same values.
      */
-    private void invalidateStructuralEventCaches(Connector connector, MetastoreChangeDescriptor descriptor) {
-        switch (descriptor.getOp()) {
+    private void invalidateStructuralEventCaches(Connector connector,
+            MetastoreChangeDescriptor.Op op, EventIdentity before, EventIdentity after) {
+        switch (op) {
             case REGISTER_DATABASE:
             case UNREGISTER_DATABASE:
-                connector.invalidateDb(descriptor.getDbName());
+                connector.invalidateDb(before.remoteDbName);
                 break;
             case RENAME_DATABASE:
-                connector.invalidateDb(descriptor.getDbName());
-                if (!Objects.equals(descriptor.getDbName(), descriptor.getDbNameAfter())) {
-                    connector.invalidateDb(descriptor.getDbNameAfter());
+                connector.invalidateDb(before.remoteDbName);
+                if (!Objects.equals(before.remoteDbName, after.remoteDbName)) {
+                    connector.invalidateDb(after.remoteDbName);
                 }
                 break;
             case REGISTER_TABLE:
             case UNREGISTER_TABLE:
-                connector.invalidateTable(descriptor.getDbName(), descriptor.getTableName());
+                connector.invalidateTable(before.remoteDbName, before.remoteTableName);
                 break;
             case RENAME_TABLE:
-                connector.invalidateTable(descriptor.getDbName(), descriptor.getTableName());
-                if (!Objects.equals(descriptor.getDbName(), descriptor.getDbNameAfter())
-                        || !Objects.equals(descriptor.getTableName(), descriptor.getTableNameAfter())) {
-                    connector.invalidateTable(descriptor.getDbNameAfter(), descriptor.getTableNameAfter());
+                connector.invalidateTable(before.remoteDbName, before.remoteTableName);
+                if (!Objects.equals(before.remoteDbName, after.remoteDbName)
+                        || !Objects.equals(before.remoteTableName, after.remoteTableName)) {
+                    connector.invalidateTable(after.remoteDbName, after.remoteTableName);
                 }
                 break;
             default:
@@ -365,16 +375,29 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         }
     }
 
-    private void applyRenameTable(PluginDrivenExternalCatalog catalog, MetastoreChangeDescriptor descriptor)
-            throws Exception {
-        String catalogName = catalog.getName();
-        CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
-        // Always converge to "old removed, new registered". The target may already be hot because a normal
-        // lookup raced with the event after the remote rename; it must not prevent cleanup of the old identity.
-        catalogMgr.unregisterExternalTable(descriptor.getDbName(), descriptor.getTableName(),
-                catalogName, true);
-        catalogMgr.registerExternalTableFromEvent(descriptor.getDbNameAfter(),
-                descriptor.getTableNameAfter(), catalogName, descriptor.getUpdateTime(), true);
+    /** One remote connector identity and its canonical FE-local counterpart. */
+    private static final class EventIdentity {
+        private final String remoteDbName;
+        private final String localDbName;
+        private final String remoteTableName;
+        private final String localTableName;
+
+        private EventIdentity(String remoteDbName, String localDbName,
+                String remoteTableName, String localTableName) {
+            this.remoteDbName = remoteDbName;
+            this.localDbName = localDbName;
+            this.remoteTableName = remoteTableName;
+            this.localTableName = localTableName;
+        }
+
+        private static EventIdentity from(PluginDrivenExternalCatalog catalog,
+                String remoteDbName, String remoteTableName) {
+            Objects.requireNonNull(remoteDbName, "remote database name");
+            String localDbName = catalog.canonicalLocalDatabaseNameFromRemote(remoteDbName);
+            String localTableName = remoteTableName == null
+                    ? null : catalog.canonicalLocalTableNameFromRemote(remoteDbName, remoteTableName);
+            return new EventIdentity(remoteDbName, localDbName, remoteTableName, localTableName);
+        }
     }
 
     // Writes the synced-event-id cursor to the edit-log so followers advance to it (the log's only live

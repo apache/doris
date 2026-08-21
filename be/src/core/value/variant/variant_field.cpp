@@ -27,6 +27,7 @@
 #include "core/field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "core/value/variant/variant_scalar.h"
+#include "util/json/path_in_data.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -284,6 +285,8 @@ void validate_variant_payload(VariantRef value) {
 
 VariantField::VariantField(std::unique_ptr<char[]> data, size_t size) noexcept
         : _data(std::move(data)), _size(size) {}
+
+VariantField::VariantField() noexcept = default;
 
 VariantField::~VariantField() = default;
 

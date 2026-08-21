@@ -47,6 +47,7 @@
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/metadata_blob.h"
 #include "storage/index/snii/format/metadata_directory.h"
+#include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/format/sampled_term_index.h"
 #include "storage/index/snii/format/tail_pointer.h"
@@ -336,6 +337,55 @@ private:
     std::vector<uint8_t> bytes_;
 };
 
+enum class AuxiliarySection { kNorms, kNullBitmap, kBsbf };
+
+class FailOnAuxiliarySectionWriter final : public io::FileWriter {
+public:
+    explicit FailOnAuxiliarySectionWriter(AuxiliarySection target) : target_(target) {}
+
+    Status append(Slice data) override {
+        if (is_target(data)) {
+            ++target_append_calls_;
+            return Status::Error<doris::ErrorCode::IO_ERROR, false>(
+                    "injected auxiliary section append failure");
+        }
+        bytes_.insert(bytes_.end(), data.data(), data.data() + data.size());
+        return Status::OK();
+    }
+
+    Status finalize() override { return Status::OK(); }
+
+    uint64_t bytes_written() const override { return bytes_.size(); }
+    size_t target_append_calls() const { return target_append_calls_; }
+
+private:
+    bool is_target(Slice data) const {
+        if (target_ == AuxiliarySection::kBsbf) {
+            if (data.size() < kBsbfHeaderSize) {
+                return false;
+            }
+            BsbfHeader header;
+            return BsbfHeader::parse(data.subslice(0, kBsbfHeaderSize), bytes_.size(), &header)
+                           .ok() &&
+                   data.size() == kBsbfHeaderSize + header.num_bytes;
+        }
+
+        ByteSource source(data);
+        FramedSection section;
+        if (!SectionFramer::read(source, &section).ok() || source.remaining() != 0) {
+            return false;
+        }
+        const uint8_t target_type = target_ == AuxiliarySection::kNorms
+                                            ? static_cast<uint8_t>(SectionType::kNormsPod)
+                                            : kNullBitmapSectionType;
+        return section.type == target_type;
+    }
+
+    AuxiliarySection target_;
+    size_t target_append_calls_ = 0;
+    std::vector<uint8_t> bytes_;
+};
+
 void VerifyAppendFailurePoisonsWriter(size_t fail_on_append) {
     FailOnAppendWriter file(fail_on_append);
     SniiCompoundWriter writer(&file);
@@ -485,6 +535,37 @@ SniiIndexInput MakeIndex(uint64_t index_id, const std::string& suffix, uint32_t 
     // low-df "zebra".
     in.terms.push_back(MakeTerm("zebra", {7, 21, 29}, true));
     return in;
+}
+
+SniiIndexInput MakeIndexWithAllAuxiliarySections(MemoryReporter* reporter) {
+    SniiIndexInput in;
+    in.index_id = 7;
+    in.index_suffix = "body";
+    in.config = IndexConfig::kDocsPositionsScoring;
+    in.doc_count = 3;
+    in.null_docids = {2};
+    in.encoded_norms = {1, 2, 3};
+    in.terms.push_back(MakeTerm("apple", {0, 1}, true));
+    in.mem_reporter = reporter;
+    return in;
+}
+
+void VerifyAuxiliaryAppendFailureReleasesReservations(AuxiliarySection target) {
+    FailOnAuxiliarySectionWriter file(target);
+    auto reporter = std::make_unique<MemoryReporter>();
+    auto compound = std::make_unique<SniiCompoundWriter>(&file);
+    const SniiIndexInput input = MakeIndexWithAllAuxiliarySections(reporter.get());
+
+    const Status status = compound->add_logical_index(input);
+    ASSERT_FALSE(status.ok());
+    ASSERT_EQ(1U, file.target_append_calls());
+    ASSERT_EQ(0, reporter->current_bytes())
+            << "failed logical writer retained reservations after add_logical_index returned";
+
+    // The caller only transfers reporter ownership after add_logical_index succeeds.
+    // Exercise the real failed-call teardown order under ASAN: the reporter dies first.
+    reporter.reset();
+    compound.reset();
 }
 
 // Locate a term through the full reader walk and return its DictEntry.
@@ -931,6 +1012,18 @@ TEST(SniiCompoundWriter, AppendFailurePoisonsWriterBeforeAnyValidFooter) {
     for (size_t fail_on_append = 2; fail_on_append <= 6; ++fail_on_append) {
         VerifyAppendFailurePoisonsWriter(fail_on_append);
     }
+}
+
+TEST(SniiCompoundWriter, NormsAppendFailureReleasesReservationsBeforeReturn) {
+    VerifyAuxiliaryAppendFailureReleasesReservations(AuxiliarySection::kNorms);
+}
+
+TEST(SniiCompoundWriter, NullBitmapAppendFailureReleasesReservationsBeforeReturn) {
+    VerifyAuxiliaryAppendFailureReleasesReservations(AuxiliarySection::kNullBitmap);
+}
+
+TEST(SniiCompoundWriter, BsbfAppendFailureReleasesReservationsBeforeReturn) {
+    VerifyAuxiliaryAppendFailureReleasesReservations(AuxiliarySection::kBsbf);
 }
 
 TEST(SniiCompoundWriter, ReopeningLogicalReaderClearsPreviousCommonGramsState) {

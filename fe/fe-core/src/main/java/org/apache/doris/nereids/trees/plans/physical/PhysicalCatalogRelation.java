@@ -237,7 +237,12 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                 slotSet.add(slotRef);
             }
         }
-        return slotSet.build();
+        // A composite constraint (e.g. UNIQUE(a,b)) must appear in the output COMPLETELY to be
+        // registered. When the scan output misses a constrained column (e.g. a non-base index
+        // that only covers (a,c)), registering the partial set {a} wrongly marks {a} as unique
+        // and lets EliminateGroupByKey derive a -> c. Return empty in that case.
+        ImmutableSet<SlotReference> matched = slotSet.build();
+        return matched.size() == columns.size() ? matched : ImmutableSet.of();
     }
 
     @Override
