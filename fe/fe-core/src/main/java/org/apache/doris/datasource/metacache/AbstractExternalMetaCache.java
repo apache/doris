@@ -127,7 +127,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     public void invalidateCatalog(long catalogId) {
         CatalogEntryGroup removed = catalogEntries.remove(catalogId);
         if (removed != null) {
-            removed.invalidateAll();
+            removed.sealAndInvalidateAll();
         }
     }
 
@@ -163,7 +163,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     @Override
     public void close() {
-        catalogEntries.values().forEach(CatalogEntryGroup::invalidateAll);
+        catalogEntries.values().forEach(CatalogEntryGroup::sealAndInvalidateAll);
         catalogEntries.clear();
     }
 

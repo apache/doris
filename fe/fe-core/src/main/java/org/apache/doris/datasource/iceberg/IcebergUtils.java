@@ -2022,7 +2022,8 @@ public class IcebergUtils {
                     IcebergPartitionInfo.empty(),
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
                     getNameMapping(icebergTable),
-                    icebergTable);
+                    icebergTable,
+                    getIcebergTableExecutor(dorisTable));
         }
         return getLatestSnapshotCacheValue(dorisTable);
     }

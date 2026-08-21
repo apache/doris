@@ -32,6 +32,7 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
+import org.apache.doris.datasource.metacache.StaleMetaCacheEntryException;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
@@ -151,7 +152,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         Table table = loadTable(nameMapping);
         ExternalTable tableForProjection = findExternalTable(nameMapping, ENGINE);
-        return loadSnapshotProjection(tableForProjection, table);
+        return loadSnapshotProjection(tableForProjection, table, getIcebergTableExecutor(dorisTable));
     }
 
     public List<Snapshot> getSnapshotList(ExternalTable dorisTable) {
@@ -215,7 +216,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 Runnable tableCleanup = tableCleanup(loadContext.getCatalogType(), ops, table);
                 IcebergCatalogResourceTracker.ResourceLease catalogLease = loadContext.promote();
                 return new IcebergTableCacheValue(table, ops.getThreadPoolWithPreAuth(),
-                        () -> loadSnapshotProjection(dorisTable, table), () -> {
+                        () -> loadSnapshotProjection(dorisTable, table, ops.getThreadPoolWithPreAuth()), () -> {
                     try {
                         tableCleanup.run();
                     } finally {
@@ -224,10 +225,27 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 });
             }
         }
+        if (catalog instanceof HMSExternalCatalog) {
+            HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+            try (HMSExternalCatalog.IcebergTableLoadContext loadContext = hmsCatalog.beginIcebergTableLoad()) {
+                Table table;
+                try {
+                    table = loadContext.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+                } catch (Exception e) {
+                    throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+                }
+                ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
+                ThreadPoolExecutor executor = loadContext.getExecutor();
+                IcebergCatalogResourceTracker.ResourceLease catalogLease = loadContext.promote();
+                return new IcebergTableCacheValue(table, executor,
+                        () -> loadSnapshotProjection(dorisTable, table, executor), catalogLease::close);
+            }
+        }
         Table table = loadTable(nameMapping);
         IcebergMetadataOps ops = resolveMetadataOps(catalog);
         ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
-        return new IcebergTableCacheValue(table, () -> loadSnapshotProjection(dorisTable, table),
+        return new IcebergTableCacheValue(table, ops.getThreadPoolWithPreAuth(),
+                () -> loadSnapshotProjection(dorisTable, table, ops.getThreadPoolWithPreAuth()),
                 tableCleanup(catalog, ops, table));
     }
 
@@ -262,9 +280,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private IcebergTableCacheValue.Lease borrow(NameMapping nameMapping) {
-        MetaCacheEntry<NameMapping, IcebergTableCacheValue> entry = tableEntry.get(nameMapping.getCtlId());
         while (true) {
-            IcebergTableCacheValue value = entry.get(nameMapping);
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> entry = tableEntry.get(nameMapping.getCtlId());
+            IcebergTableCacheValue value;
+            try {
+                value = entry.get(nameMapping);
+            } catch (StaleMetaCacheEntryException e) {
+                // The catalog group was replaced after it was resolved. Retry against the current group.
+                continue;
+            }
             IcebergTableCacheValue.Lease lease = value.tryAcquire();
             value.releaseLoaderReference();
             if (lease != null) {
@@ -366,7 +390,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                         key.getNameMapping().getLocalTblName(), key.getSchemaId()));
     }
 
-    private IcebergSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table icebergTable) {
+    private IcebergSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table icebergTable,
+            ThreadPoolExecutor planningExecutor) {
         if (!(dorisTable instanceof MTMVRelatedTableIf)) {
             throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
                     dorisTable.getDbName(), dorisTable.getName()));
@@ -389,7 +414,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             }
             return new IcebergSnapshotCacheValue(
                     icebergPartitionInfo, latestIcebergSnapshot, IcebergUtils.getNameMapping(retainedTable),
-                    retainedTable);
+                    retainedTable, planningExecutor);
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }

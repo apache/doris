@@ -30,6 +30,7 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -63,6 +64,7 @@ public class MetaCacheEntry<K, V> {
     // Protect one key stripe at a time to deduplicate concurrent miss loads with bounded lock count.
     private final Object[] loadLocks = new Object[LOAD_LOCK_STRIPES];
     private final AtomicLong invalidateCount = new AtomicLong(0);
+    private final AtomicBoolean sealed = new AtomicBoolean();
     // Bump generation before invalidation so in-flight manual loads do not repopulate stale values.
     private final AtomicLong invalidateGeneration = new AtomicLong(0);
     // Track load statistics outside Caffeine because manual miss loads bypass the built-in load counters.
@@ -144,21 +146,25 @@ public class MetaCacheEntry<K, V> {
     }
 
     public V get(K key) {
+        ensureOpen();
         if (!isManualMissLoadEnabled()) {
-            return loadingData.get(key);
+            return getWithGenerationFence(key, loadingData::get);
         }
         return getWithManualLoad(key, this::applyDefaultLoader);
     }
 
     public V get(K key, Function<K, V> missLoader) {
+        ensureOpen();
         Function<K, V> loadFunction = Objects.requireNonNull(missLoader, "missLoader can not be null");
         if (!isManualMissLoadEnabled()) {
-            return loadingData.get(key, typedKey -> loadAndTrack(typedKey, loadFunction));
+            return getWithGenerationFence(key,
+                    typedKey -> loadingData.get(typedKey, ignored -> loadAndTrack(typedKey, loadFunction)));
         }
         return getWithManualLoad(key, loadFunction);
     }
 
     public V getIfPresent(K key) {
+        ensureOpen();
         if (!effectiveEnabled) {
             return null;
         }
@@ -166,6 +172,7 @@ public class MetaCacheEntry<K, V> {
     }
 
     public void put(K key, V value) {
+        ensureOpen();
         if (!effectiveEnabled) {
             return;
         }
@@ -195,6 +202,13 @@ public class MetaCacheEntry<K, V> {
         long size = data.estimatedSize();
         data.invalidateAll();
         invalidateCount.addAndGet(size);
+    }
+
+    /** Permanently retires this entry after its containing catalog group is detached. */
+    public void seal() {
+        if (sealed.compareAndSet(false, true)) {
+            invalidateAll();
+        }
     }
 
     public void forEach(BiConsumer<K, V> consumer) {
@@ -256,8 +270,9 @@ public class MetaCacheEntry<K, V> {
 
             long generation = invalidateGeneration.get();
             V loaded = loadAndTrack(key, loadFunction);
-            if (generation != invalidateGeneration.get()) {
+            if (sealed.get() || generation != invalidateGeneration.get()) {
                 notifySuppressedRemoval(key, loaded);
+                ensureOpen();
                 return loaded;
             }
 
@@ -269,11 +284,22 @@ public class MetaCacheEntry<K, V> {
             // Leave a narrow hook for tests to pause exactly before the cache put race window.
             beforeManualCachePutForTest(key, loaded);
             data.put(key, loaded);
-            if (generation != invalidateGeneration.get()) {
+            if (sealed.get() || generation != invalidateGeneration.get()) {
                 removeLoadedValue(key, loaded);
+                ensureOpen();
             }
             return loaded;
         }
+    }
+
+    private V getWithGenerationFence(K key, Function<K, V> getFunction) {
+        long generation = invalidateGeneration.get();
+        V value = getFunction.apply(key);
+        if (sealed.get() || generation != invalidateGeneration.get()) {
+            removeLoadedValue(key, value);
+            ensureOpen();
+        }
+        return value;
     }
 
     private void notifySuppressedRemoval(K key, V value) {
@@ -309,8 +335,23 @@ public class MetaCacheEntry<K, V> {
     void beforeManualCachePutForTest(K key, V loaded) {
     }
 
+    private void ensureOpen() {
+        if (sealed.get()) {
+            throw new StaleMetaCacheEntryException(
+                    String.format("Cache entry '%s' belongs to a retired catalog generation", name));
+        }
+    }
+
     private V loadFromDefaultLoader(K key) {
-        return loadAndTrack(key, this::applyDefaultLoader);
+        ensureOpen();
+        long generation = invalidateGeneration.get();
+        V loaded = loadAndTrack(key, this::applyDefaultLoader);
+        if (sealed.get() || generation != invalidateGeneration.get()) {
+            notifySuppressedRemoval(key, loaded);
+            throw new StaleMetaCacheEntryException(
+                    String.format("Cache entry '%s' changed generation while loading", name));
+        }
+        return loaded;
     }
 
     // Resolve the default loader separately so the manual path can share tracking without double counting.

@@ -29,6 +29,8 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
+import org.apache.doris.datasource.iceberg.IcebergCatalogResourceTracker;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -41,6 +43,7 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -75,6 +78,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
+    private final IcebergCatalogResourceTracker icebergResourceTracker = new IcebergCatalogResourceTracker();
 
     private volatile AbstractHiveProperties hmsProperties;
 
@@ -157,7 +161,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onClose() {
+    public synchronized void onClose() {
+        ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
+        threadPoolWithPreAuth = null;
+        IcebergMetadataOps retiredIcebergMetadataOps = icebergMetadataOps;
+        icebergMetadataOps = null;
         super.onClose();
         if (null != fileSystemExecutor) {
             ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
@@ -166,10 +174,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
             metadataOps.close();
             metadataOps = null;
         }
-        if (null != icebergMetadataOps) {
-            icebergMetadataOps.close();
-            icebergMetadataOps = null;
-        }
+        icebergResourceTracker.retireCurrent(() -> {
+            if (retiredIcebergMetadataOps != null) {
+                retiredIcebergMetadataOps.close();
+            }
+            if (retiredExecutor != null) {
+                ThreadPoolManager.shutdownExecutorService(retiredExecutor);
+            }
+        });
     }
 
     @Override
@@ -222,6 +234,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
         }
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        }
     }
 
     @Override
@@ -233,12 +249,59 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public IcebergMetadataOps getIcebergMetadataOps() {
+    public synchronized IcebergMetadataOps getIcebergMetadataOps() {
         makeSureInitialized();
         if (icebergMetadataOps == null) {
             HiveCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
             icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
         }
         return icebergMetadataOps;
+    }
+
+    /** Retains the exact HMS Iceberg runtime while a table cache generation is being loaded or borrowed. */
+    public synchronized IcebergTableLoadContext beginIcebergTableLoad() {
+        makeSureInitialized();
+        IcebergMetadataOps ops = getIcebergMetadataOps();
+        return new IcebergTableLoadContext(ops, threadPoolWithPreAuth, icebergResourceTracker.beginLoad());
+    }
+
+    @Override
+    public synchronized void resetToUninitialized(boolean invalidCache) {
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        super.resetToUninitialized(invalidCache);
+    }
+
+    public final class IcebergTableLoadContext implements AutoCloseable {
+        private final IcebergMetadataOps ops;
+        private final ThreadPoolExecutor executor;
+        private final IcebergCatalogResourceTracker.LoadGuard guard;
+
+        private IcebergTableLoadContext(IcebergMetadataOps ops, ThreadPoolExecutor executor,
+                IcebergCatalogResourceTracker.LoadGuard guard) {
+            this.ops = ops;
+            this.executor = executor;
+            this.guard = guard;
+        }
+
+        public IcebergMetadataOps getOps() {
+            return ops;
+        }
+
+        public ThreadPoolExecutor getExecutor() {
+            return executor;
+        }
+
+        public Table loadTable(String dbName, String tableName) throws Exception {
+            return executionAuthenticator.execute(() -> ops.loadTable(dbName, tableName));
+        }
+
+        public IcebergCatalogResourceTracker.ResourceLease promote() {
+            return guard.promote();
+        }
+
+        @Override
+        public void close() {
+            guard.close();
+        }
     }
 }
