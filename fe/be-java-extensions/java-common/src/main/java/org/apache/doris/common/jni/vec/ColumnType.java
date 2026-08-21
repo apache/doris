@@ -51,6 +51,7 @@ public class ColumnType {
         DATEV2(4),
         DATETIME(8),
         DATETIMEV2(8),
+        TIMESTAMP_NS(8),
         TIMESTAMPTZ(8),
         CHAR(-1),
         VARCHAR(-1),
@@ -333,6 +334,10 @@ public class ColumnType {
                 break;
             case "datetimev1":
                 type = Type.DATETIME;
+                break;
+            case "timestamp_ns":
+                type = Type.TIMESTAMP_NS;
+                precision = 9;
                 break;
             case "binary":
             case "bytes":

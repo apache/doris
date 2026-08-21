@@ -27,9 +27,12 @@
 #include <thread>
 #include <vector>
 
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/jni/jni_data_bridge.h"
@@ -134,6 +137,19 @@ TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) 
     // verbatim, and field names whose length is not divisible by three require trailing '=' bytes.
     EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
               "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU=:string,$Y29sb246bmFtZQ==:string>");
+}
+
+TEST(JniTableReaderTest, TimestampNsTypeDescriptorPreservesNestedTypes) {
+    const auto timestamp_ns = std::make_shared<DataTypeTimeStampNs>();
+    const auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {timestamp_ns, std::make_shared<DataTypeArray>(timestamp_ns),
+                       std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                                     timestamp_ns)},
+            Strings {"ts", "items", "by_name"});
+
+    EXPECT_EQ(JniDataBridge::get_jni_type(timestamp_ns), "timestamp_ns");
+    EXPECT_EQ(JniDataBridge::get_jni_type(type),
+              "struct<ts:timestamp_ns,items:array<timestamp_ns>,by_name:map<string,timestamp_ns>>");
 }
 
 TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
