@@ -1368,6 +1368,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-arrow</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
                 <artifactId>paimon-s3</artifactId>
                 <version>${paimon.version}</version>
             </dependency>
@@ -1692,6 +1697,11 @@ under the License.
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-c-data</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.lance</groupId>
                 <artifactId>lance-core</artifactId>
                 <version>${lance.version}</version>
@@ -1734,6 +1744,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-unsafe</artifactId>
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>

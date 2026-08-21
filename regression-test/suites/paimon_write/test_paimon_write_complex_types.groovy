@@ -140,7 +140,13 @@ suite("test_paimon_write_complex_types", "p0,external,paimon") {
             (2, map('empty', [])),
             (3, NULL)
         """
-        order_qt_cx_nested """SELECT id, c_map_arr FROM t_nested ORDER BY id"""
+        // MAP entry order is not part of the SQL result contract. Project known keys so the
+        // golden result validates the nested arrays without depending on map rendering order.
+        order_qt_cx_nested """SELECT id,
+            element_at(c_map_arr, 'group1'),
+            element_at(c_map_arr, 'group2'),
+            element_at(c_map_arr, 'empty')
+            FROM t_nested ORDER BY id"""
         assertTableEquals("t_nested", "ORDER BY id")
 
         // Recursive conversion covers the non-trivial Arrow child vectors which

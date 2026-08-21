@@ -21,10 +21,13 @@ import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
+import org.apache.arrow.c.ArrowArray;
+import org.apache.arrow.c.ArrowSchema;
+import org.apache.arrow.c.CDataDictionaryProvider;
+import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.crosspartition.IndexBootstrap;
 import org.apache.paimon.data.BinaryRow;
@@ -46,7 +49,6 @@ import org.apache.paimon.table.sink.TableWriteImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -67,10 +69,10 @@ import java.util.Set;
  * fragment (one per {@code PaimonTableWriter}). Data path:
  *
  * <pre>
- *   C++ Block → Arrow IPC Stream → JNI direct ByteBuffer
- *   → PaimonJniWriter.write(directBuffer)
- *   → ArrowStreamReader → VectorSchemaRoot
- *   → PaimonArrowConverter (row-at-a-time typed extraction)
+ *   C++ Block → Arrow RecordBatch → Arrow C Data Interface
+ *   → PaimonJniWriter.writeArrow(arrayAddress, schemaAddress)
+ *   → zero-copy VectorSchemaRoot view
+ *   → PaimonArrowBatchAdapter (Arrow-backed Paimon columnar row)
  *   → PaimonWriteSchema.tableRow() (canonical table-schema order)
  *   → Paimon SDK bucket assignment and table write
  * </pre>
@@ -86,13 +88,15 @@ import java.util.Set;
  */
 public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
+    private static final int APPEND_ONLY_WRITER_MIN_PAGES = 1;
+    private static final int MERGE_TREE_WRITER_MIN_PAGES = 3;
 
     private final ClassLoader classLoader;
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
 
     private BufferAllocator allocator;
     private PreExecutionAuthenticator preExecutionAuthenticator;
-    private PaimonArrowConverter arrowConverter;
+    private PaimonArrowBatchAdapter arrowAdapter;
 
     private PaimonWriteSchema writeSchema;
     private FileStoreTable table;
@@ -110,10 +114,9 @@ public class PaimonJniWriter {
     private boolean sdkCloseFailed;
 
     public PaimonJniWriter() {
-        // TODO: Charge ArrowStreamReader's decoded vectors to the same native manager budget
-        // used by DorisMemorySegmentPool. A standalone finite RootAllocator would bound Arrow
-        // itself but would still allow Arrow vectors plus Paimon pages to exceed the advertised
-        // per-writer/query limit, so this requires shared reserve/release accounting across JNI.
+        // Imported C Data vectors reference Doris-owned buffers; this allocator owns only Arrow's
+        // Java-side views and metadata. Physical buffers remain charged to the C++ Arrow memory
+        // pool until the synchronous writeArrow call returns.
         this.allocator = new RootAllocator(Long.MAX_VALUE);
         this.classLoader = this.getClass().getClassLoader();
     }
@@ -142,24 +145,23 @@ public class PaimonJniWriter {
      * @param changelogWrite whether the first input column contains a row change operation
      * @param timeZone       normalized Doris session timezone used for Paimon LTZ values
      * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
-     * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
+     * @param nativePageMemoryLimitBytes maximum Doris-managed Paimon page memory
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
                      boolean overwrite, boolean changelogWrite, String timeZone, String spillDirectories,
-                     long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
+                     long nativePageMemoryLimitBytes, long nativeMemoryManager) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            if (memoryPoolLimitBytes <= 0) {
+            if (nativePageMemoryLimitBytes <= 0) {
                 throw new IllegalArgumentException(
-                        "PaimonJniWriter requires a positive memory pool limit");
+                        "PaimonJniWriter requires a positive native page memory limit");
             }
             if (nativeMemoryManager == 0) {
                 throw new IllegalArgumentException(
                         "PaimonJniWriter requires a native memory manager");
             }
             this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopConfig);
-            this.arrowConverter = new PaimonArrowConverter(ZoneId.of(timeZone));
             preExecutionAuthenticator.execute(() -> {
                 try {
                     FileStoreTable table = PaimonUtils.deserialize(serializedTable);
@@ -173,6 +175,8 @@ public class PaimonJniWriter {
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(
                             table.rowType(), columnNames, changelogWrite);
+                    this.arrowAdapter = new PaimonArrowBatchAdapter(
+                            writeSchema.inputType(), ZoneId.of(timeZone), allocator);
                     validateWriteColumnsForMergeEngine(
                             columnNames.length - (changelogWrite ? 1 : 0), coreOptions);
                     this.fullCompactionChangelog =
@@ -185,7 +189,7 @@ public class PaimonJniWriter {
                             overwrite,
                             spillDirectories,
                             coreOptions,
-                            memoryPoolLimitBytes,
+                            nativePageMemoryLimitBytes,
                             nativeMemoryManager);
                     return null;
                 } catch (Throwable t) {
@@ -200,32 +204,33 @@ public class PaimonJniWriter {
         }
     }
 
+    /** Return the exact Arrow schema derived from the pinned Paimon input type. */
+    public byte[] getArrowSchema() {
+        if (arrowAdapter == null) {
+            throw new IllegalStateException("PaimonJniWriter is not open");
+        }
+        return arrowAdapter.serializedArrowSchema();
+    }
+
     /**
-     * Write a batch of rows from an Arrow IPC Stream buffer.
+     * Import and synchronously consume one C++ Arrow RecordBatch through the C Data Interface.
      *
-     * <p>Called from C++ {@code JniPaimonWriter::_write_projected_block()}
-     * once per Block. The buffer is a zero-copy direct view of the native
-     * Arrow IPC Stream bytes. Rows are deserialized, normalized to table-schema
-     * order, and handed to Paimon's writer and bucket assigner APIs. The SDK
-     * owns partition/bucket semantics, buffering, spill, and file rolling.
-     *
-     * @param directBuffer direct view of the native Arrow IPC Stream bytes (no copy)
+     * <p>The native structs are valid only for this call. Import transfers the ArrowArray release
+     * callbacks into Java. Closing the imported root releases the exported C++ buffers after Paimon
+     * has consumed every row; the native caller releases only callbacks left by a partial import.
      */
-    public void write(ByteBuffer directBuffer) throws Exception {
+    public void writeArrow(long arrayAddress, long schemaAddress) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             preExecutionAuthenticator.execute(() -> {
-                try {
-                    try (ArrowStreamReader reader = new ArrowStreamReader(
-                            new DirectBufInputStream(directBuffer), allocator)) {
-                        VectorSchemaRoot root = reader.getVectorSchemaRoot();
-                        while (reader.loadNextBatch()) {
-                            writeBatch(root);
-                        }
-                    }
+                try (ArrowArray array = ArrowArray.wrap(arrayAddress);
+                        ArrowSchema schema = ArrowSchema.wrap(schemaAddress);
+                        CDataDictionaryProvider dictionaries = new CDataDictionaryProvider();
+                        VectorSchemaRoot root = Data.importVectorSchemaRoot(
+                                allocator, array, schema, dictionaries)) {
+                    writeBatch(root);
                     return null;
                 } catch (Throwable t) {
-                    throw new RuntimeException(
-                            "PaimonJniWriter write failed: bytes=" + directBuffer.capacity(), t);
+                    throw new RuntimeException("PaimonJniWriter C Data write failed", t);
                 }
             });
         }
@@ -307,14 +312,14 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void openFileStoreWriter(FileStoreTable table, String commitUser, boolean overwrite,
-            String spillDirectories, CoreOptions coreOptions, long memoryPoolLimitBytes,
+            String spillDirectories, CoreOptions coreOptions, long nativePageMemoryLimitBytes,
             long nativeMemoryManager) throws Exception {
         writer = table.newWrite(commitUser);
         if (overwrite) {
             writer.withIgnorePreviousFiles(true);
         }
-        openMemoryResources(
-                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager);
+        openMemoryResources(table, coreOptions, spillDirectories, nativePageMemoryLimitBytes,
+                nativeMemoryManager);
         openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
@@ -333,12 +338,20 @@ public class PaimonJniWriter {
     }
 
     private void openMemoryResources(
+            FileStoreTable table,
             CoreOptions coreOptions,
             String spillDirectories,
-            long memoryPoolLimitBytes,
+            long nativePageMemoryLimitBytes,
             long nativeMemoryManager) throws Exception {
         int pageSize = coreOptions.pageSize();
-        long effectivePoolLimit = Math.min(coreOptions.writeBufferSize(), memoryPoolLimitBytes);
+        long writeBufferSize = coreOptions.writeBufferSize();
+        // Paimon creates merge-tree bucket writers lazily on the first write. Their
+        // SortBufferWriteBuffer requires three pages at construction time, so reject a permanent
+        // per-writer capacity shortage during open instead of failing nondeterministically when a
+        // particular bucket first receives a row. Paimon's MemoryPoolFactory shares these pages
+        // among bucket owners; the requirement is three pages per Doris writer, not per bucket.
+        long effectivePoolLimit = validateAndGetMemoryPoolLimit(writeBufferSize,
+                nativePageMemoryLimitBytes, pageSize, !table.primaryKeys().isEmpty());
         DorisMemorySegmentPool memorySegmentPool =
                 new DorisMemorySegmentPool(effectivePoolLimit, pageSize, nativeMemoryManager);
         MemoryPoolFactory memoryPoolFactory = new MemoryPoolFactory(memorySegmentPool);
@@ -357,6 +370,28 @@ public class PaimonJniWriter {
         ioManager = IOManager.create(splitDirectories);
         writer.withIOManager(ioManager);
         LOG.info("Paimon writer spill enabled: dirs={}", spillDirectories);
+    }
+
+    static long validateAndGetMemoryPoolLimit(long writeBufferSize,
+            long nativePageMemoryLimitBytes, int pageSize, boolean mergeTreeWriter) {
+        long effectivePoolLimit = Math.min(writeBufferSize, nativePageMemoryLimitBytes);
+        int requiredPages = mergeTreeWriter
+                ? MERGE_TREE_WRITER_MIN_PAGES
+                : APPEND_ONLY_WRITER_MIN_PAGES;
+        long availablePages = effectivePoolLimit / pageSize;
+        if (availablePages < requiredPages) {
+            String writerType = mergeTreeWriter ? "merge-tree" : "append-only";
+            throw new IllegalArgumentException("Paimon " + writerType
+                    + " writer requires at least " + requiredPages
+                    + " memory pages, but the effective pool contains " + availablePages
+                    + " pages: effectivePoolLimit=" + effectivePoolLimit
+                    + ", pageSize=" + pageSize
+                    + ", writeBufferSize=" + writeBufferSize
+                    + ", nativePageMemoryLimitBytes=" + nativePageMemoryLimitBytes
+                    + ". Increase the query memory limit, reduce sink parallelism, or adjust "
+                    + "paimon_jni_writer_memory_pool_limit_bytes, write-buffer-size, or page-size");
+        }
+        return effectivePoolLimit;
     }
 
     private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,
@@ -416,12 +451,11 @@ public class PaimonJniWriter {
         if (rowCount == 0) {
             return;
         }
-        // Convert and write one row at a time. Keeping only one row of boxed values
-        // avoids retaining a second, Object[][] representation of the full Arrow batch.
-        PaimonArrowConverter.RowReader rows =
-                arrowConverter.rows(root, writeSchema.targetTypes());
+        // The adapter exposes imported Arrow vectors directly as a Paimon columnar row. Only the
+        // table-layout row is materialized; there is no decoded Arrow copy or Object[][] batch.
+        PaimonArrowBatchAdapter.Rows rows = arrowAdapter.rows(root);
         for (int r = 0; r < rowCount; r++) {
-            InternalRow row = writeSchema.tableRow(rows.values(r));
+            InternalRow row = writeSchema.tableRow(rows.row(r));
             switch (bucketMode) {
                 case HASH_DYNAMIC:
                     writeHashDynamicRow(row);
@@ -496,7 +530,7 @@ public class PaimonJniWriter {
             closeWriter();
         } finally {
             writeSchema = null;
-            arrowConverter = null;
+            arrowAdapter = null;
             if (allocator != null) {
                 allocator.close();
                 allocator = null;
@@ -634,30 +668,4 @@ public class PaimonJniWriter {
         }
     }
 
-    /** InputStream over a direct ByteBuffer (no copy). */
-    private static class DirectBufInputStream extends InputStream {
-        private final ByteBuffer buf;
-
-        DirectBufInputStream(ByteBuffer buf) {
-            this.buf = buf;
-        }
-
-        @Override
-        public int read() {
-            if (buf.hasRemaining()) {
-                return buf.get() & 0xFF;
-            }
-            return -1;
-        }
-
-        @Override
-        public int read(byte[] b, int off, int len) {
-            if (!buf.hasRemaining()) {
-                return -1;
-            }
-            int n = Math.min(len, buf.remaining());
-            buf.get(b, off, n);
-            return n;
-        }
-    }
 }
