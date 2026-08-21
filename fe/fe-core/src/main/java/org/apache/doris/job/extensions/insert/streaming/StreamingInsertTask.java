@@ -182,15 +182,21 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     }
 
     @Override
-    public void closeOrReleaseResources() {
-        if (null != stmtExecutor) {
+    public synchronized void closeOrReleaseResources() {
+        ConnectContext taskContext = ctx;
+        try {
+            if (taskContext != null && taskContext.getStatementContext() != null) {
+                taskContext.getStatementContext().close();
+            }
+        } finally {
             stmtExecutor = null;
-        }
-        if (null != taskCommand) {
             taskCommand = null;
-        }
-        if (null != ctx) {
             ctx = null;
+            // before() installs this attempt's context on the scheduler worker. Remove only that exact
+            // context: cancellation may invoke cleanup from a different thread while the worker is unwinding.
+            if (ConnectContext.get() == taskContext) {
+                ConnectContext.remove();
+            }
         }
     }
 
