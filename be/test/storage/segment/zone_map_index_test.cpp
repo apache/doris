@@ -1224,5 +1224,44 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
     EXPECT_EQ(static_cast<unsigned char>(seg_zm.max().back()), static_cast<unsigned char>('y'));
 }
 
+// A string column can hold any byte, so the cut max can end in 0xff. Adding one to that byte
+// wraps it to 0x00 and leaves a max below the real value, which then rules out rows that should
+// be kept.
+TEST_F(ColumnZoneMapTest, MaxEndingInFfGivesUpTheRange) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true, 0, 0, -1);
+    TabletColumnPtr tab_col = create_string_key(0);
+
+    auto flush_max = [&](const std::string& value, bool* pass_all) {
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        EXPECT_TRUE(ZoneMapIndexWriter::create(data_type, tab_col.get(), writer).ok());
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<TYPE_STRING>(value);
+        zone_map.max_value = Field::create_field<TYPE_STRING>(value);
+        zone_map.has_not_null = true;
+        writer->modify_index_before_flush(zone_map);
+        *pass_all = zone_map.pass_all;
+        return zone_map.max_value.get<TYPE_STRING>();
+    };
+
+    bool pass_all = false;
+
+    // 511 'a' then 0xff: no byte value stands above it, so the range is given up.
+    std::string trailing_ff(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
+    trailing_ff.push_back(static_cast<char>(0xff));
+    flush_max(trailing_ff, &pass_all);
+    EXPECT_TRUE(pass_all);
+
+    // Same for a max that is 0xff all the way down.
+    flush_max(std::string(MAX_ZONE_MAP_INDEX_SIZE, static_cast<char>(0xff)), &pass_all);
+    EXPECT_TRUE(pass_all);
+
+    // A max that does not end in 0xff still gets the plain increment and keeps its range.
+    const std::string plain(MAX_ZONE_MAP_INDEX_SIZE, 'x');
+    const auto bumped = flush_max(plain, &pass_all);
+    EXPECT_FALSE(pass_all);
+    EXPECT_EQ(std::string(MAX_ZONE_MAP_INDEX_SIZE - 1, 'x') + "y", bumped);
+    EXPECT_GT(bumped, plain) << "max must stay above the value it covers";
+}
+
 } // namespace segment_v2
 } // namespace doris
