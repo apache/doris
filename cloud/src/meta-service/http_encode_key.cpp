@@ -558,6 +558,14 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
         std::shared_ptr<google::protobuf::Message> pb_to_save;
         if (json_to_proto_function) {
             pb_to_save = json_to_proto_function(body);
+            if (pb_to_save == nullptr) {
+                LOG(WARNING) << "invalid input json value for key_type=" << key_type;
+                return http_json_reply(
+                        MetaServiceCode::INVALID_ARGUMENT,
+                        fmt::format(
+                                "invalid input json value, cannot parse json to pb, key_type={}",
+                                key_type));
+            }
         }
 
         // Check if versionstamp parameter is provided
