@@ -267,6 +267,11 @@ public class TabletChecker extends MasterDaemon {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("table {} is a colocate table, skip tablet checker.", olapTable.getName());
                         }
+                        LoopControlStatus st = handleColocateTempPartitions(db, olapTable, true, aliveBeIds, start,
+                                counter);
+                        if (st == LoopControlStatus.BREAK_OUT) {
+                            break OUT;
+                        }
                         continue;
                     }
                     for (Partition partition : olapTable.getAllPartitions()) {
@@ -311,6 +316,12 @@ public class TabletChecker extends MasterDaemon {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("table {} is a colocate table, skip tablet checker.", table.getName());
                         }
+                        OlapTable tbl = (OlapTable) table;
+                        LoopControlStatus st = handleColocateTempPartitions(db, tbl, false, aliveBeIds, start,
+                                counter);
+                        if (st == LoopControlStatus.BREAK_OUT) {
+                            break OUT;
+                        }
                         continue;
                     }
 
@@ -352,6 +363,20 @@ public class TabletChecker extends MasterDaemon {
                 + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
                 counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);
+    }
+
+    private LoopControlStatus handleColocateTempPartitions(Database db, OlapTable tbl, boolean onlyPrios,
+            List<Long> aliveBeIds, long startTime, CheckerCounter counter) {
+        for (Partition partition : tbl.getAllTempPartitions()) {
+            if (onlyPrios != isInPrios(db.getId(), tbl.getId(), partition.getId())) {
+                continue;
+            }
+            LoopControlStatus st = handlePartitionTablet(db, tbl, partition, onlyPrios, aliveBeIds, startTime, counter);
+            if (st == LoopControlStatus.BREAK_OUT) {
+                return st;
+            }
+        }
+        return LoopControlStatus.CONTINUE;
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
@@ -556,7 +581,7 @@ public class TabletChecker extends MasterDaemon {
             tblId = olapTable.getId();
 
             if (partitions == null || partitions.isEmpty()) {
-                partIds = olapTable.getPartitions().stream().map(Partition::getId).collect(Collectors.toList());
+                partIds = olapTable.getAllPartitions().stream().map(Partition::getId).collect(Collectors.toList());
             } else {
                 for (String partName : partitions) {
                     Partition partition = olapTable.getPartition(partName);
