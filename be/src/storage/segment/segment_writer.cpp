@@ -499,7 +499,33 @@ Status SegmentWriter::finalize_columns_data() {
     return Status::OK();
 }
 
+void SegmentWriter::_abandon_index_staging() {
+    // No clear() here: abandon_snii_staging() empties the staging directories
+    // themselves, so it does not matter whether the column writers -- which hold
+    // the same directories -- are still alive.
+    if (_index_file_writer != nullptr) {
+        _index_file_writer->abandon_snii_staging();
+    }
+}
+
+// A failure below can land AFTER the ANN and BKD indexes have already been built
+// into their staging files. The caller then returns before close_inverted_index(),
+// so the seal that would have consumed them never runs, and the rowset writer
+// keeps this segment's IndexFileWriter -- with its staging files and their open
+// descriptors -- until the whole load or compaction unwinds. Drop them here.
+//
+// ONLY on failure. On the success path close_inverted_index() is what consumes
+// the staging, so dropping it here would silently seal a container with no ANN
+// or BKD index in it.
 Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
+    Status status = _finalize_columns_index_impl(index_size);
+    if (!status.ok()) {
+        _abandon_index_staging();
+    }
+    return status;
+}
+
+Status SegmentWriter::_finalize_columns_index_impl(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     // Record each index range separately. Vertical compaction writes column groups as
     // data+index pairs, so a single [first index, EOF) range would include later column data.
@@ -568,8 +594,21 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size,
     return Status::OK();
 }
 
+// Wrapped for the same reason as finalize_columns_index(): a footer or file-close
+// failure lands after the indexes have staged, and the caller returns before
+// close_inverted_index(). An inner failure has already abandoned the staging, so
+// the second call is a no-op.
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
                                SegmentIndexFileCacheInfo* index_file_cache_info) {
+    Status status = _finalize_impl(segment_file_size, index_size, index_file_cache_info);
+    if (!status.ok()) {
+        _abandon_index_staging();
+    }
+    return status;
+}
+
+Status SegmentWriter::_finalize_impl(uint64_t* segment_file_size, uint64_t* index_size,
+                                     SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
