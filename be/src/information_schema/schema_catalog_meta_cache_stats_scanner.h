@@ -41,7 +41,8 @@ public:
 
 private:
     Status _get_meta_cache_from_fe();
-    Status _fetch_from_fe(size_t column_count, TFetchSchemaTableDataResult* result);
+    Status _fetch_from_fe(size_t column_count, TFetchSchemaTableDataResult* result,
+                          bool* fe_rejected);
 
     TNetworkAddress _fe_addr;
 

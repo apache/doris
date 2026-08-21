@@ -84,7 +84,9 @@ Status SchemaCatalogMetaCacheStatsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaCatalogMetaCacheStatsScanner::_fetch_from_fe(size_t column_count,
-                                                          TFetchSchemaTableDataResult* result) {
+                                                          TFetchSchemaTableDataResult* result,
+                                                          bool* fe_rejected) {
+    *fe_rejected = false;
     TSchemaTableRequestParams schema_table_request_params;
     for (size_t i = 0; i < column_count; i++) {
         schema_table_request_params.__isset.columns_name = true;
@@ -96,27 +98,46 @@ Status SchemaCatalogMetaCacheStatsScanner::_fetch_from_fe(size_t column_count,
     request.__set_schema_table_name(TSchemaTableName::CATALOG_META_CACHE_STATS);
     request.__set_schema_table_params(schema_table_request_params);
 
+    // A transport-level failure says nothing about the FE's column support and must be
+    // surfaced to the caller instead of being retried with the legacy projection.
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             _fe_addr.hostname, _fe_addr.port,
             [&request, result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(*result, request);
             },
             _rpc_timeout));
-    return Status::create(result->status);
+    Status fe_status = Status::create(result->status);
+    // The RPC itself succeeded, so a non-OK status was produced by the FE handler: this is the
+    // signal a legacy FE without the weight columns emits for an unknown projection name.
+    *fe_rejected = !fe_status.ok();
+    return fe_status;
 }
 
 Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
     TFetchSchemaTableDataResult result;
-    Status status = _fetch_from_fe(_s_tbls_columns.size(), &result);
+    bool fe_rejected = false;
+    Status status = _fetch_from_fe(_s_tbls_columns.size(), &result, &fe_rejected);
     if (!status.ok()) {
-        LOG(INFO) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
-                  << ") with all columns failed, retrying with the legacy column set: " << status;
-        result = TFetchSchemaTableDataResult();
-        status = _fetch_from_fe(kLegacyMetaCacheStatsColumnCount, &result);
-        if (!status.ok()) {
+        if (!fe_rejected) {
+            // Transport error from a current FE: do not mask it with a legacy retry that would
+            // silently blank the weight telemetry columns.
             LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
                          << ") failed, errmsg=" << status;
             return status;
+        }
+        Status first_status = status;
+        LOG(INFO) << "FE(" << _fe_addr.hostname
+                  << ") rejected the full catalog meta cache stats projection, retrying with the "
+                     "legacy column set: "
+                  << first_status;
+        result = TFetchSchemaTableDataResult();
+        status = _fetch_from_fe(kLegacyMetaCacheStatsColumnCount, &result, &fe_rejected);
+        if (!status.ok()) {
+            // The legacy projection failed too, so the first rejection was not a legacy FE;
+            // surface the original error rather than the retry artifact.
+            LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
+                         << ") failed, errmsg=" << first_status;
+            return first_status;
         }
     }
     std::vector<TRow> result_data = result.data_batch;
