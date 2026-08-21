@@ -38,7 +38,8 @@ class Cast final : public VExpr {
     ENABLE_FACTORY_CREATOR(Cast);
 
 public:
-    Cast(const DataTypePtr& type) {
+    Cast(const DataTypePtr& type, bool lossless_decimal_cast = false)
+            : _lossless_decimal_cast(lossless_decimal_cast) {
         _node_type = TExprNodeType::CAST_EXPR;
         _opcode = TExprOpcode::CAST;
         _data_type = type;
@@ -58,7 +59,7 @@ public:
     bool is_safe_to_execute_on_selected_rows() const override { return false; }
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = Cast::create_shared(_data_type);
+        *cloned_expr = Cast::create_shared(_data_type, _lossless_decimal_cast);
         return Status::OK();
     }
 
@@ -67,6 +68,7 @@ private:
                        size_t count, ColumnPtr& result_column) const;
     std::string _expr_name;
     FunctionBasePtr _function;
+    bool _lossless_decimal_cast = false;
 };
 
 inline bool is_cast_expr(const VExprSPtr& expr) {
