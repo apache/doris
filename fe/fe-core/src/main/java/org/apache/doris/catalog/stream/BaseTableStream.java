@@ -113,6 +113,9 @@ public abstract class BaseTableStream extends Table {
     }
 
     public TableIf getBaseTableNullable() {
+        if (baseTable instanceof Table && ((Table) baseTable).isDropped) {
+            baseTable = null;
+        }
         if (baseTable == null) {
             baseTable = baseTableInfo.getTableNullable();
         }
