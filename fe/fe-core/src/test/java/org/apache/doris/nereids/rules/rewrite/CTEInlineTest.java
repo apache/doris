@@ -184,16 +184,62 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                 .matches(logicalCTEAnchor());
     }
 
-    /**
-     * `sleep(N)` is deterministic but has a runtime side effect (blocking for N seconds).
-     * Materialization runs it once and multicasts; inlining would run it once per consumer,
-     * changing observable behaviour. The strict literal-only check keeps such producers
-     * materialized even though Expression#isConstant() would return true for them.
-     */
+    @Test
+    public void testFoldableExpressionOneRowCteInlined() {
+        String sql = "WITH c AS ("
+                + "  SELECT CONCAT(SUBSTR('2026年', 1, 4), '-01-01') AS day_start,"
+                + "         DATE_FORMAT(CURRENT_DATE(), '%Y-%m-%d') AS day_end,"
+                + "         CAST(SUBSTR('2026年', 1, 4) AS INT) - 1 AS prev_year)"
+                + "SELECT * FROM c c1 JOIN c c2 ON c1.day_start = c2.day_start "
+                + "                  JOIN c c3 ON c1.day_start = c3.day_start";
+
+        LogicalPlan analyzed = (LogicalPlan) PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .getPlan();
+
+        assertNoCteNodes(analyzed);
+    }
+
+    @Test
+    public void testChainedConstantCtesAllInlined() {
+        String sql = "WITH t_const AS ("
+                + "  SELECT '2026-01-01' AS s, '2026-08-21' AS e, CURRENT_DATE() AS today), "
+                + "t_filter AS ("
+                + "  SELECT s AS day_start, IF(e = DATE_FORMAT(today, '%Y-%m-%d'), e, s) AS day_end"
+                + "  FROM t_const), "
+                + "t_range AS ("
+                + "  SELECT CONCAT(day_start, '_', day_end) AS token FROM t_filter) "
+                + "SELECT * FROM t_range r1 JOIN t_range r2 ON r1.token = r2.token"
+                + "                        JOIN t_range r3 ON r1.token = r3.token";
+
+        LogicalPlan analyzed = (LogicalPlan) PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .getPlan();
+
+        assertNoCteNodes(analyzed);
+    }
+
     @Test
     public void testRuntimeOnlyConstantCteNotForcedInline() {
         String sql = "WITH s AS (SELECT sleep(0) AS x) "
                 + "SELECT * FROM s s1 JOIN s s2 ON s1.x = s2.x";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyCustom(new PullUpCteAnchor())
+                .applyCustom(new CTEInline())
+                .matches(logicalCTEAnchor());
+    }
+
+    @Test
+    public void testSubqueryInProducerNotForcedInline() {
+        String sql = "WITH c AS ("
+                + "  SELECT '2026-01-01' AS s, (SELECT MAX(id) FROM T1) AS e) "
+                + "SELECT * FROM c c1 JOIN c c2 ON c1.s = c2.s JOIN c c3 ON c1.s = c3.s";
 
         PlanChecker.from(connectContext)
                 .analyze(sql)

@@ -2657,6 +2657,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_CTE_MATERIALIZE)
     public boolean enableCTEMaterialize = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ELIMINATE_JOIN_BY_CONSTANT_ONE_ROW_RELATION,
+            description = "For INNER/CROSS joins whose one side is a single-row constant relation "
+                    + "(e.g. an inlined constant CTE), replace the join with a Project + Filter so "
+                    + "the join predicate can push into the scan and the NestedLoopJoin disappears.")
+    public boolean enableEliminateJoinByConstantOneRowRelation = true;
+
     @VarAttrDef.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
 

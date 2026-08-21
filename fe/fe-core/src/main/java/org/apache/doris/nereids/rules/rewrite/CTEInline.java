@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -37,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -97,8 +98,8 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 ConnectContext connectContext = ConnectContext.get();
                 LogicalCTEProducer<?> cteProducer = (LogicalCTEProducer<?>) cteAnchor.left();
                 if (connectContext.getSessionVariable().enableCTEMaterialize
-                        && (consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold
                         && !isConstantOneRowProducer(cteProducer)
+                        && (consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold
                                 || containsNondeterministicFunction(cteProducer))) {
                     // not inline
                     Plan right = cteAnchor.right().accept(this, null);
@@ -141,33 +142,46 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
     }
 
     /**
-     * Return true if the CTE producer's output is provably one row of pure literals.
+     * Return true if the CTE producer is provably a single-row constant relation.
      */
     private static boolean isConstantOneRowProducer(Plan producerRoot) {
         if (!(producerRoot instanceof LogicalCTEProducer)) {
             return false;
         }
-        Plan node = ((LogicalCTEProducer<?>) producerRoot).child();
-        while (node instanceof LogicalSubQueryAlias) {
-            if (node.arity() != 1) {
-                return false;
-            }
-            node = node.child(0);
+        return isConstantOneRowSubtree(((LogicalCTEProducer<?>) producerRoot).child());
+    }
+
+    private static boolean isConstantOneRowSubtree(Plan node) {
+        if (node instanceof LogicalOneRowRelation) {
+            return isSafeToInline(((LogicalOneRowRelation) node).getProjects());
         }
         if (node instanceof LogicalProject) {
             LogicalProject<?> project = (LogicalProject<?>) node;
             if (project.arity() != 1) {
                 return false;
             }
-            if (!ExpressionUtils.allMatch(project.getProjects(), ExpressionUtils::isPureLiteralExpr)) {
+            if (!isSafeToInline(project.getProjects())) {
                 return false;
             }
-            return project.child(0) instanceof LogicalOneRowRelation;
+            return isConstantOneRowSubtree(project.child(0));
         }
-        if (!(node instanceof LogicalOneRowRelation)) {
-            return false;
+        if (node instanceof LogicalSubQueryAlias) {
+            if (node.arity() != 1) {
+                return false;
+            }
+            return isConstantOneRowSubtree(node.child(0));
         }
-        return ExpressionUtils.allMatch(
-                ((LogicalOneRowRelation) node).getProjects(), ExpressionUtils::isPureLiteralExpr);
+        return false;
+    }
+
+    private static boolean isSafeToInline(List<? extends NamedExpression> exprs) {
+        for (NamedExpression e : exprs) {
+            if (e.containsVolatileExpression()
+                    || e.anyMatch(SubqueryExpr.class::isInstance)
+                    || e.anyMatch(Sleep.class::isInstance)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
