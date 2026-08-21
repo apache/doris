@@ -18,28 +18,60 @@
 import org.junit.Assert;
 
 /**
- * A generated column that renders or interprets a TIMESTAMPTZ value in a time-zone dependent way is
- * rejected at table creation: it is materialized in the write/load session time zone, so data loaded in a
- * different zone would silently store a different value. The classification must look at the operation plus
- * source and result types (a cast into TIMESTAMPTZ, and the implicit cast to the declared column type), not
- * only at the child types. Zone-invariant operations (comparing two TIMESTAMPTZ instants, copying an
- * instant verbatim) remain allowed and must materialize identically across load zones.
+ * A generated column that interprets a TIMESTAMPTZ value in a time-zone dependent way is rejected at
+ * table creation: it is materialized in the write/load session time zone, so data loaded in a different
+ * zone would silently store a different value. The classification must look at the operation plus source
+ * and result types (a cast into TIMESTAMPTZ, and the implicit cast to the declared column type), not only
+ * at the child types.
+ *
+ * Rendering a TIMESTAMPTZ into a STRING is allowed: the stored string always embeds the session offset
+ * (e.g. "2024-01-01 08:30:00.000000+08:00"), so it is self-describing and never silently misrepresents
+ * the instant. Rendering into a zone-free non-string target (DATETIME/INT/...) and interpreting an
+ * offset-free string as a TIMESTAMPTZ remain rejected. Zone-invariant operations (comparing two
+ * TIMESTAMPTZ instants, copying an instant verbatim) are allowed and must materialize identically across
+ * load zones.
  */
 suite("test_generated_column_timestamptz_timezone","ddl") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 
-    // STRING GENERATED ALWAYS AS (ts) on a TIMESTAMPTZ slot renders the instant in the write/load session
-    // zone: the user expression is only a bare TIMESTAMPTZ SlotRef, and the implicit TIMESTAMPTZ->STRING
-    // cast is added by BindSink outside the persisted-session scope, so UTC and +08:00 loads would store
-    // different renderings. Must be rejected by validating the expression after applying the target
-    // coercion.
-    test {
-        sql """
+    // STRING GENERATED ALWAYS AS (ts) on a TIMESTAMPTZ slot is allowed: the implicit TIMESTAMPTZ->STRING
+    // cast always embeds the write-session offset, so the stored string is self-describing even when the
+    // load session differs from a reader's session.
+    sql "DROP TABLE IF EXISTS gencol_ts_to_string"
+    sql """
         create table gencol_ts_to_string(
             id int,
             ts TIMESTAMPTZ(6),
             rendered STRING generated always as (ts) not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+    """
+    // The same instant loaded from two different zone sessions stores a self-describing string in each
+    // load session's offset.
+    sql "SET time_zone = '+00:00'"
+    sql "INSERT INTO gencol_ts_to_string(id, ts) VALUES (1, '2024-01-01 00:30:00+00:00')"
+    sql "SET time_zone = '+08:00'"
+    sql "INSERT INTO gencol_ts_to_string(id, ts) VALUES (2, '2024-01-01 08:30:00+08:00')"
+    sql "sync"
+    sql "SET time_zone = '+00:00'"
+    def strRes = sql "SELECT id, rendered FROM gencol_ts_to_string ORDER BY id"
+    Assert.assertEquals(2, strRes.size())
+    Assert.assertTrue("expected 2024-01-01 00:30:00.000000+00:00, got " + strRes[0][1],
+            strRes[0][1].toString().contains("2024-01-01 00:30:00.000000+00:00"))
+    Assert.assertTrue("expected 2024-01-01 08:30:00.000000+08:00, got " + strRes[1][1],
+            strRes[1][1].toString().contains("2024-01-01 08:30:00.000000+08:00"))
+
+    // Rendering a TIMESTAMPTZ into a zone-free non-string target (DATETIME) loses the offset and depends
+    // on the write/load session zone. Must be rejected.
+    test {
+        sql """
+        create table gencol_ts_to_dt(
+            id int,
+            ts TIMESTAMPTZ(6),
+            dt DATETIME(6) generated always as (ts) not null
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
