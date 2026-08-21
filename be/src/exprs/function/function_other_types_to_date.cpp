@@ -1314,7 +1314,9 @@ struct FromIso8601DateV2 {
         for (size_t i = 0; i < input_rows_count; ++i) {
             int year, month, day, week, day_of_year;
             int weekday = 1; // YYYYWww  YYYY-Www  default D = 1
-            auto src_string = src_column_ptr->get_data_at(i).to_string_view();
+            // sscanf requires a null-terminated buffer. ColumnString slices are
+            // length-delimited and may end at the allocation boundary.
+            auto src_string = src_column_ptr->get_data_at(i).to_string();
 
             int iso_string_format_value = 0;
 
@@ -1366,7 +1368,7 @@ struct FromIso8601DateV2 {
 
             auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&result_data[i]);
             if (iso_string_format_value == 1) {
-                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month, &day) != 3)
+                if (sscanf(src_string.c_str(), iso_format_string.data(), &year, &month, &day) != 3)
                         [[unlikely]] {
                     result_null_map[i] = 1;
                 }
@@ -1377,7 +1379,7 @@ struct FromIso8601DateV2 {
                     result_null_map[i] = 1;
                 }
             } else if (iso_string_format_value == 2) {
-                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month) != 2)
+                if (sscanf(src_string.c_str(), iso_format_string.data(), &year, &month) != 2)
                         [[unlikely]] {
                     result_null_map[i] = 1;
                 }
@@ -1388,7 +1390,7 @@ struct FromIso8601DateV2 {
                 }
                 ts_value.template unchecked_set_time_unit<DAY>(1);
             } else if (iso_string_format_value == 3) {
-                if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
+                if (sscanf(src_string.c_str(), iso_format_string.data(), &year) != 1) [[unlikely]] {
                     result_null_map[i] = 1;
                 }
 
@@ -1400,12 +1402,12 @@ struct FromIso8601DateV2 {
 
             } else if (iso_string_format_value == 5 || iso_string_format_value == 6) {
                 if (iso_string_format_value == 5) {
-                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week) != 2)
+                    if (sscanf(src_string.c_str(), iso_format_string.data(), &year, &week) != 2)
                             [[unlikely]] {
                         result_null_map[i] = 1;
                     }
                 } else {
-                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week,
+                    if (sscanf(src_string.c_str(), iso_format_string.data(), &year, &week,
                                &weekday) != 3) [[unlikely]] {
                         result_null_map[i] = 1;
                     }
@@ -1427,7 +1429,7 @@ struct FromIso8601DateV2 {
                 TimeInterval interval(DAY, day_diff, false);
                 ts_value.date_add_interval<DAY>(interval);
             } else if (iso_string_format_value == 4) {
-                if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
+                if (sscanf(src_string.c_str(), iso_format_string.data(), &year, &day_of_year) != 2)
                         [[unlikely]] {
                     result_null_map[i] = 1;
                 }

@@ -51,6 +51,10 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     add_definitions(-D OS_MACOSX)
 endif ()
 
+if (OS_MACOSX)
+    add_definitions(-DBOOST_PROCESS_POSIX_NO_SIGTIMEDWAIT -UBOOST_POSIX_HAS_SIGTIMEDWAIT)
+endif()
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set (COMPILER_GCC 1)
     option(ENABLE_PCH "enable pch" OFF)
@@ -332,9 +336,16 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
-add_compile_options(-g
-                    -gdwarf-5
-                    -Wall
+if (OS_MACOSX)
+    # Keep symbolized stack traces without emitting full debug information for
+    # every object. The monolithic ASAN UT target otherwise exhausts the
+    # hosted macOS runner disk before it can be linked.
+    add_compile_options(-gline-tables-only)
+else()
+    add_compile_options(-g -gdwarf-5)
+endif()
+
+add_compile_options(-Wall
                     -Wextra
                     -Werror
                     -Wundef
@@ -784,6 +795,7 @@ else()
         "-framework CoreGraphics"
         "-framework CoreText"
         "-framework Foundation"
+        "-framework IOKit"
         "-framework SystemConfiguration"
         "-framework Security"
         # liblance_c.a pulls in the Rust `sysinfo` crate, whose macOS backend calls IOKit.
@@ -872,8 +884,11 @@ if (ENABLE_PCH)
     find_package(OpenMP QUIET)
     if (OpenMP_CXX_FOUND OR OpenMP_FOUND)
         if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
+            separate_arguments(OPENMP_CXX_FLAG_LIST NATIVE_COMMAND "${OpenMP_CXX_FLAGS}")
             # Apply the OpenMP flags to all C++ compilations so PCH and all TUs match.
-            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>)
+            foreach(OPENMP_CXX_FLAG IN LISTS OPENMP_CXX_FLAG_LIST)
+                add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${OPENMP_CXX_FLAG}>)
+            endforeach()
         endif()
         # Ensure final link includes the OpenMP runtime when needed.
         if (TARGET OpenMP::OpenMP_CXX)
@@ -893,7 +908,7 @@ if (ENABLE_PCH)
         target_link_libraries(pch PUBLIC OpenMP::OpenMP_CXX)
         # Also add flags explicitly to be robust if usage requirements don’t apply during PCH.
         if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
-            target_compile_options(pch PUBLIC ${OpenMP_CXX_FLAGS})
+            target_compile_options(pch PUBLIC ${OPENMP_CXX_FLAG_LIST})
         endif()
         # Copy usage requirements from the imported OpenMP target onto PCH.
         if (TARGET OpenMP::OpenMP_CXX)
@@ -912,7 +927,7 @@ if (ENABLE_PCH)
         endif()
     endif()
     if (COMPILER_CLANG)
-        target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
+        target_compile_options(pch PRIVATE "SHELL:-Xclang -fno-pch-timestamp")
     endif()
 endif()
 

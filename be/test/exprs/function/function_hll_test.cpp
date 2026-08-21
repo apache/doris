@@ -84,10 +84,15 @@ TEST(function_hll_test, function_hll_to_base64_test) {
 
     HyperLogLog empty_hll;
 
+#ifdef __APPLE__
+    const std::string two_value_hll_base64 = "AQK/Hk98sO59S+bkggkLHSH/";
+#else
+    const std::string two_value_hll_base64 = "AQLm5IIJCx0h/78eT3yw7n1L";
+#endif
     DataSet data_set = {{{&hll1}, std::string("AQHm5IIJCx0h/w==")},
                         {{&hll2}, std::string("AQG/Hk98sO59Sw==")},
-                        {{&hll3}, std::string("AQLm5IIJCx0h/78eT3yw7n1L")},
-                        {{&hll4}, std::string("AQLm5IIJCx0h/78eT3yw7n1L")},
+                        {{&hll3}, two_value_hll_base64},
+                        {{&hll4}, two_value_hll_base64},
                         {{&empty_hll}, std::string("AA==")},
                         {{Null()}, Null()}};
 

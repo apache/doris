@@ -132,11 +132,9 @@ TEST_F(CloudTabletMgrTest, TestConcurrentGetTabletTabletMapConsistency) {
     t1.join();
     t2.join();
 
-    // Both should have gotten the same tablet (same raw pointer) due to SingleFlight
-    EXPECT_EQ(tablet1.get(), tablet2.get())
-            << "SingleFlight should ensure both threads get the same tablet instance";
-
-    // Release tablet1, tablet2 to trigger ValueA destructor (ValueA was evicted by Thread B's insert)
+    // Release both handles to exercise cache value cleanup after the competing lookups.
+    // SingleFlight only coalesces calls that overlap while its leader is still loading, so pointer
+    // identity is not a valid scheduling-independent assertion here.
     // With the bug: ValueA::~Value() calls _tablet_map.erase(), removing tablet from tablet_map
     //              tablet2 still holds a reference, cache entry ValueB is still valid
     // After fix: tablet remains in tablet_map (only one entry was created by leader)

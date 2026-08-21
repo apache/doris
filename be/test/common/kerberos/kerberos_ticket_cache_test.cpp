@@ -76,12 +76,12 @@ protected:
 
         _config.set_principal_and_keytab("test_principal", "/path/to/keytab");
         _config.set_krb5_conf_path("/etc/krb5.conf");
-        _config.set_refresh_interval(2);
+        _config.set_refresh_interval(1);
         _config.set_min_time_before_refresh(600);
 
         _cache = std::make_unique<KerberosTicketCache>(_config, _test_dir.string(),
                                                        std::move(_mock_krb5));
-        _cache->set_refresh_thread_sleep_time(std::chrono::milliseconds(1));
+        _cache->set_refresh_thread_sleep_time(std::chrono::milliseconds(10));
     }
 
     void TearDown() override {
@@ -156,7 +156,7 @@ TEST_F(KerberosTicketCacheTest, Initialize) {
 
     // Verify that the cache file is created in the test directory
     std::string cache_path = _cache->get_ticket_cache_path();
-    ASSERT_TRUE(cache_path.find(_test_dir.string()) == 0);
+    ASSERT_TRUE(cache_path.find(std::filesystem::weakly_canonical(_test_dir).string()) == 0);
 }
 
 TEST_F(KerberosTicketCacheTest, LoginSuccess) {
@@ -222,12 +222,20 @@ TEST_F(KerberosTicketCacheTest, PeriodicRefresh) {
     // Start periodic refresh
     _cache->start_periodic_refresh();
 
-    // Wait for a short time to allow some refresh attempts
-    // Because the refresh interval is 2s, need larger than 2s
-    std::this_thread::sleep_for(std::chrono::milliseconds(4000));
+    // Wait for the first completed refresh, then stop before a second interval can make the
+    // single-call mock expectations ambiguous. Sanitizer load can delay the refresh thread.
+    bool refreshed = false;
+    for (int i = 0; i < 100; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (GetFileLastWriteTime(cache_path) > initial_write_time) {
+            refreshed = true;
+            break;
+        }
+    }
 
     // Stop periodic refresh
     _cache->stop_periodic_refresh();
+    ASSERT_TRUE(refreshed);
 
     // Verify that the test directory still exists
     ASSERT_TRUE(std::filesystem::exists(_test_dir));

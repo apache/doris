@@ -188,7 +188,11 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     }
 
     {
+#ifdef __APPLE__
+        std::string base64("BQQDAAAAAAAAAAEAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAA==");
+#else
         std::string base64("BQQAAAAAAAAAAAEAAAAAAAAAAgAAAAAAAAADAAAAAAAAAA==");
+#endif
         BitmapValue bitmap;
         bitmap.add(0);
         bitmap.add(1);

@@ -23,6 +23,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 
+#include <ranges>
+
 #include "util/defer_op.h"
 
 #define private public

@@ -29,10 +29,10 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -44,6 +44,7 @@ jobs:
         with:
           filters: |
             be_changes:
+              - '.github/workflows/be-ut-mac.yml'
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
@@ -67,7 +68,7 @@ jobs:
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
-          max-size: "5G"
+          max-size: "1G"
           restore-keys: BE-UT-macOS-
 
       - name: Run UT ${{ github.ref }}
@@ -97,9 +98,13 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
+          # The Intel runner exposes Homebrew's latest fmt from /usr/local/include,
+          # which can shadow the branch-pinned fmt shipped in the Doris thirdparty bundle.
+          brew unlink fmt || true
 
           # Paimon's bundled dependencies still require pre-CMake-4 policy
           # compatibility. Match the supported version used by the full
@@ -108,18 +113,29 @@ jobs:
           wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
           tar -xzf cmake-3.25.3-macos-universal.tar.gz
           sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
+          rm -f cmake-3.25.3-macos-universal.tar.gz
+          rm -rf cmake-3.25.3-macos-universal
           export CUSTOM_CMAKE=/usr/local/bin/cmake
           "${CUSTOM_CMAKE}" --version
           pushd thirdparty
           branch="${{ github.base_ref }}"
+          case "$(uname -m)" in
+            arm64) asset="doris-thirdparty-prebuilt-darwin-arm64.tar.xz" ;;
+            x86_64) asset="doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          common_url="https://github.com/apache/doris-thirdparty/releases/download/automation/${asset}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -fL "${common_url}" -o "${asset}"
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            branch_url="https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/${asset}"
+            if ! curl -fL "${branch_url}" -o "${asset}"; then
+              echo "::warning::No branch-specific macOS thirdparty asset for ${branch}; using automation"
+              curl -fL "${common_url}" -o "${asset}"
+            fi
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf "${asset}"
+          rm -f "${asset}"
 
           # Rebuild the Arrow/Paimon stack when its inputs change or the shared
           # prebuilt predates the selected Arrow version/component closure.
@@ -140,7 +156,33 @@ jobs:
             export MACOSX_DEPLOYMENT_TARGET=12.0
             ./build-thirdparty.sh -j "$(nproc)" arrow paimon_cpp
           fi
+          # The installed tree is self-contained. Release downloaded sources and
+          # build trees before the clean ASAN build, which otherwise exhausts
+          # the hosted runner disk near the end of compilation.
+          rm -f doris-thirdparty-source.tgz
+          rm -rf "${PWD}/src"
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          export JAVA_HOME
+          JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+
+          LLVM_PREFIX="$(brew --prefix llvm@20)"
+          export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export DORIS_CLANG_HOME="${LLVM_PREFIX}"
+          export CC="${LLVM_PREFIX}/bin/clang"
+          export CXX="${LLVM_PREFIX}/bin/clang++"
+
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
+          export CFLAGS="-I${LIBOMP_PREFIX}/include ${CFLAGS:-}"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
+          export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
+          export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
+          # The standard Intel runner cannot finish this branch's clean ASAN
+          # build within GitHub's six-hour job limit. The arm64 build has no
+          # reusable cache yet, so preserve workspace and I/O for compilation.
+          ccache -C
+          export CCACHE_DISABLE=1
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean

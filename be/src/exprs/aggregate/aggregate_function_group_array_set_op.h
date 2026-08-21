@@ -258,7 +258,7 @@ struct GroupArraySetOpStringBaseData {
 
         HybridSetBase::IteratorBase* it = this->set->begin();
         while (it->has_next()) {
-            const auto* value = reinterpret_cast<const std::string*>(it->get_value());
+            const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
             buf.write_binary(*value);
             it->next();
         }
@@ -294,8 +294,8 @@ struct GroupArraySetOpStringBaseData {
         offsets_to.push_back(offsets_to.back() + res_size);
         HybridSetBase::IteratorBase* it = this->set->begin();
         while (it->has_next()) {
-            const auto* value = reinterpret_cast<const std::string*>(it->get_value());
-            data_to.insert_data(value->data(), value->size());
+            const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
+            data_to.insert_data(value->data, value->size);
             it->next();
         }
     }
