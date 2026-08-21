@@ -552,4 +552,47 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                   "+-------------------+\n");
     }
 }
+
+TEST_F(OrcReaderFillDataTest, FillStructFailsLoudlyWhenSchemaMappingMissesNestedField) {
+    // Covers the #61225 guard in OrcReader::_fill_doris_data_column (TYPE_STRUCT branch):
+    // the projected nested field "ghost_field" is absent from the table-side schema tree
+    // (FE/BE schema contract mismatch), so the fill must fail with InternalError instead of
+    // aborting the whole BE process via children.at() (release) / DCHECK (debug).
+    using namespace orc;
+    std::unique_ptr<orc::Type> type(orc::Type::buildTypeFromString("struct<col1:int,col2:int>"));
+
+    const size_t row_count = 10;
+    MemoryOutputStream memStream(100 * 1024 * 1024);
+    WriterOptions options;
+    options.setMemoryPool(getDefaultPool());
+    auto writer = createWriter(*type, &memStream, options);
+    auto batch = writer->createRowBatch(row_count);
+    auto& struct_batch = dynamic_cast<StructVectorBatch&>(*batch);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
+
+    auto doris_struct_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
+                                      std::make_shared<DataTypeInt32>()},
+            std::vector<std::string> {"col1", "ghost_field"});
+    MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
+
+    // The table-side schema tree only knows "col1"; "ghost_field" is the projected nested
+    // field that the FE schema info does not know about.
+    auto table_info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    table_info_node->add_children("col1", "col1",
+                                  TableSchemaChangeHelper::ConstNode::get_instance());
+
+    Status status = reader->_fill_doris_data_column<false>("test_struct", doris_column,
+                                                           doris_struct_type, table_info_node,
+                                                           type.get(), &struct_batch, row_count);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("schema mapping is missing projected nested field "
+                                      "'ghost_field' of column 'test_struct'"),
+              std::string::npos)
+            << status;
+}
 } // namespace doris
