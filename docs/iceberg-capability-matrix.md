@@ -22,8 +22,31 @@
 | UT | 连接器或 FE 单元测试覆盖；不代表云端 E2E 已通过 |
 | REG | 仓库 regression suite 有对应场景；是否在当前环境运行需另行确认 |
 | CODE | 连接器代码声明或实现了该能力，但本文没有足够运行证据 |
-| TODO | 下一轮需要在隔离 namespace/table 中验证 |
+| E2E-FAIL | 在当前环境实际执行，但由 Doris 或远端 Catalog 明确拒绝；不能按“已支持”处理 |
+| UNVERIFIED-PERMISSION | 当前身份或 Catalog 权限阻止了验证；不等同于功能不支持 |
+| TODO | 需要专用表、凭据故障注入或其他当前环境没有的前置条件 |
 | N/A | 当前连接器没有声明该通用能力，不能按支持处理 |
+
+## 2.1 2026-08-21 Azure E2E 补充
+
+以下结果来自本 PR worktree 的本地 ASAN FE/BE（FE query port `11030`），Catalog 为 `dbx_azure_iceberg`，数据位置为 Azure ADLS `abfss`。SQL 中的真实 OAuth token 不记录在本文。
+
+| 验证项 | 状态 | 实测结果 |
+| --- | --- | --- |
+| namespace 创建 | E2E | `CREATE DATABASE IF NOT EXISTS dbx_azure_iceberg.matrix_full_20260821` 成功。 |
+| table 创建 | UNVERIFIED-PERMISSION | `CREATE TABLE` 被 Databricks 返回 `Forbidden: Not authorized to make this request`；当前服务主体没有创建 Unity Catalog managed table 的权限。 |
+| 基本读取 | E2E | `matrix_dml_v3_20260820` `COUNT(*)=6`，按 `id` 过滤/排序返回完整行。 |
+| snapshot time travel | E2E | `$snapshots` 返回 7 个 snapshot；`FOR VERSION AS OF 8812198063549693940` 和 `FOR TIME AS OF '2026-08-20 21:45:15'` 均返回历史 `alice/bob/carol` 三行。 |
+| Iceberg system tables | E2E | `$entries`、`$all_entries`、`$files`、`$data_files`、`$delete_files`、`$all_files`、`$all_data_files`、`$all_delete_files`、`$history`、`$metadata_log_entries`、`$snapshots`、`$refs`、`$manifests`、`$all_manifests`、`$partitions` 均可读。 |
+| position delete / deletion vector | E2E | `$position_deletes` 返回 3 条记录，数据文件和 Puffin delete 文件均为 `abfss://`；`$delete_files` 返回 1 个 DV 文件。 |
+| identity partition pruning | E2E | `WHERE p=2` 返回 2 行，`EXPLAIN VERBOSE` 为 `inputSplitNum=1`、`partition=1/3`；`p IN (1,3)` 返回 3 行。 |
+| runtime-filter join | E2E | 分区表与单行 key 表 join 只返回 `p=2` 的 2 行；静态计划包含 3 个分区 scan，运行结果正确。 |
+| nested projection/filter | E2E | STRUCT、ARRAY<STRUCT>、MAP<STRING,STRUCT> 子字段投影和 `info.metric >= 10` 过滤均成功；计划显示 `info.label` 的子列访问路径。 |
+| Top-N | E2E / CODE | `ORDER BY age DESC LIMIT 3` 返回正确结果，计划包含 `VTOP-N` 与 `isTopMaterializeNode: true`；这是查询行为证据，不替代性能基准。 |
+| branch/tag | E2E-FAIL | `CREATE BRANCH` 和 `CREATE TAG` 均被 Databricks 返回 `Branching or tagging is not allowed`；当前 Unity Catalog REST 表不能按 branch/tag 访问。 |
+| view | E2E-FAIL | `CREATE VIEW ...` 被 Doris 拒绝：`External catalog ... is not allowed in CreateViewCommand`。 |
+| `rewrite_manifests` | E2E | 在现有隔离表执行成功，返回 `6 0`。 |
+| `remove_orphan_files` | E2E-FAIL | 当前表属性 `gc.enabled=false`，执行被拒绝：`Cannot remove orphan files: Iceberg GC is disabled`。 |
 
 ## 3. 接入与存储
 
@@ -43,19 +66,19 @@
 | --- | --- | --- | --- |
 | Catalog、namespace、table 发现 | E2E | 当前环境 `SHOW DATABASES`、`SHOW TABLES` | 保持为每次 E2E 的冒烟检查 |
 | 基本投影、过滤、排序、聚合 | E2E | 当前环境 `COUNT(*)` 与 `WHERE id >= 2 ORDER BY id` | 增加结果快照和查询计划记录 |
-| MVCC / snapshot time travel | E2E / CODE / REG | `SUPPORTS_MVCC_SNAPSHOT`；当前表的 `$snapshots` 返回 snapshot `7725652772105110574`，`FOR VERSION AS OF` 返回历史三行；`test_iceberg_time_travel.groovy` | 增加多 snapshot、schema evolution 后的历史读 |
-| Branch / Tag 查询 | CODE / REG / TODO | branch/tag regression suite | 验证 REST Catalog 对 branch/tag 的可见性和权限 |
+| MVCC / snapshot time travel | E2E / CODE / REG | `SUPPORTS_MVCC_SNAPSHOT`；当前表 `$snapshots` 返回 7 个 snapshot，`FOR VERSION AS OF 8812198063549693940` 和 `FOR TIME AS OF` 均返回历史三行；`test_iceberg_time_travel.groovy` | 增加 schema evolution 后的历史读 |
+| Branch / Tag 查询 | E2E-FAIL / REG | branch/tag regression suite；当前 Databricks 返回 `Branching or tagging is not allowed` | 需要支持 branching/tagging 的 Catalog 才能继续验证 Doris 语义 |
 | Partition pruning | E2E / REG | 隔离表 `matrix_partition_prune_2304` 有 `p=1/2/3` 三个分区；`WHERE p=2` 的 `EXPLAIN VERBOSE` 显示 `inputSplitNum=1`、`partition=1/3`，`WHERE p IN (1,3)` 显示两个 split、`partition=2/3`，结果分别返回对应行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition 和分区演进后的裁剪证据 |
 | Runtime filter | E2E / REG | `matrix_partition_prune_2304` 与单行 key 表 join 时，静态计划包含 3 个 range，执行 profile 显示 `RuntimeFilterPartitionPrunedRangeNum=2`、RF input rows 5/filtered rows 2，最终只返回 `p=2` 的两行；`test_iceberg_runtime_filter_partition_pruning*.groovy` | 增加 transform partition、分区演进和 delete-aware 场景 |
 | Nested column pruning | E2E / CODE / REG | `info.label`、`events.*.score` 和 `attrs.*.code` 分别把 STRUCT、ARRAY<STRUCT>、MAP<STRING,STRUCT> 裁成只含目标子字段的类型，结果正确；证据表为 `matrix_nested_*_prune_2304`；`SUPPORTS_NESTED_COLUMN_PRUNE` 和 nested schema suites | 补充 schema evolution 后的裁剪 |
 | Position delete | E2E / REG / TODO | Azure v3 表的 `$position_deletes` 返回 3 条 Puffin deletion-vector 位置记录，`file_path`/`delete_file_path` 均为 `abfss://`；`test_iceberg_position_delete.groovy`、`test_iceberg_read_with_posdelete.groovy` | 传统 v2 Parquet position-delete 文件仍需在兼容的远端表上验证 |
 | Equality delete | REG / TODO | `test_iceberg_equality_delete*.groovy` | 验证 schema evolution 后 equality delete 仍正确 |
 | Deletion vector / row lineage | E2E / REG | format v3 表先执行 `DELETE` 产生 DV，再执行 `UPDATE`、`MERGE INTO` 和 `$position_deletes` 读取，均正确处理已有 DV；deletion-vector 和 v3 row-lineage suites | 增加多 DV、并发提交和大批量删除场景 |
-| Iceberg system tables | E2E / REG / TODO | `$snapshots`、`$refs`、`$position_deletes` 和 `$files` 可读；`$files` 返回 Parquet 数据文件及 Puffin 删除文件；`test_iceberg_sys_table*.groovy` | 继续验证 manifests、partitions |
-| `SHOW CREATE TABLE/DATABASE` | E2E / CODE / REG | `SUPPORTS_SHOW_CREATE_DDL`；当前 `SHOW CREATE TABLE` 返回 Iceberg LOCATION/PROPERTIES，未出现 OAuth token 或 SAS；`test_iceberg_show_create.groovy` | 单独验证 `SHOW CREATE DATABASE` 和敏感属性过滤 |
-| View | CODE / REG / TODO | `SUPPORTS_VIEW` | Databricks REST Catalog 是否暴露 view，需要单独确认 |
+| Iceberg system tables | E2E / REG | `$entries`、`$all_entries`、`$files`、`$data_files`、`$delete_files`、`$all_files`、`$all_data_files`、`$all_delete_files`、`$history`、`$metadata_log_entries`、`$snapshots`、`$refs`、`$position_deletes`、`$manifests`、`$all_manifests` 和 `$partitions` 均可读；`$files`/`$delete_files` 返回 Azure Parquet/Puffin 路径；`test_iceberg_sys_table*.groovy` | 继续补充 equality delete 和多表格式版本 |
+| `SHOW CREATE TABLE/DATABASE` | E2E / CODE / REG | `SUPPORTS_SHOW_CREATE_DDL`；当前 `SHOW CREATE TABLE` 和 `SHOW CREATE DATABASE` 均成功，LOCATION/PROPERTIES 可见，OAuth token 仍被 `*XXX` 掩码；`test_iceberg_show_create.groovy` | 增加更多敏感属性组合 |
+| View | E2E-FAIL / CODE / REG | `SUPPORTS_VIEW` 虽由通用连接器能力声明，但当前 Doris 明确禁止在 external catalog 执行 `CREATE VIEW`；REST view suite 也被禁用 | 需要 Doris 外部 Catalog view 语义或独立 view-capable Catalog |
 | Metadata preload | CODE | `SUPPORTS_METADATA_PRELOAD` | 这是并发/锁延迟优化，不作为第一批功能 E2E |
-| Top-N lazy materialization | CODE / REG / TODO | `SUPPORTS_TOPN_LAZY_MATERIALIZE`、TVF/Top-N suites | 需要真实 Top-N 查询和 profile 证据 |
+| Top-N lazy materialization | E2E / CODE / REG | `SUPPORTS_TOPN_LAZY_MATERIALIZE`；真实 `ORDER BY age DESC LIMIT 3` 计划包含 `VTOP-N` 和 `isTopMaterializeNode: true`；TVF/Top-N suites | 仍需独立性能基准，不把单次计划当作性能结论 |
 
 ## 5. 写入、DDL 和管理操作
 
@@ -84,11 +107,12 @@
 
 | 操作 | 当前状态 | 证据 |
 | --- | --- | --- |
-| 创建/删除 namespace、table | CODE / REG / TODO | 连接器 metadata ops 和 external Iceberg suites 有实现；Azure Catalog 上应使用隔离 namespace。 |
-| Add/drop/rename/modify column | CODE / REG / TODO | `SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE`；包含嵌套字段路径。 |
-| Partition evolution | CODE / REG / TODO | `addPartitionField`、`dropPartitionField`、`replacePartitionField`；现有 partition evolution suites。 |
-| Sort order on create | CODE | `SUPPORTS_SORT_ORDER`；Iceberg connector 是当前声明该 DDL 能力的连接器。 |
-| Branch/tag create/drop | CODE / REG / TODO | connector metadata ops 和 branch/tag suites 有实现。 |
+| 创建/删除 namespace、table | E2E / UNVERIFIED-PERMISSION / REG | namespace 创建成功；新 table 创建被 Databricks `Forbidden` 拒绝，因此 table create/drop 不能在当前身份下判定支持与否。 |
+| Add/rename/modify column | E2E / REG | `matrix_update_fresh_20260820` 顶层 ADD、RENAME、MODIFY 成功；`matrix_nested_prune_2304` 的 `info.*` 嵌套 ADD、RENAME、MODIFY 也成功。 |
+| Drop column | E2E-FAIL / REG | 顶层和嵌套 DROP 均被 Databricks 返回 `Table should have one unpartitioned spec`；当前表均有 Unity Catalog 生成的 partition spec，暂按当前远端限制记录。 |
+| Partition evolution | E2E / REG | `matrix_write_20260820` 成功执行 `ADD PARTITION KEY dt`、写入 `id=99003`，`$partitions` 出现 `spec_id=1`；随后 DROP PARTITION KEY 也成功。当前只验证 identity partition。 |
+| Sort order on create | UNVERIFIED-PERMISSION / CODE | `SUPPORTS_SORT_ORDER` 已声明，但创建新表被同一 Databricks 权限拒绝，暂无 Azure E2E 结果。 |
+| Branch/tag create/drop | E2E-FAIL / REG | 当前 Databricks 明确拒绝 create branch/tag；因此 drop 和 branch/tag retention 也不再声称支持。 |
 
 ### 5.3 `ALTER TABLE ... EXECUTE`
 
@@ -107,7 +131,7 @@ rewrite_manifests
 remove_orphan_files
 ```
 
-这些操作目前属于 `CODE / REG / TODO`：代码和通用 regression 已有证据，但尚未在当前 Databricks + Azure Catalog 上逐项执行。管理操作会改变远端表状态，必须使用专用测试表，并保留执行前后的 snapshot 记录。
+这些操作不能统一标成已支持：`rewrite_manifests` 已在当前表成功并返回 `6 0`；`remove_orphan_files` 因 `gc.enabled=false` 被拒绝；`rewrite_data_files` 在连接器单元测试中仍是“advertised but not yet executable”。rollback、set-current、cherrypick、fast-forward、expire 和 publish 需要专用表及可回滚权限，当前身份无法创建新表，因此保持 `CODE / REG / TODO`，不能用现有业务表冒险验证。
 
 ## 6. 明确的未声明能力
 
