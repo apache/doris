@@ -26,6 +26,12 @@ import org.apache.doris.regression.util.JdbcUtils
 
 @Slf4j
 class ProfileAction implements SuiteAction {
+    private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 60000
+    private static final long DEFAULT_PROFILE_WAIT_INTERVAL_MS = 500
+    private static final String PROFILE_COMPLETION_STATE = "Profile Completion State:"
+    private static final String PROFILE_LIST_COMPLETE = "COMPLETE"
+    private static final String PROFILE_COMPLETE = "Profile Completion State: COMPLETE"
+
     private String tag
     private Runnable runCallback
     private Closure<String> check
@@ -76,6 +82,26 @@ class ProfileAction implements SuiteAction {
         return profileData
     }
 
+    private String normalizeProfileText(String profileText) {
+        // Convert HTML entities and actual NBSPs to regular spaces,
+        // retain line breaks, and then compress multiple consecutive spaces into a single space.
+        profileText = profileText.replace("&nbsp;", " ")
+        profileText = profileText.replace("</br>", "\n")
+        profileText = profileText.replace('\u00A0' as char, ' ' as char)
+        return profileText.replaceAll(" {2,}", " ")
+    }
+
+    boolean isProfileReady(String profileText, List<String> requiredContents = []) {
+        if (profileText == null || profileText.isEmpty()) {
+            return false
+        }
+        if (profileText.contains(PROFILE_COMPLETION_STATE) && !profileText.contains(PROFILE_COMPLETE)) {
+            return false
+        }
+        return requiredContents == null || requiredContents.isEmpty()
+                || requiredContents.every { profileText.contains(it) }
+    }
+
     String getProfile(String profileId) {
         def profileCli = new HttpCliAction(context)
         def addr = context.getFeHttpAddress()
@@ -97,18 +123,83 @@ class ProfileAction implements SuiteAction {
 
             def jsonSlurper2 = new JsonSlurper()
             def profileText = jsonSlurper2.parseText(profileResp).data
-            // Convert HTML entities and actual NBSPs to regular spaces, 
-            // retain line breaks, and then compress multiple consecutive spaces into a single space
-            profileText = profileText.replace("&nbsp;", " ")
-            profileText = profileText.replace("</br>", "\n")
-            // Replace the actual NBSP characters with regular spaces
-            profileText = profileText.replace('\u00A0' as char, ' ' as char)
-            // Compress two or more consecutive regular spaces into a single space (without affecting line breaks)
-            profileText = profileText.replaceAll(" {2,}", " ")
-            result.text = profileText
+            result.text = normalizeProfileText(profileText)
         }
         profileCli.run()
         return result.text
+    }
+
+    String getProfile(String profileId, List<String> requiredContents, long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS,
+            long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
+        return waitProfile({ getProfile(profileId) }, requiredContents, "Profile ${profileId}", timeoutMs, intervalMs)
+    }
+
+    String waitProfile(Closure<String> profileFetcher, List<String> requiredContents = [],
+            String profileDescription = "Profile", long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS,
+            long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
+        String profileText = ""
+        long deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() <= deadline) {
+            String currentProfileText = profileFetcher.call()
+            if (currentProfileText != null && !currentProfileText.isEmpty()) {
+                profileText = currentProfileText
+            }
+            if (isProfileReady(currentProfileText, requiredContents)) {
+                return currentProfileText
+            }
+            log.info("{} is not ready, required contents: {}", profileDescription, requiredContents)
+            Thread.sleep(intervalMs)
+        }
+        throw new IllegalStateException("${profileDescription} is not ready after ${timeoutMs} ms, " +
+                "required contents: ${requiredContents}, last profile:\n${profileText}")
+    }
+
+    String getProfileBySql(String sqlPattern, List<String> requiredContents = [],
+            long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS, long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
+        String profileId = ""
+        String profileText = ""
+        Throwable lastException = null
+        long deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() <= deadline) {
+            for (final def profileItem in getProfileList()) {
+                if (profileItem["Sql Statement"].toString().contains(sqlPattern)) {
+                    profileId = profileItem["Profile ID"].toString()
+                    def profileCompletionState = profileItem["Profile Completion State"]?.toString()
+                    if (profileCompletionState != null && profileCompletionState != PROFILE_LIST_COMPLETE) {
+                        break
+                    }
+                    try {
+                        profileText = getProfile(profileId)
+                        lastException = null
+                    } catch (Throwable t) {
+                        lastException = t
+                        log.info("Profile {} with sql pattern {} is not available yet: {}",
+                                profileId, sqlPattern, t.getMessage())
+                        break
+                    }
+                    if (isProfileReady(profileText, requiredContents)) {
+                        return profileText
+                    }
+                    break
+                }
+            }
+            if (profileId == "") {
+                log.info("Profile with sql pattern {} is not found yet", sqlPattern)
+            } else {
+                log.info("Profile {} with sql pattern {} is not ready", profileId, sqlPattern)
+            }
+            Thread.sleep(intervalMs)
+        }
+
+        if (profileId == "") {
+            throw new IllegalStateException("Missing profile with sql pattern: " + sqlPattern)
+        }
+        String message = "Profile ${profileId} with sql pattern ${sqlPattern} is not ready after ${timeoutMs} ms, " +
+                "required contents: ${requiredContents}"
+        if (lastException != null) {
+            message += ", last error: ${lastException.getMessage()}"
+        }
+        throw new IllegalStateException("${message}, last profile:\n${profileText}")
     }
 
     @Override

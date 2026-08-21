@@ -17,10 +17,8 @@
 
 import groovy.json.JsonSlurper
 import org.apache.doris.regression.action.ProfileAction
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
-def getProfile = { masterHTTPAddr, id ->
+def fetchProfile = { masterHTTPAddr, id ->
     def dst = 'http://' + masterHTTPAddr
     def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
     conn.setRequestMethod("GET")
@@ -31,13 +29,14 @@ def getProfile = { masterHTTPAddr, id ->
 }
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
-suite('s3_load_profile_test') {
-    sql "set enable_profile=true;"   
-    sql "set profile_level=2;"
-    def s3Endpoint = getS3Endpoint()
-    def s3Region = getS3Region()
-    sql "drop table if exists s3_load_profile_test_dup_tbl_basic;"
-    sql """
+suite('s3_load_profile_test', 'nonConcurrent') {
+    setFeConfigTemporary(["profile_waiting_time_for_spill_seconds": 60]) {
+        sql "set enable_profile=true;"
+        sql "set profile_level=2;"
+        def s3Endpoint = getS3Endpoint()
+        def s3Region = getS3Region()
+        sql "drop table if exists s3_load_profile_test_dup_tbl_basic;"
+        sql """
     CREATE TABLE s3_load_profile_test_dup_tbl_basic
 (
     k00 INT             NOT NULL,
@@ -104,19 +103,19 @@ PROPERTIES (
     "replication_num" = "1"
 );
 """
-    def loadAttribute =new LoadAttributes("s3://${getS3BucketName()}/regression/load/data/basic_data.csv",
+        def loadAttribute =new LoadAttributes("s3://${getS3BucketName()}/regression/load/data/basic_data.csv",
                 "s3_load_profile_test_dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
                 "", "", "", "", "")
 
-    def ak = getS3AK()
-    def sk = getS3SK()
+        def ak = getS3AK()
+        def sk = getS3SK()
 
-    def label = "test_s3_load_" + UUID.randomUUID().toString().replace("-", "_")
-    logger.info("s3_load_profile_test_dup_tbl_basic, label: $label")
-    loadAttribute.label = label
-    def prop = loadAttribute.getPropertiesStr()
+        def label = "test_s3_load_" + UUID.randomUUID().toString().replace("-", "_")
+        logger.info("s3_load_profile_test_dup_tbl_basic, label: $label")
+        loadAttribute.label = label
+        def prop = loadAttribute.getPropertiesStr()
 
-    def sql_str = """
+        def sql_str = """
         LOAD LABEL $label (
             $loadAttribute.dataDesc.mergeType
             DATA INFILE("$loadAttribute.dataDesc.path")
@@ -141,82 +140,74 @@ PROPERTIES (
         )
         ${prop}
         """
-    logger.info("submit sql: ${sql_str}");
-    sql """${sql_str}"""
-    logger.info("Submit load with lable: $label, table: $loadAttribute.dataDesc.tableName, path: $loadAttribute.dataDesc.path")
+        logger.info("submit sql: ${sql_str}");
+        sql """${sql_str}"""
+        logger.info("Submit load with lable: $label, table: $loadAttribute.dataDesc.tableName, path: $loadAttribute.dataDesc.path")
 
-    def max_try_milli_secs = 600000
-    def jobId = -1
-    while (max_try_milli_secs > 0) {
-        String[][] result = sql """ show load where label="$loadAttribute.label" order by createtime desc limit 1; """
-        if (result[0][2].equals("FINISHED")) {
-            if (loadAttribute.isExceptFailed) {
-                assertTrue(false, "load should be failed but was success: $result")
-            }
-            jobId = result[0][0].toLong()
-            logger.info("Load FINISHED " + loadAttribute.label + ": $result" + " loadId: $jobId")
-            break
-        }
-        if (result[0][2].equals("CANCELLED")) {
-            if (loadAttribute.isExceptFailed) {
-                logger.info("Load FINISHED " + loadAttribute.label)
+        def max_try_milli_secs = 600000
+        def jobId = -1
+        while (max_try_milli_secs > 0) {
+            String[][] result = sql """ show load where label="$loadAttribute.label" order by createtime desc limit 1; """
+            if (result[0][2].equals("FINISHED")) {
+                if (loadAttribute.isExceptFailed) {
+                    assertTrue(false, "load should be failed but was success: $result")
+                }
+                jobId = result[0][0].toLong()
+                logger.info("Load FINISHED " + loadAttribute.label + ": $result" + " loadId: $jobId")
                 break
             }
-            assertTrue(false, "load failed: $result")
-            break
+            if (result[0][2].equals("CANCELLED")) {
+                if (loadAttribute.isExceptFailed) {
+                    logger.info("Load FINISHED " + loadAttribute.label)
+                    break
+                }
+                assertTrue(false, "load failed: $result")
+                break
+            }
+            Thread.sleep(1000)
+            max_try_milli_secs -= 1000
+            if (max_try_milli_secs <= 0) {
+                assertTrue(false, "load Timeout: $loadAttribute.label")
+            }
         }
-        Thread.sleep(1000)
-        max_try_milli_secs -= 1000
-        if (max_try_milli_secs <= 0) {
-            assertTrue(false, "load Timeout: $loadAttribute.label")
-        }
-    }
-    Thread.sleep(500)
-    qt_select """ select count(*) from $loadAttribute.dataDesc.tableName """
-    logger.info("jobId: " + jobId)
+        Thread.sleep(500)
+        qt_select """ select count(*) from $loadAttribute.dataDesc.tableName """
+        logger.info("jobId: " + jobId)
 
-    def allFrontends = sql """show frontends;"""
-    logger.info("allFrontends: " + allFrontends)
+        def allFrontends = sql """show frontends;"""
+        logger.info("allFrontends: " + allFrontends)
     /*
      - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
     */
-    def frontendCounts = allFrontends.size()
-    def masterIP = ""
-    def masterHTTPPort = ""
+        def frontendCounts = allFrontends.size()
+        def masterIP = ""
+        def masterHTTPPort = ""
 
-    for (def i = 0; i < frontendCounts; i++) {
-        def currentFrontend = allFrontends[i]
-        def isMaster = currentFrontend[8]
-        if (isMaster == "true") {
-            masterIP = allFrontends[i][1]
-            masterHTTPPort = allFrontends[i][3]
-            break
+        for (def i = 0; i < frontendCounts; i++) {
+            def currentFrontend = allFrontends[i]
+            def isMaster = currentFrontend[8]
+            if (isMaster == "true") {
+                masterIP = allFrontends[i][1]
+                masterHTTPPort = allFrontends[i][3]
+                break
+            }
         }
-    }
-    if (masterIP == "" || masterHTTPPort == "") {
-        assertTrue(false, "Cannot find master FE from show frontends result: $allFrontends")
-    }
-    def masterAddress = masterIP + ":" + masterHTTPPort
-    logger.info("masterIP:masterHTTPPort is:${masterAddress}")
+        if (masterIP == "" || masterHTTPPort == "") {
+            assertTrue(false, "Cannot find master FE from show frontends result: $allFrontends")
+        }
+        def masterAddress = masterIP + ":" + masterHTTPPort
+        logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-    // The BE reports the detailed execution profile to FE asynchronously, after
-    // the load job has already finished (the Summary section is pushed
-    // synchronously on txn VISIBLE, but the Fragments/operators are filled only
-    // when the coordinator BE's report lands). Fetching too early yields a
-    // profile whose MergedProfile carries no operators, so the scan counters
-    // are not present yet. Poll until they show up, i.e. the execution profile
-    // has landed; the await times out and fails loudly if it never does.
-    def profileString = ""
-    Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until {
-        profileString = getProfile(masterAddress, jobId.toString())
-        return profileString.contains("NumScanners") &&
-                profileString.contains("RowsProduced") &&
-                profileString.contains("RowsRead")
+        def profileAction = new ProfileAction(context)
+        def profileString = profileAction.waitProfile(
+                { fetchProfile(masterAddress, jobId.toString()) },
+                ["NumScanners", "RowsProduced", "RowsRead"],
+                "Load profile ${jobId}")
+        logger.info("profileDataString:" + profileString)
+        assertTrue(profileString.contains("NumScanners"))
+        assertTrue(profileString.contains("RowsProduced"))
+        assertTrue(profileString.contains("RowsRead"))
     }
-    logger.info("profileDataString:" + profileString)
-    assertTrue(profileString.contains("NumScanners"))
-    assertTrue(profileString.contains("RowsProduced"))
-    assertTrue(profileString.contains("RowsRead"))
 }
 
 class DataDesc {
