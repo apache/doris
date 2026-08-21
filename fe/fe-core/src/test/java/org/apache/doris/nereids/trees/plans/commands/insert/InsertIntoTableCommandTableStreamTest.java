@@ -37,8 +37,9 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.rewrite.ResolveCloudTableStreamReadState;
+import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -460,15 +461,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                                 .setVisibleVersion(8)))
                 .build();
 
-        String sql = "insert into test_stream.tbl_target "
-                + "select * from test_stream.s1 partition (p1)";
-        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
-        connectContext.setStartTime();
-        UUID uuid = UUID.randomUUID();
-        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
-        command.initPlan(connectContext, new StmtExecutor(connectContext, sql), false);
-        Plan analyzedPlan = command.getLineagePlan().orElseThrow();
-
+        String sql = "select * from test_stream.s1 partition (p1)";
         String previousCloudUniqueId = Config.cloud_unique_id;
         String previousMetaServiceEndpoint = Config.meta_service_endpoint;
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
@@ -479,7 +472,17 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
                 Mockito.when(proxy.getTableStreamOffset(Mockito.any())).thenReturn(response);
 
-                new ResolveCloudTableStreamReadState().rewriteRoot(analyzedPlan, null);
+                connectContext.setStartTime();
+                UUID uuid = UUID.randomUUID();
+                connectContext.setQueryId(
+                        new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+                Assertions.assertTrue(checker.getCascadesContext().getStatementContext().getPlannerHooks()
+                        .contains(CloudTableStreamReadStateHook.INSTANCE));
+                NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+                Mockito.when(planner.getCascadesContext()).thenReturn(checker.getCascadesContext());
+                CloudTableStreamReadStateHook.INSTANCE.afterAnalyze(planner);
+                Plan analyzedPlan = checker.getPlan();
                 List<TableStreamUpdateInfo> streamUpdateInfos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
 
                 Assertions.assertEquals(1, streamUpdateInfos.size());
@@ -555,13 +558,14 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 connectContext.setQueryId(
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", checker.getPlan());
                 checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
                 checker.rewrite();
 
                 List<Plan> tmpPlans = checker.getCascadesContext().getStatementContext()
                         .getTmpPlanForMvRewrite();
                 Assertions.assertFalse(tmpPlans.isEmpty());
-                Assertions.assertTrue(tmpPlans.stream().anyMatch(tmpPlan -> !tmpPlan
+                Assertions.assertTrue(tmpPlans.stream().allMatch(tmpPlan -> tmpPlan
                         .collectToList(LogicalOlapTableStreamScan.class::isInstance).isEmpty()));
                 Assertions.assertTrue(checker.getCascadesContext().getRewritePlan()
                         .collectToList(LogicalOlapTableStreamScan.class::isInstance).isEmpty());
@@ -590,8 +594,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
         long p1 = baseTable.getPartition("p1").getId();
         long p2 = baseTable.getPartition("p2").getId();
-        String sql = "select k1, k2 from test_stream.s1 where k1 < 100 union all "
-                + "select k1, k2 from test_stream.s1@snapshot() where k1 >= 100 and k1 < 200";
+        String sql = "select k1, k2 from test_stream.s1 partition (p1) where k1 < 100 union all "
+                + "select k1, k2 from test_stream.s1@snapshot() partition (p2) "
+                + "where k1 >= 100 and k1 < 200";
 
         String previousCloudUniqueId = Config.cloud_unique_id;
         String previousMetaServiceEndpoint = Config.meta_service_endpoint;
@@ -630,6 +635,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
@@ -651,7 +657,11 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
     }
 
     @Test
-    public void testCloudEliminatedStreamScanDoesNotAdvanceOffset() throws Exception {
+    public void testCloudPredicateEliminationDoesNotShrinkOffsetRange() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        long p1 = baseTable.getPartition("p1").getId();
+        long p2 = baseTable.getPartition("p2").getId();
         String sql = "select k1, k2 from test_stream.s1 where false";
         String previousCloudUniqueId = Config.cloud_unique_id;
         String previousMetaServiceEndpoint = Config.meta_service_endpoint;
@@ -661,6 +671,28 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.meta_service_endpoint = "127.0.0.1:20121";
             try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.getTableStreamOffset(Mockito.any())).thenAnswer(invocation -> {
+                    Cloud.GetTableStreamOffsetRequest request = invocation.getArgument(0);
+                    Cloud.GetTableStreamOffsetResponse.Builder response =
+                            Cloud.GetTableStreamOffsetResponse.newBuilder()
+                                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                            .setCode(Cloud.MetaServiceCode.OK));
+                    for (Cloud.TableStreamPartitionSetPB binding : request.getBindingsList()) {
+                        Cloud.TableStreamReadBindingResultPB.Builder result =
+                                Cloud.TableStreamReadBindingResultPB.newBuilder()
+                                        .setIdentity(binding.getIdentity());
+                        for (long partitionId : binding.getPartitionIdsList()) {
+                            result.addPartitionStates(Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                                    .setPartitionId(partitionId)
+                                    .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                                    .setOffsetTso(100)
+                                    .setEndTso(130)
+                                    .setVisibleVersion(8));
+                        }
+                        response.addBindings(result);
+                    }
+                    return response.build();
+                });
 
                 connectContext.setStartTime();
                 UUID uuid = UUID.randomUUID();
@@ -668,10 +700,19 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
                 checker.rewrite();
 
-                Assertions.assertTrue(StreamConsumptionInfoExtractor.extract(analyzedPlan).isEmpty());
-                Mockito.verify(proxy, Mockito.never()).getTableStreamOffset(Mockito.any());
+                List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
+                Assertions.assertEquals(1, updates.size());
+                CloudOlapTableStreamUpdate update = (CloudOlapTableStreamUpdate) updates.get(0).getUpdate();
+                Assertions.assertEquals(Set.of(p1, p2), update.getPartitionUpdates().keySet());
+
+                ArgumentCaptor<Cloud.GetTableStreamOffsetRequest> requestCaptor =
+                        ArgumentCaptor.forClass(Cloud.GetTableStreamOffsetRequest.class);
+                Mockito.verify(proxy).getTableStreamOffset(requestCaptor.capture());
+                Assertions.assertEquals(Set.of(p1, p2),
+                        new HashSet<>(requestCaptor.getValue().getBindings(0).getPartitionIdsList()));
             }
         } finally {
             Config.cloud_unique_id = previousCloudUniqueId;

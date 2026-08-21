@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -39,23 +38,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Resolve one statement-level read snapshot for every Cloud Table Stream scan. */
-public class ResolveCloudTableStreamReadState implements CustomRewriter {
+/** Resolves one read snapshot for every Cloud Table Stream relation after statement analysis. */
+public class CloudTableStreamReadStateHook implements PlannerHook {
+    public static final CloudTableStreamReadStateHook INSTANCE = new CloudTableStreamReadStateHook();
+
+    private CloudTableStreamReadStateHook() {
+    }
 
     @Override
-    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (Config.isNotCloudMode()) {
-            return plan;
-        }
+    public void afterAnalyze(NereidsPlanner planner) {
+        resolve(planner.getCascadesContext().getRewritePlan());
+    }
 
+    static void resolve(Plan plan) {
         List<LogicalOlapTableStreamScan> scans = new ArrayList<>();
-        plan.collectToList(LogicalOlapTableStreamScan.class::isInstance).forEach(node -> {
-            LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) node;
-            scans.add(scan);
-        });
-        if (scans.isEmpty()) {
-            return plan;
-        }
+        plan.collectToList(LogicalOlapTableStreamScan.class::isInstance).forEach(node ->
+                scans.add((LogicalOlapTableStreamScan) node));
+        Preconditions.checkState(!scans.isEmpty(),
+                "Cloud Table Stream read-state hook requires at least one Stream scan");
 
         boolean readStatesInstalled = scans.get(0).getTable().hasCloudReadStates();
         for (LogicalOlapTableStreamScan scan : scans) {
@@ -69,7 +69,7 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
             }
         }
         if (readStatesInstalled) {
-            return plan;
+            return;
         }
 
         Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new LinkedHashMap<>();
@@ -88,7 +88,7 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
 
         if (requestedPartitions.isEmpty()) {
             scans.forEach(scan -> scan.getTable().installCloudReadStates(ImmutableMap.of()));
-            return plan;
+            return;
         }
 
         Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates;
@@ -102,10 +102,8 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
             OlapTableStreamWrapper wrapper = wrapperEntry.getKey();
             Map<Long, Cloud.TableStreamPartitionReadStatePB> bindingStates =
                     readStates.get(wrapper.getCloudIdentity());
-            if (bindingStates == null) {
-                wrapper.installCloudReadStates(ImmutableMap.of());
-                continue;
-            }
+            Preconditions.checkNotNull(bindingStates,
+                    "Cloud Table Stream read state is missing for a requested binding");
             ImmutableMap.Builder<Long, Cloud.TableStreamPartitionReadStatePB> wrapperStates =
                     ImmutableMap.builderWithExpectedSize(wrapperEntry.getValue().size());
             for (long partitionId : wrapperEntry.getValue()) {
@@ -113,6 +111,5 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
             }
             wrapper.installCloudReadStates(wrapperStates.build());
         }
-        return plan;
     }
 }
