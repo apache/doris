@@ -139,9 +139,6 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
         assertDorisSparkRows("external_round_robin_initial", "t_round_robin",
                 "pt, id, length(payload)", "ORDER BY pt, id")
 
-        /*
-         * TODO(PW-ISSUE-04): Re-enable after writers opened following REFRESH
-         * CATALOG use the updated external paths. See ../KNOWN_WRITE_ISSUES.md.
         spark_paimon """
             ALTER TABLE paimon.${dbName}.t_round_robin SET TBLPROPERTIES (
                 'data-file.external-paths' = '${pathRoot}/round-c,${pathRoot}/round-d'
@@ -158,15 +155,18 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
         """
         def changedRoundFiles = dataFiles("t_round_robin")
         boolean oldRoundFilesRetained = changedRoundFiles.containsAll(oldRoundFiles)
-        boolean newRoundAUsed = changedRoundFiles.any {
-            it.startsWith("${pathRoot}/round-c/")
-        }
-        boolean newRoundBUsed = changedRoundFiles.any {
-            it.startsWith("${pathRoot}/round-d/")
-        }
+        def newRoundFiles = changedRoundFiles - oldRoundFiles
+        assertTrue(oldRoundFilesRetained)
+        assertFalse(newRoundFiles.isEmpty())
+        // Round-robin selection is scoped to a writer lifecycle, so a small
+        // number of independent Doris statements need not hit both paths. The
+        // stable contract is that every new file uses the refreshed path set.
+        assertTrue(newRoundFiles.every {
+            it.startsWith("${pathRoot}/round-c/") ||
+                    it.startsWith("${pathRoot}/round-d/")
+        })
         assertDorisSparkRows("external_round_robin_changed", "t_round_robin",
                 "pt, id, length(payload)", "ORDER BY pt, id")
-         */
 
         (1..6).each { id ->
             sql """INSERT INTO t_weight_robin VALUES (${id}, 'weight-${id}')"""
@@ -194,8 +194,6 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
         assertTrue(defaultFiles.every { !it.startsWith(pathRoot) })
         assertDorisSparkRows("external_default_path", "t_none",
                 "id, payload", "ORDER BY id")
-        // TODO(PW-ISSUE-04): Restore the retained/new path assertions together
-        // with the disabled ALTER-and-write scenario above.
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

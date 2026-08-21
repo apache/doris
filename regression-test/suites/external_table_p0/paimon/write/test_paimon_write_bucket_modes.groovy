@@ -246,10 +246,6 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         def fixedBuckets = assertBucketsInRange("t_hash_fixed", 0, 3)
         assertTrue(fixedBuckets.size() > 1)
 
-        /*
-         * TODO(PW-ISSUE-02): Re-enable after Doris rejects writes to fixed-bucket
-         * partitions that have not been rescaled. See ../KNOWN_WRITE_ISSUES.md.
-         *
         // P04: ALTER only changes the configured bucket count. Existing
         // partitions must be rewritten before a new writer can use bucket=4.
         sql """INSERT INTO t_rescale VALUES
@@ -308,7 +304,6 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         sql """INSERT INTO t_rescale VALUES ('p2', 20, 'p2-after-rescale')"""
         assertTableEquals("t_rescale", "ORDER BY pt, id")
         assertBucketsInRange("t_rescale", 0, 3)
-         */
 
         // HASH_DYNAMIC: new keys expand buckets independently per partition.
         sql """INSERT INTO t_hash_dynamic VALUES

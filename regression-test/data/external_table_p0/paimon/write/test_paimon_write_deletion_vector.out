@@ -30,3 +30,9 @@
 4	insert-4	40
 5	inserted-5	50
 6	post-compact-6	60
+
+-- !dv_enabled_after_mor_jni --
+1	mow-new-1
+
+-- !dv_enabled_after_mor_native --
+1	mow-new-1

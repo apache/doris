@@ -209,10 +209,6 @@ suite("test_paimon_write_sequence_group", "p0,external,paimon") {
             SELECT * FROM t_property_change ORDER BY id
         """
 
-        /*
-         * TODO(PW-ISSUE-01): Re-enable after Doris reloads sequence-group
-         * properties for a writer opened after REFRESH CATALOG. See
-         * ../KNOWN_WRITE_ISSUES.md.
         spark_paimon """
             ALTER TABLE paimon.${dbName}.t_property_change SET TBLPROPERTIES (
                 'fields.seq.sequence-group' = 'a')
@@ -225,7 +221,6 @@ suite("test_paimon_write_sequence_group", "p0,external,paimon") {
             SELECT * FROM t_property_change ORDER BY id
         """
         assertSparkEquals("t_property_change", "*", "ORDER BY id")
-         */
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

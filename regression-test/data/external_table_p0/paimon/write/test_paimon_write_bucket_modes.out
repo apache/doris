@@ -2,6 +2,13 @@
 -- !bucket_hash_fixed --
 16	0	15	2
 
+-- !bucket_rescale_partial --
+p1	1	p1-old-1
+p1	10	p1-after-rescale
+p1	2	p1-old-2
+p2	3	p2-old-3
+p2	4	p2-old-4
+
 -- !bucket_hash_dynamic --
 p1	1	v1_updated
 p1	2	v2

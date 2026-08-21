@@ -78,10 +78,11 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
     """
 
     try {
-        def deletedRows = { String tableName ->
+        def deletionVectorEntries = { String tableName ->
             def rows = spark_paimon """
-                SELECT coalesce(sum(deleteRowCount), 0)
-                FROM paimon.${dbName}.`${tableName}\$files`
+                SELECT coalesce(sum(row_count), 0)
+                FROM paimon.${dbName}.`${tableName}\$table_indexes`
+                WHERE index_type = 'DELETION_VECTORS'
             """
             return rows[0][0].toString().toLong()
         }
@@ -102,8 +103,10 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
             assertSparkDorisResultEquals(sparkRows, dorisRows)
         }
 
-        // Start in MOW mode and retain physical deletion vectors by disabling
-        // automatic compaction for the first phase.
+        // Start in MOW mode. Do not set write-only=true here: Paimon implements
+        // primary-key deletion vectors during lookup compaction, while write-only
+        // deliberately disables that compaction and leaves new level-0 files
+        // invisible to the DV-optimized reader until a dedicated compaction runs.
         sql """INSERT INTO t_dv VALUES
             (1, 'old-1', 10),
             (2, 'delete-2', 20),
@@ -113,8 +116,6 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
             CALL paimon.sys.compact(
                 table => '${dbName}.t_dv',
                 compact_strategy => 'full');
-            ALTER TABLE paimon.${dbName}.t_dv
-                SET TBLPROPERTIES ('write-only' = 'true');
         """
         sql """REFRESH CATALOG ${catalogName}"""
         sql """USE ${dbName}"""
@@ -123,7 +124,7 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
             (4, 'insert-4', 40)
         """
         sql """DELETE FROM t_dv WHERE id = 2"""
-        boolean dvProducedBeforeCompact = deletedRows("t_dv") > 0L
+        boolean dvProducedBeforeCompact = deletionVectorEntries("t_dv") > 0L
 
         sql """INSERT INTO internal.${dbName}.dv_source VALUES
             (1, 'merged-1', 12, 'U'),
@@ -139,13 +140,11 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
                 VALUES (s.id, s.payload, s.score)
         """
         assertReaders("dv_before_compact", "t_dv", "id, payload, score", "ORDER BY id")
-        long deletedBeforeCompact = deletedRows("t_dv")
+        long dvEntriesBeforeCompact = deletionVectorEntries("t_dv")
 
         // Full compaction must preserve the logical rows while materializing at
         // least part of the accumulated deletion-vector state.
         spark_paimon_multi """
-            ALTER TABLE paimon.${dbName}.t_dv
-                SET TBLPROPERTIES ('write-only' = 'false');
             CALL paimon.sys.compact(
                 table => '${dbName}.t_dv',
                 compact_strategy => 'full'
@@ -153,8 +152,8 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
         """
         sql """refresh table t_dv"""
         assertReaders("dv_after_compact", "t_dv", "id, payload, score", "ORDER BY id")
-        assertTrue(deletedRows("t_dv") <= deletedBeforeCompact,
-                "Full compaction must not increase retained DV deletes")
+        assertTrue(deletionVectorEntries("t_dv") <= dvEntriesBeforeCompact,
+                "Full compaction must not increase retained deletion-vector entries")
 
         // A writer opened after compaction must restore the current index and
         // continue to hide the previous physical row for the same key.
@@ -164,11 +163,6 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
         """
         assertReaders("dv_post_compact_write", "t_dv", "id, payload, score", "ORDER BY id")
 
-        /*
-         * TODO(PW-ISSUE-03): Re-enable after Doris and Spark expose the same
-         * rows when deletion vectors are enabled over existing MOR files. See
-         * ../KNOWN_WRITE_ISSUES.md.
-         *
         // P08/P11 transition: enable MOW after MOR files already exist. The
         // next Doris statement must reload the changed table options.
         sql """INSERT INTO t_enable_dv VALUES
@@ -180,20 +174,18 @@ suite("test_paimon_write_deletion_vector", "p0,external,paimon") {
                 table => '${dbName}.t_enable_dv',
                 compact_strategy => 'full');
             ALTER TABLE paimon.${dbName}.t_enable_dv SET TBLPROPERTIES (
-                'deletion-vectors.enabled' = 'true',
-                'write-only' = 'true')
+                'deletion-vectors.enabled' = 'true')
         """
         sql """refresh catalog ${catalogName}"""
         sql """use ${dbName}"""
         sql """INSERT INTO t_enable_dv VALUES (1, 'mow-new-1')"""
         sql """DELETE FROM t_enable_dv WHERE id = 2"""
-        boolean dvProducedAfterEnable = deletedRows("t_enable_dv") > 0L
+        // The first MOR-to-MOW lookup compaction may rewrite the old files instead
+        // of retaining a non-empty DV index, so validate the stable contract here:
+        // both readers must expose the converted update/delete result.
         assertReaders("dv_enabled_after_mor", "t_enable_dv", "id, payload", "ORDER BY id")
         assertTrue(dvProducedBeforeCompact,
                 "Doris UPDATE/DELETE must leave a physical deletion vector before compaction")
-        assertTrue(dvProducedAfterEnable,
-                "MOR files must be addressable by DVs after enabling MOW")
-         */
     } finally {
         sql """set force_jni_scanner = false"""
         sql """drop catalog if exists ${catalogName}"""

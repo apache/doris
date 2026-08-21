@@ -25,3 +25,6 @@
 
 -- !property_change_still_writable --
 1	still-writable	10
+
+-- !property_change_sequence_group --
+1	high	20
