@@ -54,4 +54,31 @@ suite("test_timestamp_ns_storage_agg_key") {
         order by dt
     """
     order_qt_is_not_null "select dt from timestamp_ns_storage_agg_key where dt is not null order by dt"
+
+    sql "drop table if exists timestamp_ns_storage_replace"
+    sql """
+        create table timestamp_ns_storage_replace (
+            id int,
+            replace_dt timestamp_ns replace,
+            replace_if_not_null_dt timestamp_ns replace_if_not_null
+        )
+        aggregate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_storage_replace values
+        (1, '1969-12-31 23:59:59.999999999', '1970-01-01 00:00:00.000000001'),
+        (2, '1677-09-21 00:12:43.145224192', null)
+    """
+    sql """
+        insert into timestamp_ns_storage_replace values
+        (1, '2024-02-29 12:34:56.123456789', null),
+        (2, null, '2262-04-11 23:47:16.854775807')
+    """
+    order_qt_replace_aggregations """
+        select id, replace_dt, replace_if_not_null_dt
+        from timestamp_ns_storage_replace
+        order by id
+    """
 }

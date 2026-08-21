@@ -27,3 +27,8 @@ true	true	true	true	true	true	true	true	true	true	true
 -- !timestamp_ns_default_statement_snapshot --
 true
 
+-- !timezone_naive_storage --
+1	2023-08-17 09:41:18.123456789
+2	2023-08-17 16:41:18.123456789
+3	2023-08-17 09:41:18.123456789
+

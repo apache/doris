@@ -275,6 +275,26 @@ TEST(DataTypeTimeStampNsTest, SerDeRoundTripsTextProtobufAndBinary) {
     EXPECT_EQ(binary_data, source_data);
 }
 
+TEST(DataTypeTimeStampNsTest, SerDeExplicitlyRejectsUnsupportedArrowAndOrcIo) {
+    const DataTypeTimeStampNs type;
+    const auto serde = type.get_serde();
+    auto column = type.create_column();
+    const auto timezone = cctz::utc_time_zone();
+
+    const auto arrow_write_status =
+            serde->write_column_to_arrow(*column, nullptr, nullptr, 0, 0, timezone);
+    EXPECT_TRUE(arrow_write_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << arrow_write_status;
+
+    const auto arrow_read_status = serde->read_column_from_arrow(*column, nullptr, 0, 0, timezone);
+    EXPECT_TRUE(arrow_read_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << arrow_read_status;
+
+    Arena arena;
+    DataTypeSerDe::FormatOptions options;
+    const auto orc_write_status =
+            serde->write_column_to_orc("UTC", *column, nullptr, nullptr, 0, 0, arena, options);
+    EXPECT_TRUE(orc_write_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_write_status;
+}
+
 TEST(DataTypeTimeStampNsTest, DataTypeLiteralField) {
     const DataTypeTimeStampNs type;
     const DataTypeDateTimeV2 legacy6(6);

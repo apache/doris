@@ -169,4 +169,31 @@ suite("test_timestamp_ns_literal") {
         sql "create table test_timestamp_ns_invalid_current_default (id int, ts timestamp_ns default current_timestamp(10)) distributed by hash(id) buckets 1 properties('replication_num'='1')"
         exception "precision"
     }
+
+    sql "drop table if exists test_timestamp_ns_timezone_naive_storage"
+    def originalTimeZone = sql("select @@time_zone")[0][0]
+    try {
+        sql "set time_zone = '+08:00'"
+        sql """
+            create table test_timestamp_ns_timezone_naive_storage (
+                id int,
+                dt timestamp_ns
+            )
+            duplicate key(id)
+            distributed by hash(id) buckets 1
+            properties("replication_num" = "1")
+        """
+        sql """
+            insert into test_timestamp_ns_timezone_naive_storage values
+            (1, '2023-08-17T01:41:18.123456789Z'),
+            (2, '2023-08-17 01:41:18.123456789-07:00'),
+            (3, '2023-08-17 09:41:18.123456789')
+        """
+        sql "set time_zone = '+00:00'"
+        order_qt_timezone_naive_storage """
+            select id, dt from test_timestamp_ns_timezone_naive_storage order by id
+        """
+    } finally {
+        sql "set time_zone = '${originalTimeZone}'"
+    }
 }

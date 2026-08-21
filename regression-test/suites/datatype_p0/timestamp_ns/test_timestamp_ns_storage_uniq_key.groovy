@@ -60,4 +60,17 @@ suite("test_timestamp_ns_storage_uniq_key") {
         where dt not in ('1677-09-21 00:12:43.145224192', '2262-04-11 23:47:16.854775807')
         order by value
     """
+
+    sql "set enable_unique_key_partial_update = true"
+    sql """
+        insert into timestamp_ns_storage_uniq_key(dt, value_dt) values
+        ('1970-01-01 00:00:00.000000001', '1970-01-01 00:00:00.000000002')
+    """
+    sql "set enable_unique_key_partial_update = false"
+    order_qt_partial_update_preserves_unmentioned_columns """
+        select dt, value_dt, value
+        from timestamp_ns_storage_uniq_key
+        where dt = '1970-01-01 00:00:00.000000001'
+        order by dt
+    """
 }
