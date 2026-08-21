@@ -110,7 +110,6 @@ private:
     RuntimeProfile::Counter* _index_segment_count = nullptr;
     RuntimeProfile::Counter* _indexed_fragment_count = nullptr;
     RuntimeProfile::Counter* _flat_knn_fragment_count = nullptr;
-    RuntimeProfile::Counter* _metadata_count_split_count = nullptr;
     RuntimeProfile::Counter* _dataset_open_time = nullptr;
     RuntimeProfile::Counter* _scanner_open_time = nullptr;
     RuntimeProfile::Counter* _scanner_next_time = nullptr;

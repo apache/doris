@@ -17,6 +17,3 @@ all_types_unprefixed
 -- !rest_predicate_pushdown --
 8
 9
-
--- !rest_filtered_count --
-2

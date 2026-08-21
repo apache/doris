@@ -309,8 +309,6 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     _fill_block_time = ADD_TIMER(_scanner_profile, "LanceFillBlockTime");
     _take_rows_time = ADD_TIMER(_scanner_profile, "LanceTakeRowsTime");
     _row_id_fetch_time = ADD_TIMER(_scanner_profile, "LanceRowIdFetchTime");
-    _metadata_count_split_count =
-            ADD_COUNTER(_scanner_profile, "LanceMetadataCountSplitCount", TUnit::UNIT);
     _vector_search = _scan_params->__isset.lance_scan_params &&
                      lance_scan_params.__isset.external_search_request;
     if (_vector_search) {
@@ -377,11 +375,10 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
     _eof = false;
 
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    // Lance does not currently provide metadata aggregate pushdown. Do not let a generic
+    // table-level count supplied by a future planner bypass fragment reads.
+    _remaining_table_level_count = -1;
     if (current_split_pruned()) {
-        return Status::OK();
-    }
-    if (_is_table_level_count_active()) {
-        COUNTER_UPDATE(_metadata_count_split_count, 1);
         return Status::OK();
     }
     if (_global_rowid_output_idx.has_value() && !_global_rowid_context.has_value()) {
@@ -398,10 +395,6 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
-    if (_is_table_level_count_active()) {
-        block->clear_column_data(_projected_columns.size());
-        return _read_table_level_count(block, eos);
-    }
     *eos = false;
 
     if (_eof) {
