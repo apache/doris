@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -60,6 +61,15 @@ import java.util.Set;
  *  |  Agg(group by fk)
  *  |      |
  *  pk    fk
+ *
+ * Constraints applied on the pattern:
+ *   - Join is Inner Join (no semi/anti/outer join, no mark join).
+ *   - otherJoinConjuncts is empty: only equi-join conditions are allowed,
+ *     and each condition must reference exactly one slot from each side.
+ *   - All GROUP BY expressions are Slot (complex grouping expressions
+ *     are not supported).
+ *   - If an intermediate LogicalProject exists, it must be isAllSlots
+ *     (projections that introduce computations are not supported).
  */
 public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
     @Override
@@ -100,7 +110,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             LogicalAggregate<?> newAgg =
                     eliminatePrimaryOutput(agg, subJoin, primaryAndForeign.first, primaryAndForeign.second);
             if (newAgg == null) {
-                return null;
+                continue;
             }
             LogicalJoin<?, ?> newJoin = innerJoinCluster
                     .constructJoinWithPrimary(e.getKey(), subJoin, primaryAndForeign.first);
@@ -278,7 +288,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
      *        a       b
      */
     static class InnerJoinCluster {
-        private final Map<BitSet, LogicalJoin<?, ?>> innerJoins = new HashMap<>();
+        private final Map<BitSet, LogicalJoin<?, ?>> innerJoins = new LinkedHashMap<>();
         private final List<Plan> leaf = new ArrayList<>();
 
         void collectContiguousInnerJoins(Plan plan) {
@@ -344,9 +354,25 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                         currentPlan = entry.getValue();
                         forbiddenJoin.add(entry.getKey());
                     } else if (currentBitset.intersects(entry.getKey())) {
+                        // The new join shares leaves with the current accumulated plan.
+                        // We need to connect the newChild with current plan
+                        BitSet entryBitset = entry.getKey();
+
+                        BitSet newBits = (BitSet) entryBitset.clone();
+                        newBits.andNot(currentBitset);
+                        LogicalJoin<?, ?> entryJoin = entry.getValue();
+
+                        // Determine the new child: it must be a single leaf
+                        Plan newChild;
+                        if (newBits.cardinality() == 1) {
+                            newChild = leaf.get(newBits.nextSetBit(0));
+                        } else {
+                            return null;
+                        }
+
+                        currentPlan = entryJoin.withChildren(newChild, currentPlan);
                         addJoin = true;
-                        currentBitset.or(entry.getKey());
-                        currentPlan = currentPlan.withChildren(currentPlan, entry.getValue());
+                        currentBitset.or(entryBitset);
                         forbiddenJoin.add(entry.getKey());
                     }
                 }
