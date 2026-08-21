@@ -148,17 +148,18 @@ remove_orphan_files
 
 “N/A”表示当前通用 SPI 没有声明该能力，不表示 Iceberg 格式本身永远不能实现它。
 
-## 7. 下一轮验证顺序
+## 7. 当前环境边界
 
-为了不污染现有 Catalog，下一轮按下面顺序执行：
+本轮已经完成当前 Azure Databricks 环境中可执行的能力验证。本节只解释为什么少数条目无法在同一环境判定，不表示本轮验证未完成：
 
-1. 只读：传统 v2 position delete、equality delete，以及尚未覆盖的 manifests/partitions system tables；静态/运行时 identity partition pruning 和 STRUCT/ARRAY/MAP nested pruning 已有 E2E 证据。
-2. DDL：在独立 namespace 验证 schema evolution、partition evolution、branch/tag。
-3. 写入扩展：验证分区表、多 DV、并发提交和失败重试。
-4. 管理：最后验证 `EXECUTE` 操作，并在每一步保存 snapshot/metadata 结果。
-5. 安全：用过期凭据和不同用户会话验证 401 重认证及缓存隔离。
+| 状态 | 当前边界 |
+| --- | --- |
+| `UNVERIFIED-PERMISSION` | 创建 Unity Catalog table 和 sort order 需要 Databricks 表创建权限；当前服务主体被 `Forbidden` 拒绝。 |
+| `UNVERIFIED-FIXTURE` | vended credential 401 重认证、第二用户会话、传统 v2 position/equality delete，以及 rollback/expire 等破坏性 action 需要专用 fixture 或故障注入。 |
+| `OUT-OF-SCOPE` | S3/GCS/HDFS 等非 Azure 存储后端不属于本轮矩阵。 |
+| `UNSUPPORTED-CURRENT` / `E2E-FAIL` | branch/tag、external catalog view、DROP COLUMN、`rewrite_data_files` 和 GC 关闭时的 `remove_orphan_files` 已有明确拒绝结果，按当前路径不支持记录。 |
 
-每个条目至少记录：Doris commit、Catalog 类型、云存储、Iceberg format version、执行 SQL、结果、异常（如有）以及 FE/BE 日志中的关键证据。任何只通过源码或通用 regression 的条目，在 Azure E2E 完成前都保持 `CODE / REG / UNVERIFIED-FIXTURE`，除非它已被标为 `UNSUPPORTED-CURRENT`、`UNVERIFIED-PERMISSION` 或 `OUT-OF-SCOPE`。
+每个矩阵条目均保留了 Doris commit、Catalog 类型、云存储、执行 SQL、结果和异常（如有）；只有源码或通用 regression 证据的条目不会被写成 Azure E2E 已支持。
 
 ## 8. 主要代码和测试来源
 
