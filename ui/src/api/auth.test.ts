@@ -51,13 +51,18 @@ describe('authentication API', () => {
   });
 
   it('maps invalid credentials without revealing whether the user exists', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ msg: 'failure' }, 401));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      code: 401,
+      msg: 'Unauthorized',
+      data: 'Access denied for user missing',
+    }));
 
     await expect(login('missing', 'wrong')).rejects.toMatchObject({
       status: 401,
       code: 'UI_LOGIN_FAILED',
       message: 'Sign-in failed. Check the username and password.',
     });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('preserves the dedicated error for an authenticated non-admin user', async () => {

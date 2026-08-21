@@ -61,6 +61,12 @@ function loginError(status: number, body?: unknown): UiApiError {
   });
 }
 
+function legacyResponseCode(body: unknown): number | null {
+  if (!body || typeof body !== 'object' || !('code' in body)) return null;
+  const code = (body as { code?: unknown }).code;
+  return typeof code === 'number' ? code : null;
+}
+
 export async function login(username: string, password: string): Promise<UiMe> {
   let response: Response;
   try {
@@ -84,9 +90,13 @@ export async function login(username: string, password: string): Promise<UiMe> {
   try {
     payload = await response.json();
   } catch {
-    if (!response.ok) throw loginError(response.status);
+    throw loginError(response.ok ? 500 : response.status);
   }
-  if (!response.ok) throw loginError(response.status, payload);
+  const bodyCode = legacyResponseCode(payload);
+  const bodyRejected = bodyCode !== null && bodyCode !== 0 && bodyCode !== 200;
+  if (!response.ok || bodyRejected) {
+    throw loginError(bodyRejected ? bodyCode : response.status, payload);
+  }
   try {
     return await fetchMe();
   } catch (error) {
