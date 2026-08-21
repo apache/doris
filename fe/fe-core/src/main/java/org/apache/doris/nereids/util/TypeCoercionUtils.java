@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
@@ -488,6 +489,37 @@ public class TypeCoercionUtils {
             checkCanCastTo(input.getDataType(), targetType);
             return unSafeCast(input, targetType);
         }
+    }
+
+    private static Expression castComparisonOperand(
+            Expression input, DataType targetType, boolean losslessDecimalCast) {
+        if (losslessDecimalCast && input.getDataType().isStringLikeType()
+                && targetType.isDecimalV3Type()) {
+            checkCanCastTo(input.getDataType(), targetType);
+            return new Cast(input, targetType, false, true);
+        }
+        return castIfNotSameType(input, targetType);
+    }
+
+    private static Optional<DataType> getLosslessDecimalStringComparisonType(
+            ComparisonPredicate comparisonPredicate, Expression left, Expression right) {
+        if (!(comparisonPredicate instanceof EqualTo)) {
+            return Optional.empty();
+        }
+
+        DataType decimalType;
+        if (left.getDataType().isDecimalLikeType() && right.getDataType().isStringLikeType()) {
+            decimalType = left.getDataType();
+        } else if (right.getDataType().isDecimalLikeType() && left.getDataType().isStringLikeType()) {
+            decimalType = right.getDataType();
+        } else {
+            return Optional.empty();
+        }
+
+        // Equality only needs the exact value domain of the decimal operand. A string with
+        // additional non-zero integer or fractional digits cannot equal any value in that domain;
+        // the lossless cast rejects it instead of widening every join key to Decimal128/256.
+        return Optional.of(DecimalV3Type.forType(decimalType));
     }
 
     /**
@@ -1338,22 +1370,25 @@ public class TypeCoercionUtils {
         left = comparisonPredicate.left();
         right = comparisonPredicate.right();
 
-        Optional<DataType> commonType;
-        if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
-        } else {
-            commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
-        }
+        Optional<DataType> commonType = getLosslessDecimalStringComparisonType(comparisonPredicate, left, right);
+        boolean losslessDecimalCast = commonType.isPresent();
+        if (!losslessDecimalCast) {
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
+            } else {
+                commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
+            }
 
-        if (commonType.isPresent()) {
-            commonType = Optional.of(downgradeDecimalAndDateLikeType(
-                    commonType.get(),
-                    left,
-                    right));
-            commonType = Optional.of(downgradeDecimalAndDateLikeType(
-                    commonType.get(),
-                    right,
-                    left));
+            if (commonType.isPresent()) {
+                commonType = Optional.of(downgradeDecimalAndDateLikeType(
+                        commonType.get(),
+                        left,
+                        right));
+                commonType = Optional.of(downgradeDecimalAndDateLikeType(
+                        commonType.get(),
+                        right,
+                        left));
+            }
         }
 
         if (commonType.isPresent()) {
@@ -1361,8 +1396,8 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + commonType.get()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            left = castIfNotSameType(left, commonType.get());
-            right = castIfNotSameType(right, commonType.get());
+            left = castComparisonOperand(left, commonType.get(), losslessDecimalCast);
+            right = castComparisonOperand(right, commonType.get(), losslessDecimalCast);
         } else {
             throw new AnalysisException("unsupported comparison predicate " + comparisonPredicate.toSql());
         }

@@ -57,6 +57,10 @@ public class ExprToExternalSqlVisitor extends ExprToSqlVisitor {
 
     @Override
     public String visitCastExpr(CastExpr expr, ToSqlParams context) {
+        if (expr.isLosslessDecimalCast()) {
+            throw new UnsupportedOperationException(
+                    "Lossless decimal comparison casts cannot be translated to external SQL");
+        }
         return expr.getChild(0).accept(this, context);
     }
 

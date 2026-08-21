@@ -258,6 +258,16 @@ public class ExprToThriftBehaviorTest {
         Assertions.assertEquals(TExprNodeType.INT_LITERAL, nodes.get(0).node_type);
     }
 
+    @Test
+    public void testLosslessDecimalCastExpr() {
+        IntLiteral child = new IntLiteral(42);
+        CastExpr expr = new CastExpr(Type.BIGINT, child, false, true);
+
+        TExprNode node = firstNode(expr);
+        Assertions.assertTrue(node.isSetLosslessDecimalCast());
+        Assertions.assertTrue(node.isLosslessDecimalCast());
+    }
+
     // ======================== treesToThrift ========================
 
     @Test

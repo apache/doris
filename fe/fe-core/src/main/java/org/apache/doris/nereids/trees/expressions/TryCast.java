@@ -44,7 +44,7 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
     }
 
     private TryCast(List<Expression> child, DataType targetType, boolean isExplicitType) {
-        super(child, targetType, isExplicitType);
+        super(child, targetType, isExplicitType, false);
     }
 
     @Override

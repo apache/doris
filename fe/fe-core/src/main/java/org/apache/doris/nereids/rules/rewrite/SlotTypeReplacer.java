@@ -624,7 +624,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             newType = prunedTree.pruneCastType(originTree, castTree);
         }
 
-        return new Cast(newChild, newType);
+        return new Cast(newChild, newType, cast.isExplicitType(), cast.isLosslessDecimalCast());
     }
 
     private List<ColumnAccessPath> replaceAccessPathToFieldId(

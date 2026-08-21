@@ -33,15 +33,24 @@ public class CastExpr extends Expr {
     @SerializedName("noOp")
     protected boolean noOp = false;
 
+    // True if this implicit string-to-decimal cast must reject rounding.
+    @SerializedName("ldc")
+    protected boolean losslessDecimalCast = false;
+
     // only used restore from readFields.
     private CastExpr() {
 
     }
 
     public CastExpr(Type targetType, Expr e, boolean nullable) {
+        this(targetType, e, nullable, false);
+    }
+
+    public CastExpr(Type targetType, Expr e, boolean nullable, boolean losslessDecimalCast) {
         type = targetType;
         isImplicit = true;
         children.add(e);
+        this.losslessDecimalCast = losslessDecimalCast;
 
         noOp = Type.matchExactType(e.type, type, true);
         if (noOp) {
@@ -63,6 +72,7 @@ public class CastExpr extends Expr {
         super(other);
         isImplicit = other.isImplicit;
         noOp = other.noOp;
+        losslessDecimalCast = other.losslessDecimalCast;
     }
 
     @Override
@@ -87,14 +97,19 @@ public class CastExpr extends Expr {
         return noOp;
     }
 
+    public boolean isLosslessDecimalCast() {
+        return losslessDecimalCast;
+    }
+
     @Override
     public int hashCode() {
-        return super.hashCode();
+        return 31 * super.hashCode() + Boolean.hashCode(losslessDecimalCast);
     }
 
     @Override
     public boolean equals(Object obj) {
-        return super.equals(obj);
+        return super.equals(obj) && obj instanceof CastExpr
+                && losslessDecimalCast == ((CastExpr) obj).losslessDecimalCast;
     }
 
     public boolean canHashPartition() {

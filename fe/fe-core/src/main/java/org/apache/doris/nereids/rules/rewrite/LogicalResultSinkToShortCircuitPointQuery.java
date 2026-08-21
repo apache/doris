@@ -50,10 +50,16 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         return expression;
     }
 
+    private boolean isLosslessDecimalCast(Expression expression) {
+        return expression instanceof Cast && ((Cast) expression).isLosslessDecimalCast();
+    }
+
     private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
         return filter.getConjuncts().stream().allMatch(
                 // all conjuncts match with pattern `key = ?`
                 expression -> (expression instanceof EqualTo)
+                        && !isLosslessDecimalCast(expression.child(0))
+                        && !isLosslessDecimalCast(expression.child(1))
                         && (removeCast(expression.child(0)).isKeyColumnFromTable()
                         || (expression.child(0) instanceof SlotReference
                         && ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)))
