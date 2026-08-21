@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -45,7 +44,7 @@ import java.util.Set;
 
 /**
  * For an INNER / CROSS join whose one side is a single-row of constant expressions
- * (typically produced by inlining a constant CTE), rewrite the join into a plain 
+ * (typically produced by inlining a constant CTE), rewrite the join into a plain
  * on the other side.
  */
 public class EliminateJoinByConstantOneRowRelation implements RewriteRuleFactory {
