@@ -54,7 +54,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -81,7 +80,6 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -1362,22 +1360,6 @@ public class OlapScanNode extends ScanNode {
             columnsDesc.add(ColumnToThrift.toThrift(globalRowIdColumn));
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
-
-            // Add extra row id column
-            ArrayList<SlotDescriptor> slots = desc.getSlots();
-            Column lastColumn = slots.get(slots.size() - 1).getColumn();
-            if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
-                TColumn tColumn = new TColumn();
-                tColumn.setColumnName(Column.ROWID_COL);
-                tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-                tColumn.setAggregationType(TAggregationType.REPLACE);
-                tColumn.setIsKey(false);
-                tColumn.setIsAllowNull(false);
-                // keep compatibility
-                tColumn.setVisible(false);
-                tColumn.setColUniqueId(Integer.MAX_VALUE);
-                columnsDesc.add(tColumn);
-            }
         }
 
         // Add virtual column to ColumnsDesc so that backend could

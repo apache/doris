@@ -149,7 +149,14 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.write_cache_io_timer != 0 || stats.bytes_write_into_cache != 0 ||
            stats.num_skip_cache_io_total != 0 || stats.read_cache_file_directly_timer != 0 ||
            stats.cache_get_or_set_timer != 0 || stats.lock_wait_timer != 0 ||
-           stats.get_timer != 0 || stats.set_timer != 0 ||
+           stats.get_timer != 0 || stats.set_timer != 0 || stats.async_cache_write_submitted != 0 ||
+           stats.async_cache_write_rejected != 0 ||
+           stats.async_cache_write_buffer_alloc_fail != 0 ||
+           stats.async_cache_write_drop_stale_epoch != 0 ||
+           stats.inflight_write_buffer_index_hit != 0 ||
+           stats.inflight_write_buffer_index_miss != 0 || stats.probe_downloaded_hit != 0 ||
+           stats.probe_downloading_hit != 0 || stats.probe_miss != 0 ||
+           stats.block_wait_success != 0 || stats.block_wait_timeout != 0 ||
            stats.inverted_index_num_local_io_total != 0 ||
            stats.inverted_index_num_remote_io_total != 0 ||
            stats.inverted_index_num_peer_io_total != 0 ||
@@ -665,21 +672,6 @@ Status OlapScanner::_init_tablet_reader_params(
         if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
             _tablet_reader_params.topn_filter_target_node_id =
                     olap_scan_local_state->parent()->node_id();
-        }
-    }
-
-    // If this is a Two-Phase read query, and we need to delay the release of Rowset
-    // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
-    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
-        constexpr static int delayed_s = 60;
-        for (auto rs_reader : _tablet_reader_params.rs_splits) {
-            uint64_t delayed_expired_timestamp =
-                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
-                    delayed_s;
-            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
-                    delayed_expired_timestamp);
-            ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
-                    rs_reader.rs_reader->rowset());
         }
     }
 

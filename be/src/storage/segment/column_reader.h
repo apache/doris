@@ -894,52 +894,6 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
 };
 
-class RowIdColumnIterator : public ColumnIterator {
-public:
-    RowIdColumnIterator() = delete;
-    RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
-            : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = cast_set<uint32_t>(ord_idx);
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
-        for (size_t i = 0; i < *n; ++i) {
-            const auto row_id = cast_set<uint32_t>(_current_rowid + i);
-            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
-            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
-        }
-        _current_rowid += *n;
-        return Status::OK();
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override {
-        for (size_t i = 0; i < count; ++i) {
-            rowid_t row_id = rowids[i];
-            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
-            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
-        }
-        return Status::OK();
-    }
-
-    ordinal_t get_current_ordinal() const override { return _current_rowid; }
-
-private:
-    rowid_t _current_rowid = 0;
-    int64_t _tablet_id = 0;
-    RowsetId _rowset_id;
-    int32_t _segment_id = 0;
-};
-
-// Add new RowIdColumnIteratorV2
 class RowIdColumnIteratorV2 : public ColumnIterator {
 public:
     RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)
