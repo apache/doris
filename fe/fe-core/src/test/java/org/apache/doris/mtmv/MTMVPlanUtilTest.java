@@ -341,6 +341,22 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
+    public void testCreateMTMVWithAggStateColumn() throws Exception {
+        boolean originalEnableAggState = connectContext.getSessionVariable().enableAggState;
+        connectContext.getSessionVariable().enableAggState = true;
+        connectContext.setThreadLocalInfo();
+        try {
+            Assertions.assertDoesNotThrow(() -> createMvByNereids(
+                    "create materialized view mv_with_agg_state BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                            + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                            + "PROPERTIES ('replication_num' = '1')\n"
+                            + "as select id, sum_union(sum_state(score)) from test.T1 group by id"));
+        } finally {
+            connectContext.getSessionVariable().enableAggState = originalEnableAggState;
+        }
+    }
+
+    @Test
     public void testEnsureMTMVQueryUsable() throws Exception {
         createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"

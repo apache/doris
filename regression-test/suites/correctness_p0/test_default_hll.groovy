@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_default_hll") {
+    withGlobalLock("allow_non_aggregate_table_state_types") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
     def tableName = "test_default_hll"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -96,4 +98,6 @@ suite("test_default_hll") {
 
     qt_stream_load_csv1 """ select HLL_CARDINALITY(h1) from ${tableName} order by k; """
 
-} 
+    }
+    }
+}
