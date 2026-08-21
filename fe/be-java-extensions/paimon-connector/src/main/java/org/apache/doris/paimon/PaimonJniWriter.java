@@ -88,6 +88,8 @@ import java.util.Set;
  */
 public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
+    private static final int APPEND_ONLY_WRITER_MIN_PAGES = 1;
+    private static final int MERGE_TREE_WRITER_MIN_PAGES = 3;
 
     private final ClassLoader classLoader;
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
@@ -316,8 +318,8 @@ public class PaimonJniWriter {
         if (overwrite) {
             writer.withIgnorePreviousFiles(true);
         }
-        openMemoryResources(
-                coreOptions, spillDirectories, nativePageMemoryLimitBytes, nativeMemoryManager);
+        openMemoryResources(table, coreOptions, spillDirectories, nativePageMemoryLimitBytes,
+                nativeMemoryManager);
         openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
@@ -336,13 +338,20 @@ public class PaimonJniWriter {
     }
 
     private void openMemoryResources(
+            FileStoreTable table,
             CoreOptions coreOptions,
             String spillDirectories,
             long nativePageMemoryLimitBytes,
             long nativeMemoryManager) throws Exception {
         int pageSize = coreOptions.pageSize();
-        long effectivePoolLimit =
-                Math.min(coreOptions.writeBufferSize(), nativePageMemoryLimitBytes);
+        long writeBufferSize = coreOptions.writeBufferSize();
+        // Paimon creates merge-tree bucket writers lazily on the first write. Their
+        // SortBufferWriteBuffer requires three pages at construction time, so reject a permanent
+        // per-writer capacity shortage during open instead of failing nondeterministically when a
+        // particular bucket first receives a row. Paimon's MemoryPoolFactory shares these pages
+        // among bucket owners; the requirement is three pages per Doris writer, not per bucket.
+        long effectivePoolLimit = validateAndGetMemoryPoolLimit(writeBufferSize,
+                nativePageMemoryLimitBytes, pageSize, !table.primaryKeys().isEmpty());
         DorisMemorySegmentPool memorySegmentPool =
                 new DorisMemorySegmentPool(effectivePoolLimit, pageSize, nativeMemoryManager);
         MemoryPoolFactory memoryPoolFactory = new MemoryPoolFactory(memorySegmentPool);
@@ -361,6 +370,28 @@ public class PaimonJniWriter {
         ioManager = IOManager.create(splitDirectories);
         writer.withIOManager(ioManager);
         LOG.info("Paimon writer spill enabled: dirs={}", spillDirectories);
+    }
+
+    static long validateAndGetMemoryPoolLimit(long writeBufferSize,
+            long nativePageMemoryLimitBytes, int pageSize, boolean mergeTreeWriter) {
+        long effectivePoolLimit = Math.min(writeBufferSize, nativePageMemoryLimitBytes);
+        int requiredPages = mergeTreeWriter
+                ? MERGE_TREE_WRITER_MIN_PAGES
+                : APPEND_ONLY_WRITER_MIN_PAGES;
+        long availablePages = effectivePoolLimit / pageSize;
+        if (availablePages < requiredPages) {
+            String writerType = mergeTreeWriter ? "merge-tree" : "append-only";
+            throw new IllegalArgumentException("Paimon " + writerType
+                    + " writer requires at least " + requiredPages
+                    + " memory pages, but the effective pool contains " + availablePages
+                    + " pages: effectivePoolLimit=" + effectivePoolLimit
+                    + ", pageSize=" + pageSize
+                    + ", writeBufferSize=" + writeBufferSize
+                    + ", nativePageMemoryLimitBytes=" + nativePageMemoryLimitBytes
+                    + ". Increase the query memory limit, reduce sink parallelism, or adjust "
+                    + "paimon_jni_writer_memory_pool_limit_bytes, write-buffer-size, or page-size");
+        }
+        return effectivePoolLimit;
     }
 
     private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,

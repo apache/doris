@@ -37,6 +37,25 @@ public class PaimonJniWriterTest {
     }
 
     @Test
+    public void testMergeTreeMemoryPoolRequiresAtLeastThreePages() {
+        int pageSize = 64 * 1024;
+        long writeBufferSize = 4L * pageSize;
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniWriter.validateAndGetMemoryPoolLimit(
+                        writeBufferSize, 2L * pageSize, pageSize, true));
+        Assertions.assertTrue(exception.getMessage().contains("requires at least 3 memory pages"));
+        Assertions.assertTrue(exception.getMessage().contains("effectivePoolLimit=131072"));
+
+        Assertions.assertEquals(3L * pageSize,
+                PaimonJniWriter.validateAndGetMemoryPoolLimit(
+                        writeBufferSize, 3L * pageSize, pageSize, true));
+        Assertions.assertEquals(pageSize,
+                PaimonJniWriter.validateAndGetMemoryPoolLimit(
+                        pageSize, pageSize, pageSize, false));
+    }
+
+    @Test
     public void testOpenFailureRestoresContextClassLoader() throws Exception {
         Thread thread = Thread.currentThread();
         ClassLoader originalClassLoader = thread.getContextClassLoader();
