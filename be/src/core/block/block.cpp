@@ -42,6 +42,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
@@ -368,6 +369,38 @@ Status Block::check_no_column_string64() const {
     }
     return Status::OK();
 }
+
+#ifndef NDEBUG
+void Block::debug_inject_nonempty_string_payload_for_null_rows() {
+    for (size_t column_index = 0; column_index < data.size(); ++column_index) {
+        const auto* nullable =
+                check_and_get_column<ColumnNullable>(data[column_index].column.get());
+        if (nullable == nullptr || check_and_get_column<ColumnString>(
+                                           nullable->get_nested_column_ptr().get()) == nullptr) {
+            continue;
+        }
+
+        auto column_guard = mutate_column_scoped(column_index);
+        auto& mutable_nullable = assert_cast<ColumnNullable&>(*column_guard.mutable_column());
+        const auto& nested_string =
+                assert_cast<const ColumnString&>(mutable_nullable.get_nested_column());
+        const auto& null_map = mutable_nullable.get_null_map_data();
+        auto injected_string = ColumnString::create();
+        injected_string->reserve(nested_string.size());
+        for (size_t row = 0; row < nested_string.size(); ++row) {
+            if (null_map[row]) {
+                const auto payload = fmt::format("__DORIS_NULL_PAYLOAD_{}__", row);
+                injected_string->insert_data(payload.data(), payload.size());
+            } else {
+                const auto value = nested_string.get_data_at(row);
+                injected_string->insert_data(value.data, value.size);
+            }
+        }
+        ColumnPtr null_map_column = mutable_nullable.get_null_map_column_ptr();
+        mutable_nullable.replace_columns(std::move(injected_string), std::move(null_map_column));
+    }
+}
+#endif
 
 size_t Block::rows() const {
     for (const auto& elem : data) {

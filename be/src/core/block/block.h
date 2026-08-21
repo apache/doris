@@ -187,6 +187,10 @@ public:
 
     Status check_no_column_string64() const;
 
+#ifndef NDEBUG
+    void debug_inject_nonempty_string_payload_for_null_rows();
+#endif
+
     /// Approximate number of bytes used by column data in memory.
     /// This reflects the actual data footprint (e.g. string contents, numeric arrays)
     /// and is the metric used by adaptive batch size byte budgets.

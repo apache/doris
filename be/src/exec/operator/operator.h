@@ -615,6 +615,9 @@ public:
 
     [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
+#ifndef NDEBUG
+        block->debug_inject_nonempty_string_payload_for_null_rows();
+#endif
         RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
         return sink_impl(state, block, eos);
@@ -897,6 +900,9 @@ public:
     [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
         RETURN_IF_ERROR(get_block_impl(state, block, eos));
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
+#ifndef NDEBUG
+        block->debug_inject_nonempty_string_payload_for_null_rows();
+#endif
         RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
         return Status::OK();
