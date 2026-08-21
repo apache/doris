@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewr
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForMapLambdaInput;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
@@ -782,9 +783,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
                 ),
-                topic("add projection for volatile expression",
-                        // separate AddProjectForVolatileExpression and MergeProjectable
-                        // to avoid dead loop if code has bug
+                topic("add projection for volatile and lambda expression",
+                        // Materialize Map Lambda inputs and volatile expressions before merging the
+                        // generated Projects. Separate passes avoid repeatedly adding and merging the
+                        // same Project in one top-down rewrite.
+                        topDown(new AddProjectForMapLambdaInput()),
                         topDown(new AddProjectForVolatileExpression()),
                         topDown(new MergeProjectable())
                 ),
