@@ -28,12 +28,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.collect.Sets;
 
 import java.util.BitSet;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -41,24 +40,6 @@ import java.util.stream.Collectors;
 
 /**JoinReorderGreedy*/
 public class JoinReorderGreedy extends JoinOrder {
-    protected final MinMaxPriorityQueue<ExpressionInfo> topKExpr;
-
-    /**JoinReorderGreedy*/
-    public JoinReorderGreedy() {
-        // Ensure that topk's ExpressionInfo is returned in the same order, the final plan will be different if the
-        // cost is same and get ExpressionInfo in different order.
-        this.topKExpr = MinMaxPriorityQueue.orderedBy((Comparator<ExpressionInfo>) (left, right) -> {
-            double leftCost = left.cost;
-            double rightCost = right.cost;
-            int result = Double.compare(leftCost, rightCost);
-            if (result == 0) {
-                return Double.compare(left.hashCode(), right.hashCode());
-            } else {
-                return result;
-            }
-        }).maximumSize(10).create();
-    }
-
     @Override
     protected void enumerate() {
         for (int curJoinLevel = 2; curJoinLevel <= atomSize; curJoinLevel++) {
@@ -69,11 +50,13 @@ public class JoinReorderGreedy extends JoinOrder {
 
     @Override
     public List<Plan> getResult() {
-        List<Plan> result = Lists.newArrayList();
-        while (!topKExpr.isEmpty()) {
-            result.add(topKExpr.pollFirst().expr);
+        BitSet bitSet = new BitSet();
+        bitSet.set(0, atomSize);
+        GroupInfo bestExpr = bitSetToGroupInfo.get(bitSet);
+        if (bestExpr == null) {
+            return ImmutableList.of();
         }
-        return result;
+        return ImmutableList.of(bestExpr.bestExprInfo.expr);
     }
 
     private void searchBushyJoinOrders(int curJoinLevel) {
@@ -165,22 +148,17 @@ public class JoinReorderGreedy extends JoinOrder {
     }
 
     protected Optional<ExpressionInfo> buildJoinExpr(GroupInfo leftGroup, GroupInfo rightGroup) {
-        // 1.找join的条件
-        // 目前存在的问题是，没有判断onPredicates里是否是等值条件
         List<Expression> onPredicates = buildInnerJoinPredicate(leftGroup.atoms, rightGroup.atoms);
-        // 2.判断左右
         ExpressionInfo leftExprInfo = leftGroup.bestExprInfo;
         ExpressionInfo rightExprInfo = rightGroup.bestExprInfo;
         Plan leftChildPlan;
         Plan rightChildPlan;
         boolean needReverse = false;
         if (leftExprInfo.rowCount < rightExprInfo.rowCount) {
-            // 需要交换
             needReverse = true;
             leftChildPlan = rightExprInfo.expr;
             rightChildPlan = leftExprInfo.expr;
         } else {
-            // 不需要交换
             leftChildPlan = leftExprInfo.expr;
             rightChildPlan = rightExprInfo.expr;
         }
@@ -220,17 +198,9 @@ public class JoinReorderGreedy extends JoinOrder {
     protected void addExprToGroup(GroupInfo groupInfo, ExpressionInfo expr) {
         Preconditions.checkState(expr.cost != -1);
         double cost = expr.cost;
-        // For top group, we keep multi best join expressions
-        if (groupInfo.atoms.cardinality() == atomSize) {
-            // avoid repeated put, check object is enough
-            if (!topKExpr.contains(expr)) {
-                topKExpr.offer(expr);
-            }
-        } else {
-            if (cost < groupInfo.lowestExprCost) {
-                groupInfo.bestExprInfo = expr;
-                groupInfo.lowestExprCost = cost;
-            }
+        if (cost < groupInfo.lowestExprCost) {
+            groupInfo.bestExprInfo = expr;
+            groupInfo.lowestExprCost = cost;
         }
     }
 }

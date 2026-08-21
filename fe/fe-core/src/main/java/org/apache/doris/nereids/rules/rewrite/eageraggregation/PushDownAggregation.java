@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
@@ -102,10 +103,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             return plan;
         } else {
             Plan originalPlan = plan;
-            JoinReorderRule rule = new JoinReorderRule();
-            plan = rule.rewrite(plan, null);
-            plan = new ColumnPruning().rewriteRoot(plan, jobContext);
-
+            plan = reorderJoinBeforePush(plan, jobContext);
             Plan result = plan.accept(this, jobContext);
             if (result == plan) {
                 return originalPlan;
@@ -115,6 +113,17 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
             return result;
         }
+    }
+
+    private Plan reorderJoinBeforePush(Plan plan, JobContext jobContext) {
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        if (connectContext.getSessionVariable().isDisableJoinReorder()) {
+            return plan;
+        }
+        JoinReorderRule rule = new JoinReorderRule();
+        plan = rule.rewrite(plan, null);
+        plan = new ColumnPruning().rewriteRoot(plan, jobContext);
+        return plan;
     }
 
     @Override
