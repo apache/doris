@@ -49,6 +49,18 @@ import java.util.Set;
 public class MTMVCacheTest extends SqlTestBase {
 
     @Test
+    void testFailureRestoresCallerStatementContextAndSessionFlag() {
+        org.apache.doris.nereids.StatementContext original = connectContext.getStatementContext();
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+
+        Assertions.assertThrows(Exception.class, () -> MTMVCache.from(
+                "select from", connectContext, true, false, connectContext, false));
+
+        Assertions.assertSame(original, connectContext.getStatementContext());
+        Assertions.assertTrue(connectContext.getSessionVariable().enableMaterializedViewRewrite);
+    }
+
+    @Test
     void testMTMVCacheIsCorrect() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
