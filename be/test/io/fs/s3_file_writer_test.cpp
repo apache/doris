@@ -26,6 +26,7 @@
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <any>
