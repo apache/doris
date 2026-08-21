@@ -71,19 +71,21 @@ Status HdfsFileHandle::ensure_open() {
                 SYNC_POINT_HOOK_RETURN_VALUE(hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0),
                                              "HdfsFileHandle::ensure_open::hdfsOpenFile");
         if (_hdfs_file != nullptr) {
+            _open_status = Status::OK();
             DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
             DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
+        } else {
+            // Capture error inside the opening thread (libhdfs last-error is thread-local).
+            std::string _err_msg = SYNC_POINT_HOOK_RETURN_VALUE(
+                    hdfs_error(), "HdfsFileHandle::ensure_open::hdfs_error");
+            if (_err_msg.find("No such file or directory") != std::string::npos) {
+                _open_status = Status::NotFound(_err_msg);
+            } else {
+                _open_status = Status::InternalError("failed to open {}: {}", _fname, _err_msg);
+            }
         }
     });
-    if (_hdfs_file == nullptr) {
-        std::string _err_msg = SYNC_POINT_HOOK_RETURN_VALUE(
-                hdfs_error(), "HdfsFileHandle::ensure_open::hdfs_error");
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
-            return Status::NotFound(_err_msg);
-        }
-        return Status::InternalError("failed to open {}: {}", _fname, _err_msg);
-    }
-    return Status::OK();
+    return _open_status;
 }
 
 CachedHdfsFileHandle::CachedHdfsFileHandle(const hdfsFS& fs, const std::string& fname,
