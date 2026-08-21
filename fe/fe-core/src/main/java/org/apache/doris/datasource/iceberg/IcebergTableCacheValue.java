@@ -156,8 +156,8 @@ public class IcebergTableCacheValue {
             return false;
         }
         return sameFileIo(left.io(), right.io())
-                && sameResource(left.encryption(), right.encryption())
-                && sameResource(left.locationProvider(), right.locationProvider());
+                && sameEncryption(left.encryption(), right.encryption())
+                && sameLocationProvider(left.locationProvider(), right.locationProvider());
     }
 
     private static boolean sameFileIo(FileIO left, FileIO right) {
@@ -183,7 +183,23 @@ public class IcebergTableCacheValue {
                 ? ((SupportsStorageCredentials) fileIO).credentials() : null;
     }
 
-    private static boolean sameResource(Object left, Object right) {
+    private static boolean sameEncryption(
+            org.apache.iceberg.encryption.EncryptionManager left,
+            org.apache.iceberg.encryption.EncryptionManager right) {
+        if (left == right) {
+            return true;
+        }
+        // Plaintext managers are stateless, so any two instances are equivalent. Every other
+        // manager can hold KMS clients, sessions or key state that is not observable from the
+        // outside: fail closed so projections rebind to the fresh handle's manager.
+        return left instanceof org.apache.iceberg.encryption.PlaintextEncryptionManager
+                && right instanceof org.apache.iceberg.encryption.PlaintextEncryptionManager;
+    }
+
+    private static boolean sameLocationProvider(Object left, Object right) {
+        // This predicate only runs after the metadata file location and the FileIO configuration
+        // proved equal; a location provider is constructed deterministically from exactly that
+        // state (table location plus properties), so same-class instances are equivalent here.
         return left == right || (left != null && right != null && left.getClass() == right.getClass());
     }
 

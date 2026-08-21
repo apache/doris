@@ -563,6 +563,37 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testSameClassResourceReplacementsAreNotEquatedForEncryption() {
+        // Two same-class encryption managers can hold different KMS state: only plaintext
+        // managers are stateless enough to be equivalent across instances.
+        Table first = Mockito.mock(Table.class);
+        Table second = Mockito.mock(Table.class);
+        FileIO sharedIo = Mockito.mock(FileIO.class);
+        Mockito.when(sharedIo.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(first.io()).thenReturn(sharedIo);
+        Mockito.when(second.io()).thenReturn(sharedIo);
+        org.apache.iceberg.encryption.EncryptionManager firstManager =
+                Mockito.mock(org.apache.iceberg.encryption.EncryptionManager.class);
+        org.apache.iceberg.encryption.EncryptionManager secondManager =
+                Mockito.mock(org.apache.iceberg.encryption.EncryptionManager.class);
+        Mockito.when(first.encryption()).thenReturn(firstManager);
+        Mockito.when(second.encryption()).thenReturn(secondManager);
+        Assert.assertFalse("distinct stateful managers must not be equated",
+                IcebergTableCacheValue.sharesOperationalResources(first, second));
+
+        Mockito.when(second.encryption()).thenReturn(firstManager);
+        Assert.assertTrue("identical managers are equivalent",
+                IcebergTableCacheValue.sharesOperationalResources(first, second));
+
+        Mockito.when(first.encryption()).thenReturn(
+                org.apache.iceberg.encryption.PlaintextEncryptionManager.instance());
+        Mockito.when(second.encryption()).thenReturn(
+                Mockito.mock(org.apache.iceberg.encryption.PlaintextEncryptionManager.class));
+        Assert.assertTrue("plaintext managers are stateless and equivalent across instances",
+                IcebergTableCacheValue.sharesOperationalResources(first, second));
+    }
+
+    @Test
     public void testSchemaEntryDoesNotAutoRefreshOutsideAuthenticatorScope() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);

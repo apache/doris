@@ -540,6 +540,30 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testContendedPolicyHandoffRetriesInsteadOfFailingTheLookup() {
+        // A cache-policy ALTER may hold the lifecycle fence while a lookup re-prepares; the
+        // nonblocking preparer then returns empty-handed and the lookup must retry within a
+        // bounded window instead of failing an otherwise valid catalog.
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try {
+            AtomicInteger prepareAttempts = new AtomicInteger();
+            cache.bindCatalogPreparer(catalogId -> {
+                // Simulate a fence contended for the first attempts, then a successful handoff.
+                if (prepareAttempts.incrementAndGet() >= 3) {
+                    cache.initCatalog(catalogId, Collections.emptyMap());
+                }
+            });
+            Assert.assertNotNull(cache.entry(7L, PaimonExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, PaimonTableCacheValue.class));
+            Assert.assertEquals(3, prepareAttempts.get());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testSchemaEntryDoesNotAutoRefreshOutsideAuthenticatorScope() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);

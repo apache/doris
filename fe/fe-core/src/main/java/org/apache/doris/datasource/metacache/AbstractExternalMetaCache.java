@@ -330,14 +330,34 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
                         nameMapping.getLocalTblName(), engineNameForError));
     }
 
+    // A contended cache-policy handoff resolves within this window; see requireCatalogEntryGroup.
+    private static final long PREPARE_RETRY_WINDOW_NANOS = 2_000_000_000L;
+    private static final long PREPARE_RETRY_SLEEP_MS = 50L;
+
     private CatalogEntryGroup requireCatalogEntryGroup(long catalogId) {
         CatalogEntryGroup group = catalogEntries.get(catalogId);
         if (group == null && catalogPreparer != null) {
             // The caller prepared the catalog before capturing this engine, but a cache-policy
-            // ALTER retired the group in between. Re-prepare once under the lifecycle fence so
-            // the lookup observes the new policy instead of failing a valid catalog.
-            catalogPreparer.accept(catalogId);
-            group = catalogEntries.get(catalogId);
+            // ALTER retired the group in between. Re-prepare under the lifecycle fence so the
+            // lookup observes the new policy instead of failing a valid catalog. The preparer
+            // never blocks on the fence (a nested default loader may hold a Caffeine bin lock
+            // that retirement itself needs), so a contended handoff is absorbed with a bounded
+            // sleep-and-retry: the ALTER finishes within the window, or the lookup fails as
+            // before without any deadlock.
+            long deadlineNanos = System.nanoTime() + PREPARE_RETRY_WINDOW_NANOS;
+            while (true) {
+                catalogPreparer.accept(catalogId);
+                group = catalogEntries.get(catalogId);
+                if (group != null || System.nanoTime() >= deadlineNanos) {
+                    break;
+                }
+                try {
+                    Thread.sleep(PREPARE_RETRY_SLEEP_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
         if (group == null) {
             throw new IllegalStateException(String.format(
