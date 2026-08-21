@@ -12,7 +12,7 @@
 - Databricks OAuth 与 vended credentials；
 - 2026-08-20 至 2026-08-21 的本地 ASAN 构建和本 PR 当前工作树。
 
-当前可以确认：Doris 已能通过 Databricks REST Catalog 获取 vended Azure 凭据，并使用 Hadoop ABFS reader 读写 Iceberg 表。Catalog、namespace、表发现、snapshot time travel、基本查询，以及 `INSERT`、`INSERT OVERWRITE`、format v3 `DELETE`、`UPDATE` 和 `MERGE INTO` 均已在隔离测试表跑通。
+当前可以确认：Doris 已能通过 Databricks REST Catalog 获取 vended Azure 凭据，并使用 Hadoop ABFS reader 读写 Iceberg 表。Catalog、namespace、表发现、snapshot time travel、基本查询，以及 `INSERT`、单 partition spec 表的 `INSERT OVERWRITE`、format v3 `DELETE`、`UPDATE` 和 `MERGE INTO` 均已在隔离测试表跑通。
 
 ## 2. 证据等级
 
@@ -49,6 +49,9 @@
 | view | E2E-FAIL | `CREATE VIEW ...` 被 Doris 拒绝：`External catalog ... is not allowed in CreateViewCommand`。 |
 | `rewrite_manifests` | E2E | 在现有隔离表执行成功，返回 `6 0`。 |
 | `remove_orphan_files` | E2E-FAIL | 当前表属性 `gc.enabled=false`，执行被拒绝：`Cannot remove orphan files: Iceberg GC is disabled`。 |
+| partition evolution 后 self-overwrite | E2E-FAIL | `matrix_write_20260820` 从 4 行变为 7 行；旧 spec 的 `id=20/21/22` 各保留一份，同时写入新副本。此场景不能按正确 overwrite 语义处理。 |
+| `rollback_to_snapshot` | E2E-FAIL | 尝试回到 overwrite 前 snapshot 时，Databricks 拒绝提交：`A new snapshot ref may only point to a snapshot that was added in this update`。 |
+| 可重复回归入口 | E2E | `test_databricks_azure_vended_credentials_e2e.groovy` 在本地完成生成输出和普通比对；缺少 `enableDatabricksAzureIcebergE2E=true` 时直接跳过。 |
 
 ## 3. 接入与存储
 
@@ -91,7 +94,7 @@
 | 操作 | 当前状态 | 证据 |
 | --- | --- | --- |
 | `INSERT` | E2E / REG | `matrix_write_20260820` 通过 `VALUES` 写入 `id=13`、通过 `INSERT ... SELECT` 写入 `id=22`；保留的 v3 Azure 表 `matrix_dml_v3_20260820` 还验证了 `id=9001`，以及修复后用 `VALUES` 写入 `id=99001`、用 `INSERT ... SELECT` 写入 `id=99002`，按主键查询均得到完整行。 |
-| `INSERT OVERWRITE` | E2E / REG | 同一隔离表 overwrite 后仅保留 `id=20/21`，结果符合替换语义。 |
+| `INSERT OVERWRITE` | E2E / E2E-FAIL / REG | 单 spec 隔离表 overwrite 后仅保留目标行，结果符合替换语义；经历 partition evolution 的表执行 self-overwrite 时从 4 行变为 7 行，旧 spec 行没有被替换。 |
 | `DELETE` | E2E / REG | format v3 表删除 `id=2` 后仅剩 `id=1/3`；format v2 被远端按“delete files 需要 v3”拒绝，属于表格式前置条件。 |
 | `UPDATE` | E2E / UT / REG | 新表 UPDATE 通过；已有 DELETE DV 的 `matrix_dml_v3_20260820` 更新 `id=1` 后得到 `alice_after_fix/28`。 |
 | `MERGE INTO` | E2E / UT / REG | 在同一张已有 DELETE 和 UPDATE DV 的表上更新 `id=3`、插入 `id=5`，最终得到三行预期结果。 |
@@ -133,7 +136,7 @@ rewrite_manifests
 remove_orphan_files
 ```
 
-这些操作不能统一标成已支持：`rewrite_manifests` 已在当前表成功并返回 `6 0`；`remove_orphan_files` 因 `gc.enabled=false` 被拒绝；`rewrite_data_files` 当前路径明确尚未可执行。rollback、set-current、cherrypick、fast-forward、expire 和 publish 需要专用表及可回滚权限，当前身份无法创建新表，因此保持 `CODE / REG / UNVERIFIED-FIXTURE`，不能用现有业务表冒险验证。
+这些操作不能统一标成已支持：`rewrite_manifests` 已在当前表成功并返回 `6 0`；`remove_orphan_files` 因 `gc.enabled=false` 被拒绝；`rewrite_data_files` 当前路径明确尚未可执行；`rollback_to_snapshot` 已实际执行，但被 Databricks 的 snapshot-ref 提交约束拒绝。set-current、cherrypick、fast-forward、expire 和 publish 仍需要专用表及可回滚权限，保持 `CODE / REG / UNVERIFIED-FIXTURE`。
 
 ## 6. 明确的未声明能力
 
@@ -155,9 +158,9 @@ remove_orphan_files
 | 状态 | 当前边界 |
 | --- | --- |
 | `UNVERIFIED-PERMISSION` | 创建 Unity Catalog table 和 sort order 需要 Databricks 表创建权限；当前服务主体被 `Forbidden` 拒绝。 |
-| `UNVERIFIED-FIXTURE` | vended credential 401 重认证、第二用户会话、传统 v2 position/equality delete，以及 rollback/expire 等破坏性 action 需要专用 fixture 或故障注入。 |
+| `UNVERIFIED-FIXTURE` | vended credential 401 重认证、第二用户会话、传统 v2 position/equality delete，以及 set-current/cherrypick/fast-forward/expire/publish 等破坏性 action 需要专用 fixture 或故障注入。 |
 | `OUT-OF-SCOPE` | S3/GCS/HDFS 等非 Azure 存储后端不属于本轮矩阵。 |
-| `UNSUPPORTED-CURRENT` / `E2E-FAIL` | branch/tag、external catalog view、DROP COLUMN、`rewrite_data_files` 和 GC 关闭时的 `remove_orphan_files` 已有明确拒绝结果，按当前路径不支持记录。 |
+| `UNSUPPORTED-CURRENT` / `E2E-FAIL` | branch/tag、external catalog view、DROP COLUMN、partition evolution 后 self-overwrite、`rollback_to_snapshot`、`rewrite_data_files` 和 GC 关闭时的 `remove_orphan_files` 已有明确失败或拒绝结果，按当前路径不支持记录。 |
 
 每个矩阵条目均保留了 Doris commit、Catalog 类型、云存储、执行 SQL、结果和异常（如有）；只有源码或通用 regression 证据的条目不会被写成 Azure E2E 已支持。
 
