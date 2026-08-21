@@ -84,12 +84,24 @@ public final class ExternalMetaCacheBudgetManager {
         if (catalogProperties == null) {
             return false;
         }
-        if (catalogProperties.containsKey(CATALOG_MAX_WEIGHT_PROPERTY)) {
-            return true;
-        }
-        for (String key : catalogProperties.keySet()) {
-            if (key != null && key.startsWith("meta.cache.") && key.endsWith(".max-weight")) {
+        // Only values that actually parse can create budgets; an invalid or obsolete key that
+        // runtime sanitization will drop must not disable overlapping SDK caches. A valid zero
+        // still counts: it is an explicit (disabled) weight bound.
+        for (Map.Entry<String, String> property : catalogProperties.entrySet()) {
+            String key = property.getKey();
+            if (key == null) {
+                continue;
+            }
+            boolean weightKey = key.equals(CATALOG_MAX_WEIGHT_PROPERTY)
+                    || (key.startsWith("meta.cache.") && key.endsWith(".max-weight"));
+            if (!weightKey) {
+                continue;
+            }
+            try {
+                CacheSpec.parseWeight(property.getValue(), key, false, 0L);
                 return true;
+            } catch (RuntimeException e) {
+                // Unparsable: sanitized away at runtime, no budget results.
             }
         }
         return false;

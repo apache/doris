@@ -390,6 +390,21 @@ public class ExternalMetaCacheMgr {
                 () -> cache.invalidateCatalogEntries(catalogId)));
     }
 
+    /**
+     * Run an action under the same per-catalog lifecycle fence that guards lazy initialization
+     * and group retirement. The stripe lock is reentrant, so fenced actions may call back into
+     * removeCatalog/rollbackCatalogProperties for the same catalog.
+     */
+    public <T> T withCatalogLifecycleLock(long catalogId, java.util.function.Supplier<T> action) {
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            return action.get();
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
     public void removeCatalog(long catalogId) {
         Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
         lifecycleLock.lock();
