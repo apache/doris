@@ -143,17 +143,31 @@ RULES = [
         "into every TU that includes ExecEnv",
     ),
     (
+        "common/status.h",
+        "gen_cpp/",
+        set(),
+        "Status is included by essentially every TU; its error-code constants "
+        "carry literal values pinned to Status.thrift by static_asserts in "
+        "status.cpp, and the TStatus/PStatus converters are declared on "
+        "forward declarations with bodies in status.cpp, precisely so no "
+        "generated thrift/protobuf header rides this superhighway",
+    ),
+    (
+        "common/exception.h",
+        "gen_cpp/",
+        set(),
+        "Exception only uses ErrorCode constants and Status; it reaches "
+        "nearly every TU through status/exception macros and must stay free "
+        "of generated headers for the same reason as common/status.h",
+    ),
+    (
         "runtime/exec_env.h",
         "gen_cpp/",
-        {
-            # Status embeds TStatus/PStatus; these two ride in through
-            # common/status.h and are the only generated headers ExecEnv may keep.
-            "gen_cpp/Status_types.h",
-            "gen_cpp/types.pb.h",
-        },
+        set(),
         "ExecEnv reaches ~1060 TUs, so any generated protobuf/thrift header it "
         "pulls in is reparsed by most of the backend; every thrift struct it "
-        "stores is behind a pointer or forward declaration",
+        "stores is behind a pointer or forward declaration (the old "
+        "Status_types/types.pb ride-along died with the common/status.h cut)",
     ),
     (
         "runtime/thread_context.h",
@@ -194,10 +208,10 @@ RULES = [
         "runtime/thread_context.h",
         "gen_cpp/",
         {
-            # Status embeds TStatus/PStatus (ride in through common/status.h);
-            # TUniqueId lives in Types_types.h; the profile family rides in
-            # through runtime_profile.h held by the memory-tracker chain.
-            "gen_cpp/Status_types.h",
+            # PUniqueId is embedded by value in util/uid_util.h (rides in via
+            # mem_tracker_limiter.h); TUniqueId lives in Types_types.h; the
+            # profile family rides in through runtime_profile.h held by the
+            # memory-tracker chain.
             "gen_cpp/types.pb.h",
             "gen_cpp/Types_types.h",
             "gen_cpp/Metrics_types.h",
@@ -205,7 +219,7 @@ RULES = [
             "gen_cpp/runtime_profile.pb.h",
         },
         "ThreadContext reaches ~1000 TUs; any generated protobuf/thrift header "
-        "beyond the status/types/profile carriers listed here is reparsed by "
+        "beyond the types/profile carriers listed here is reparsed by "
         "most of the backend",
     ),
     (
@@ -482,6 +496,13 @@ FORWARD_CLOSURE_BUDGETS = {
 # intended.
 # Baselines: master 9a48f8120c0, 2026-08-18.
 REVERSE_REACH_BASELINES = {
+    # Locked down by the common/status.h decouple (P35): Status_types must not
+    # creep back toward its old everything-line reach of 2453 TUs.
+    "gen_cpp/Status_types.h": 37,
+    # Still carried legitimately by util/uid_util.h (PUniqueId by value) and
+    # the profile family; the status.h cut brought these down from 2458/2091.
+    "gen_cpp/types.pb.h": 1791,
+    "gen_cpp/Types_types.h": 1993,
     "gen_cpp/segment_v2.pb.h": 1234,
     "gen_cpp/PaloInternalService_types.h": 1133,
     "util/threadpool.h": 988,
