@@ -1474,9 +1474,18 @@ void scan_tmp_rowset(
     return;
 }
 
+void set_tablet_last_active_cluster(TabletStatsPB* stats, const std::string& cluster_id,
+                                    int64_t last_active_time_ms) {
+    stats->set_last_active_cluster_id(cluster_id);
+    stats->set_last_active_time_ms(last_active_time_ms);
+    stats->clear_last_active_cluster_status();
+    stats->clear_last_active_cluster_status_mtime_ms();
+}
+
 // Update the last active cluster info for a tablet
 void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
                                        const std::string& cluster_id,
+                                       int64_t last_active_time_ms,
                                        std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
                                        std::string& msg) {
     if (cluster_id.empty()) {
@@ -1505,10 +1514,7 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
         return;
     }
 
-    stats_pb.set_last_active_cluster_id(cluster_id);
-    stats_pb.set_last_active_time_ms(::time(nullptr) * 1000);
-    // Clear the mtime when updating cluster to allow dynamic filling on next get_rowset
-    stats_pb.clear_last_active_cluster_status_mtime_ms();
+    set_tablet_last_active_cluster(&stats_pb, cluster_id, last_active_time_ms);
 
     stats_pb.SerializeToString(&val);
     txn->put(key, val);
@@ -2269,17 +2275,27 @@ void MetaServiceImpl::commit_txn_immediately(
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
 
+            TabletStatsPB versioned_stats;
+            if (is_versioned_write) {
+                versioned_stats = existing_versioned_stats[tablet_id];
+                merge_tablet_stats(versioned_stats, stats);
+            }
+
             // Update last active cluster if load has data
             if (!requester_cluster_id.empty() && stats.num_segs > 0) {
-                update_tablet_last_active_cluster(info, requester_cluster_id, txn, code, msg);
+                int64_t last_active_time_ms = ::time(nullptr) * 1000;
+                update_tablet_last_active_cluster(info, requester_cluster_id, last_active_time_ms,
+                                                  txn, code, msg);
                 if (code != MetaServiceCode::OK) return;
+                if (is_versioned_write) {
+                    set_tablet_last_active_cluster(&versioned_stats, requester_cluster_id,
+                                                   last_active_time_ms);
+                }
             }
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
-                merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-                if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
+                if (!versioned::document_put(txn.get(), stats_key, std::move(versioned_stats))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     msg = "failed to serialize versioned tablet stats";
                     LOG(WARNING) << msg << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
@@ -3485,17 +3501,27 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
 
+            TabletStatsPB versioned_stats;
+            if (is_versioned_write) {
+                versioned_stats = existing_versioned_stats[tablet_id];
+                merge_tablet_stats(versioned_stats, stats);
+            }
+
             // Update last active cluster if load has data
             if (!requester_cluster_id_ev.empty() && stats.num_segs > 0) {
-                update_tablet_last_active_cluster(info, requester_cluster_id_ev, txn, code, msg);
+                int64_t last_active_time_ms = ::time(nullptr) * 1000;
+                update_tablet_last_active_cluster(info, requester_cluster_id_ev,
+                                                  last_active_time_ms, txn, code, msg);
                 if (code != MetaServiceCode::OK) return;
+                if (is_versioned_write) {
+                    set_tablet_last_active_cluster(&versioned_stats, requester_cluster_id_ev,
+                                                   last_active_time_ms);
+                }
             }
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
-                merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-                if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
+                if (!versioned::document_put(txn.get(), stats_key, std::move(versioned_stats))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     msg = "failed to serialize versioned tablet stats";
                     LOG(WARNING) << msg << " tablet_id=" << tablet_id << " txn_id=" << txn_id;

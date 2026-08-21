@@ -1581,6 +1581,23 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             }
         }
     }
+    TabletIndexPB old_tablet_idx = request->job().idx();
+    if (!old_tablet_idx.has_table_id() || !old_tablet_idx.has_index_id() ||
+        !old_tablet_idx.has_partition_id()) {
+        if (!is_versioned_read) {
+            get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, old_tablet_idx);
+            if (code != MetaServiceCode::OK) return;
+        } else {
+            TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &old_tablet_idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get old tablet index, tablet_id={}, err={}", tablet_id,
+                                  err);
+                return;
+            }
+        }
+    }
     int64_t new_table_id = new_tablet_idx.table_id();
     int64_t new_index_id = new_tablet_idx.index_id();
     int64_t new_partition_id = new_tablet_idx.partition_id();
@@ -1930,8 +1947,88 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     schema_change_update_tablet_stats(schema_change, stats, num_remove_rows, size_remove_rowsets,
                                       num_remove_rowsets, num_remove_segments,
                                       index_size_remove_rowsets, segment_size_remove_rowsets);
+
     auto stats_key = stats_tablet_key(
             {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});
+    auto has_active_cluster = [](const TabletStatsPB& tablet_stats) {
+        return tablet_stats.has_last_active_cluster_id() &&
+               !tablet_stats.last_active_cluster_id().empty();
+    };
+    auto copy_active_cluster = [](const TabletStatsPB& source, TabletStatsPB* target) {
+        target->set_last_active_cluster_id(source.last_active_cluster_id());
+        if (source.has_last_active_time_ms()) {
+            target->set_last_active_time_ms(source.last_active_time_ms());
+        }
+    };
+
+    if (!has_active_cluster(*stats) && is_versioned_read) {
+        std::string new_stats_val;
+        TxnErrorCode err = txn->get(stats_key, &new_stats_val);
+        if (err == TxnErrorCode::TXN_OK) {
+            TabletStatsPB new_tablet_stats;
+            if (!new_tablet_stats.ParseFromString(new_stats_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed new tablet stats for schema change, tablet_id={}",
+                                  new_tablet_id);
+                LOG(WARNING) << msg;
+                return;
+            }
+            if (has_active_cluster(new_tablet_stats)) {
+                copy_active_cluster(new_tablet_stats, stats);
+            }
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format(
+                    "failed to get new tablet stats for schema change, tablet_id={}, err={}",
+                    new_tablet_id, err);
+            LOG(WARNING) << msg;
+            return;
+        }
+    }
+
+    if (!has_active_cluster(*stats)) {
+        TabletStatsPB old_tablet_stats;
+        auto old_stats_key =
+                stats_tablet_key({instance_id, old_tablet_idx.table_id(), old_tablet_idx.index_id(),
+                                  old_tablet_idx.partition_id(), tablet_id});
+        std::string old_stats_val;
+        TxnErrorCode err = txn->get(old_stats_key, &old_stats_val);
+        if (err == TxnErrorCode::TXN_OK) {
+            if (!old_tablet_stats.ParseFromString(old_stats_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed old tablet stats for schema change, tablet_id={}",
+                                  tablet_id);
+                LOG(WARNING) << msg;
+                return;
+            }
+        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND && is_versioned_read) {
+            err = reader.get_tablet_compact_stats(txn.get(), tablet_id, &old_tablet_stats, nullptr,
+                                                  config::snapshot_get_tablet_stats);
+            if (err != TxnErrorCode::TXN_OK) {
+                if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format(
+                            "failed to get old tablet compact stats for schema change, "
+                            "tablet_id={}, err={}",
+                            tablet_id, err);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format(
+                    "failed to get old tablet stats for schema change, tablet_id={}, err={}",
+                    tablet_id, err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        if (has_active_cluster(old_tablet_stats)) {
+            copy_active_cluster(old_tablet_stats, stats);
+        }
+    }
+
     auto stats_val = stats->SerializeAsString();
     txn->put(stats_key, stats_val);
 
