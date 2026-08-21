@@ -2346,7 +2346,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
             {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH},
             {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
     std::map<std::string, std::string> selected_properties {
-            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD},
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, "unregistered_search_wildcard_analyzer"},
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE},
             {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
     auto decoy_meta = make_test_inverted_index(15, decoy_properties);
     auto selected_meta = make_test_inverted_index(16, selected_properties);
@@ -2528,6 +2529,74 @@ TEST_F(FunctionSearchTest, TestSniiNativeForwardsTermClauseAsEqualQuery) {
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
+}
+
+TEST_F(FunctionSearchTest, TestSniiNativePassesSelectedAnalyzerContext) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->index_policy_mgr();
+    IndexPolicyMgr scoped_policy_mgr;
+    exec_env->_index_policy_mgr = &scoped_policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    TIndexPolicy tokenizer;
+    tokenizer.id = 910030;
+    tokenizer.name = "function_search_context_tokenizer";
+    tokenizer.type = TIndexPolicyType::TOKENIZER;
+    tokenizer.properties["type"] = "char_group";
+    tokenizer.properties["tokenize_on_chars"] = "[whitespace]";
+
+    TIndexPolicy common_grams;
+    common_grams.id = 910031;
+    common_grams.name = "function_search_context_common_grams";
+    common_grams.type = TIndexPolicyType::TOKEN_FILTER;
+    common_grams.properties["type"] = "common_grams";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 910032;
+    analyzer.name = "function_search_context_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = tokenizer.name;
+    analyzer.properties["token_filter"] = "lowercase," + common_grams.name;
+    scoped_policy_mgr.apply_policy_changes({tokenizer, common_grams, analyzer}, {});
+
+    auto context = std::make_shared<IndexQueryContext>();
+    std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name},
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE}};
+    auto index_meta = make_test_inverted_index(45, properties);
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->set_query_result("running quickly", make_bitmap({1}));
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = properties;
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status =
+            function_search->build_leaf_query(make_leaf_clause("MATCH", "running quickly"), context,
+                                              resolver, &query, &binding_key, "OR", 0, 3);
+
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(reader->last_analyzer_ctx, nullptr);
+    EXPECT_EQ(reader->last_analyzer_ctx->analyzer_key, analyzer.name);
+    EXPECT_EQ(reader->last_analyzer_ctx->analyzer_name, analyzer.name);
+    EXPECT_EQ(reader->last_analyzer_ctx->parser_type, InvertedIndexParserType::PARSER_NONE);
+    EXPECT_TRUE(reader->last_analyzer_ctx->requires_analysis());
+    ASSERT_NE(reader->last_analyzer_ctx->analyzer_provider, nullptr);
+    EXPECT_TRUE(reader->last_analyzer_ctx->analyzer_provider->uses_common_grams());
+    EXPECT_FALSE(reader->last_analyzer_ctx->analyzer_provider->base_analyzer_fingerprint().empty());
 }
 
 // default_operator "and" maps a multi-token TERM clause onto MATCH_ALL_QUERY instead of the

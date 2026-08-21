@@ -642,6 +642,12 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
                                    query_type == InvertedIndexQueryType::WILDCARD_QUERY;
+    // A physical keyword-lane index has no analyzer contract for the open below to validate:
+    // SniiIndexColumnWriter::init() refuses a CommonGrams metadata seed whenever should_analyzer()
+    // is false, so such a segment can never carry gram terms. Key this on the writer-side
+    // predicate itself rather than on the reader type it happens to select.
+    const bool keyword_lane_query =
+            !inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta.properties());
     // Lucene-style CommonGrams: the plan decision is local to the segment and query. Snapshot the
     // switch once so this query's plan and cache identity use the same mode.
     const bool common_grams_query_plan_enabled = config::enable_common_grams_query_plan;
@@ -656,11 +662,11 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                ctx->has_complete_common_grams_identity();
     };
     const bool safety_requires_plain = !common_grams_query_plan_enabled;
-    // The raw cache key cannot prove whether the immutable segment analyzer has CommonGrams until
-    // its metadata is open. Delay every eligible forced-plain lookup, then restore ordinary cache
-    // access below only for a segment that cannot contain gram terms.
-    const bool initial_force_plain = common_grams_query_eligible && safety_requires_plain;
-    const bool initial_allow_result_cache = !actual_similarity && !initial_force_plain;
+    // An analyzed raw query can only share a cached result after the immutable segment analyzer
+    // contract has been validated below. Patterns and the keyword lane are analyzer-independent
+    // and can still use the cache before opening the logical reader.
+    const bool initial_allow_result_cache =
+            !actual_similarity && (raw_pattern_query || keyword_lane_query);
     const bool defer_result_cache_lookup = !actual_similarity && !initial_allow_result_cache;
     const InvertedIndexRawQuerySemantic raw_semantic {
             .raw_query_bytes = search_str,
