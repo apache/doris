@@ -142,11 +142,15 @@ suite("test_timestamp_ns_expressions") {
     """
 
     // Mixed TIMESTAMP_NS/DATETIMEV2 comparisons are evaluated directly without a narrowing cast.
+    // TIMESTAMPTZ has different timezone semantics, so convert it explicitly to TIMESTAMP_NS.
     // Row 1 deliberately differs only below microsecond precision, while row 2 is exactly equal.
     order_qt_mixed_temporal_comparisons """
         select id,
                ts = dt, ts != dt, ts > dt, ts >= dt, ts < dt, ts <= dt, ts <=> dt,
-               ts = tz, ts != tz, ts > tz, ts >= tz, ts < tz, ts <= tz, ts <=> tz
+               ts = cast(tz as timestamp_ns), ts != cast(tz as timestamp_ns),
+               ts > cast(tz as timestamp_ns), ts >= cast(tz as timestamp_ns),
+               ts < cast(tz as timestamp_ns), ts <= cast(tz as timestamp_ns),
+               ts <=> cast(tz as timestamp_ns)
         from timestamp_ns_mixed_temporal
         order by id
     """
@@ -160,8 +164,10 @@ suite("test_timestamp_ns_expressions") {
     """
     order_qt_mixed_temporal_in """
         select id,
-               ts in (cast(dt as timestamp_ns), tz, cast(time_text as time(6))),
-               ts not in (cast(dt as timestamp_ns), tz, cast(time_text as time(6)))
+               ts in (cast(dt as timestamp_ns), cast(tz as timestamp_ns),
+                      cast(time_text as time(6))),
+               ts not in (cast(dt as timestamp_ns), cast(tz as timestamp_ns),
+                          cast(time_text as time(6)))
         from timestamp_ns_mixed_temporal
         order by id
     """
@@ -176,20 +182,20 @@ suite("test_timestamp_ns_expressions") {
     order_qt_mixed_temporal_conditions """
         select id,
                if(id = 1, ts, cast(dt as timestamp_ns)),
-               if(id = 1, ts, tz),
+               if(id = 1, ts, cast(tz as timestamp_ns)),
                cast(if(id = 1, ts, cast(time_text as time(6))) as time(6)),
                ifnull(ts, cast(dt as timestamp_ns)),
-               ifnull(ts, tz),
+               ifnull(ts, cast(tz as timestamp_ns)),
                cast(ifnull(ts, cast(time_text as time(6))) as time(6)),
-               coalesce(ts, cast(dt as timestamp_ns), tz),
+               coalesce(ts, cast(dt as timestamp_ns), cast(tz as timestamp_ns)),
                nullif(ts, cast(dt as timestamp_ns)),
-               nullif(ts, tz),
+               nullif(ts, cast(tz as timestamp_ns)),
                case when id = 1 then ts
                     when id = 2 then cast(dt as timestamp_ns)
-                    else tz end,
+                    else cast(tz as timestamp_ns) end,
                cast(case when id = 1 then ts
                          when id = 2 then cast(dt as timestamp_ns)
-                         when id = 3 then tz
+                         when id = 3 then cast(tz as timestamp_ns)
                          else cast(time_text as time(6)) end as time(6))
         from timestamp_ns_mixed_temporal
         order by id
@@ -200,10 +206,13 @@ suite("test_timestamp_ns_expressions") {
                datediff(ts, cast(dt as timestamp_ns)),
                timediff(ts, cast(dt as timestamp_ns)),
                seconds_diff(ts, cast(dt as timestamp_ns)),
-               datediff(ts, tz), timediff(ts, tz), seconds_diff(ts, tz),
+               datediff(ts, cast(tz as timestamp_ns)),
+               timediff(ts, cast(tz as timestamp_ns)),
+               seconds_diff(ts, cast(tz as timestamp_ns)),
                field(ts,
                      cast(cast('2024-02-29 12:34:56.123456' as datetimev2(6)) as timestamp_ns),
-                     cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6)),
+                     cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                          as timestamp_ns),
                      cast('12:34:56.123456' as time(6)))
         from timestamp_ns_mixed_temporal
         order by id
@@ -214,27 +223,33 @@ suite("test_timestamp_ns_expressions") {
             cast('2024-02-29 12:34:56.123456789' as timestamp_ns)
                 > cast('2024-02-29 12:34:56.123456' as datetimev2(6)),
             cast('2024-02-29 12:34:56.123456789' as timestamp_ns)
-                > cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6)),
+                > cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                       as timestamp_ns),
             cast('1677-09-21 00:12:43.145224192' as timestamp_ns)
                 < cast('12:34:56.123456' as time(6)),
             if(true, cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
                      cast(cast('2024-02-29 12:34:56.123456' as datetimev2(6)) as timestamp_ns)),
             if(true, cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
-                     cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))),
+                     cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                          as timestamp_ns)),
             cast(if(false, cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
                            cast('12:34:56.123456' as time(6))) as time(6)),
             ifnull(cast(null as timestamp_ns),
                    cast(cast('2024-02-29 12:34:56.123456' as datetimev2(6)) as timestamp_ns)),
             coalesce(cast(null as timestamp_ns),
-                     cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))),
+                     cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                          as timestamp_ns)),
             nullif(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
                    cast(cast('2024-02-29 12:34:56.123456' as datetimev2(6)) as timestamp_ns)),
             datediff(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
-                     cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))),
+                     cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                          as timestamp_ns)),
             timediff(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
-                     cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))),
+                     cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                          as timestamp_ns)),
             seconds_diff(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
-                         cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6)))
+                         cast(cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6))
+                              as timestamp_ns))
     """
     qt_mixed_temporal_constants mixedTemporalConstantsSql
     testFoldConst(mixedTemporalConstantsSql)
