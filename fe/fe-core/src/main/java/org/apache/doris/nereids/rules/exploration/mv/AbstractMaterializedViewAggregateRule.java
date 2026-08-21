@@ -161,7 +161,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     /**
      * Aggregate function and group by expression rewrite impl
      */
-    protected LogicalAggregate<Plan> aggregateRewriteByView(
+    protected Plan aggregateRewriteByView(
             StructInfo queryStructInfo,
             SlotMapping viewToQuerySlotMapping,
             Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair,
@@ -183,57 +183,59 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 materializationContext.getShuttledExprToScanExprMapping().keyPermute(viewToQuerySlotMapping)
                         .flattenMap().get(0);
         Plan queryTopPlan = queryStructInfo.getTopPlan();
-        for (Expression topExpression : queryTopPlan.getOutput()) {
-            if (queryTopPlanFunctionSet.contains(topExpression)) {
-                // if agg function, try to roll up and rewrite
-                Expression rollupedExpression = tryRewriteExpression(queryStructInfo, topExpression,
-                        mvExprToMvScanExprQueryBased, aggregateFunctionMode, materializationContext,
-                        "Query function roll up fail",
-                        () -> String.format("queryExpression = %s,\n mvExprToMvScanExprQueryBased = %s",
-                                topExpression, mvExprToMvScanExprQueryBased));
-                if (rollupedExpression == null) {
-                    return null;
-                }
-                finalOutputExpressions.add(new Alias(rollupedExpression));
-            } else {
-                // if group by dimension, try to rewrite
-                Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo, topExpression,
-                        mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
-                        "View dimensions doesn't not cover the query dimensions",
-                        () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryExpression is %s",
-                                mvExprToMvScanExprQueryBased, topExpression));
-                if (rewrittenGroupByExpression == null) {
-                    // group expr can not rewrite by view
-                    return null;
-                }
-                NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
-                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-                finalOutputExpressions.add(groupByExpression);
-                finalGroupExpressions.add(groupByExpression);
-            }
-        }
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
-        // handle the scene that query top plan not use the group by in query bottom aggregate
-        if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
-            for (Expression expression : queryGroupByExpressions) {
-                if (queryTopPlanGroupBySet.contains(expression)) {
-                    continue;
-                }
-                Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo, expression,
-                        mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
-                        "View dimensions doesn't not cover the query dimensions in bottom agg ",
-                        () -> String.format("mvExprToMvScanExprQueryBased is %s,\n expression is %s",
-                                mvExprToMvScanExprQueryBased, expression));
-                if (rewrittenGroupByExpression == null) {
-                    return null;
-                }
-                NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
-                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-                finalGroupExpressions.add(groupByExpression);
-            }
-        }
         if (queryAggregate.getSourceRepeat().isPresent()) {
+            // try to rewrite the query top plan expressions, the query top plan output expressions
+            // are used as the repeat output expressions directly
+            for (Expression topExpression : queryTopPlan.getOutput()) {
+                if (queryTopPlanFunctionSet.contains(topExpression)) {
+                    // if agg function, try to roll up and rewrite
+                    Expression rollupedExpression = tryRewriteExpression(queryStructInfo, topExpression,
+                            mvExprToMvScanExprQueryBased, aggregateFunctionMode, materializationContext,
+                            "Query function roll up fail",
+                            () -> String.format("queryExpression = %s,\n mvExprToMvScanExprQueryBased = %s",
+                                    topExpression, mvExprToMvScanExprQueryBased));
+                    if (rollupedExpression == null) {
+                        return null;
+                    }
+                    finalOutputExpressions.add(new Alias(rollupedExpression));
+                } else {
+                    // if group by dimension, try to rewrite
+                    Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo, topExpression,
+                            mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
+                            "View dimensions doesn't not cover the query dimensions",
+                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryExpression is %s",
+                                    mvExprToMvScanExprQueryBased, topExpression));
+                    if (rewrittenGroupByExpression == null) {
+                        // group expr can not rewrite by view
+                        return null;
+                    }
+                    NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                            ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                    finalOutputExpressions.add(groupByExpression);
+                    finalGroupExpressions.add(groupByExpression);
+                }
+            }
+            // handle the scene that query top plan not use the group by in query bottom aggregate
+            if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
+                for (Expression expression : queryGroupByExpressions) {
+                    if (queryTopPlanGroupBySet.contains(expression)) {
+                        continue;
+                    }
+                    Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo, expression,
+                            mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
+                            "View dimensions doesn't not cover the query dimensions in bottom agg ",
+                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n expression is %s",
+                                    mvExprToMvScanExprQueryBased, expression));
+                    if (rewrittenGroupByExpression == null) {
+                        return null;
+                    }
+                    NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                            ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                    finalGroupExpressions.add(groupByExpression);
+                }
+            }
             // construct group sets for repeat
             List<List<Expression>> rewrittenGroupSetsExpressions = new ArrayList<>();
             List<List<Expression>> groupingSets = queryAggregate.collectFirst(LogicalRepeat.class::isInstance)
@@ -265,7 +267,83 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryAggregate.getSourceRepeat().get().getRepeatType(), tempRewritedPlan);
             return NormalizeRepeat.doNormalize(repeat);
         }
-        return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+
+        // The rewritten aggregate should group by the query bottom aggregate's group by expressions,
+        // and its output expressions should be the rewritten group by expressions and the rolled up
+        // aggregate functions. The query top plan output expressions are recomputed by a project above
+        // the rewritten aggregate, so the projection of a group by key in the query top plan (such as
+        // `select cast(date_trunc(ts, 'day') as string) from t group by date_trunc(ts, 'day')`) will not
+        // be wrongly treated as a group by key of the rewritten aggregate.
+        // The mapping from the query bottom aggregate output slot to the new aggregate output expression
+        // is used to rewrite the query top plan output expressions to reference the new aggregate output.
+        Map<Expression, Expression> bottomAggOutputToNewExprMap = new HashMap<>();
+        Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
+        for (NamedExpression queryAggregateOutput : queryAggregate.getOutputExpressions()) {
+            // The shuttled query bottom aggregate output is used as the map key, so that the shuttled
+            // query top plan output expressions can be rewritten to reference the new aggregate output.
+            Expression shuttledQueryAggregateOutput = ExpressionUtils.shuttleExpressionWithLineage(
+                    queryAggregateOutput, queryTopPlan);
+            if (queryGroupByExpressionSet.contains(queryAggregateOutput)) {
+                // if it is a group by expression, rewrite it to the new aggregate group by key
+                Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo,
+                        queryAggregateOutput, mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
+                        "View dimensions doesn't not cover the query dimensions",
+                        () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryExpression is %s",
+                                mvExprToMvScanExprQueryBased, queryAggregateOutput));
+                if (rewrittenGroupByExpression == null) {
+                    return null;
+                }
+                NamedExpression groupByOutput = rewrittenGroupByExpression instanceof NamedExpression
+                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                finalGroupExpressions.add(groupByOutput);
+                finalOutputExpressions.add(groupByOutput);
+                bottomAggOutputToNewExprMap.put(shuttledQueryAggregateOutput, groupByOutput.toSlot());
+            } else {
+                // if it is an aggregate function, try to roll up and rewrite
+                Expression rewrittenFunction = tryRewriteExpression(queryStructInfo, queryAggregateOutput,
+                        mvExprToMvScanExprQueryBased, aggregateFunctionMode, materializationContext,
+                        "Query function roll up fail",
+                        () -> String.format("queryExpression = %s,\n mvExprToMvScanExprQueryBased = %s",
+                                queryAggregateOutput, mvExprToMvScanExprQueryBased));
+                if (rewrittenFunction == null) {
+                    return null;
+                }
+                NamedExpression functionOutput = new Alias(rewrittenFunction);
+                finalOutputExpressions.add(functionOutput);
+                bottomAggOutputToNewExprMap.put(shuttledQueryAggregateOutput, functionOutput.toSlot());
+            }
+        }
+
+        LogicalAggregate<Plan> rewrittenAggregate =
+                new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+
+        // rewrite the query top plan output expressions to reference the rewritten aggregate output,
+        // the query top plan output slot is shuttled by lineage firstly to restore the projection
+        // expression, so a projection of the group by key in the query top plan can be recomputed
+        // by a project above the rewritten aggregate.
+        List<NamedExpression> topProjectExpressions = new ArrayList<>();
+        for (Expression topExpression : queryTopPlan.getOutput()) {
+            Expression shuttledTopExpression = ExpressionUtils.shuttleExpressionWithLineage(
+                    topExpression, queryTopPlan);
+            Expression replacedExpression = ExpressionUtils.replace(shuttledTopExpression,
+                    bottomAggOutputToNewExprMap);
+            topProjectExpressions.add(replacedExpression instanceof NamedExpression
+                    ? (NamedExpression) replacedExpression : new Alias(replacedExpression));
+        }
+        // If the query top plan output expressions can be produced by the rewritten aggregate directly,
+        // return the aggregate, otherwise compute them by a project above the rewritten aggregate.
+        boolean needTopProject = false;
+        for (int i = 0; i < topProjectExpressions.size(); i++) {
+            if (i >= finalOutputExpressions.size()
+                    || !topProjectExpressions.get(i).toSlot().equals(finalOutputExpressions.get(i).toSlot())) {
+                needTopProject = true;
+                break;
+            }
+        }
+        if (!needTopProject) {
+            return rewrittenAggregate;
+        }
+        return new LogicalProject<>(topProjectExpressions, rewrittenAggregate);
     }
 
     /**
