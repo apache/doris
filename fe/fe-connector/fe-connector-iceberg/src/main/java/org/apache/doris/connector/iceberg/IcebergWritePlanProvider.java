@@ -1068,7 +1068,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 ? IcebergStatementScope.sharedWritableTable(
                         session, handle.getDbName(), handle.getTableName(), loader)
                 : IcebergStatementScope.sharedTrackedWritableTable(
-                        session, handle.getDbName(), handle.getTableName(), resourceTracker, loader).table();
+                        session, handle.getDbName(), handle.getTableName(), resourceTracker, loader,
+                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor())).table();
     }
 
     private IcebergWriteSchemaContext resolveWriteSchema(ConnectorSession session,

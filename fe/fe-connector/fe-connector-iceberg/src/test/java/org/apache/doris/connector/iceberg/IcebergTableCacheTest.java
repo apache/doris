@@ -27,6 +27,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -171,6 +174,39 @@ public class IcebergTableCacheTest {
         Assertions.assertEquals("first", lease.table().name());
 
         lease.close();
+        Assertions.assertEquals(1, tableCleanerCalls.get());
+        Assertions.assertEquals(1, catalogCleanerCalls.get());
+    }
+
+    @Test
+    public void closeRejectsAndCleansLoaderThatPublishesLate() throws Exception {
+        AtomicInteger tableCleanerCalls = new AtomicInteger();
+        AtomicInteger catalogCleanerCalls = new AtomicInteger();
+        CountDownLatch loaderEntered = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergTableCache cache = new IcebergTableCache(
+                100, 1000, table -> tableCleanerCalls::incrementAndGet, tracker);
+
+        CompletableFuture<Void> load = CompletableFuture.runAsync(() -> Assertions.assertThrows(
+                IllegalStateException.class, () -> cache.borrow(id(), () -> {
+                    loaderEntered.countDown();
+                    try {
+                        Assertions.assertTrue(releaseLoader.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                    return table("late");
+                })));
+
+        Assertions.assertTrue(loaderEntered.await(10, TimeUnit.SECONDS));
+        cache.close();
+        tracker.close(catalogCleanerCalls::incrementAndGet);
+        releaseLoader.countDown();
+        load.get(10, TimeUnit.SECONDS);
+
+        Assertions.assertEquals(0, cache.size(), "a post-close publication must not remain cache-owned");
         Assertions.assertEquals(1, tableCleanerCalls.get());
         Assertions.assertEquals(1, catalogCleanerCalls.get());
     }

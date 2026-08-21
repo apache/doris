@@ -693,7 +693,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
                         () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
                 : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
-                        resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+                        resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()));
     }
 
     /**
@@ -1797,7 +1798,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
         return new IcebergConnectorTransaction(
-                session.allocateTransactionId(), catalogOps, context, resourceTracker);
+                session.allocateTransactionId(), catalogOps, context, resourceTracker, catalogProps.getFlavor());
     }
 
     /**

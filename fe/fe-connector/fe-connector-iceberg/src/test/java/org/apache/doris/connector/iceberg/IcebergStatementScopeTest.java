@@ -242,7 +242,7 @@ public class IcebergStatementScopeTest {
         AtomicInteger catalogCloses = new AtomicInteger();
 
         Table loaded = IcebergStatementScope.sharedTrackedTable(
-                session, "db1", "t", tracker, () -> table("t"));
+                session, "db1", "t", tracker, () -> table("t"), ignored -> () -> { });
         tracker.close(catalogCloses::incrementAndGet);
 
         Assertions.assertEquals("t", loaded.name());
@@ -257,16 +257,33 @@ public class IcebergStatementScopeTest {
         TestStatementScope scope = new TestStatementScope();
         ScopeSession session = new ScopeSession(7L, "q1", scope);
         AtomicInteger catalogCloses = new AtomicInteger();
+        AtomicInteger tableCloses = new AtomicInteger();
 
         IcebergStatementScope.TrackedTable writable = IcebergStatementScope.sharedTrackedWritableTable(
-                session, "db1", "t", tracker, () -> table("t"));
-        IcebergCatalogResourceTracker.ResourceLease transactionLease = writable.retainLease();
+                session, "db1", "t", tracker, () -> table("t"), ignored -> tableCloses::incrementAndGet);
+        IcebergStatementScope.TrackedTableLease transactionLease = writable.retainLease();
         tracker.close(catalogCloses::incrementAndGet);
 
         scope.closeAll();
+        Assertions.assertEquals(0, tableCloses.get(), "the transaction still owns the direct table FileIO");
         Assertions.assertEquals(0, catalogCloses.get(), "transaction remains the catalog generation owner");
         transactionLease.close();
+        Assertions.assertEquals(1, tableCloses.get());
         Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
+    public void directReadClosesTableOwnedFileIoAtStatementEnd() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger tableCloses = new AtomicInteger();
+
+        IcebergStatementScope.sharedTrackedTable(session, "db1", "t", tracker, () -> table("t"),
+                ignored -> tableCloses::incrementAndGet);
+        Assertions.assertEquals(0, tableCloses.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, tableCloses.get());
     }
 
     /** A scope that records the last key handed to {@link #computeIfAbsent}, for the byte-key parity assertion. */

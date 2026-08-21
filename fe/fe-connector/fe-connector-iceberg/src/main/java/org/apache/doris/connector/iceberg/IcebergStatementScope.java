@@ -31,6 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -103,13 +106,14 @@ final class IcebergStatementScope {
 
     /** Statement-owned direct table for credential-dependent catalogs where cross-query caching is disabled. */
     static Table sharedTrackedTable(ConnectorSession session, String dbName, String tableName,
-            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader) {
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
+            Function<Table, Runnable> cleanupFactory) {
         if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
             return snapshotReadTable(loader.get());
         }
         TrackedTable tracked = ConnectorStatementScopes.resolveInStatement(
                 session, TABLE_NAMESPACE, dbName, tableName,
-                () -> new TrackedTable(resourceTracker.load(loader), true));
+                () -> trackedTable(resourceTracker, loader, cleanupFactory, true));
         return tracked.table();
     }
 
@@ -137,22 +141,37 @@ final class IcebergStatementScope {
 
     /** Mutable table paired with the exact catalog generation that produced it. */
     static TrackedTable sharedTrackedWritableTable(ConnectorSession session, String dbName, String tableName,
-            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader) {
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
+            Function<Table, Runnable> cleanupFactory) {
         if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
-            return new TrackedTable(resourceTracker.load(loader), false);
+            return trackedTable(resourceTracker, loader, cleanupFactory, false);
         }
         return ConnectorStatementScopes.resolveInStatement(
                 session, WRITABLE_TABLE_NAMESPACE, dbName, tableName,
-                () -> new TrackedTable(resourceTracker.load(loader), true));
+                () -> trackedTable(resourceTracker, loader, cleanupFactory, true));
+    }
+
+    private static TrackedTable trackedTable(IcebergCatalogResourceTracker resourceTracker,
+            Supplier<Table> loader, Function<Table, Runnable> cleanupFactory, boolean statementOwned) {
+        IcebergCatalogResourceTracker.TrackedResource<Table> tracked = resourceTracker.load(loader);
+        try {
+            return new TrackedTable(tracked, cleanupFactory.apply(tracked.resource()), statementOwned);
+        } catch (RuntimeException | Error t) {
+            tracked.close();
+            throw t;
+        }
     }
 
     static final class TrackedTable implements AutoCloseable {
         private final IcebergCatalogResourceTracker.TrackedResource<Table> tracked;
+        private final Runnable tableCleanup;
         private final boolean statementOwned;
+        private final AtomicInteger references = new AtomicInteger(1);
 
         private TrackedTable(IcebergCatalogResourceTracker.TrackedResource<Table> tracked,
-                boolean statementOwned) {
+                Runnable tableCleanup, boolean statementOwned) {
             this.tracked = tracked;
+            this.tableCleanup = tableCleanup;
             this.statementOwned = statementOwned;
         }
 
@@ -160,8 +179,15 @@ final class IcebergStatementScope {
             return tracked.resource();
         }
 
-        IcebergCatalogResourceTracker.ResourceLease retainLease() {
-            return tracked.retainLease();
+        TrackedTableLease retainLease() {
+            int current = references.get();
+            while (current != 0) {
+                if (references.compareAndSet(current, current + 1)) {
+                    return new TrackedTableLease(this);
+                }
+                current = references.get();
+            }
+            throw new IllegalStateException("Iceberg direct table owner is already closed");
         }
 
         boolean isStatementOwned() {
@@ -170,7 +196,36 @@ final class IcebergStatementScope {
 
         @Override
         public void close() {
-            tracked.close();
+            release();
+        }
+
+        private void release() {
+            int remaining = references.decrementAndGet();
+            if (remaining == 0) {
+                try {
+                    tableCleanup.run();
+                } finally {
+                    tracked.close();
+                }
+            } else if (remaining < 0) {
+                throw new IllegalStateException("Iceberg direct table owner released too many times");
+            }
+        }
+    }
+
+    static final class TrackedTableLease implements AutoCloseable {
+        private final TrackedTable owner;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private TrackedTableLease(TrackedTable owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                owner.release();
+            }
         }
     }
 

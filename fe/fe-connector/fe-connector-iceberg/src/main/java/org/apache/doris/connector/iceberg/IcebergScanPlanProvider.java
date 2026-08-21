@@ -3044,7 +3044,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         ? IcebergStatementScope.sharedTable(
                                 session, handle.getDbName(), handle.getTableName(), directLoader)
                         : IcebergStatementScope.sharedTrackedTable(
-                                session, handle.getDbName(), handle.getTableName(), resourceTracker, directLoader)
+                                session, handle.getDbName(), handle.getTableName(), resourceTracker, directLoader,
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
                 : IcebergStatementScope.sharedBorrowedTable(
                         session, handle.getDbName(), handle.getTableName(),
                         () -> tableCache.borrow(
@@ -3112,7 +3113,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
                         : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
-                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()),
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
                 : IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),

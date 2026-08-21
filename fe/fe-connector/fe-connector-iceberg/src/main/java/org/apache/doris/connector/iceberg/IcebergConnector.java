@@ -57,6 +57,7 @@ import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.util.ThreadPools;
@@ -173,6 +174,7 @@ public class IcebergConnector implements Connector {
     private final IcebergRestMetaStoreProperties restProperties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
+    private boolean closed;
     // Session-aware REST catalog, built for every REST catalog (plain or iceberg.rest.session=user). A SINGLE
     // shared instance, held as the ReauthenticatingRestSessionCatalog wrapper (BaseViewSessionCatalog) that
     // recovers from a 401 on the catalog's own identity by rebuilding the client (upstream #64966). For
@@ -917,6 +919,9 @@ public class IcebergConnector implements Connector {
             if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
                     || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
                 tableOwned = true;
+            } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)
+                    && table.io() instanceof SupportsStorageCredentials) {
+                tableOwned = !((SupportsStorageCredentials) table.io()).credentials().isEmpty();
             }
         } catch (Exception e) {
             LOG.warn("Failed to determine Iceberg table FileIO ownership", e);
@@ -934,13 +939,12 @@ public class IcebergConnector implements Connector {
         };
     }
 
-    private Catalog getOrCreateCatalog() {
+    private synchronized Catalog getOrCreateCatalog() {
+        if (closed) {
+            throw new IllegalStateException("Iceberg connector is already closed");
+        }
         if (icebergCatalog == null) {
-            synchronized (this) {
-                if (icebergCatalog == null) {
-                    icebergCatalog = createCatalog();
-                }
-            }
+            icebergCatalog = createCatalog();
         }
         return icebergCatalog;
     }
@@ -1567,9 +1571,16 @@ public class IcebergConnector implements Connector {
     }
 
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
         // Release cache-owner references first. The resource tracker keeps the catalog generation alive until
         // every table owner that was loaded through it has also released its last statement borrower.
+        if (tableCache != null) {
+            tableCache.close();
+        }
         invalidateAll();
         Catalog c = icebergCatalog;
         BaseViewSessionCatalog sc = restSessionCatalog;

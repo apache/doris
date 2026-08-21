@@ -64,6 +64,7 @@ final class IcebergTableCache {
     private final MetaCacheEntry<TableIdentifier, TableOwner> entry;
     private final Function<Table, Runnable> cleanupFactory;
     private final IcebergCatalogResourceTracker resourceTracker;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
         this(ttlSeconds, maxSize, table -> () -> { }, null);
@@ -98,6 +99,9 @@ final class IcebergTableCache {
      */
     TableLease borrow(TableIdentifier identifier, Supplier<Table> loader) {
         while (true) {
+            if (closed.get()) {
+                throw new IllegalStateException("Iceberg table cache is already closed");
+            }
             TableOwner[] loadedHere = {null};
             TableOwner owner = entry.get(identifier, ignored -> {
                 IcebergCatalogResourceTracker.LoadGuard guard =
@@ -126,6 +130,12 @@ final class IcebergTableCache {
                 }
             });
             try {
+                if (closed.get()) {
+                    // close() may have invalidated the cache while this loader was outside the cache lock.
+                    // Remove a late publication before releasing the loader reference below.
+                    entry.invalidateKey(identifier);
+                    throw new IllegalStateException("Iceberg table cache is already closed");
+                }
                 TableLease lease = owner.tryBorrow();
                 if (lease != null) {
                     return lease;
@@ -165,6 +175,13 @@ final class IcebergTableCache {
     /** Drops all cached entries. */
     void invalidateAll() {
         entry.invalidateAll();
+    }
+
+    /** Seals new borrows and retires every cache owner, including loaders that publish after invalidation. */
+    void close() {
+        if (closed.compareAndSet(false, true)) {
+            entry.invalidateAll();
+        }
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */

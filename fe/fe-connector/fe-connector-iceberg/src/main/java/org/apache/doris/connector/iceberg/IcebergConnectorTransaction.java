@@ -131,13 +131,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private final IcebergCatalogOps catalogOps;
     private final ConnectorContext context;
     private final IcebergCatalogResourceTracker resourceTracker;
+    private final String catalogFlavor;
     private final List<TIcebergCommitData> commitDataList = new ArrayList<>();
 
     // The single SDK transaction / table, opened lazily by beginWrite (the write plan binds the target
     // table only when the sink is planned). volatile: addCommitData / commit may run on different threads.
     private volatile Transaction transaction;
     private volatile Table table;
-    private volatile IcebergCatalogResourceTracker.ResourceLease catalogLease;
+    private volatile IcebergStatementScope.TrackedTableLease tableLease;
 
     // Begin-once guard. A normal single-statement write calls beginWrite exactly once. A distributed
     // rewrite_data_files runs N per-group INSERT-SELECTs that SHARE this one transaction, and each group's
@@ -181,15 +182,21 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     public IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
-        this(transactionId, catalogOps, context, null);
+        this(transactionId, catalogOps, context, null, null);
     }
 
     IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergCatalogResourceTracker resourceTracker) {
+        this(transactionId, catalogOps, context, resourceTracker, null);
+    }
+
+    IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker, String catalogFlavor) {
         this.transactionId = transactionId;
         this.catalogOps = catalogOps;
         this.context = context;
         this.resourceTracker = resourceTracker;
+        this.catalogFlavor = catalogFlavor;
     }
 
     /**
@@ -226,12 +233,13 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     // The pinned write context is validated on this write-only table and again at the final CAS.
                     IcebergStatementScope.TrackedTable tracked = resourceTracker == null ? null
                             : IcebergStatementScope.sharedTrackedWritableTable(session, db, tableName,
-                                    resourceTracker, () -> catalogOps.loadTable(db, tableName));
+                                    resourceTracker, () -> catalogOps.loadTable(db, tableName),
+                                    table -> IcebergConnector.cachedTableCleanup(table, catalogFlavor));
                     Table loaded = tracked == null
                             ? IcebergStatementScope.sharedWritableTable(session, db, tableName,
                                     () -> catalogOps.loadTable(db, tableName))
                             : tracked.table();
-                    IcebergCatalogResourceTracker.ResourceLease retained = tracked == null
+                    IcebergStatementScope.TrackedTableLease retained = tracked == null
                             ? null : tracked.retainLease();
                     this.table = loaded;
                     try {
@@ -248,7 +256,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                             writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                         }
                         this.transaction = opened;
-                        this.catalogLease = retained;
+                        this.tableLease = retained;
                         retained = null;
                         return null;
                     } finally {
@@ -1361,8 +1369,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     @Override
     public void close() {
-        IcebergCatalogResourceTracker.ResourceLease lease = catalogLease;
-        catalogLease = null;
+        IcebergStatementScope.TrackedTableLease lease = tableLease;
+        tableLease = null;
         if (lease != null) {
             lease.close();
         }
