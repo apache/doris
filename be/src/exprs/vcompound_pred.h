@@ -142,7 +142,11 @@ public:
                 return child->can_evaluate_zonemap_filter();
             });
         case TExprOpcode::COMPOUND_OR:
-            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+            // A branch we cannot read holds the group at kMayMatch, so an OR can only prove
+            // anything when every branch can be read. Letting a readable sibling answer
+            // kAllMatch on its own would drop the whole conjunct, including a branch that is
+            // there to raise an error.
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
                 return child->can_evaluate_zonemap_filter();
             });
         case TExprOpcode::COMPOUND_NOT:
@@ -174,15 +178,12 @@ public:
             return result;
         }
         case TExprOpcode::COMPOUND_OR: {
-            // One branch that matches everything is enough for the group; the group matches
-            // nothing only when every branch does, so a branch we cannot read holds it at
-            // kMayMatch.
+            // Mirror of AND: one branch that matches everything is enough for the group, and only
+            // all branches matching nothing rules it out. Every branch is readable here, which
+            // the gate above guarantees.
             auto result = ZoneMapFilterResult::kNoMatch;
             for (const auto& child : _children) {
-                if (!child->can_evaluate_zonemap_filter()) {
-                    result = ZoneMapFilterResult::kMayMatch;
-                    continue;
-                }
+                DORIS_CHECK(child->can_evaluate_zonemap_filter());
                 const auto child_result = child->evaluate_zonemap_filter(ctx);
                 if (child_result == ZoneMapFilterResult::kAllMatch) {
                     return ZoneMapFilterResult::kAllMatch;

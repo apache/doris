@@ -484,9 +484,10 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
                                          return value == zone_map.min_value;
                                      });
     // A NULL row satisfies neither IN nor NOT IN, and a hidden Parquet NaN could satisfy either,
-    // so both stop the zone from matching completely.
-    const bool can_match_all =
-            !zone_map.has_null && !ctx.floating_nan_count_unknown(slot->column_id());
+    // so both stop the zone from matching completely. A string bound that was cut to fit is not a
+    // real value from the data, so it cannot prove anything about every row either.
+    const bool can_match_all = !zone_map.has_null && !zone_map.has_cut_string_bounds() &&
+                               !ctx.floating_nan_count_unknown(slot->column_id());
 
     // IN and NOT IN read the same two facts and reach opposite conclusions.
     if (is_not_in) {

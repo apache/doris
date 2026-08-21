@@ -1391,8 +1391,9 @@ public:
             !(zone_map.min_value < Field::create_field<TYPE_STRING>(*upper_prefix))) {
             return ZoneMapFilterResult::kNoMatch;
         }
-        // One NULL row is enough to stop the whole zone from matching.
-        const bool can_match_all = !zone_map.has_null;
+        // One NULL row is enough to stop the whole zone from matching, and a bound that was cut
+        // to fit is not a real value so it cannot prove anything about every row.
+        const bool can_match_all = !zone_map.has_null && !zone_map.has_cut_string_bounds();
         // [min, max] sits inside [prefix, next_prefix), so every row starts with the prefix.
         const bool zone_within_prefix_range =
                 zone_map.min_value >= lower &&

@@ -285,7 +285,13 @@ public:
         if (zone_map.pass_all) {
             return ZoneMapFilterResult::kMayMatch;
         }
-        const auto result = evaluate_zonemap_filter_impl(zone_map);
+        // A string bound was cut to fit, so it is not a real value from the data. It still rules
+        // rows out, but it cannot prove that every row matches.
+        const bool can_prove_all_match = !zone_map.has_cut_string_bounds();
+        auto result = evaluate_zonemap_filter_impl(zone_map);
+        if (!can_prove_all_match && result == ZoneMapFilterResult::kAllMatch) {
+            result = ZoneMapFilterResult::kMayMatch;
+        }
         if (!_opposite) {
             return result;
         }
@@ -293,7 +299,8 @@ public:
         // condition misses include the NULL ones, which is why this needs no null check: at row
         // level `_opposite` is a plain flip of a match that already counts NULL as no match.
         if (result == ZoneMapFilterResult::kNoMatch) {
-            return ZoneMapFilterResult::kAllMatch;
+            return can_prove_all_match ? ZoneMapFilterResult::kAllMatch
+                                       : ZoneMapFilterResult::kMayMatch;
         }
         if (result == ZoneMapFilterResult::kAllMatch) {
             return ZoneMapFilterResult::kNoMatch;
