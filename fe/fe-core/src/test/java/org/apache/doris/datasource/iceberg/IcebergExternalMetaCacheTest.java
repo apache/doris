@@ -505,6 +505,36 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testFieldDefaultPayloadScalesWithLength() {
+        // v3 field defaults retain arbitrary scalar payloads; with a fixed field count the
+        // estimate must grow with the default length.
+        long shortEstimate = fieldDefaultEstimate(16);
+        long longEstimate = fieldDefaultEstimate(64 * 1024);
+        Assert.assertTrue("default payload must be charged: short=" + shortEstimate
+                + ", long=" + longEstimate, longEstimate - shortEstimate >= 60 * 1024);
+    }
+
+    private long fieldDefaultEstimate(int defaultLength) {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("defaulted").withId(2)
+                        .ofType(Types.StringType.get())
+                        .withInitialDefault(repeatedCharacter('d', defaultLength))
+                        .withWriteDefault(repeatedCharacter('w', defaultLength))
+                        .build());
+        TableMetadata metadata = TableMetadata.newTableMetadata(schema,
+                PartitionSpec.unpartitioned(), "file:/warehouse/db/tbl",
+                Collections.singletonMap("format-version", "3"));
+        metadata = TableMetadata.buildFrom(metadata).discardChanges()
+                .withMetadataLocation("/metadata/field-defaults.json").build();
+        MetaCacheSizeEstimate estimate = new IcebergTableCacheValue(
+                new BaseTable(new StaticTableOperations(metadata, null), "db.tbl"))
+                .prepareForCachePublication(NameMapping.createForTest(1L, "db", "tbl"));
+        Assert.assertTrue(estimate.getIncompleteReason(), estimate.isComplete());
+        return estimate.getBytes();
+    }
+
+    @Test
     public void testUnknownTransformPayloadScalesWithTokenLength() {
         // Unrecognized transform tokens are preserved verbatim; with a fixed field count the
         // estimate must grow with the token length and stay inside the character budget.

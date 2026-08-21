@@ -396,6 +396,63 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
+    public void testPartitionColumnWidthFormulaAgainstJolOwnedGraph() throws Exception {
+        // The per-partition column-width term must track a real narrow-vs-wide literal graph.
+        List<Type> narrowTypes = Collections.singletonList(Type.STRING);
+        List<Type> wideTypes = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            wideTypes.add(Type.STRING);
+        }
+        HiveExternalMetaCache.PartitionValueCacheKey narrowKey =
+                new HiveExternalMetaCache.PartitionValueCacheKey(
+                        NameMapping.createForTest("db", "tbl"), narrowTypes);
+        HiveExternalMetaCache.PartitionValueCacheKey wideKey =
+                new HiveExternalMetaCache.PartitionValueCacheKey(
+                        NameMapping.createForTest("db", "tbl"), wideTypes);
+        HiveExternalMetaCache.HivePartitionValues narrow = realPartitionValues(narrowTypes, 32, 16);
+        HiveExternalMetaCache.HivePartitionValues wide = realWidePartitionValues(wideTypes, 32, 16);
+        long narrowEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(
+                narrowKey, narrow).getBytes();
+        long wideEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(
+                wideKey, wide).getBytes();
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "hive wide partition columns", narrowEstimate, wideEstimate, narrow, wide);
+    }
+
+    private HiveExternalMetaCache.HivePartitionValues realWidePartitionValues(
+            List<Type> types, int partitionCount, int valueLength) throws Exception {
+        Map<Long, PartitionItem> items = new HashMap<>();
+        HashBiMap<String, Long> names = HashBiMap.create();
+        Map<Long, List<String>> values = new HashMap<>();
+        for (int index = 0; index < partitionCount; index++) {
+            long id = index + 1L;
+            // Mirror production: the per-column decoded values are segments of the partition
+            // name (their total length tracks the name), and the PartitionKey literals share
+            // the same String references as the decoded value list.
+            int segmentLength = Math.max(1, valueLength / types.size());
+            List<PartitionValue> partitionValues = new ArrayList<>();
+            List<String> rawValues = new ArrayList<>();
+            StringBuilder name = new StringBuilder("p").append(index);
+            for (int column = 0; column < types.size(); column++) {
+                String segment = "c" + column + "_" + index
+                        + String.join("", Collections.nCopies(segmentLength, "x"));
+                name.append('/').append(segment);
+                rawValues.add(segment);
+                partitionValues.add(new PartitionValue(segment));
+            }
+            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                    partitionValues, types, true);
+            items.put(id, new ListPartitionItem(Collections.singletonList(partitionKey)));
+            names.put(name.toString(), id);
+            values.put(id, rawValues);
+        }
+        HiveExternalMetaCache.HivePartitionValues result =
+                new HiveExternalMetaCache.HivePartitionValues(items, names, values);
+        result.sealForPublication();
+        return result;
+    }
+
+    @Test
     public void testEmptyTableKeyWidthFormulaAgainstJolOwnedGraph() throws Exception {
         // An empty partitioned table still retains the key's immutable type list; the estimate
         // must scale with the partition column width even when partitionCount is zero. Type

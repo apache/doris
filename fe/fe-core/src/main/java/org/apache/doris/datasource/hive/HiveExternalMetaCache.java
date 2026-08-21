@@ -195,15 +195,6 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return Collections.singleton("hms");
     }
 
-    public void refreshCatalog(long catalogId) {
-        invalidateCatalog(catalogId);
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-        Map<String, String> catalogProperties = catalog == null || catalog.getProperties() == null
-                ? Maps.newHashMap()
-                : Maps.newHashMap(catalog.getProperties());
-        initCatalog(catalogId, catalogProperties);
-    }
-
     @Override
     public void invalidateCatalog(long catalogId) {
         super.invalidateCatalog(catalogId);
@@ -232,20 +223,35 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void invalidateDb(long catalogId, String dbName) {
-        schemaEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        partitionValuesEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        partitionEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        fileEntry.get(catalogId).invalidateAll();
+        // Invalidation must never re-prepare a retired catalog group; absent means nothing to do.
+        invalidateIfInitialized(schemaEntry, catalogId, key -> matchDb(key.getNameMapping(), dbName));
+        invalidateIfInitialized(partitionValuesEntry, catalogId, key -> matchDb(key.getNameMapping(), dbName));
+        invalidateIfInitialized(partitionEntry, catalogId, key -> matchDb(key.getNameMapping(), dbName));
+        MetaCacheEntry<FileCacheKey, FileCacheValue> files = fileEntry.getIfInitialized(catalogId);
+        if (files != null) {
+            files.invalidateAll();
+        }
         advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    private <K, V> void invalidateIfInitialized(
+            EntryHandle<K, V> handle, long catalogId, java.util.function.Predicate<K> predicate) {
+        MetaCacheEntry<K, V> entry = handle.getIfInitialized(catalogId);
+        if (entry != null) {
+            entry.invalidateIf(predicate);
+        }
     }
 
     @Override
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        schemaEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
-        partitionValuesEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
-        partitionEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
+        // See invalidateDb: absent groups must not be re-prepared by an HMS event thread.
+        invalidateIfInitialized(schemaEntry, catalogId, key -> matchTable(key.getNameMapping(), dbName, tableName));
+        invalidateIfInitialized(partitionValuesEntry, catalogId,
+                key -> matchTable(key.getNameMapping(), dbName, tableName));
+        invalidateIfInitialized(partitionEntry, catalogId,
+                key -> matchTable(key.getNameMapping(), dbName, tableName));
         long tableId = Util.genIdByName(dbName, tableName);
-        fileEntry.get(catalogId).invalidateIf(key -> key.isSameTable(tableId));
+        invalidateIfInitialized(fileEntry, catalogId, key -> key.isSameTable(tableId));
         advanceFileCacheInvalidationGeneration(catalogId);
     }
 
@@ -264,6 +270,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
             generation = fileCacheInvalidationGenerations.computeIfAbsent(
                     catalogId, ignored -> new AtomicLong());
+            if (fileEntry.getIfInitialized(catalogId) == null) {
+                // A permanent drop raced the creation; the id is never reused, so drop the record.
+                fileCacheInvalidationGenerations.remove(catalogId, generation);
+                return;
+            }
         }
         generation.incrementAndGet();
     }
@@ -281,12 +292,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        if (hmsCatalog.getDbNullable(dbName) == null
-                || !(hmsCatalog.getDbNullable(dbName).getTableNullable(tableName) instanceof HMSExternalTable)) {
+        // Fetch once: the db can be dropped between checks on the HMS event thread.
+        org.apache.doris.datasource.ExternalDatabase<?> db = hmsCatalog.getDbNullable(dbName);
+        Object tableCandidate = db == null ? null : db.getTableNullable(tableName);
+        if (!(tableCandidate instanceof HMSExternalTable)) {
             invalidateTable(catalogId, dbName, tableName);
             return;
         }
-        HMSExternalTable hmsTable = (HMSExternalTable) hmsCatalog.getDbNullable(dbName).getTableNullable(tableName);
+        HMSExternalTable hmsTable = (HMSExternalTable) tableCandidate;
 
         for (String partition : partitions) {
             invalidatePartitionCache(hmsTable, partition);
@@ -347,6 +360,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         if (generation == null && fileEntry.getIfInitialized(key.catalogId) != null) {
             generation = fileCacheValueGenerations.computeIfAbsent(
                     key.catalogId, ignored -> new AtomicLong());
+            if (fileEntry.getIfInitialized(key.catalogId) == null) {
+                // A permanent drop raced the creation; the id is never reused.
+                fileCacheValueGenerations.remove(key.catalogId, generation);
+                generation = null;
+            }
         }
         // A stale in-flight load after a permanent drop must not recreate the counter record.
         value.setCacheGeneration(generation == null ? 0L : generation.incrementAndGet());

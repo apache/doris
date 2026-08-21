@@ -210,7 +210,14 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             entry.invalidateKeyIfSame(key, snapshotValue);
             snapshotValue = entry.get(key, projectionLoader);
         }
-        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables =
+                tableEntry.getIfInitialized(nameMapping.getCtlId());
+        if (tables == null) {
+            // The catalog group was retired mid-lookup; the caller keeps its immutable value and
+            // nothing published remains to revalidate against.
+            entry.invalidateKeyIfSame(key, snapshotValue);
+            return snapshotValue;
+        }
         IcebergTableCacheValue currentTable = tables.peekIfPresent(nameMapping);
         if (tables.isEffectivelyEnabled()
                 && (currentTable == null || !tableValue.isSameOperationalGeneration(currentTable))) {
@@ -254,7 +261,12 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
         SchemaCacheValue schemaCacheValue = entry
                 .get(key, ignored -> loadSchemaCacheValue(key, retainedTable));
-        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables =
+                tableEntry.getIfInitialized(nameMapping.getCtlId());
+        if (tables == null) {
+            entry.invalidateKeyIfSame(key, schemaCacheValue);
+            return (IcebergSchemaCacheValue) schemaCacheValue;
+        }
         IcebergTableCacheValue currentTable = tables.peekIfPresent(nameMapping);
         Optional<IcebergSnapshotEntryKey> currentGeneration = currentTable == null
                 ? Optional.empty()
@@ -509,7 +521,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private void dropManifestFileIoCacheForCatalog(long catalogId) {
-        tableEntry.get(catalogId).forEach((key, value) -> dropManifestFileIoCache(value));
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.getIfInitialized(catalogId);
+        if (tables != null) {
+            tables.forEach((key, value) -> dropManifestFileIoCache(value));
+        }
     }
 
     private void dropManifestFileIoCache(IcebergTableCacheValue tableCacheValue) {

@@ -98,8 +98,10 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiMetaClientCacheKey::getNameMapping)));
+        // Schema values are keyed by an immutable (table, timestamp) pair, so a timed refresh
+        // can never observe new content; misses load on demand.
         schemaEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_SCHEMA, HudiSchemaCacheKey.class,
-                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(),
+                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(), false,
                 MetaCacheEntryInvalidation.forNameMapping(HudiSchemaCacheKey::getNameMapping)));
     }
 

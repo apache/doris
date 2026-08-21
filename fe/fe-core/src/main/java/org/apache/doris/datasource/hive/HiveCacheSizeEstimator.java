@@ -31,7 +31,7 @@ final class HiveCacheSizeEstimator {
     // PartitionValueCacheKey retains an immutable list over the partition column types; the Type
     // instances themselves are shared catalog singletons and are not charged.
     private static final long KEY_TYPE_LIST_BYTES = 24L;
-    private static final long PARTITION_COLUMN_BYTES = objectBytes(256L);
+    private static final long PARTITION_COLUMN_BYTES = objectBytes(512L);
     // One copy is retained as the partition name and another in the decoded partition values.
     private static final long PARTITION_NAME_PAYLOAD_COPIES = 2L;
 

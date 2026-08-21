@@ -131,23 +131,38 @@ final class PaimonCacheSizeEstimator {
         return null;
     }
 
+    // Realistic wrapper chains (privileged, fallback-read) are one or two levels deep; the cap
+    // only guards pathological chains from unbounded work or stack overflow before fail-closed.
+    private static final int MAX_WRAPPER_DEPTH = 16;
+
     /** The concrete FileStoreTable behind any known wrapper chain, or null. */
     private static FileStoreTable unwrap(Table table) {
-        if (table instanceof DelegatedFileStoreTable) {
-            return unwrap(((DelegatedFileStoreTable) table).wrapped());
+        Table current = table;
+        for (int depth = 0; depth <= MAX_WRAPPER_DEPTH; depth++) {
+            if (!(current instanceof DelegatedFileStoreTable)) {
+                return current instanceof FileStoreTable ? (FileStoreTable) current : null;
+            }
+            current = ((DelegatedFileStoreTable) current).wrapped();
         }
-        return table instanceof FileStoreTable ? (FileStoreTable) table : null;
+        throw new IllegalStateException("Paimon table wrapper chain is too deep");
     }
 
     /** Uses TableSchema cardinalities only and deliberately never calls FileStoreTable.store(). */
     private static long estimateTable(Table table) {
+        return estimateTable(table, 0);
+    }
+
+    private static long estimateTable(Table table, int wrapperDepth) {
         long bytes = 0L;
         Table current = table;
         while (true) {
+            if (wrapperDepth++ > MAX_WRAPPER_DEPTH) {
+                throw new IllegalStateException("Paimon table wrapper chain is too deep");
+            }
             if (current instanceof FallbackReadFileStoreTable) {
                 bytes = MetaCacheWeightUtils.saturatedAdd(bytes, WRAPPER_WEIGHT);
-                bytes = MetaCacheWeightUtils.saturatedAdd(
-                        bytes, estimateTable(((FallbackReadFileStoreTable) current).other()));
+                bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
+                        estimateTable(((FallbackReadFileStoreTable) current).other(), wrapperDepth));
                 current = ((FallbackReadFileStoreTable) current).wrapped();
                 continue;
             }
@@ -254,16 +269,23 @@ final class PaimonCacheSizeEstimator {
     }
 
     private static long retainedTablePayloadBytes(Table table, AccountingBudget budget) {
+        return retainedTablePayloadBytes(table, budget, 0);
+    }
+
+    private static long retainedTablePayloadBytes(Table table, AccountingBudget budget, int wrapperDepth) {
+        if (wrapperDepth > MAX_WRAPPER_DEPTH) {
+            throw new IllegalStateException("Paimon table wrapper chain is too deep");
+        }
         budget.charge(1L);
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable fallback = (FallbackReadFileStoreTable) table;
             return MetaCacheWeightUtils.saturatedAdd(
-                    retainedTablePayloadBytes(fallback.wrapped(), budget),
-                    retainedTablePayloadBytes(fallback.other(), budget));
+                    retainedTablePayloadBytes(fallback.wrapped(), budget, wrapperDepth + 1),
+                    retainedTablePayloadBytes(fallback.other(), budget, wrapperDepth + 1));
         }
         if (table instanceof DelegatedFileStoreTable) {
             return retainedTablePayloadBytes(
-                    ((DelegatedFileStoreTable) table).wrapped(), budget);
+                    ((DelegatedFileStoreTable) table).wrapped(), budget, wrapperDepth + 1);
         }
         if (!(table instanceof FileStoreTable)) {
             return 0L;

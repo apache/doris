@@ -271,7 +271,11 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
      * so its projections must not stay behind in the child entries.
      */
     private boolean isCurrentTableGeneration(NameMapping nameMapping, long tableGeneration) {
-        PaimonTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
+        // Revalidation must never re-prepare a retired catalog group (or throw out of a lookup
+        // that already holds a valid value): an absent group simply means "not current".
+        MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                tableEntry.getIfInitialized(nameMapping.getCtlId());
+        PaimonTableCacheValue currentTable = tables == null ? null : tables.peekIfPresent(nameMapping);
         return currentTable != null && currentTable.getGeneration() == tableGeneration;
     }
 
@@ -290,7 +294,9 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     private SchemaCacheValue loadSchemaCacheValue(PaimonSchemaCacheKey key, Table retainedTable) {
         ExternalTable dorisTable = findExternalTable(key.getNameMapping(), ENGINE);
         if (!(dorisTable instanceof PaimonExternalTable)) {
-            return loadSchemaCacheValue(key);
+            SchemaCacheValue fallback = loadSchemaCacheValue(key);
+            fallback.validateSchema();
+            return fallback;
         }
         dorisTable.setUpdateTime(System.currentTimeMillis());
         SchemaCacheValue value =
@@ -366,6 +372,14 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     public void invalidateCatalog(long catalogId) {
         latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
         super.invalidateCatalog(catalogId);
+    }
+
+    @Override
+    public void onCatalogPermanentlyRemoved(long catalogId) {
+        // A lookup racing the drop may re-insert a fence owner after invalidateCatalog cleaned
+        // the map; this hook runs even when the entry group is already retired and the id is
+        // never reused, so the owners cannot leak for the FE lifetime.
+        latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
     }
 
     @Override

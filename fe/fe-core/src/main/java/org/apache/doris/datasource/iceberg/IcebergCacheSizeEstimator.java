@@ -113,6 +113,11 @@ final class IcebergCacheSizeEstimator {
     // One name-mapping field: map node, boxed id and list object; alias arrays and Strings are
     // charged by IcebergSnapshotCacheValue when the mapping is copied.
     private static final long NAME_MAPPING_ENTRY_WEIGHT = 256L;
+    // A boxed scalar default (numeric, temporal) retained by a v3 field.
+    private static final long BOXED_DEFAULT_WEIGHT = 64L;
+    // The frozen operations also retain the handle's EncryptionManager; scans effectively meet
+    // the shared plaintext singleton, so a small fixed allowance covers the object graph.
+    private static final long ENCRYPTION_MANAGER_WEIGHT = 1024L;
     private static final long MANIFEST_ENTRY_BASE_WEIGHT = 512L;
     private static final long DATA_FILE_WEIGHT = 1024L;
     private static final long DELETE_FILE_WEIGHT = 1024L;
@@ -250,7 +255,7 @@ final class IcebergCacheSizeEstimator {
         if (fileIo == null) {
             return 0L;
         }
-        long bytes = addStringMapWithEntries(0L, fileIo.properties());
+        long bytes = addStringMapWithEntries(ENCRYPTION_MANAGER_WEIGHT, fileIo.properties());
         if (fileIo instanceof org.apache.iceberg.io.SupportsStorageCredentials) {
             for (org.apache.iceberg.io.StorageCredential credential
                     : ((org.apache.iceberg.io.SupportsStorageCredentials) fileIo).credentials()) {
@@ -424,7 +429,14 @@ final class IcebergCacheSizeEstimator {
             budget.chargeCharacters(field.doc().length());
             bytes = addString(bytes, field.doc());
         }
+        bytes = addDefaultPayload(bytes, field.initialDefault(), budget);
+        bytes = addDefaultPayload(bytes, field.writeDefault(), budget);
         Type type = field.type();
+        if (type instanceof Types.GeometryType) {
+            bytes = addString(bytes, ((Types.GeometryType) type).crs());
+        } else if (type instanceof Types.GeographyType) {
+            bytes = addString(bytes, ((Types.GeographyType) type).crs());
+        }
         if (type != null && type.isNestedType()) {
             for (Types.NestedField nested : type.asNestedType().fields()) {
                 bytes = MetaCacheWeightUtils.saturatedAdd(
@@ -448,6 +460,29 @@ final class IcebergCacheSizeEstimator {
         String token = String.valueOf(transform);
         budget.chargeCharacters(token.length());
         return addString(bytes, token);
+    }
+
+    /** v3 field defaults retain arbitrary scalar payloads (strings, binary, decimals). */
+    private static long addDefaultPayload(long bytes, Object defaultValue, AccountingBudget budget) {
+        if (defaultValue == null) {
+            return bytes;
+        }
+        if (defaultValue instanceof CharSequence) {
+            CharSequence value = (CharSequence) defaultValue;
+            budget.chargeCharacters(value.length());
+            return MetaCacheWeightUtils.saturatedAdd(
+                    bytes, MetaCacheWeightUtils.estimatedCharSequenceBytes(value));
+        }
+        if (defaultValue instanceof java.nio.ByteBuffer) {
+            return MetaCacheWeightUtils.saturatedAdd(bytes,
+                    MetaCacheWeightUtils.estimatedByteArrayBytes(
+                            ((java.nio.ByteBuffer) defaultValue).remaining()));
+        }
+        if (defaultValue instanceof byte[]) {
+            return MetaCacheWeightUtils.saturatedAdd(bytes,
+                    MetaCacheWeightUtils.estimatedByteArrayBytes(((byte[]) defaultValue).length));
+        }
+        return MetaCacheWeightUtils.saturatedAdd(bytes, BOXED_DEFAULT_WEIGHT);
     }
 
     private static long snapshotBytes(Snapshot snapshot, AccountingBudget budget) {

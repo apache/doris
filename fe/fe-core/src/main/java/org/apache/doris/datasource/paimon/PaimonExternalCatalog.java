@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -167,19 +166,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     /** Whether any Doris meta cache weight bound (global, catalog or entry level) applies. */
     private boolean isMetaCacheWeightGoverned() {
-        if (!"0".equals(Config.external_meta_cache_max_weight.trim())) {
-            return true;
-        }
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
-            return true;
-        }
-        for (String key : properties.keySet()) {
-            if (key != null && key.startsWith("meta.cache.") && key.endsWith(".max-weight")) {
-                return true;
-            }
-        }
-        return false;
+        return ExternalMetaCacheBudgetManager.appliesWeightGovernance(catalogProperty.getProperties());
     }
 
     public Map<String, String> getPaimonOptionsMap() {

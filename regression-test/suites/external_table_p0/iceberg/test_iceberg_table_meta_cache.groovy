@@ -178,7 +178,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             // alter wrong catalog property
             test {
                 sql """alter catalog ${catalog_name_no_cache} set properties ("meta.cache.iceberg.table.ttl-second" = "-2")"""
-                exception "is wrong"
+                // Strict cache-property validation runs before the legacy validators on ALTER.
+                exception "must be >= -1"
             }
             // alter catalog property, disable meta cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("meta.cache.iceberg.table.ttl-second" = "0")"""

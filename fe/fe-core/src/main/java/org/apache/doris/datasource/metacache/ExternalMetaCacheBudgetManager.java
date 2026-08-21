@@ -68,6 +68,33 @@ public final class ExternalMetaCacheBudgetManager {
         }
     }
 
+    /**
+     * Whether any Doris meta cache weight bound (global config, catalog level or entry level)
+     * applies to a catalog with the given properties. Used to decide whether overlapping SDK-side
+     * metadata caches should stay enabled; parse failures count as ungoverned.
+     */
+    public static boolean appliesWeightGovernance(Map<String, String> catalogProperties) {
+        try {
+            if (fromConfig().getGlobalMaxWeight().isPresent()) {
+                return true;
+            }
+        } catch (RuntimeException e) {
+            // An unparsable global config cannot create budgets either.
+        }
+        if (catalogProperties == null) {
+            return false;
+        }
+        if (catalogProperties.containsKey(CATALOG_MAX_WEIGHT_PROPERTY)) {
+            return true;
+        }
+        for (String key : catalogProperties.keySet()) {
+            if (key != null && key.startsWith("meta.cache.") && key.endsWith(".max-weight")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static ExternalMetaCacheBudgetManager fromConfig() {
         String configured = Config.external_meta_cache_max_weight;
         long parsed = CacheSpec.parseWeight(
@@ -272,7 +299,10 @@ public final class ExternalMetaCacheBudgetManager {
             entryBudgets.remove(entryBudget.scope, entryBudget);
             Bucket catalogBucket = entryBudget.catalogBucket;
             catalogBucket.liveEntries--;
-            if (catalogBucket.liveEntries == 0 && catalogBucket.usedWeight == 0L) {
+            if (catalogBucket.liveEntries == 0) {
+                // Any residual usedWeight here is already-known-bogus leakage from the force-close
+                // branch above; stranding the bucket would permanently shrink the catalog budget
+                // and reject a later max-weight change for this id.
                 catalogBuckets.remove(entryBudget.scope.catalogId, catalogBucket);
             }
         }

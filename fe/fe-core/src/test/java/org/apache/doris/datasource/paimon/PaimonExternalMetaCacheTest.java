@@ -556,6 +556,22 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testFieldDescriptionPayloadScalesWithLength() throws Exception {
+        assertTableDeltaAgainstJol("paimon field descriptions",
+                newTableWithPayloadType("desc", rowWithDescriptions(8, 16)),
+                newTableWithPayloadType("desc", rowWithDescriptions(8, 4096)));
+    }
+
+    private RowType rowWithDescriptions(int fieldCount, int descriptionLength) {
+        List<DataField> fields = new ArrayList<>();
+        for (int index = 0; index < fieldCount; index++) {
+            fields.add(new DataField(300 + index, "desc_" + index, new IntType(),
+                    repeatedCharacter('c', descriptionLength)));
+        }
+        return new RowType(fields);
+    }
+
+    @Test
     public void testFieldDefaultValuePayloadScalesWithLength() throws Exception {
         // Field defaults are retained by every DataField; with a fixed field count the estimate
         // must grow with the default length.
