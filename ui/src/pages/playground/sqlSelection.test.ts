@@ -32,13 +32,18 @@ describe('Playground SQL selection', () => {
   it('ignores semicolons inside strings and comments', () => {
     const document = "SELECT 'a;b', \"c;d\", `e;f`; -- ignored;\nSELECT 2 /* ignored; */;";
     const second = document.lastIndexOf('SELECT 2');
-    expect(executableSql(document, { from: second, to: second })).toBe('SELECT 2 /* ignored; */;');
+    expect(executableSql(document, { from: second, to: second })).toBe(document);
     expect(statementRangeAt(document, document.indexOf('c;d') + 2)).toEqual({ from: 0, to: document.indexOf('; --') + 1 });
+    const secondRange = statementRangeAt(document, second);
+    expect(document.slice(secondRange.from, secondRange.to)).toBe(' -- ignored;\nSELECT 2 /* ignored; */;');
   });
 
   it('does not split a hash comment at its semicolon', () => {
     const document = 'SELECT 1 # comment;\nFROM t;\nSELECT 3;';
-    expect(executableSql(document, { from: document.indexOf('FROM'), to: document.indexOf('FROM') })).toBe('SELECT 1 # comment;\nFROM t;');
+    const cursor = document.indexOf('FROM');
+    expect(executableSql(document, { from: cursor, to: cursor })).toBe(document);
+    const range = statementRangeAt(document, cursor);
+    expect(document.slice(range.from, range.to)).toBe('SELECT 1 # comment;\nFROM t;');
   });
 
   it('quotes every qualified identifier segment', () => {
