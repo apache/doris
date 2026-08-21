@@ -118,6 +118,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -149,6 +150,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
@@ -414,18 +416,53 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        IcebergTableHandle handle = (IcebergTableHandle) request.getTableHandle();
+        IcebergTableHandle icebergHandle = (IcebergTableHandle) request.getTableHandle();
         try {
-            return planScanInternal(session, handle, request.getColumns(),
-                    request.getFilter(), request.isCountPushdown());
+            if (!isExternalScanTaskReuseEnabled(session)) {
+                return planScanInternal(session, icebergHandle, request.getColumns(),
+                        request.getFilter(), request.isCountPushdown());
+            }
+            if (icebergHandle.isSystemTable()) {
+                // System tables read connector metadata through their own readers; never reuse them.
+                return planScanInternal(session, icebergHandle, request.getColumns(),
+                        request.getFilter(), request.isCountPushdown());
+            }
+            // Statement-scoped reuse: within one statement the identical scan (same table, same
+            // snapshot/ref/schema pin, same filter, same COUNT pushdown) plans once and every
+            // duplicated relation shares the result. The scope is NONE for offline planning and tests,
+            // in which case the loader runs on every call. Session variables are constant within a
+            // statement and deliberately absent from the key.
+            //
+            // The ranges are memoized in a map HUNG INSIDE the statement scope rather than cached
+            // directly: planScanInternal re-enters the scope itself (sharedTable and the v3
+            // rewritableDeleteSupply are scope-backed), and a loader of the scope's
+            // ConcurrentHashMap must not touch that map (same-bin re-entry throws
+            // IllegalStateException("Recursive update"); a mid-computation resize silently drops the
+            // outer entry). The scope loader only constructs the memo map; planning then runs on that
+            // separate map, so every scope call from planScanInternal is top-level again. The memo
+            // key is catalog-scoped, which also isolates same-named tables across a cross-catalog
+            // statement.
+            String memoKey = "iceberg.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                    session.getStatementScope().computeIfAbsent(memoKey, () -> new ConcurrentHashMap<>());
+            IcebergScanReuseKey reuseKey = new IcebergScanReuseKey(icebergHandle, request);
+            return scanReuse.computeIfAbsent(reuseKey,
+                    k -> Collections.unmodifiableList(planScanInternal(session,
+                            icebergHandle, request.getColumns(), request.getFilter(),
+                            request.isCountPushdown())));
         } catch (RuntimeException e) {
             // Normal data scans and native position_deletes run on File Scanner V2. Keep the serialized JNI
             // system-table route untouched because its deferred reads belong to the V1 scanner contract.
-            if (!handle.isSystemTable() || isPositionDeletesSysTable(handle)) {
-                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
+            if (!icebergHandle.isSystemTable() || isPositionDeletesSysTable(icebergHandle)) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(icebergHandle, e);
             }
             throw e;
         }
+    }
+
+    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
+        return session != null && !"false".equalsIgnoreCase(
+                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**
@@ -3104,5 +3141,71 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /**
+     * Statement-scoped cache key for one Iceberg scan.
+     *
+     * <p>Includes every input that changes the planned file list: table identity, the typed
+     * time-travel pin (snapshot id / ref / schema id), the rewrite-file scope, the pushed filter
+     * and the COUNT pushdown flag. System tables are excluded upstream, and session variables are
+     * statement-constant, so both stay out of the key.
+     */
+    private static final class IcebergScanReuseKey {
+        private final String dbName;
+        private final String tableName;
+        private final long snapshotId;
+        private final String ref;
+        private final long schemaId;
+        private final List<String> rewriteFileScope;
+        private final Optional<ConnectorExpression> filter;
+        private final boolean countPushdown;
+
+        private IcebergScanReuseKey(IcebergTableHandle handle, ConnectorScanRequest request) {
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.snapshotId = handle.getSnapshotId();
+            this.ref = handle.getRef();
+            this.schemaId = handle.getSchemaId();
+            // System tables are bypassed in planScan before this key is built, so sysTableName is
+            // always null here; if the system-table bypass is ever relaxed, add it back.
+            this.rewriteFileScope = handle.getRewriteFileScope() == null
+                    ? Collections.emptyList()
+                    : handle.getRewriteFileScope().stream().sorted()
+                            .collect(Collectors.toList());
+            this.filter = request.getFilter();
+            this.countPushdown = request.isCountPushdown();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof IcebergScanReuseKey)) {
+                return false;
+            }
+            IcebergScanReuseKey that = (IcebergScanReuseKey) object;
+            return snapshotId == that.snapshotId
+                    && schemaId == that.schemaId
+                    && countPushdown == that.countPushdown
+                    && Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(ref, that.ref)
+                    && Objects.equals(rewriteFileScope, that.rewriteFileScope)
+                    && Objects.equals(filter, that.filter);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbName, tableName, snapshotId, ref, schemaId,
+                    rewriteFileScope, filter, countPushdown);
+        }
+
+        @Override
+        public String toString() {
+            return "IcebergScanReuseKey{db=" + dbName + ", table=" + tableName
+                    + ", snapshot=" + snapshotId + "}";
+        }
     }
 }

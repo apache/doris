@@ -181,6 +181,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     private static final String IGNORE_SPLIT_TYPE_JNI = "IGNORE_JNI";
     private static final String IGNORE_SPLIT_TYPE_NATIVE = "IGNORE_NATIVE";
+    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
 
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
     // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
@@ -484,8 +485,35 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                request.getFilter(), request.getLimit(), request.isCountPushdown());
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
+        if (!isExternalScanTaskReuseEnabled(session)) {
+            return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+        }
+        if (paimonHandle.isSystemTable()) {
+            // System tables resolve their snapshot on the BE and carry deferred side effects
+            // (authorized file enumeration); never reuse their planned ranges.
+            return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+        }
+        // Statement-scoped reuse: within one statement the identical scan (same table, same
+        // branch/options pin, same projection, same filter, same limit, same COUNT pushdown) plans once and
+        // every duplicated relation shares the result. The scope is NONE for offline planning and
+        // tests, in which case the loader runs on every call. Session variables are constant within
+        // a statement and deliberately absent from the key.
+        String memoKey = "paimon.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
+                memoKey, () -> new ConcurrentHashMap<>());
+        PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request);
+        return scanReuse.computeIfAbsent(reuseKey,
+                key -> Collections.unmodifiableList(planScanInternal(session,
+                        request.getTableHandle(), request.getColumns(), request.getFilter(),
+                        request.getLimit(), request.isCountPushdown())));
+    }
+
+    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
+        return session != null && !"false".equalsIgnoreCase(
+                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**
@@ -2403,5 +2431,80 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /**
+     * Statement-scoped cache key for one Paimon scan.
+     *
+     * <p>Includes every input that changes the planned split list: table identity, the branch pin,
+     * the whole scan-options map (snapshot / tag / incremental / options pins), the projected
+     * columns in order, the pushed filter, the limit and the COUNT pushdown flag. System tables are excluded
+     * upstream, and session variables are statement-constant, so both stay out of the key.
+     */
+    private static final class PaimonScanReuseKey {
+        private final String databaseName;
+        private final String tableName;
+        private final String branchName;
+        private final Map<String, String> scanOptions;
+        private final List<String> columnNames;
+        private final Optional<ConnectorExpression> filter;
+        private final long limit;
+        private final boolean countPushdown;
+
+        private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request) {
+            // Catalog and query isolation are provided by the statement-scope memo key. System
+            // tables are bypassed in planScan before this key is built, so sysTableName is always
+            // null here; if the system-table bypass is ever relaxed, add it back.
+            this.databaseName = handle.getDatabaseName();
+            this.tableName = handle.getTableName();
+            this.branchName = handle.getBranchName();
+            this.scanOptions = handle.getScanOptions() == null
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new HashMap<>(handle.getScanOptions()));
+            this.columnNames = request.getColumns().stream()
+                    .map(PaimonScanReuseKey::toPaimonColumnName)
+                    .collect(Collectors.toList());
+            this.filter = request.getFilter();
+            this.limit = request.getLimit();
+            this.countPushdown = request.isCountPushdown();
+        }
+
+        private static String toPaimonColumnName(ConnectorColumnHandle column) {
+            if (!(column instanceof PaimonColumnHandle)) {
+                throw new IllegalArgumentException(
+                        "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
+            }
+            return ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT);
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof PaimonScanReuseKey)) {
+                return false;
+            }
+            PaimonScanReuseKey that = (PaimonScanReuseKey) object;
+            return limit == that.limit
+                    && countPushdown == that.countPushdown
+                    && Objects.equals(databaseName, that.databaseName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(branchName, that.branchName)
+                    && Objects.equals(scanOptions, that.scanOptions)
+                    && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(filter, that.filter);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(databaseName, tableName, branchName,
+                    scanOptions, columnNames, filter, limit, countPushdown);
+        }
+
+        @Override
+        public String toString() {
+            return "PaimonScanReuseKey{table=" + databaseName + "." + tableName + "}";
+        }
     }
 }

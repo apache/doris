@@ -464,6 +464,55 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(2, remoteLoads, "under NONE each resolver loads (no memo)");
     }
 
+    @Test
+    public void statementReusePlansAnIdenticalScanOnce() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, request);
+        List<ConnectorScanRange> second = provider.planScan(session, request);
+
+        Assertions.assertSame(first, second, "an identical scan must reuse the statement's planned range list");
+        Assertions.assertEquals(1, first.size());
+    }
+
+    @Test
+    public void statementReuseMatchesStructurallyEqualFilters() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .filter(Optional.of(equalIdFilter(1)))
+                .build();
+        ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .filter(Optional.of(equalIdFilter(1)))
+                .build();
+
+        Assertions.assertNotSame(firstRequest.getFilter().get(), secondRequest.getFilter().get());
+        List<ConnectorScanRange> first = provider.planScan(session, firstRequest);
+        List<ConnectorScanRange> second = provider.planScan(session, secondRequest);
+
+        Assertions.assertSame(first, second,
+                "independently built but structurally equal filters must share one statement plan");
+        Assertions.assertEquals(1, first.size());
+    }
+
+    private static ConnectorExpression equalIdFilter(long value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), value));
+    }
+
     // --- T02 split-enumeration + predicate-pushdown tests ---
 
     @Test
