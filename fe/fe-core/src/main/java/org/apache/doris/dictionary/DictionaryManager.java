@@ -538,7 +538,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
         // block here in test to simulate the race: INC journal written, commit not done yet.
         while (DebugPointUtil.isEnable("DictionaryManager.afterIncJournal")) {
-            Thread.sleep(100);
+            try {
+                Thread.sleep(1000);
+                LOG.info("block afterIncJournal for dict: {}", dictionary.getName());
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
         }
 
         // commit and check the result. not modify metadata so dont need lock.

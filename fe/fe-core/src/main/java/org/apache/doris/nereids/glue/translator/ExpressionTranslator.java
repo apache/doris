@@ -50,6 +50,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -649,7 +650,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // set special fields
         TDictFunction dictFunction = new TDictFunction();
         dictFunction.setDictionaryId(dictionary.getId());
-        dictFunction.setVersionId(dictionary.getVersion());
+        long versionId = dictionary.getVersion();
+        // debug point to override version_id for testing multi-version retention
+        versionId = DebugPointUtil.getDebugParamOrDefault(
+                "ExpressionTranslator.dict_get_version", "version_id", versionId);
+        dictFunction.setVersionId(versionId);
         catalogFunction.setDictFunction(dictFunction);
 
         // create catalog FunctionCallExpr without analyze again

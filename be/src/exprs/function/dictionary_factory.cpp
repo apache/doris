@@ -32,30 +32,34 @@ DictionaryFactory::DictionaryFactory()
 
 DictionaryFactory::~DictionaryFactory() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
-    _dict_id_to_dict_map.clear();
-    _dict_id_to_version_id_map.clear();
+    _dict_id_to_versioned_map.clear();
 }
 
 void DictionaryFactory::get_dictionary_status(std::vector<TDictionaryStatus>& result,
                                               std::vector<int64_t> dict_ids) {
+    // only report the latest version per dict; historical versions are invisible to FE
     std::shared_lock lc(_mutex);
-    if (dict_ids.empty()) { // empty means ALL
-        for (const auto& [dict_id, dict] : _dict_id_to_dict_map) {
-            TDictionaryStatus status;
-            status.__set_dictionary_id(dict_id);
-            status.__set_version_id(_dict_id_to_version_id_map[dict_id]);
-            status.__set_dictionary_memory_size(dict->allocated_bytes());
-            result.emplace_back(std::move(status));
+    auto build_latest_status = [&result](int64_t dict_id,
+                                         const std::map<int64_t, DictionaryPtr>& versioned_map) {
+        if (versioned_map.empty()) {
+            return;
+        }
+        const auto& [version_id, dict] = *versioned_map.rbegin();
+        TDictionaryStatus status;
+        status.__set_dictionary_id(dict_id);
+        status.__set_version_id(version_id);
+        status.__set_dictionary_memory_size(dict->allocated_bytes());
+        result.emplace_back(std::move(status));
+    };
+    if (dict_ids.empty()) {
+        for (const auto& [dict_id, versioned_map] : _dict_id_to_versioned_map) {
+            build_latest_status(dict_id, versioned_map);
         }
     } else {
         for (auto dict_id : dict_ids) {
-            if (_dict_id_to_dict_map.contains(dict_id)) {
-                TDictionaryStatus status;
-                status.__set_dictionary_id(dict_id);
-                status.__set_version_id(_dict_id_to_version_id_map[dict_id]);
-                status.__set_dictionary_memory_size(
-                        _dict_id_to_dict_map[dict_id]->allocated_bytes());
-                result.emplace_back(std::move(status));
+            auto it = _dict_id_to_versioned_map.find(dict_id);
+            if (it != _dict_id_to_versioned_map.end()) {
+                build_latest_status(dict_id, it->second);
             }
         }
     }
