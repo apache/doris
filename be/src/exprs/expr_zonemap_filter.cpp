@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_ref.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/hybrid_set_min_max.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"

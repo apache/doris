@@ -30,13 +30,13 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
-#include "exprs/hybrid_set_min_max.h"
 #include "exprs/vexpr_fwd.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 
 namespace doris {
 class HybridSetBase;
+struct HybridSetMinMax;
 class RuntimeState;
 class TExprNode;
 
