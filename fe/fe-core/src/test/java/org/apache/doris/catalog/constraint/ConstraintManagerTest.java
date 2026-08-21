@@ -48,6 +48,11 @@ import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Unit tests for ConstraintManager, testing direct API methods
@@ -160,6 +165,46 @@ class ConstraintManagerTest {
     }
 
     @Test
+    void addDistributionMappingDoesNotReacquireHeldFrontendAdmissionFence() {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Frontend frontend = Mockito.mock(Frontend.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Column determinantColumn = Mockito.mock(Column.class);
+        Column distributionColumn = Mockito.mock(Column.class);
+        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        ConstraintManager manager = Mockito.spy(mgr);
+
+        Mockito.when(env.getFrontends(null)).thenReturn(List.of(frontend));
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(frontend.getVersion()).thenReturn(currentVersion);
+        Mockito.when(table.getColumn("d1")).thenReturn(determinantColumn);
+        Mockito.when(table.getColumn("k1")).thenReturn(distributionColumn);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distributionColumn));
+        Mockito.when(distributionColumn.getName()).thenReturn("k1");
+        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
+
+        manager.acquireFrontendAdmissionForMapping();
+        Mockito.clearInvocations(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.addConstraintWithResolvedTables(
+                    T1, mapping.getName(), mapping, table, null);
+        } finally {
+            manager.releaseFrontendAdmissionFence();
+        }
+
+        Mockito.verify(manager, Mockito.never()).acquireFrontendAdmissionForMapping();
+        Assertions.assertSame(mapping, manager.getConstraint(T1, mapping.getName()));
+    }
+
+    @Test
     void addDistributionMappingRejectsMixedOrUnknownFrontendVersions() {
         String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
         Env env = Mockito.mock(Env.class);
@@ -194,6 +239,77 @@ class ConstraintManagerTest {
         Mockito.verify(unknownFrontend).getVersion();
         Mockito.verify(oldFrontend, Mockito.never()).isAlive();
         Mockito.verify(unknownFrontend, Mockito.never()).isAlive();
+    }
+
+    @Test
+    void concurrentFrontendAdmissionWaitsForMappingAddAndIsRejected() throws Exception {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Frontend frontend = Mockito.mock(Frontend.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Column determinantColumn = Mockito.mock(Column.class);
+        Column distributionColumn = Mockito.mock(Column.class);
+        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        CountDownLatch versionCheckStarted = new CountDownLatch(1);
+        CountDownLatch frontendAdmissionStarted = new CountDownLatch(1);
+
+        Mockito.when(env.getFrontends(null)).thenAnswer(invocation -> {
+            versionCheckStarted.countDown();
+            Assertions.assertTrue(frontendAdmissionStarted.await(10, TimeUnit.SECONDS));
+            return List.of(frontend);
+        });
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(frontend.getVersion()).thenReturn(currentVersion);
+        Mockito.when(table.getColumn("d1")).thenReturn(determinantColumn);
+        Mockito.when(table.getColumn("k1")).thenReturn(distributionColumn);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distributionColumn));
+        Mockito.when(distributionColumn.getName()).thenReturn("k1");
+        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Future<DdlException> frontendAdmission = executor.submit(() -> {
+                if (!versionCheckStarted.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Timed out waiting for frontend version check");
+                }
+                frontendAdmissionStarted.countDown();
+                try {
+                    mgr.acquireFrontendAdmission();
+                    mgr.releaseFrontendAdmissionFence();
+                    return null;
+                } catch (DdlException e) {
+                    return e;
+                }
+            });
+
+            mgr.addConstraintWithResolvedTables(T1, mapping.getName(), mapping, table, null);
+            DdlException exception = frontendAdmission.get(10, TimeUnit.SECONDS);
+            Assertions.assertNotNull(exception);
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Drop all distribution mapping constraints"));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void frontendAdmissionIsRejectedWhileMappingExists() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        mgr.addConstraint(T1, mapping.getName(), mapping, true);
+
+        DdlException exception = Assertions.assertThrows(
+                DdlException.class, mgr::acquireFrontendAdmission);
+
+        Assertions.assertTrue(exception.getMessage()
+                .contains("Drop all distribution mapping constraints"));
     }
 
     @Test
@@ -410,6 +526,51 @@ class ConstraintManagerTest {
         loaded.dropConstraint(newTable, "fk", true);
         loaded.dropConstraint(newTable, "pk", true);
         Assertions.assertTrue(loaded.getConstraints(newTable).isEmpty());
+    }
+
+    @Test
+    void renameDatabaseUpdatesAllForeignKeyReferencesInOnePass() {
+        TableNameInfo oldParent = new TableNameInfo("ctl", "old_db", "parent");
+        TableNameInfo newParent = new TableNameInfo("ctl", "new_db", "parent");
+        TableNameInfo externalChild = new TableNameInfo("ctl", "other_db", "child");
+        mgr.addConstraint(oldParent, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(externalChild, "fk", newFk("fk", oldParent, "c1", "k1"), true);
+        ImmutableList.Builder<TableNameInfo> oldChildren = ImmutableList.builder();
+        ImmutableList.Builder<TableNameInfo> newChildren = ImmutableList.builder();
+        for (int i = 0; i < 64; i++) {
+            TableNameInfo oldChild = new TableNameInfo("ctl", "old_db", "child_" + i);
+            TableNameInfo newChild = new TableNameInfo("ctl", "new_db", "child_" + i);
+            mgr.addConstraint(oldChild, "fk", newFk("fk", oldParent, "c1", "k1"), true);
+            oldChildren.add(oldChild);
+            newChildren.add(newChild);
+        }
+
+        mgr.renameDatabase("ctl", "old_db", "new_db");
+
+        Assertions.assertTrue(mgr.getConstraints(oldParent).isEmpty());
+        for (TableNameInfo oldChild : oldChildren.build()) {
+            Assertions.assertTrue(mgr.getConstraints(oldChild).isEmpty());
+        }
+        ImmutableList<TableNameInfo> renamedChildren = newChildren.build();
+        for (TableNameInfo newChild : renamedChildren) {
+            ForeignKeyConstraint renamedForeignKey =
+                    (ForeignKeyConstraint) mgr.getConstraint(newChild, "fk");
+            Assertions.assertEquals(newParent, renamedForeignKey.getReferencedTableName());
+        }
+        ForeignKeyConstraint externalForeignKey =
+                (ForeignKeyConstraint) mgr.getConstraint(externalChild, "fk");
+        Assertions.assertEquals(newParent, externalForeignKey.getReferencedTableName());
+        PrimaryKeyConstraint primaryKey =
+                (PrimaryKeyConstraint) mgr.getConstraint(newParent, "pk");
+        primaryKey.addForeignTable(renamedChildren.get(0));
+        Assertions.assertEquals(renamedChildren.size() + 1,
+                primaryKey.getForeignTableInfos().size());
+        Assertions.assertEquals(
+                ImmutableSet.<TableNameInfo>builder()
+                        .addAll(renamedChildren)
+                        .add(externalChild)
+                        .build(),
+                ImmutableSet.copyOf(primaryKey.getForeignTableInfos()));
     }
 
     // ==================== dropTableConstraints ====================

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -59,6 +60,8 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -75,6 +78,8 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             = new ConcurrentHashMap<>();
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    // A candidate FE cannot report its version before loading the image and replaying journals.
+    private final ReentrantLock frontendAdmissionLock = new ReentrantLock();
 
     public ConstraintManager() {
     }
@@ -121,6 +126,12 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             boolean replay) {
         String key = toKey(tableNameInfo);
         EditLog.EditLogItem logItem = null;
+        boolean acquireFrontendAdmission = !replay
+                && constraint instanceof DistributionMappingConstraint
+                && !frontendAdmissionLock.isHeldByCurrentThread();
+        if (acquireFrontendAdmission) {
+            acquireFrontendAdmissionForMapping();
+        }
         writeLock();
         try {
             TableIf table = null;
@@ -155,8 +166,61 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             LOG.info("Added constraint {} on table {}", constraintName, key);
         } finally {
             writeUnlock();
+            if (acquireFrontendAdmission) {
+                frontendAdmissionLock.unlock();
+            }
         }
         return logItem;
+    }
+
+    public void acquireFrontendAdmission() throws DdlException {
+        try {
+            if (!frontendAdmissionLock.tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new DdlException("Failed to acquire frontend admission lock. Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DdlException("Interrupted while acquiring frontend admission lock", e);
+        }
+        boolean admitted = false;
+        try {
+            readLock();
+            try {
+                for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
+                    if (tableConstraints.values().stream()
+                            .anyMatch(DistributionMappingConstraint.class::isInstance)) {
+                        throw new DdlException("Cannot add frontend while distribution mapping constraints exist."
+                                + " Drop all distribution mapping constraints before adding a frontend");
+                    }
+                }
+            } finally {
+                readUnlock();
+            }
+            admitted = true;
+        } finally {
+            if (!admitted) {
+                frontendAdmissionLock.unlock();
+            }
+        }
+    }
+
+    public void releaseFrontendAdmissionFence() {
+        frontendAdmissionLock.unlock();
+    }
+
+    public void acquireFrontendAdmissionForMapping() {
+        try {
+            if (!frontendAdmissionLock.tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new AnalysisException(
+                        "Failed to acquire frontend admission lock for distribution mapping constraint. Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AnalysisException(
+                    "Interrupted while acquiring frontend admission lock for distribution mapping constraint", e);
+        }
     }
 
     /**
@@ -630,14 +694,36 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         String oldPrefix = catalogName + "." + oldDbName + ".";
         writeLock();
         try {
-            List<TableNameInfo> oldTableInfos = constraintsMap.keySet().stream()
+            Map<TableNameInfo, TableNameInfo> renamedTables = constraintsMap.keySet().stream()
                     .filter(key -> key.startsWith(oldPrefix))
                     .map(TableNameInfo::new)
-                    .collect(Collectors.toList());
-            for (TableNameInfo oldTableInfo : oldTableInfos) {
-                renameTableWithoutLock(oldTableInfo, new TableNameInfo(
-                        catalogName, newDbName, oldTableInfo.getTbl()));
+                    .collect(Collectors.toMap(
+                            tableInfo -> tableInfo,
+                            tableInfo -> new TableNameInfo(
+                                    catalogName, newDbName, tableInfo.getTbl())));
+            for (Entry<TableNameInfo, TableNameInfo> renamedTable : renamedTables.entrySet()) {
+                Map<String, Constraint> tableConstraints =
+                        constraintsMap.remove(toKey(renamedTable.getKey()));
+                constraintsMap.put(toKey(renamedTable.getValue()), tableConstraints);
             }
+            for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
+                for (Constraint constraint : tableConstraints.values()) {
+                    if (constraint instanceof ForeignKeyConstraint) {
+                        ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+                        TableNameInfo referencedTable = foreignKey.getReferencedTableName();
+                        if (referencedTable != null) {
+                            TableNameInfo renamedTable = renamedTables.get(referencedTable);
+                            if (renamedTable != null) {
+                                foreignKey.setReferencedTableInfo(renamedTable);
+                            }
+                        }
+                    } else if (constraint instanceof PrimaryKeyConstraint) {
+                        ((PrimaryKeyConstraint) constraint).renameForeignTables(renamedTables);
+                    }
+                }
+            }
+            LOG.info("Renamed database constraints from {}.{} to {}.{}",
+                    catalogName, oldDbName, catalogName, newDbName);
         } finally {
             writeUnlock();
         }

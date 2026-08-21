@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -37,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /** Shared locking helpers for constraint DDL commands. */
 final class ConstraintCommandUtils {
@@ -74,7 +76,9 @@ final class ConstraintCommandUtils {
         }
         LockedExternalCatalogs lockedExternalCatalogs = externalCatalogSnapshots.lock();
         Map<String, ResolvedDatabase> resolvedByName = new LinkedHashMap<>();
+        List<ResolvedDatabase> lockOrder = new ArrayList<>();
         LockedDatabases lockedDatabases = null;
+        int lockedDatabaseCount = 0;
         try {
             for (TableNameInfo tableNameInfo : tableNameInfos) {
                 String databaseKey = databaseKey(tableNameInfo);
@@ -99,12 +103,18 @@ final class ConstraintCommandUtils {
                             resolvedDatabase.database.getTableNullable(tableNameInfo.getTbl()));
                 }
             }
-            List<ResolvedDatabase> lockOrder = new ArrayList<>(resolvedByName.values());
+            lockOrder.addAll(resolvedByName.values());
             lockOrder.sort(Comparator
                     .comparingLong((ResolvedDatabase resolved) -> resolved.database.getId())
                     .thenComparing(resolved -> resolved.databaseKey));
             for (ResolvedDatabase resolved : lockOrder) {
-                resolved.database.readLock();
+                if (!resolved.database.tryReadLock(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                    throw new DdlException(
+                            "Failed to acquire database read lock while altering constraint on "
+                                    + resolved.tableNameInfo + ". Try again");
+                }
+                lockedDatabaseCount++;
             }
             lockedDatabases = new LockedDatabases(
                     resolvedByName, resolvedTables, lockOrder, lockedExternalCatalogs);
@@ -121,6 +131,9 @@ final class ConstraintCommandUtils {
             return lockedDatabases;
         } catch (DdlException | RuntimeException e) {
             if (lockedDatabases == null) {
+                for (int i = lockedDatabaseCount - 1; i >= 0; i--) {
+                    lockOrder.get(i).database.readUnlock();
+                }
                 lockedExternalCatalogs.close();
             } else {
                 lockedDatabases.close();
@@ -159,7 +172,11 @@ final class ConstraintCommandUtils {
                 .thenComparing(table -> table.getDatabase().getCatalog().getName())
                 .thenComparing(table -> table.getDatabase().getFullName())
                 .thenComparing(TableIf::getName));
-        MetaLockUtils.writeLockTables(lockOrder);
+        if (!MetaLockUtils.tryWriteLockTablesIfExist(
+                lockOrder, Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+            throw new DdlException(
+                    "Failed to acquire table locks while altering constraints. Try again");
+        }
         return new LockedTables(tablesByName, lockOrder);
     }
 

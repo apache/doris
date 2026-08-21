@@ -3454,7 +3454,10 @@ public class Env {
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName, String cloudUniqueId)
             throws DdlException {
+        ConstraintManager currentConstraintManager = getConstraintManager();
+        currentConstraintManager.acquireFrontendAdmission();
         if (!tryLock(false)) {
+            currentConstraintManager.releaseFrontendAdmissionFence();
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
@@ -3492,6 +3495,7 @@ public class Env {
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
+            currentConstraintManager.releaseFrontendAdmissionFence();
         }
     }
 

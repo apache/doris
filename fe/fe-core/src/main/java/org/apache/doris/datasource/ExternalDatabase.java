@@ -407,6 +407,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     @Override
+    public boolean tryReadLock(long timeout, TimeUnit unit) {
+        try {
+            return this.rwLock.readLock().tryLock(timeout, unit);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("failed to try read lock at external db[" + id + "]", e);
+            return false;
+        }
+    }
+
+    @Override
     public void readUnlock() {
         this.rwLock.readLock().unlock();
     }
@@ -426,6 +437,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         try {
             return this.rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             LOG.warn("failed to try write lock at external db[" + id + "]", e);
             return false;
         }

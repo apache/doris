@@ -1443,6 +1443,32 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testConstraintMetadataMutationBeginTimesOutWithoutLeakingState() throws Exception {
+        TestExternalCatalog catalog =
+                newFenceTestCatalog(1203L, "constraint_timeout_test");
+        long originalTimeout = Config.catalog_try_lock_timeout_ms;
+        ExternalCatalog.ConstraintMetadataReadGuard readGuard =
+                catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata());
+        try {
+            Config.catalog_try_lock_timeout_ms = 10;
+            Assertions.assertThrows(
+                    IllegalStateException.class, catalog::beginConstraintMetadataMutation);
+        } finally {
+            Config.catalog_try_lock_timeout_ms = originalTimeout;
+            readGuard.close();
+        }
+
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                catalog.beginConstraintMetadataMutation()) {
+            // A timed-out begin must not leave an active mutation behind.
+        }
+        try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
+            // The catalog fence remains usable after the failed begin.
+        }
+    }
+
+    @Test
     public void testConstraintMetadataTracksOverlappingMutations() throws Exception {
         TestExternalCatalog catalog =
                 newFenceTestCatalog(1202L, "constraint_overlap_test");

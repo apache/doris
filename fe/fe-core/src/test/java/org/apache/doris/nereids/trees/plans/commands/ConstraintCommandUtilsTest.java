@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -37,6 +38,7 @@ import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 class ConstraintCommandUtilsTest {
     @Test
@@ -53,6 +55,8 @@ class ConstraintCommandUtilsTest {
         Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(resolvedDatabase);
         Mockito.when(catalog.getDbNullable("db")).thenReturn(recreatedDatabase);
         Mockito.when(resolvedDatabase.getId()).thenReturn(1L);
+        Mockito.when(resolvedDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -63,7 +67,8 @@ class ConstraintCommandUtilsTest {
                     () -> ConstraintCommandUtils.lockCurrentDatabases(
                             List.of(tableNameInfo), snapshots, List.of()));
 
-            Mockito.verify(resolvedDatabase).readLock();
+            Mockito.verify(resolvedDatabase).tryReadLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
             Mockito.verify(resolvedDatabase).readUnlock();
         }
     }
@@ -86,6 +91,10 @@ class ConstraintCommandUtilsTest {
         Mockito.when(catalog.getDbNullable("db2")).thenReturn(secondDatabase);
         Mockito.when(firstDatabase.getId()).thenReturn(2L);
         Mockito.when(secondDatabase.getId()).thenReturn(1L);
+        Mockito.when(firstDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(secondDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -98,14 +107,51 @@ class ConstraintCommandUtilsTest {
                             List.of(firstTable, secondTable), snapshots, List.of())) {
                 org.mockito.InOrder inOrder =
                         Mockito.inOrder(secondDatabase, firstDatabase);
-                inOrder.verify(secondDatabase).readLock();
-                inOrder.verify(firstDatabase).readLock();
+                inOrder.verify(secondDatabase).tryReadLock(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
+                inOrder.verify(firstDatabase).tryReadLock(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
             }
 
             org.mockito.InOrder unlockOrder =
                     Mockito.inOrder(firstDatabase, secondDatabase);
             unlockOrder.verify(firstDatabase).readUnlock();
             unlockOrder.verify(secondDatabase).readUnlock();
+        }
+    }
+
+    @Test
+    void lockCurrentDatabasesReleasesEarlierLockOnTimeout() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf firstDatabase = Mockito.mock(DatabaseIf.class);
+        DatabaseIf secondDatabase = Mockito.mock(DatabaseIf.class);
+        TableNameInfo firstTable = new TableNameInfo("internal", "db1", "tbl1");
+        TableNameInfo secondTable = new TableNameInfo("internal", "db2", "tbl2");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("internal")).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrDdlException("db1")).thenReturn(firstDatabase);
+        Mockito.when(catalog.getDbOrDdlException("db2")).thenReturn(secondDatabase);
+        Mockito.when(firstDatabase.getId()).thenReturn(1L);
+        Mockito.when(secondDatabase.getId()).thenReturn(2L);
+        Mockito.when(firstDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(secondDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(false);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(
+                            List.of(firstTable, secondTable));
+
+            Assertions.assertThrows(DdlException.class,
+                    () -> ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(firstTable, secondTable), snapshots, List.of()));
+
+            Mockito.verify(firstDatabase).readUnlock();
+            Mockito.verify(secondDatabase, Mockito.never()).readUnlock();
         }
     }
 
@@ -142,6 +188,14 @@ class ConstraintCommandUtilsTest {
         Mockito.when(secondTable.getDatabase()).thenReturn(secondDatabase);
         Mockito.when(secondTable.getId()).thenReturn(50L);
         Mockito.when(secondTable.getName()).thenReturn("tbl2");
+        Mockito.when(firstDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(secondDatabase.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(firstTable.tryWriteLockIfExist(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(secondTable.tryWriteLockIfExist(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -162,11 +216,14 @@ class ConstraintCommandUtilsTest {
                                 Mockito.mock(TableIf.class)));
                 ignored.requireSame(firstTableInfo, firstTable);
                 org.mockito.InOrder lockOrder = Mockito.inOrder(secondTable, firstTable);
-                lockOrder.verify(secondTable).writeLock();
-                lockOrder.verify(firstTable).writeLock();
+                lockOrder.verify(secondTable).tryWriteLockIfExist(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
+                lockOrder.verify(firstTable).tryWriteLockIfExist(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
             }
 
-            Mockito.verify(firstTable).writeLock();
+            Mockito.verify(firstTable).tryWriteLockIfExist(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
             org.mockito.InOrder unlockOrder = Mockito.inOrder(firstTable, secondTable);
             unlockOrder.verify(firstTable).writeUnlock();
             unlockOrder.verify(secondTable).writeUnlock();
@@ -195,6 +252,10 @@ class ConstraintCommandUtilsTest {
         Mockito.when(existingTable.getDatabase()).thenReturn(database);
         Mockito.when(existingTable.getId()).thenReturn(1L);
         Mockito.when(existingTable.getName()).thenReturn("existing");
+        Mockito.when(database.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(existingTable.tryWriteLockIfExist(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -208,7 +269,8 @@ class ConstraintCommandUtilsTest {
                         () -> ConstraintCommandUtils.lockCurrentTables(
                                 lockedDatabases,
                                 List.of(existingTableInfo, missingTableInfo)));
-                Mockito.verify(existingTable, Mockito.never()).writeLock();
+                Mockito.verify(existingTable, Mockito.never()).tryWriteLockIfExist(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
 
                 try (ConstraintCommandUtils.LockedTables lockedTables =
                         ConstraintCommandUtils.lockCurrentTablesIfPresent(
@@ -216,10 +278,63 @@ class ConstraintCommandUtilsTest {
                                 List.of(existingTableInfo, missingTableInfo))) {
                     Assertions.assertSame(existingTable, lockedTables.get(existingTableInfo));
                     Assertions.assertNull(lockedTables.get(missingTableInfo));
-                    Mockito.verify(existingTable).writeLock();
+                    Mockito.verify(existingTable).tryWriteLockIfExist(
+                            Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS);
                 }
                 Mockito.verify(existingTable).writeUnlock();
             }
+        }
+    }
+
+    @Test
+    void lockCurrentTablesReleasesEarlierLockOnTimeout() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        TableIf firstTable = Mockito.mock(TableIf.class);
+        TableIf secondTable = Mockito.mock(TableIf.class);
+        TableNameInfo firstTableInfo = new TableNameInfo("internal", "db", "tbl1");
+        TableNameInfo secondTableInfo = new TableNameInfo("internal", "db", "tbl2");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("internal")).thenReturn(catalog);
+        Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(database);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(1L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getTableNullable("tbl1")).thenReturn(firstTable);
+        Mockito.when(database.getTableNullable("tbl2")).thenReturn(secondTable);
+        Mockito.when(database.tryReadLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(firstTable.getDatabase()).thenReturn(database);
+        Mockito.when(firstTable.getId()).thenReturn(1L);
+        Mockito.when(firstTable.getName()).thenReturn("tbl1");
+        Mockito.when(secondTable.getDatabase()).thenReturn(database);
+        Mockito.when(secondTable.getId()).thenReturn(2L);
+        Mockito.when(secondTable.getName()).thenReturn("tbl2");
+        Mockito.when(firstTable.tryWriteLockIfExist(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(true);
+        Mockito.when(secondTable.tryWriteLockIfExist(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(false);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(
+                            List.of(firstTableInfo, secondTableInfo));
+            try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
+                    ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(firstTableInfo, secondTableInfo), snapshots, List.of())) {
+                Assertions.assertThrows(DdlException.class,
+                        () -> ConstraintCommandUtils.lockCurrentTables(
+                                lockedDatabases, List.of(firstTableInfo, secondTableInfo)));
+            }
+
+            Mockito.verify(firstTable).writeUnlock();
+            Mockito.verify(secondTable, Mockito.never()).writeUnlock();
         }
     }
 

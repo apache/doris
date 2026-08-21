@@ -608,6 +608,25 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void alterConstraintLogCapturesConstraintAtConstruction() throws Exception {
+        TableNameInfo primaryTable = new TableNameInfo("internal", "db", "primary_table");
+        TableNameInfo foreignTable = new TableNameInfo("internal", "db", "foreign_table");
+        PrimaryKeyConstraint primaryKey = new PrimaryKeyConstraint("pk", Set.of("k1"));
+        AlterConstraintLog log = new AlterConstraintLog(primaryKey, primaryTable);
+
+        primaryKey.addForeignTable(foreignTable);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        log.write(new DataOutputStream(output));
+        AlterConstraintLog persistedLog = AlterConstraintLog.read(
+                new DataInputStream(new ByteArrayInputStream(output.toByteArray())));
+
+        Assertions.assertEquals(List.of(foreignTable), primaryKey.getForeignTableInfos());
+        PrimaryKeyConstraint persistedPrimaryKey =
+                (PrimaryKeyConstraint) persistedLog.getConstraint();
+        Assertions.assertTrue(persistedPrimaryKey.getForeignTableInfos().isEmpty());
+    }
+
+    @Test
     void liveConstraintShouldExposeDependentMtmvLookupFailureTest() throws Exception {
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),

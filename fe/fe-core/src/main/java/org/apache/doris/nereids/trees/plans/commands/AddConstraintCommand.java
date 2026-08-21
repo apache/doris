@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
@@ -153,6 +154,11 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         }
         List<MTMV> dependentMtmvs;
         EditLog.EditLogItem logItem;
+        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
+        boolean fenceFrontendAdmission = constraint instanceof DistributionMappingConstraint;
+        if (fenceFrontendAdmission) {
+            constraintManager.acquireFrontendAdmissionForMapping();
+        }
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                 ConstraintCommandUtils.lockCurrentDatabases(
                         affectedTableInfos, externalCatalogSnapshots, analyzedTables);
@@ -175,12 +181,15 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                 lockedTables.requireSame(referencedTableInfo, analyzedReferencedTable);
             }
             dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-            logItem = Env.getCurrentEnv().getConstraintManager()
-                    .addConstraintWithResolvedTables(
-                            tableNameInfo, name, constraint, currentTable, referencedTable);
+            logItem = constraintManager.addConstraintWithResolvedTables(
+                    tableNameInfo, name, constraint, currentTable, referencedTable);
             if (constraint instanceof DistributionMappingConstraint) {
                 Env.getCurrentEnv().getSqlCacheManager()
                         .invalidateAboutTableAndFencePublication(currentTable);
+            }
+        } finally {
+            if (fenceFrontendAdmission) {
+                constraintManager.releaseFrontendAdmissionFence();
             }
         }
         if (logItem != null) {

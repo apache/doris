@@ -17,10 +17,17 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -89,6 +96,33 @@ public class EditLogTest {
         } finally {
             Config.enable_batch_editlog = original;
         }
+    }
+
+    @Test
+    public void testReplayMappingConstraintFailsOnTableLockTimeout() {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        TableIf table = Mockito.mock(TableIf.class);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        TableNameInfo tableNameInfo = new TableNameInfo("internal", "db", "tbl");
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getTableNullable("tbl")).thenReturn(table);
+        Mockito.when(table.tryWriteLock(
+                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(false);
+
+        Assert.assertThrows(IllegalStateException.class,
+                () -> Deencapsulation.invoke(EditLog.class, "replayConstraint",
+                        env, tableNameInfo, mapping, true));
+
+        Mockito.verifyNoInteractions(constraintManager);
+        Mockito.verify(table, Mockito.never()).writeUnlock();
     }
 
     @Test

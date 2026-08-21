@@ -80,6 +80,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -172,8 +175,8 @@ public abstract class ExternalCatalog
     protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
     private transient ReentrantReadWriteLock constraintMetadataLock = new ReentrantReadWriteLock(true);
-    private transient long constraintMetadataSequence;
-    private transient int activeConstraintMetadataMutations;
+    private transient AtomicLong constraintMetadataSequence = new AtomicLong();
+    private transient AtomicInteger activeConstraintMetadataMutations = new AtomicInteger();
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
@@ -193,12 +196,7 @@ public abstract class ExternalCatalog
      * Returns a stable baseline for constraint analysis without loading connector metadata.
      */
     public final long snapshotConstraintMetadata() {
-        constraintMetadataLock.readLock().lock();
-        try {
-            return constraintMetadataSequence;
-        } finally {
-            constraintMetadataLock.readLock().unlock();
-        }
+        return constraintMetadataSequence.get();
     }
 
     /**
@@ -206,9 +204,20 @@ public abstract class ExternalCatalog
      */
     public final ConstraintMetadataReadGuard lockConstraintMetadata(long expectedSequence)
             throws DdlException {
-        constraintMetadataLock.readLock().lock();
-        if (activeConstraintMetadataMutations != 0
-                || constraintMetadataSequence != expectedSequence) {
+        try {
+            if (!constraintMetadataLock.readLock().tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new DdlException(
+                        "Failed to lock external catalog metadata while altering constraints on "
+                                + name + ". Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DdlException(
+                    "Interrupted while locking external catalog metadata for " + name, e);
+        }
+        if (activeConstraintMetadataMutations.get() != 0
+                || constraintMetadataSequence.get() != expectedSequence) {
             constraintMetadataLock.readLock().unlock();
             throw new DdlException("External catalog metadata changed while altering constraints on "
                     + name + ", retry the statement");
@@ -220,10 +229,22 @@ public abstract class ExternalCatalog
      * Marks a metadata mutation before its remote operation starts and until its local publication completes.
      */
     public final ConstraintMetadataMutationGuard beginConstraintMetadataMutation() {
-        constraintMetadataLock.writeLock().lock();
         try {
-            activeConstraintMetadataMutations++;
-            constraintMetadataSequence++;
+            if (!constraintMetadataLock.writeLock().tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException(
+                        "Failed to lock external catalog metadata for mutation on "
+                                + name + ". Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while locking external catalog metadata for mutation on " + name,
+                    e);
+        }
+        try {
+            activeConstraintMetadataMutations.incrementAndGet();
+            constraintMetadataSequence.incrementAndGet();
         } finally {
             constraintMetadataLock.writeLock().unlock();
         }
@@ -253,16 +274,12 @@ public abstract class ExternalCatalog
         @Override
         public void close() {
             Preconditions.checkState(!closed, "constraint metadata mutation guard is already closed");
-            constraintMetadataLock.writeLock().lock();
-            try {
-                Preconditions.checkState(activeConstraintMetadataMutations > 0,
-                        "constraint metadata mutation count must be positive");
-                constraintMetadataSequence++;
-                activeConstraintMetadataMutations--;
-                closed = true;
-            } finally {
-                constraintMetadataLock.writeLock().unlock();
-            }
+            // Publish the sequence first so readers cannot observe an inactive mutation with a stale sequence.
+            constraintMetadataSequence.incrementAndGet();
+            int remainingMutations = activeConstraintMetadataMutations.decrementAndGet();
+            Preconditions.checkState(remainingMutations >= 0,
+                    "constraint metadata mutation count must not be negative");
+            closed = true;
         }
     }
 
@@ -1212,8 +1229,8 @@ public abstract class ExternalCatalog
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
         this.constraintMetadataLock = new ReentrantReadWriteLock(true);
-        this.constraintMetadataSequence = 0;
-        this.activeConstraintMetadataMutations = 0;
+        this.constraintMetadataSequence = new AtomicLong();
+        this.activeConstraintMetadataMutations = new AtomicInteger();
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
