@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -29,21 +30,30 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**ShuffleKeyPruneUtils*/
 public class ShuffleKeyPruneUtils {
     public static final double shuffleKeyHotValueThreshold = 0.05;
+    private static final double SHUFFLE_BUCKET_SKEW_MULTIPLIER = 10;
+    // Analyze stores hot-value ratios with ROUND(..., 2), so the true ratio can be up to 0.005 higher.
+    private static final double HOT_VALUE_RATIO_ROUNDING_ERROR = 0.005;
 
     private static Optional<List<Expression>> toOptionalIfChanged(
             List<? extends Expression> originalKeys, List<Expression> optimizedKeys) {
@@ -62,30 +72,232 @@ public class ShuffleKeyPruneUtils {
     }
 
     /**
+     * Merge transitive overlaps in a hash spec's equivalence sets. Hash-join property derivation can
+     * produce sets such as {a, x} and {b, x}; they represent one independent shuffle dimension.
+     * The result keeps the first ordered position of every merged dimension.
+     */
+    public static List<Set<ExprId>> getIndependentShuffleDimensions(DistributionSpecHash hashSpec) {
+        List<Set<ExprId>> dimensions = new ArrayList<>();
+        for (Set<ExprId> equivalenceSet : hashSpec.getEquivalenceExprIds()) {
+            int firstOverlappingDimension = -1;
+            for (int i = 0; i < dimensions.size(); i++) {
+                Set<ExprId> dimension = dimensions.get(i);
+                if (Collections.disjoint(dimension, equivalenceSet)) {
+                    continue;
+                }
+                if (firstOverlappingDimension < 0) {
+                    firstOverlappingDimension = i;
+                    dimension.addAll(equivalenceSet);
+                } else {
+                    dimensions.get(firstOverlappingDimension).addAll(dimension);
+                    dimensions.remove(i--);
+                }
+            }
+            if (firstOverlappingDimension < 0) {
+                dimensions.add(new HashSet<>(equivalenceSet));
+            }
+        }
+        return dimensions;
+    }
+
+    /**
+     * Whether any shuffle key has a hot value or hot null bucket. Without joint statistics, another key's
+     * global NDV cannot prove that the hot rows are distributed across different combined-key values.
+     */
+    static boolean hasPotentialSkewOnShuffleKeys(
+            List<Expression> shuffleKeys, Statistics inputStatistics, int instanceNum) {
+        double rowCount = inputStatistics.getRowCount();
+        for (Expression shuffleKey : distinctShuffleKeys(shuffleKeys)) {
+            ColumnStatistic columnStatistic = findColumnStatistic(shuffleKey, inputStatistics);
+            if (hasPotentialSkew(columnStatistic, rowCount, instanceNum)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether configured hot values or an instance-hot NULL bucket prove one-phase aggregate skew. */
+    static boolean hasKnownSkewForOnePhaseAgg(
+            List<Expression> shuffleKeys, Statistics inputStatistics, int instanceNum) {
+        List<Expression> uniqueShuffleKeys = distinctShuffleKeys(shuffleKeys);
+        List<ColumnStatistic> columnStatistics = new ArrayList<>(uniqueShuffleKeys.size());
+        for (Expression shuffleKey : uniqueShuffleKeys) {
+            ColumnStatistic columnStatistic = findColumnStatistic(shuffleKey, inputStatistics);
+            if (columnStatistic == null || columnStatistic.isUnKnown) {
+                return false;
+            }
+            columnStatistics.add(columnStatistic);
+        }
+
+        double rowCount = inputStatistics.getRowCount();
+        for (int i = 0; i < uniqueShuffleKeys.size(); i++) {
+            List<Expression> otherShuffleKeys = new ArrayList<>(uniqueShuffleKeys);
+            otherShuffleKeys.remove(i);
+            double maxOtherCombinationCount = maxDistinctCombinationCount(
+                    otherShuffleKeys, inputStatistics);
+            ColumnStatistic columnStatistic = columnStatistics.get(i);
+            if (hasConfiguredKnownHotValue(columnStatistic, maxOtherCombinationCount)) {
+                return true;
+            }
+            double dispersion = Math.max(1, maxOtherCombinationCount);
+            if (columnStatistic.numNulls > 0
+                    && isHotShuffleBucket(columnStatistic.numNulls / rowCount / dispersion, instanceNum)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Upper bound of combinations from marginal NDVs; a nullable column can add one more hash value. */
+    private static double maxDistinctCombinationCount(
+            List<Expression> expressions, Statistics inputStatistics) {
+        double maxCombinationCount = 1;
+        for (Expression expression : expressions) {
+            ColumnStatistic columnStatistic = findColumnStatistic(expression, inputStatistics);
+            double distinctValueCount = columnStatistic.ndv + (columnStatistic.numNulls > 0 ? 1 : 0);
+            maxCombinationCount *= Math.max(1, distinctValueCount);
+            if (maxCombinationCount >= inputStatistics.getRowCount()) {
+                return inputStatistics.getRowCount();
+            }
+        }
+        return maxCombinationCount;
+    }
+
+    /** Whether the keys are safe to reuse as a reduced shuffle key set. */
+    public static boolean isSafeForShuffleKeyReuse(
+            List<Expression> shuffleKeys, Statistics inputStatistics, int instanceNum) {
+        List<Expression> uniqueShuffleKeys = distinctShuffleKeys(shuffleKeys);
+        List<List<Expression>> shuffleDimensions = new ArrayList<>(uniqueShuffleKeys.size());
+        for (Expression shuffleKey : uniqueShuffleKeys) {
+            shuffleDimensions.add(ImmutableList.of(shuffleKey));
+        }
+        return isSafeForShuffleDimensions(shuffleDimensions, inputStatistics, instanceNum);
+    }
+
+    /**
+     * Whether independent shuffle dimensions are safe to reuse. Every inner list contains output
+     * expressions that are known to be equal. Consume all available member statistics conservatively,
+     * while counting the dimension only once in the combined-NDV estimate.
+     */
+    public static boolean isSafeForShuffleDimensions(
+            List<? extends List<? extends Expression>> shuffleDimensions,
+            Statistics inputStatistics, int instanceNum) {
+        if (shuffleDimensions.isEmpty()) {
+            return false;
+        }
+
+        StatisticsBuilder conservativeStatistics = new StatisticsBuilder(inputStatistics);
+        List<Expression> representatives = new ArrayList<>(shuffleDimensions.size());
+        double rowCount = inputStatistics.getRowCount();
+        for (List<? extends Expression> shuffleDimension : shuffleDimensions) {
+            List<Expression> members = distinctShuffleKeys(shuffleDimension);
+            Expression representative = members.get(0);
+            ColumnStatistic representativeStatistic = findColumnStatistic(representative, inputStatistics);
+            if (hasPotentialSkew(representativeStatistic, rowCount, instanceNum)) {
+                return false;
+            }
+            double minNdv = representativeStatistic.ndv;
+            for (int i = 1; i < members.size(); i++) {
+                ColumnStatistic memberStatistic = findColumnStatistic(members.get(i), inputStatistics);
+                if (hasPotentialSkew(memberStatistic, rowCount, instanceNum)) {
+                    return false;
+                }
+                minNdv = Math.min(minNdv, memberStatistic.ndv);
+            }
+            conservativeStatistics.putColumnStatistics(representative,
+                    new ColumnStatisticBuilder(representativeStatistic).setNdv(minNdv).build());
+            representatives.add(representative);
+        }
+
+        double combinedNdv = StatsCalculator.estimateGroupByRowCount(
+                representatives, conservativeStatistics.build());
+        return combinedNdv > getBalancedNdvThreshold(instanceNum);
+    }
+
+    private static List<Expression> distinctShuffleKeys(List<? extends Expression> shuffleKeys) {
+        return new ArrayList<>(new LinkedHashSet<>(shuffleKeys));
+    }
+
+    private static boolean hasConfiguredKnownHotValue(
+            ColumnStatistic columnStatistic, double maxOtherCombinationCount) {
+        if (maxOtherCombinationCount > AggregateUtils.LOW_NDV_THRESHOLD
+                || columnStatistic.getHotValues() == null) {
+            return false;
+        }
+        double hotValueThreshold = SessionVariable.getHotValueThreshold();
+        double skewValueThreshold = SessionVariable.getSkewValueThreshold();
+        for (double collectedRatio : columnStatistic.getHotValues().values()) {
+            double ratioLowerBound = Math.max(0, collectedRatio - HOT_VALUE_RATIO_ROUNDING_ERROR);
+            if (ratioLowerBound >= hotValueThreshold
+                    || ratioLowerBound * Math.max(1, columnStatistic.ndv) >= skewValueThreshold) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ColumnStatistic findColumnStatistic(Expression expression, Statistics inputStatistics) {
+        ColumnStatistic columnStatistic = inputStatistics.findColumnStatistics(expression);
+        return columnStatistic == null
+                ? ExpressionEstimation.estimate(expression, inputStatistics)
+                : columnStatistic;
+    }
+
+    private static boolean hasPotentialSkew(
+            ColumnStatistic columnStatistic, double rowCount, int instanceNum) {
+        if (columnStatistic == null || columnStatistic.isUnKnown
+                || columnStatistic.getHotValues() == null) {
+            return true;
+        }
+        if (columnStatistic.numNulls > 0
+                && isHotShuffleBucket(columnStatistic.numNulls / rowCount, instanceNum)) {
+            return true;
+        }
+        return columnStatistic.getHotValues().values().stream()
+                .anyMatch(ratio -> isPotentialCollectedHotValueBucket(ratio, 1, instanceNum));
+    }
+
+    private static boolean isHotShuffleBucket(double ratio, int instanceNum) {
+        return ratio >= shuffleKeyHotValueThreshold
+                || ratio * instanceNum >= SHUFFLE_BUCKET_SKEW_MULTIPLIER;
+    }
+
+    private static boolean isPotentialCollectedHotValueBucket(
+            double collectedRatio, double dispersion, int instanceNum) {
+        double ratioUpperBound = Math.min(1, collectedRatio + HOT_VALUE_RATIO_ROUNDING_ERROR);
+        return isHotShuffleBucket(ratioUpperBound / dispersion, instanceNum);
+    }
+
+    private static long getBalancedNdvThreshold(int instanceNum) {
+        return Math.max(AggregateUtils.LOW_NDV_THRESHOLD,
+                (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER);
+    }
+
+    /**
      * Scenario 4: When partition expressions are set by rule, optionally reduce shuffle keys.
-     * Strategy: 1) Try single key (isBalanced); 2) Try numeric+date keys (remove strings);
+     * Strategy: 1) Try a safe single key; 2) Try a safe numeric+date key set (remove strings);
      * 3) Fall back to full partitionExprs.
      * Returns the list of expressions to use as shuffle keys, or empty to use full partitionExprs.
      */
     public static Optional<List<Expression>> selectBestShuffleKeyForAgg(
             PhysicalHashAggregate<? extends Plan> agg, List<Expression> partitionExprs, Statistics childStats,
             ConnectContext context) {
-        double rowCount = childStats.getRowCount();
-        int instanceNum = context.getTotalInstanceNum();
-        return selectOptimalShuffleKeys(partitionExprs, childStats, rowCount, instanceNum);
+        int instanceNum = AggregateUtils.estimateExecutionInstanceNum(context);
+        return selectOptimalShuffleKeys(partitionExprs, childStats, instanceNum);
     }
 
     /**
      * Select optimal shuffle keys with three-step strategy:
-     * 1. Try single key: sort by type (numeric/date first, string sorted by avg_size), pick first isBalanced key.
-     * 2. Try remove strings: filter numeric+date keys, if combinedNDV > instanceNum*512 return that list.
+     * 1. Try single key: sort by type (numeric/date first, string sorted by avg_size), pick the first safe key.
+     * 2. Try remove strings: use numeric+date keys when that reduced set is safe.
      * 3. Fall back: return empty (caller uses full partitionExprs).
      */
     private static Optional<List<Expression>> selectOptimalShuffleKeys(List<Expression> partitionExprs,
-            Statistics childStats, double rowCount, int instanceNum) {
+            Statistics childStats, int instanceNum) {
         List<SlotReference> slotRefs = partitionExprs.stream()
                 .filter(SlotReference.class::isInstance)
                 .map(SlotReference.class::cast)
+                .distinct()
                 .collect(Collectors.toList());
         if (slotRefs.isEmpty()) {
             return Optional.empty();
@@ -101,25 +313,22 @@ public class ShuffleKeyPruneUtils {
             }
         }
 
-        // Step 1: Try single key - sort by type priority, pick first isBalanced
+        // Step 1: Try single key - sort by type priority, pick the first safe key.
         List<SlotReference> sortedByType = sortShuffleKeysByTypePriority(slotRefs, childStats);
         for (SlotReference slotRef : sortedByType) {
-            ColumnStatistic colStats = childStats.findColumnStatistics(slotRef);
-            if (StatisticsUtil.isBalanced(colStats, instanceNum, shuffleKeyHotValueThreshold, rowCount)) {
-                return toOptionalIfChanged(partitionExprs, ImmutableList.of(slotRef));
+            List<Expression> candidate = ImmutableList.of(slotRef);
+            if (isSafeForShuffleKeyReuse(candidate, childStats, instanceNum)) {
+                return toOptionalIfChanged(partitionExprs, candidate);
             }
         }
 
-        // Step 2: Try remove string types - filter numeric+date, check combined NDV
+        // Step 2: Try remove string types when the remaining key set is safe.
         List<Expression> numericAndDateExprs = slotRefs.stream()
                 .filter(s -> s.getDataType().isNumericType() || s.getDataType().isDateLikeType())
                 .collect(Collectors.toList());
-        if (!numericAndDateExprs.isEmpty()) {
-            double combinedNdv = StatsCalculator.estimateGroupByRowCount(numericAndDateExprs, childStats);
-            long ndvThreshold = (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
-            if (combinedNdv > ndvThreshold) {
-                return toOptionalIfChanged(partitionExprs, ImmutableList.copyOf(numericAndDateExprs));
-            }
+        if (!numericAndDateExprs.isEmpty()
+                && isSafeForShuffleKeyReuse(numericAndDateExprs, childStats, instanceNum)) {
+            return toOptionalIfChanged(partitionExprs, ImmutableList.copyOf(numericAndDateExprs));
         }
 
         // Step 3: Fall back - return empty, caller uses full partitionExprs
@@ -179,17 +388,14 @@ public class ShuffleKeyPruneUtils {
         if (leftOrderedShuffledColumnId.size() != rightOrderedShuffledColumnId.size()) {
             return Optional.empty();
         }
-        double leftRows = leftStats.getRowCount();
-        double rightRows = rightStats.getRowCount();
-        int instanceNum = context.getTotalInstanceNum();
+        int instanceNum = AggregateUtils.estimateExecutionInstanceNum(context);
         List<Pair<Slot, Slot>> validPairs = new ArrayList<>();
         for (int i = 0; i < leftOrderedShuffledColumns.size(); ++i) {
             validPairs.add(Pair.of(leftOrderedShuffledColumns.get(i), rightOrderedShuffledColumns.get(i)));
         }
         return selectOptimalJoinShuffleKeysFromPairs(validPairs,
                 Pair.of(leftOrderedShuffledColumnId, rightOrderedShuffledColumnId),
-                leftStats, rightStats, leftRows, rightRows,
-                instanceNum);
+                leftStats, rightStats, instanceNum);
     }
 
     /**
@@ -198,8 +404,7 @@ public class ShuffleKeyPruneUtils {
     private static Optional<Pair<List<ExprId>, List<ExprId>>> selectOptimalJoinShuffleKeysFromPairs(
             List<Pair<Slot, Slot>> validPairs,
             Pair<List<ExprId>, List<ExprId>> baselineForChange,
-            Statistics leftStats, Statistics rightStats,
-            double leftRows, double rightRows, int instanceNum) {
+            Statistics leftStats, Statistics rightStats, int instanceNum) {
         for (Pair<Slot, Slot> pair : validPairs) {
             ColumnStatistic firstStats = leftStats.findColumnStatistics(pair.first);
             ColumnStatistic secondStats = rightStats.findColumnStatistics(pair.second);
@@ -209,23 +414,21 @@ public class ShuffleKeyPruneUtils {
             }
         }
 
-        // Step 1: Try single key - sort by type, pick first where both isBalanced
+        // Step 1: Try single key - sort by type, pick the first safe pair.
         List<Pair<Slot, Slot>> sortedPairs =
                 sortJoinKeyPairsByTypePriority(validPairs, leftStats, rightStats);
         for (Pair<Slot, Slot> pair : sortedPairs) {
             Slot leftSlotRef = pair.first;
             Slot rightSlotRef = pair.second;
-            ColumnStatistic leftColStats = leftStats.findColumnStatistics(leftSlotRef);
-            ColumnStatistic rightColStats = rightStats.findColumnStatistics(rightSlotRef);
-            if (StatisticsUtil.isBalanced(leftColStats, instanceNum, shuffleKeyHotValueThreshold, leftRows)
-                    && StatisticsUtil.isBalanced(rightColStats, instanceNum, shuffleKeyHotValueThreshold, rightRows)) {
+            if (isSafeForShuffleKeyReuse(ImmutableList.of(leftSlotRef), leftStats, instanceNum)
+                    && isSafeForShuffleKeyReuse(ImmutableList.of(rightSlotRef), rightStats, instanceNum)) {
                 return toOptionalIfChanged(baselineForChange, Pair.of(
                         ImmutableList.of(leftSlotRef.getExprId()),
                         ImmutableList.of(rightSlotRef.getExprId())));
             }
         }
 
-        // Step 2: Try remove string types - filter numeric+date pairs, check combined NDV
+        // Step 2: Try remove string types when both remaining key sets are safe.
         List<Slot> numericDateLeftSlots = new ArrayList<>();
         List<Slot> numericDateRightSlots = new ArrayList<>();
         for (Pair<Slot, Slot> pair : validPairs) {
@@ -235,21 +438,17 @@ public class ShuffleKeyPruneUtils {
                 numericDateRightSlots.add(pair.second);
             }
         }
-        if (!numericDateLeftSlots.isEmpty()) {
-            double leftCombinedNdv = StatsCalculator.estimateGroupByRowCount(
-                    new ArrayList<>(numericDateLeftSlots), leftStats);
-            double rightCombinedNdv = StatsCalculator.estimateGroupByRowCount(
-                    new ArrayList<>(numericDateRightSlots), rightStats);
-            long ndvThreshold = (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
-            if (leftCombinedNdv > ndvThreshold && rightCombinedNdv > ndvThreshold) {
-                List<ExprId> leftIds = numericDateLeftSlots.stream()
-                        .map(Slot::getExprId)
-                        .collect(Collectors.toList());
-                List<ExprId> rightIds = numericDateRightSlots.stream()
-                        .map(Slot::getExprId)
-                        .collect(Collectors.toList());
-                return toOptionalIfChanged(baselineForChange, Pair.of(leftIds, rightIds));
-            }
+        if (!numericDateLeftSlots.isEmpty()
+                && isSafeForShuffleKeyReuse(new ArrayList<Expression>(numericDateLeftSlots), leftStats, instanceNum)
+                && isSafeForShuffleKeyReuse(
+                        new ArrayList<Expression>(numericDateRightSlots), rightStats, instanceNum)) {
+            List<ExprId> leftIds = numericDateLeftSlots.stream()
+                    .map(Slot::getExprId)
+                    .collect(Collectors.toList());
+            List<ExprId> rightIds = numericDateRightSlots.stream()
+                    .map(Slot::getExprId)
+                    .collect(Collectors.toList());
+            return toOptionalIfChanged(baselineForChange, Pair.of(leftIds, rightIds));
         }
 
         // Step 3: Fall back

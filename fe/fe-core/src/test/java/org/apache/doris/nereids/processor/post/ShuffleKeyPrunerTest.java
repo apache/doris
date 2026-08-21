@@ -19,14 +19,19 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -35,15 +40,21 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Optional;
 
@@ -118,6 +129,337 @@ class ShuffleKeyPrunerTest extends TestWithFeService {
 
         Assertions.assertEquals(keySizeOff, keySizeOn);
         Assertions.assertEquals(1, keySizeOn);
+    }
+
+    @Test
+    void testGlobalAggPostProcessorUsesExchangeInputStatisticsForSafety() {
+        SlotReference stringKey = new SlotReference(new ExprId(10), "string_key",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference hotKey = new SlotReference(new ExprId(11), "hot_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Statistics scanStats = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.001f))
+                        .build())
+                .build();
+        Statistics localAggStats = new StatisticsBuilder()
+                .setRowCount(2_000_000)
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(2_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(2_000_000)
+                        .setNdv(2_000_000)
+                        .build())
+                .build();
+        PhysicalEmptyRelation relation = (PhysicalEmptyRelation) new PhysicalEmptyRelation(
+                connectContext.getStatementContext().getNextRelationId(),
+                ImmutableList.of(stringKey, hotKey), null)
+                .withPhysicalPropertiesAndStats(PhysicalProperties.ANY, scanStats);
+        PhysicalHashAggregate<PhysicalEmptyRelation> localAgg = new PhysicalHashAggregate<>(
+                ImmutableList.of(stringKey, hotKey),
+                ImmutableList.of(stringKey, hotKey),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
+                true, null, false, relation);
+        localAgg = localAgg.withPhysicalPropertiesAndStats(PhysicalProperties.ANY, localAggStats);
+        DistributionSpecHash hashSpec = new DistributionSpecHash(
+                ImmutableList.of(stringKey.getExprId(), hotKey.getExprId()),
+                DistributionSpecHash.ShuffleType.EXECUTION_BUCKETED);
+        PhysicalDistribute<PhysicalHashAggregate<PhysicalEmptyRelation>> distribute = new PhysicalDistribute<>(
+                hashSpec, Optional.empty(), localAgg.getLogicalProperties(),
+                PhysicalProperties.createHash(hashSpec), localAggStats, localAgg);
+        PhysicalHashAggregate<PhysicalDistribute<PhysicalHashAggregate<PhysicalEmptyRelation>>> globalAgg =
+                new PhysicalHashAggregate<>(
+                        ImmutableList.of(stringKey, hotKey),
+                        ImmutableList.of(stringKey, hotKey),
+                        new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        true, null, false, distribute);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+
+        int previousBeNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int previousParallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        boolean previousEnableShuffleKeyPrune = connectContext.getSessionVariable().enableShuffleKeyPrune;
+        connectContext.getSessionVariable().setBeNumberForTest(3);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
+        try {
+            Plan output = new ShuffleKeyPruner().processRoot(globalAgg, cascadesContext);
+
+            Assertions.assertInstanceOf(PhysicalHashAggregate.class, output);
+            Assertions.assertInstanceOf(PhysicalDistribute.class, output.child(0));
+            DistributionSpecHash outputSpec = (DistributionSpecHash) ((PhysicalDistribute<?>) output.child(0))
+                    .getDistributionSpec();
+            Assertions.assertEquals(hashSpec.getOrderedShuffledColumns(), outputSpec.getOrderedShuffledColumns());
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(previousBeNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = previousParallelPipelineTaskNum;
+            connectContext.getSessionVariable().enableShuffleKeyPrune = previousEnableShuffleKeyPrune;
+        }
+    }
+
+    @Test
+    void testGlobalAggPostProcessorKeepsPlanWithoutExchangeStatistics() {
+        SlotReference stringKey = new SlotReference(new ExprId(12), "string_key",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference numericKey = new SlotReference(new ExprId(13), "numeric_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Statistics scanStats = shufflePrunableStats(stringKey, numericKey);
+        PhysicalEmptyRelation relation = (PhysicalEmptyRelation) new PhysicalEmptyRelation(
+                connectContext.getStatementContext().getNextRelationId(),
+                ImmutableList.of(stringKey, numericKey), null)
+                .withPhysicalPropertiesAndStats(PhysicalProperties.ANY, scanStats);
+        PhysicalHashAggregate<PhysicalEmptyRelation> localAgg = new PhysicalHashAggregate<>(
+                ImmutableList.of(stringKey, numericKey),
+                ImmutableList.of(stringKey, numericKey),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
+                true, null, false, relation);
+        DistributionSpecHash hashSpec = new DistributionSpecHash(
+                ImmutableList.of(stringKey.getExprId(), numericKey.getExprId()),
+                DistributionSpecHash.ShuffleType.EXECUTION_BUCKETED);
+        PhysicalDistribute<PhysicalHashAggregate<PhysicalEmptyRelation>> distribute = new PhysicalDistribute<>(
+                hashSpec, Optional.empty(), localAgg.getLogicalProperties(),
+                PhysicalProperties.createHash(hashSpec), null, localAgg);
+        PhysicalHashAggregate<PhysicalDistribute<PhysicalHashAggregate<PhysicalEmptyRelation>>> globalAgg =
+                new PhysicalHashAggregate<>(
+                        ImmutableList.of(stringKey, numericKey),
+                        ImmutableList.of(stringKey, numericKey),
+                        new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        true, null, false, distribute);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+
+        boolean previousEnableShuffleKeyPrune = connectContext.getSessionVariable().enableShuffleKeyPrune;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
+        try {
+            Plan output = new ShuffleKeyPruner().processRoot(globalAgg, cascadesContext);
+
+            Assertions.assertInstanceOf(PhysicalHashAggregate.class, output);
+            Assertions.assertInstanceOf(PhysicalDistribute.class, output.child(0));
+            PhysicalDistribute<?> outputDistribute = (PhysicalDistribute<?>) output.child(0);
+            Assertions.assertNull(outputDistribute.getStats());
+            Assertions.assertEquals(hashSpec.getOrderedShuffledColumns(),
+                    ((DistributionSpecHash) outputDistribute.getDistributionSpec()).getOrderedShuffledColumns());
+        } finally {
+            connectContext.getSessionVariable().enableShuffleKeyPrune = previousEnableShuffleKeyPrune;
+        }
+    }
+
+    @Test
+    void testGlobalAggPostProcessorKeepsExchangeEnforcedOverEquivalentSubset() {
+        SlotReference key1 = new SlotReference(new ExprId(30), "key1",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference key2 = new SlotReference(new ExprId(31), "key2",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference key3 = new SlotReference(new ExprId(32), "key3",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference joinKey = new SlotReference(new ExprId(33), "join_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Plan globalAgg = globalAggBranchWithEquivalentSubset(key1, key2, key3, joinKey);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+
+        int previousBeNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int previousParallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        boolean previousEnableShuffleKeyPrune = connectContext.getSessionVariable().enableShuffleKeyPrune;
+        connectContext.getSessionVariable().setBeNumberForTest(3);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
+        try {
+            Plan output = new ShuffleKeyPruner().processRoot(globalAgg, cascadesContext);
+
+            Assertions.assertInstanceOf(PhysicalHashAggregate.class, output);
+            Assertions.assertInstanceOf(PhysicalDistribute.class, output.child(0));
+            DistributionSpecHash outputSpec = (DistributionSpecHash) ((PhysicalDistribute<?>) output.child(0))
+                    .getDistributionSpec();
+            Assertions.assertEquals(ImmutableList.of(key1.getExprId(), key2.getExprId(), key3.getExprId()),
+                    outputSpec.getOrderedShuffledColumns());
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(previousBeNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = previousParallelPipelineTaskNum;
+            connectContext.getSessionVariable().enableShuffleKeyPrune = previousEnableShuffleKeyPrune;
+        }
+    }
+
+    @Test
+    void testShuffleJoinKeepsGlobalAggExchangesEnforcedOverEquivalentSubsets() {
+        SlotReference leftKey1 = new SlotReference(new ExprId(40), "left_key1",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference leftKey2 = new SlotReference(new ExprId(41), "left_key2",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference leftKey3 = new SlotReference(new ExprId(42), "left_key3",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference leftJoinKey = new SlotReference(new ExprId(43), "left_join_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference rightKey1 = new SlotReference(new ExprId(44), "right_key1",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference rightKey2 = new SlotReference(new ExprId(45), "right_key2",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference rightKey3 = new SlotReference(new ExprId(46), "right_key3",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference rightJoinKey = new SlotReference(new ExprId(47), "right_join_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Plan left = globalAggBranchWithEquivalentSubset(leftKey1, leftKey2, leftKey3, leftJoinKey);
+        Plan right = globalAggBranchWithEquivalentSubset(rightKey1, rightKey2, rightKey3, rightJoinKey);
+        PhysicalHashJoin<Plan, Plan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(
+                        new EqualTo(leftKey1, rightKey1),
+                        new EqualTo(leftKey2, rightKey2),
+                        new EqualTo(leftKey3, rightKey3)),
+                ImmutableList.of(), new DistributeHint(DistributeType.NONE), Optional.empty(), null, left, right);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+
+        int previousBeNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int previousParallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        boolean previousEnableShuffleKeyPrune = connectContext.getSessionVariable().enableShuffleKeyPrune;
+        connectContext.getSessionVariable().setBeNumberForTest(3);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
+        try {
+            Plan output = new ShuffleKeyPruner().processRoot(join, cascadesContext);
+
+            Assertions.assertInstanceOf(PhysicalHashJoin.class, output);
+            PhysicalHashJoin<?, ?> outputJoin = (PhysicalHashJoin<?, ?>) output;
+            Assertions.assertEquals(3,
+                    getHashSpecFromJoinChild(outputJoin.left()).getOrderedShuffledColumns().size());
+            Assertions.assertEquals(3,
+                    getHashSpecFromJoinChild(outputJoin.right()).getOrderedShuffledColumns().size());
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(previousBeNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = previousParallelPipelineTaskNum;
+            connectContext.getSessionVariable().enableShuffleKeyPrune = previousEnableShuffleKeyPrune;
+        }
+    }
+
+    @Test
+    void testShuffleJoinUsesGlobalAggExchangeInputStatisticsForSafety() {
+        SlotReference leftString = new SlotReference(new ExprId(20), "left_string",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference leftHot = new SlotReference(new ExprId(21), "left_hot",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference rightString = new SlotReference(new ExprId(22), "right_string",
+                new VarcharType(64), true, ImmutableList.of());
+        SlotReference rightHot = new SlotReference(new ExprId(23), "right_hot",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Statistics leftScanStats = shufflePrunableStats(leftString, leftHot);
+        Statistics rightScanStats = shufflePrunableStats(rightString, rightHot);
+        Statistics leftExchangeStats = localAggOutputStats(leftString, leftHot);
+        Statistics rightExchangeStats = localAggOutputStats(rightString, rightHot);
+        Plan left = globalAggBranch(leftString, leftHot, leftScanStats, leftExchangeStats);
+        Plan right = globalAggBranch(rightString, rightHot, rightScanStats, rightExchangeStats);
+        PhysicalHashJoin<Plan, Plan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(leftString, rightString), new EqualTo(leftHot, rightHot)),
+                ImmutableList.of(), new DistributeHint(DistributeType.NONE), Optional.empty(), null, left, right);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+
+        Plan output = new ShuffleKeyPruner().processRoot(join, cascadesContext);
+
+        Assertions.assertInstanceOf(PhysicalHashJoin.class, output);
+        PhysicalHashJoin<?, ?> outputJoin = (PhysicalHashJoin<?, ?>) output;
+        Assertions.assertEquals(2, getHashSpecFromJoinChild(outputJoin.left()).getOrderedShuffledColumns().size());
+        Assertions.assertEquals(2, getHashSpecFromJoinChild(outputJoin.right()).getOrderedShuffledColumns().size());
+    }
+
+    private Statistics shufflePrunableStats(SlotReference stringKey, SlotReference hotKey) {
+        return new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.001f))
+                        .build())
+                .build();
+    }
+
+    private Statistics localAggOutputStats(SlotReference stringKey, SlotReference hotKey) {
+        return new StatisticsBuilder()
+                .setRowCount(2_000_000)
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(2_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(2_000_000)
+                        .setNdv(2_000_000)
+                        .build())
+                .build();
+    }
+
+    private Plan globalAggBranch(SlotReference stringKey, SlotReference hotKey,
+            Statistics scanStats, Statistics exchangeStats) {
+        PhysicalEmptyRelation relation = (PhysicalEmptyRelation) new PhysicalEmptyRelation(
+                connectContext.getStatementContext().getNextRelationId(),
+                ImmutableList.of(stringKey, hotKey), null)
+                .withPhysicalPropertiesAndStats(PhysicalProperties.ANY, scanStats);
+        PhysicalHashAggregate<PhysicalEmptyRelation> localAgg = new PhysicalHashAggregate<>(
+                ImmutableList.of(stringKey, hotKey), ImmutableList.of(stringKey, hotKey),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
+                true, null, false, relation);
+        localAgg = localAgg.withPhysicalPropertiesAndStats(PhysicalProperties.ANY, exchangeStats);
+        DistributionSpecHash hashSpec = new DistributionSpecHash(
+                ImmutableList.of(stringKey.getExprId(), hotKey.getExprId()),
+                DistributionSpecHash.ShuffleType.EXECUTION_BUCKETED);
+        PhysicalDistribute<PhysicalHashAggregate<PhysicalEmptyRelation>> distribute = new PhysicalDistribute<>(
+                hashSpec, Optional.empty(), localAgg.getLogicalProperties(),
+                PhysicalProperties.createHash(hashSpec), exchangeStats, localAgg);
+        return new PhysicalHashAggregate<>(
+                ImmutableList.of(stringKey, hotKey), ImmutableList.of(stringKey, hotKey),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true, null, false, distribute);
+    }
+
+    private Plan globalAggBranchWithEquivalentSubset(
+            SlotReference key1, SlotReference key2, SlotReference key3, SlotReference joinKey) {
+        Statistics inputStatistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(key1, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.001f))
+                        .build())
+                .putColumnStatistics(key2, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(100)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.001f))
+                        .build())
+                .putColumnStatistics(key3, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(joinKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(100)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.001f))
+                        .build())
+                .build();
+        DistributionSpecHash inputHashSpec = new DistributionSpecHash(
+                ImmutableList.of(key1.getExprId(), key2.getExprId()),
+                DistributionSpecHash.ShuffleType.NATURAL, -1L, ImmutableSet.of(),
+                ImmutableList.of(
+                        ImmutableSet.of(key1.getExprId(), joinKey.getExprId()),
+                        ImmutableSet.of(key2.getExprId(), joinKey.getExprId())),
+                ImmutableMap.of(key1.getExprId(), 0, key2.getExprId(), 1, joinKey.getExprId(), 1));
+        PhysicalEmptyRelation relation = (PhysicalEmptyRelation) new PhysicalEmptyRelation(
+                connectContext.getStatementContext().getNextRelationId(),
+                ImmutableList.of(key1, key2, key3, joinKey), null)
+                .withPhysicalPropertiesAndStats(PhysicalProperties.createHash(inputHashSpec), inputStatistics);
+        DistributionSpecHash enforcedHashSpec = new DistributionSpecHash(
+                ImmutableList.of(key1.getExprId(), key2.getExprId(), key3.getExprId()),
+                DistributionSpecHash.ShuffleType.EXECUTION_BUCKETED);
+        PhysicalDistribute<PhysicalEmptyRelation> distribute = new PhysicalDistribute<>(
+                enforcedHashSpec, Optional.empty(), relation.getLogicalProperties(),
+                PhysicalProperties.createHash(enforcedHashSpec), inputStatistics, relation);
+        return new PhysicalHashAggregate<>(
+                ImmutableList.of(key1, key2, key3), ImmutableList.of(key1, key2, key3),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true, null, false, distribute);
     }
 
     private int[] extractJoinShuffleKeySizes(String sql, boolean enablePrune) {
