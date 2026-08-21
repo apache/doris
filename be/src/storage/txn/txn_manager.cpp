@@ -360,7 +360,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                       << ", tablet: " << tablet_info.to_string()
                       << ", rowset_id: " << load_info->rowset->rowset_id();
             // Should not remove this rowset from pending rowsets
-            load_info->pending_rs_guard = std::move(guard);
+            if (!load_info->pending_rs_guard.is_initialized()) {
+                load_info->pending_rs_guard = std::move(guard);
+            } else if (guard.is_initialized() &&
+                       load_info->pending_rs_guard.belongs_to_same_set(guard)) {
+                // Moving a duplicate guard from the same set disarms it without removing the
+                // rowset id. A guard from another set belongs to the discarded incoming rowset,
+                // so retain the guard associated with the rowset already stored in the txn.
+                load_info->pending_rs_guard = std::move(guard);
+            }
             return Status::OK();
         }
 
