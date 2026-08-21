@@ -93,7 +93,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.FutureTask;
@@ -690,7 +689,10 @@ public class HudiScanNode extends HiveScanNode {
     @VisibleForTesting
     static class TerminalTask extends FutureTask<Void> {
         private final AtomicBoolean started = new AtomicBoolean();
+        private final AtomicBoolean interruptRequested = new AtomicBoolean();
         private final Runnable taskFinished;
+        private volatile Thread runner;
+        private volatile Runnable ownerDone = () -> { };
 
         TerminalTask(Runnable task, Runnable taskFinished) {
             super(task, null);
@@ -700,7 +702,15 @@ public class HudiScanNode extends HiveScanNode {
         @Override
         public void run() {
             if (started.compareAndSet(false, true)) {
-                super.run();
+                runner = Thread.currentThread();
+                if (interruptRequested.get()) {
+                    runner.interrupt();
+                }
+                try {
+                    super.run();
+                } finally {
+                    runner = null;
+                }
             }
         }
 
@@ -708,9 +718,28 @@ public class HudiScanNode extends HiveScanNode {
             return started.compareAndSet(false, true) && cancel(false);
         }
 
+        void requestStop() {
+            if (cancelBeforeStart()) {
+                return;
+            }
+            interruptRequested.set(true);
+            Thread runningThread = runner;
+            if (runningThread != null) {
+                runningThread.interrupt();
+            }
+        }
+
+        void setOwnerDone(Runnable ownerDone) {
+            this.ownerDone = ownerDone;
+        }
+
         @Override
         protected void done() {
-            taskFinished.run();
+            try {
+                taskFinished.run();
+            } finally {
+                ownerDone.run();
+            }
         }
     }
 
@@ -737,8 +766,6 @@ public class HudiScanNode extends HiveScanNode {
         private final SplitAssignment splitAssignment;
         private final HudiFsViewCacheValue.Lease lease;
         private final AtomicBoolean finished = new AtomicBoolean();
-        private final AtomicReference<RuntimeException> finishFailure = new AtomicReference<>();
-        private final CountDownLatch terminal = new CountDownLatch(1);
         private final ConcurrentLinkedQueue<TerminalTask> tasks = new ConcurrentLinkedQueue<>();
         private final AtomicBoolean stopping = new AtomicBoolean();
 
@@ -752,54 +779,35 @@ public class HudiScanNode extends HiveScanNode {
                 try {
                     lease.close();
                 } catch (RuntimeException e) {
-                    finishFailure.set(e);
-                    throw e;
-                } finally {
-                    terminal.countDown();
+                    LOG.warn("Failed to release Hudi fs-view lease after batch tasks terminated", e);
                 }
             }
         }
 
         void track(TerminalTask task) {
+            task.setOwnerDone(() -> tasks.remove(task));
             tasks.add(task);
             if (stopping.get()) {
-                task.cancelBeforeStart();
+                task.requestStop();
             }
         }
 
         @Override
         public void close() {
-            RuntimeException stopFailure = null;
             if (!finished.get()) {
                 stopping.set(true);
                 try {
                     splitAssignment.stop();
                 } catch (RuntimeException e) {
-                    stopFailure = e;
+                    tasks.forEach(TerminalTask::requestStop);
+                    throw e;
                 }
-                tasks.forEach(TerminalTask::cancelBeforeStart);
+                tasks.forEach(TerminalTask::requestStop);
             }
-            boolean interrupted = false;
-            while (true) {
-                try {
-                    terminal.await();
-                    break;
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                }
-            }
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-            if (stopFailure != null) {
-                if (finishFailure.get() != null) {
-                    stopFailure.addSuppressed(finishFailure.get());
-                }
-                throw stopFailure;
-            }
-            if (finishFailure.get() != null) {
-                throw finishFailure.get();
-            }
+            // Already-started filesystem calls may be blocked in storage code that does not respond to
+            // interruption. Their TerminalTask.done callbacks retain exact task accounting and eventually call
+            // finish(), which releases the fs-view lease only after the last task exits. Cancellation must return
+            // promptly instead of waiting here and wedging statement/Arrow cleanup behind remote storage.
         }
     }
 

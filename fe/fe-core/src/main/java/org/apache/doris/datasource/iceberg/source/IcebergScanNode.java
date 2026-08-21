@@ -1803,6 +1803,14 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private ThreadPoolExecutor getPlanningExecutor() {
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
+        if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
+            ThreadPoolExecutor frozenExecutor = ((IcebergMvccSnapshot) snapshot.get())
+                    .getSnapshotCacheValue().getPlanningExecutor();
+            if (frozenExecutor != null) {
+                return frozenExecutor;
+            }
+        }
         TableIf targetTable = source.getTargetTable();
         if (targetTable instanceof IcebergSysExternalTable) {
             targetTable = ((IcebergSysExternalTable) targetTable).getSourceTable();
