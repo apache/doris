@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_multi_analyzer_column_types", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     // Test multi-analyzer indexes on different column types: char, varchar, text, variant
 
     def analyzerStd = "multi_col_type_std_analyzer"
@@ -72,7 +73,7 @@ suite("test_multi_analyzer_column_types", "p0") {
         INDEX idx_kw (data) USING INVERTED PROPERTIES("analyzer"="${analyzerKw}", "field_pattern"="name_*")
     ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
     PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
-    sql """INSERT INTO ${tblVariant} VALUES (1, '{"name_1":"alice"}'), (2, '{"name_1":"alice cooper"}'), (3, '{"name_1":"bob"}');"""
+    sql """INSERT INTO ${tblVariant} VALUES (1, ${variantV2Function}('{"name_1":"alice"}')), (2, ${variantV2Function}('{"name_1":"alice cooper"}')), (3, ${variantV2Function}('{"name_1":"bob"}'));"""
     sql "sync"
     qt_variant_std """SELECT id FROM ${tblVariant} WHERE cast(data['name_1'] as varchar) MATCH 'alice' USING ANALYZER ${analyzerStd} ORDER BY id"""
     qt_variant_kw """SELECT id FROM ${tblVariant} WHERE cast(data['name_1'] as varchar) MATCH 'alice' USING ANALYZER ${analyzerKw} ORDER BY id"""

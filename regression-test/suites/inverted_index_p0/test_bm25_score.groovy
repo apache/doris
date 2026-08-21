@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_bm25_score", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "DROP TABLE IF EXISTS test_bm25_score"
 
     sql """
@@ -215,7 +216,7 @@ suite("test_bm25_score", "p0") {
         try {
             sql "DROP TABLE IF EXISTS t1"
             sql """ create table t1(a int, b int, v variant) DISTRIBUTED BY HASH(a) buckets 1 PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
-            sql """ insert into t1 values(2, 2, '{"key": "abc hhh"}'); """
+            sql """ insert into t1 values(2, 2, ${variantV2Function}('{"key": "abc hhh"}')); """
 
             sql """ sync """
             sql """ set enable_segment_limit_pushdown = true; """
@@ -251,12 +252,12 @@ suite("test_bm25_score", "p0") {
                 )
             """
 
-            sql """ insert into test_variant_field_pattern_score values(3, '{"other": "alice"}'); """
+            sql """ insert into test_variant_field_pattern_score values(3, ${variantV2Function}('{"other": "alice"}')); """
             sql """ sync """
             sql """
                 insert into test_variant_field_pattern_score values
-                    (1, '{"user": {"name": "alice alpha"}}'),
-                    (2, '{"user": {"name": "bob beta"}}');
+                    (1, ${variantV2Function}('{"user": {"name": "alice alpha"}}')),
+                    (2, ${variantV2Function}('{"user": {"name": "bob beta"}}'));
             """
             sql """ sync """
 

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_disable_root_variant_match", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
@@ -50,9 +51,9 @@ suite("test_disable_root_variant_match", "p0") {
     """
 
     sql """INSERT INTO test_disable_root_variant_match_tbl VALUES
-        (1, 'doris community', '{"msg": "doris community"}'),
-        (2, 'apache software', '{"msg": "apache software"}'),
-        (3, 'doris variant index', '{"msg": "doris variant index"}')
+        (1, 'doris community', ${variantV2Function}('{"msg": "doris community"}')),
+        (2, 'apache software', ${variantV2Function}('{"msg": "apache software"}')),
+        (3, 'doris variant index', ${variantV2Function}('{"msg": "doris variant index"}'))
     """
 
     sql "sync"
