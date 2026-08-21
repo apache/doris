@@ -581,7 +581,10 @@ TEST_F(SniiAnnContainerTest, AFailedSaveUnlinksItsStagingFile) {
         SCOPED_TRACE(one.what);
         const std::set<std::string> before = staged_ann_files();
         ScopedDebugPoints debug_points;
-        debug_points.enable("StagedBlobFile::finalize_error");
+        // append(), not the seal: a write is the staging failure production can
+        // actually hit (ENOSPC on the scratch volume), and the seal makes no
+        // durability call any more.
+        debug_points.enable("StagedBlobFile::append_error");
 
         const std::string prefix = std::string(kTestDir) + "/failed_save_" + one.what + "_seg";
         io::FileWriterPtr file_writer;
@@ -598,7 +601,7 @@ TEST_F(SniiAnnContainerTest, AFailedSaveUnlinksItsStagingFile) {
         ASSERT_FALSE(finish_status.ok()) << "the injected fault must fail the save";
         // The specific fault, not just any error: a save that failed for some
         // other reason would not prove anything about the staging file.
-        ASSERT_NE(finish_status.to_string().find("injected blob staging finalize failure"),
+        ASSERT_NE(finish_status.to_string().find("injected blob staging append failure"),
                   std::string::npos)
                 << finish_status.to_string();
 
