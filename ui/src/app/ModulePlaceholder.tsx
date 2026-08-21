@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-export function ModulePlaceholder({ name, milestone }: { name: string; milestone: string }) {
+export function ModulePlaceholder({ name }: { name: string }) {
   return (
     <main className="module-page" aria-labelledby="module-title">
       <div className="page-heading">
