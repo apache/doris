@@ -38,6 +38,7 @@ public class JdbcFieldSchema {
     protected Optional<Integer> columnSize;
     protected Optional<Integer> decimalDigits;
     protected Optional<Integer> arrayDimensions;
+    protected Optional<String> columnDefaultValue;
     // Base number (usually 10 or 2)
     protected int numPrecRadix;
     // column description
@@ -55,6 +56,7 @@ public class JdbcFieldSchema {
         this.columnSize = other.columnSize;
         this.decimalDigits = other.decimalDigits;
         this.arrayDimensions = other.arrayDimensions;
+        this.columnDefaultValue = other.columnDefaultValue;
         this.numPrecRadix = other.numPrecRadix;
         this.remarks = other.remarks;
         this.charOctetLength = other.charOctetLength;
@@ -69,6 +71,7 @@ public class JdbcFieldSchema {
         this.decimalDigits = getInteger(rs, "DECIMAL_DIGITS");
         this.numPrecRadix = rs.getInt("NUM_PREC_RADIX");
         this.isAllowNull = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls;
+        this.columnDefaultValue = Optional.ofNullable(rs.getString("COLUMN_DEF"));
         this.remarks = rs.getString("REMARKS");
         this.charOctetLength = rs.getInt("CHAR_OCTET_LENGTH");
     }
@@ -81,6 +84,7 @@ public class JdbcFieldSchema {
         this.decimalDigits = getInteger(rs, "DECIMAL_DIGITS");
         this.numPrecRadix = rs.getInt("NUM_PREC_RADIX");
         this.isAllowNull = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls;
+        this.columnDefaultValue = Optional.ofNullable(rs.getString("COLUMN_DEF"));
         this.remarks = rs.getString("REMARKS");
         this.charOctetLength = rs.getInt("CHAR_OCTET_LENGTH");
         this.arrayDimensions = Optional.of(arrayDimensions);
@@ -94,6 +98,7 @@ public class JdbcFieldSchema {
         this.decimalDigits = getInteger(rs, "DECIMAL_DIGITS");
         this.numPrecRadix = rs.getInt("NUM_PREC_RADIX");
         this.isAllowNull = rs.getInt("NULLABLE") != 0;
+        this.columnDefaultValue = Optional.ofNullable(rs.getString("COLUMN_DEF"));
         this.remarks = rs.getString("REMARKS");
         this.charOctetLength = rs.getInt("CHAR_OCTET_LENGTH");
     }
@@ -108,6 +113,7 @@ public class JdbcFieldSchema {
         this.columnSize = Optional.of(metaData.getPrecision(columnIndex));
         this.decimalDigits = Optional.of(metaData.getScale(columnIndex));
         this.arrayDimensions = Optional.of(0);
+        this.columnDefaultValue = Optional.empty();
     }
 
     public int requiredColumnSize() {
