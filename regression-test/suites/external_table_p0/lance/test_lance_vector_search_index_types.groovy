@@ -49,10 +49,12 @@ suite("test_lance_vector_search_index_types", "p0,external") {
     String headQuery = "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]"
     // Row 256's vector, next to an IVF partition edge on every one of these frozen indexes.
     String boundaryQuery = "[255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270]"
-    // Row 512's vector, in the middle of the data, where the graph traversal has room to
+    // Row 518's vector, in the middle of the data, where the graph traversal has room to
     // settle for a worse neighbour when its candidate width is narrow. The generator pins
-    // this row for the ef discriminator below.
-    String midQuery = "[511,512,513,514,515,516,517,518,519,520,521,522,523,524,525,526]"
+    // this row for the ef discriminator below; which rows react to ef is decided by the
+    // graph draw, so it moves whenever the fixture is rebuilt and the generator reports the
+    // rows that still work when it does.
+    String midQuery = "[517,518,519,520,521,522,523,524,525,526,527,528,529,530,531,532]"
 
     // ef is what a graph index cannot be searched without; refine_factor is what makes a
     // lossy index comparable to an exact distance. Both stay out of the discriminators.
