@@ -472,16 +472,31 @@ struct MowContext {
 // used for controll compaction
 struct VersionWithTime {
     std::atomic<int64_t> version;
-    int64_t update_ts;
+    // Written by a single writer thread (heartbeat) and read lock-free by
+    // compaction selection; both must be atomic — on weakly-ordered aarch64
+    // plain stores could be observed reordered/torn.
+    //
+    // Invariant: update_ts is stored BEFORE the release CAS that publishes a
+    // new version. A reader that acquire-loads version and then update_ts is
+    // guaranteed a timestamp at least as new as the one stored for that
+    // version's publication; "new version + stale timestamp" never happens.
+    // The residual combination "old version + newer ts" is harmless: it only
+    // biases readers toward the conservative max retention count.
+    std::atomic<int64_t> update_ts;
 
     VersionWithTime() : version(0), update_ts(MonotonicMillis()) {}
 
     void update_version_monoto(int64_t new_version) {
         int64_t cur_version = version.load(std::memory_order_relaxed);
         while (cur_version < new_version) {
-            if (version.compare_exchange_strong(cur_version, new_version, std::memory_order_relaxed,
+            // Store the timestamp before the release CAS that publishes the
+            // version; relaxed suffices because the release/acquire chain on
+            // version orders this store ahead of any reader that observes the
+            // new version.
+            update_ts.store(MonotonicMillis(), std::memory_order_relaxed);
+            if (version.compare_exchange_strong(cur_version, new_version,
+                                                std::memory_order_release,
                                                 std::memory_order_relaxed)) {
-                update_ts = MonotonicMillis();
                 break;
             }
         }

@@ -2971,12 +2971,23 @@ private:
         _set.clear();
     }
 
+    // NOTE: the enumerators (EMPTY/SINGLE/BITMAP/SET) collide with protobuf
+    // enum values exported at namespace scope by olap_file.pb.h (e.g.
+    // doris::BITMAP); clang >= 17 -Wshadow flags the shadowing as an error
+    // under -Werror, so suppress it just for this declaration.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
     enum BitmapDataType {
         EMPTY = 0,
         SINGLE = 1, // single element
         BITMAP = 2, // more than one elements
         SET = 3     // elements count less or equal than 32
     };
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
     uint64_t _sv = 0; // store the single value when _type == SINGLE
     // !FIXME: We should rethink the logic about _bitmap and _is_shared
     mutable std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP

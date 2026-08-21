@@ -448,6 +448,10 @@ if (COMPILER_CLANG)
                         -Wunused-macros
                         -Wconversion
                         -Wthread-safety)
+    # Clang >= 17 flags namespace-scope shadowing (e.g. enum constants vs
+    # protobuf-generated enums) that older toolchains accepted; keep the
+    # warnings visible but non-fatal so newer compilers can build.
+    add_compile_options(-Wno-error=shadow)
     add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
                         -Wno-sign-conversion
@@ -941,6 +945,9 @@ if (MAKE_TEST)
         add_compile_options(
         -Wno-implicit-int-conversion
         -Wno-shorten-64-to-32
+        # Newer libstdc++ (>= 12) marks std::get_temporary_buffer deprecated;
+        # test code using std::stable_sort trips over it under -Werror.
+        -Wno-deprecated-declarations
         )
     endif()
 endif ()

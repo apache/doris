@@ -133,7 +133,9 @@ pid_t get_current_tid() {
     return static_cast<pid_t>(syscall(SYS_gettid));
 }
 
-void append_frame(SignalContextCapture* capture, uintptr_t pc) {
+// Only called from the x86_64 libunwind path below; on aarch64 it is
+// intentionally unused, so keep -Wunused-function quiet.
+[[maybe_unused]] void append_frame(SignalContextCapture* capture, uintptr_t pc) {
     if (pc == 0 || capture->size >= capture->frame_pointers.size()) {
         return;
     }

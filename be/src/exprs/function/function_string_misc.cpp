@@ -30,7 +30,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <format>
 #include <iomanip>
 #include <memory>
 #include <random>
@@ -226,7 +225,7 @@ private:
             // check the name of length
             int len = res_p.size();
             if (len > 50) {
-                res_p = std::format("{}_{:08x}", res_p.substr(0, 50), to_hash_code(res_p));
+                res_p = fmt::format("{}_{:08x}", res_p.substr(0, 50), to_hash_code(res_p));
                 len = res_p.size();
             }
             curr_len += len;

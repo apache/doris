@@ -57,6 +57,8 @@ if (GLIBC_COMPATIBILITY)
     # libcalls. Workaround: Use object file so that linker will always take a
     # look at its symbol table.
     list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+    # NOTE: the OBJECT lib must always provide the resolv_shim symbol; keep it out of the archive.
+    list(REMOVE_ITEM glibc_compatibility_sources resolv_shim.c)
     # NOTE(amos): sanitizers might generate memcpy references that are too late to
     # refer. Let's also extract memcpy definitions explicitly to avoid UNDEF GLIBC 2.14.
     #
@@ -65,9 +67,9 @@ if (GLIBC_COMPATIBILITY)
     # before ASAN shadow memory is initialized, causing SIGSEGV. Skip custom memcpy in
     # this case and fall back to glibc's memcpy.
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c)
+        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c resolv_shim.c)
     else()
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c ${MEMCPY_SOURCE})
+        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c resolv_shim.c ${MEMCPY_SOURCE})
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})

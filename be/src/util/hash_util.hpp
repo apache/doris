@@ -35,6 +35,7 @@
 #include "util/hash/city.h"
 #include "util/hash/murmur_hash3.h"
 #include "util/sse_util.hpp"
+#include "util/unaligned.h"
 
 namespace doris {
 namespace detail {
@@ -161,14 +162,16 @@ public:
         uint32_t words = bytes / sizeof(uint32_t);
         bytes = bytes % sizeof(uint32_t);
 
-        const uint32_t* p = reinterpret_cast<const uint32_t*>(data);
+        // 'data' is an arbitrary caller buffer; word loads must tolerate
+        // misalignment (crc intrinsics consume values, so load via memcpy).
+        const uint8_t* p = static_cast<const uint8_t*>(data);
 
         while (words--) {
-            hash = _mm_crc32_u32(hash, *p);
-            ++p;
+            hash = _mm_crc32_u32(hash, unaligned_load<uint32_t>(p));
+            p += sizeof(uint32_t);
         }
 
-        const uint8_t* s = reinterpret_cast<const uint8_t*>(p);
+        const uint8_t* s = p;
 
         while (bytes--) {
             hash = _mm_crc32_u8(hash, *s);
@@ -188,13 +191,14 @@ public:
         uint32_t h1 = hash >> 32;
         uint32_t h2 = (hash << 32) >> 32;
 
-        const uint32_t* p = reinterpret_cast<const uint32_t*>(data);
+        const uint8_t* p = static_cast<const uint8_t*>(data);
         while (words--) {
-            (words & 1) ? (h1 = _mm_crc32_u32(h1, *p)) : (h2 = _mm_crc32_u32(h2, *p));
-            ++p;
+            (words & 1) ? (h1 = _mm_crc32_u32(h1, unaligned_load<uint32_t>(p)))
+                        : (h2 = _mm_crc32_u32(h2, unaligned_load<uint32_t>(p)));
+            p += sizeof(uint32_t);
         }
 
-        const uint8_t* s = reinterpret_cast<const uint8_t*>(p);
+        const uint8_t* s = p;
         while (bytes--) {
             (bytes & 1) ? (h1 = _mm_crc32_u8(h1, *s)) : (h2 = _mm_crc32_u8(h2, *s));
             ++s;
@@ -240,11 +244,15 @@ public:
     static uint64_t murmur_hash2_64(const void* input, int len, uint64_t seed) {
         uint64_t h = seed ^ (len * MURMUR_PRIME);
 
-        const uint64_t* data = reinterpret_cast<const uint64_t*>(input);
-        const uint64_t* end = data + (len / sizeof(uint64_t));
+        // 'input' is an arbitrary caller buffer and is not guaranteed to be
+        // 8-byte aligned; load words via memcpy (unaligned_load) instead of
+        // casted dereferences, which are misaligned UB.
+        const uint8_t* data = static_cast<const uint8_t*>(input);
+        const uint8_t* end = data + (len / sizeof(uint64_t)) * sizeof(uint64_t);
 
         while (data != end) {
-            uint64_t k = *data++;
+            uint64_t k = unaligned_load<uint64_t>(data);
+            data += sizeof(uint64_t);
             k *= MURMUR_PRIME;
             k ^= k >> MURMUR_R;
             k *= MURMUR_PRIME;
@@ -252,7 +260,7 @@ public:
             h *= MURMUR_PRIME;
         }
 
-        const uint8_t* data2 = reinterpret_cast<const uint8_t*>(data);
+        const uint8_t* data2 = data;
         switch (len & 7) {
         case 7:
             h ^= uint64_t(data2[6]) << 48;
