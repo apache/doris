@@ -114,7 +114,7 @@ suite("test_timestamp_ns_partition_bucket") {
         select id, dt from timestamp_ns_partition_bucket where dt is null order by id
     """
     order_qt_information_schema_timestamp_ns_precision """
-        select data_type, numeric_precision, numeric_scale, datetime_precision
+        select data_type, numeric_precision, numeric_scale, datetime_precision, decimal_digits
         from information_schema.columns
         where table_schema = '${context.dbName}'
           and table_name = 'timestamp_ns_partition_bucket'
