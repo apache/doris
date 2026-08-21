@@ -20,21 +20,21 @@ package org.apache.doris.datasource.iceberg;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Keeps one catalog generation alive while tables loaded through it still have owners or borrowers. */
-final class IcebergCatalogResourceTracker {
+public final class IcebergCatalogResourceTracker {
     private Generation current = new Generation();
 
-    synchronized LoadGuard beginLoad() {
+    public synchronized LoadGuard beginLoad() {
         current.retain();
         return new LoadGuard(current);
     }
 
-    synchronized void retireCurrent(Runnable cleanup) {
+    public synchronized void retireCurrent(Runnable cleanup) {
         Generation retired = current;
         current = new Generation();
         retired.retire(cleanup);
     }
 
-    static final class LoadGuard implements AutoCloseable {
+    public static final class LoadGuard implements AutoCloseable {
         private final Generation generation;
         private final AtomicBoolean transferred = new AtomicBoolean();
 
@@ -42,7 +42,7 @@ final class IcebergCatalogResourceTracker {
             this.generation = generation;
         }
 
-        ResourceLease promote() {
+        public ResourceLease promote() {
             if (!transferred.compareAndSet(false, true)) {
                 throw new IllegalStateException("Iceberg catalog load guard was already completed");
             }
@@ -57,7 +57,7 @@ final class IcebergCatalogResourceTracker {
         }
     }
 
-    static final class ResourceLease implements AutoCloseable {
+    public static final class ResourceLease implements AutoCloseable {
         private final Generation generation;
         private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -106,7 +106,11 @@ final class IcebergCatalogResourceTracker {
         private void maybeCleanup() {
             if (retired && references == 0 && !cleaned) {
                 cleaned = true;
-                cleanup.run();
+                try {
+                    cleanup.run();
+                } finally {
+                    cleanup = null;
+                }
             }
         }
     }

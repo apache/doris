@@ -104,59 +104,64 @@ public class MTMVCache {
             boolean needCost, boolean needLock,
             ConnectContext currentContext,
             boolean addSessionVarGuard) throws AnalysisException {
-        StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
-                new OriginStatement(defSql, 0));
-        if (!needLock) {
-            mvSqlStatementContext.setNeedLockTables(false);
-        }
-        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
-            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
-        }
-        createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
-        mvSqlStatementContext.setForceRecordTmpPlan(true);
-        boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
-        createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
-        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-        try {
-            // Can not convert to table sink, because use the same column from different table when self join
-            // the out slot is wrong
-            if (needCost) {
-                // Only in mv rewrite, we need plan with eliminated cost which is used for mv chosen
-                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-            } else {
-                // No need cost for performance
-                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        StatementContext originalStatementContext = createCacheContext.getStatementContext();
+        try (StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
+                new OriginStatement(defSql, 0))) {
+            if (!needLock) {
+                mvSqlStatementContext.setNeedLockTables(false);
             }
-            CascadesContext cascadesContext = planner.getCascadesContext();
-            Plan rewritePlan = cascadesContext.getRewritePlan();
+            createCacheContext.setStatementContext(mvSqlStatementContext);
+            createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
+            mvSqlStatementContext.setForceRecordTmpPlan(true);
+            boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
+            createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
+            try {
+                LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
+                NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+                // Can not convert to table sink, because use the same column from different table when self join
+                // the out slot is wrong
+                if (needCost) {
+                    // Only in mv rewrite, we need plan with eliminated cost which is used for mv chosen
+                    planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+                } else {
+                    // No need cost for performance
+                    planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+                }
+                CascadesContext cascadesContext = planner.getCascadesContext();
+                Plan rewritePlan = cascadesContext.getRewritePlan();
 
-            // Only add SessionVarGuardExpr if requested
-            Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
-                    ? Optional.of(new SessionVarGuardRewriter(
-                    ConnectContextUtil.getAffectQueryResultInPlanVariables(createCacheContext),
-                    cascadesContext))
-                    : Optional.empty();
-            Plan addGuardRewritePlan = exprRewriter
-                    .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, rewritePlan))
-                    .orElse(rewritePlan);
-            Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(
-                    addGuardRewritePlan, cascadesContext);
-            List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
-            for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
-                Plan addGuardplan = exprRewriter
-                        .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, plan))
-                        .orElse(plan);
-                tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
-            }
-            return new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
-                    ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
-        } finally {
-            createCacheContext.getStatementContext().setForceRecordTmpPlan(false);
-            mvSqlStatementContext.setForceRecordTmpPlan(false);
-            createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
-            if (currentContext != null) {
-                currentContext.setThreadLocalInfo();
+                // Only add SessionVarGuardExpr if requested
+                Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
+                        ? Optional.of(new SessionVarGuardRewriter(
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(createCacheContext),
+                        cascadesContext))
+                        : Optional.empty();
+                Plan addGuardRewritePlan = exprRewriter
+                        .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, rewritePlan))
+                        .orElse(rewritePlan);
+                Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(
+                        addGuardRewritePlan, cascadesContext);
+                List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
+                for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+                    Plan addGuardplan = exprRewriter
+                            .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, plan))
+                            .orElse(plan);
+                    tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
+                }
+                MTMVCache cache = new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
+                        ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
+                return cache;
+            } finally {
+                // Runtime-bearing MVCC snapshots are planning scratch state, not part of the returned logical plans.
+                // Drop them on both success and failure before the temporary statement releases its runtime leases.
+                mvSqlStatementContext.resetMvccSnapshots();
+                createCacheContext.getStatementContext().setForceRecordTmpPlan(false);
+                mvSqlStatementContext.setForceRecordTmpPlan(false);
+                createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
+                createCacheContext.setStatementContext(originalStatementContext);
+                if (currentContext != null) {
+                    currentContext.setThreadLocalInfo();
+                }
             }
         }
     }

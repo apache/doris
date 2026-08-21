@@ -129,6 +129,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -548,6 +550,29 @@ public class IcebergScanNodeTest {
             Assert.assertFalse(extractNameMapping(node).isPresent());
         } finally {
             ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testPlanningExecutorComesFromPinnedSnapshotGeneration() throws Exception {
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergSource(node, source);
+
+        ThreadPoolExecutor frozenExecutor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        Table frozenTable = Mockito.mock(Table.class);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(1L, 1L), Optional.empty(), frozenTable, frozenExecutor))));
+        try {
+            Method method = IcebergScanNode.class.getDeclaredMethod("getPlanningExecutor");
+            method.setAccessible(true);
+            Assert.assertSame(frozenExecutor, method.invoke(node));
+        } finally {
+            frozenExecutor.shutdownNow();
         }
     }
 
