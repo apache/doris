@@ -5,3 +5,5 @@
 -- !count_with_key_range --
 2
 
+-- !always_true_in_and_is_not_null --
+2

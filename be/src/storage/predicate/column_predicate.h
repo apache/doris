@@ -31,6 +31,7 @@
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/zone_map/zone_map_index.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "util/defer_op.h"
 
 using namespace doris::segment_v2;
@@ -265,13 +266,47 @@ public:
     virtual void evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {}
 
+    // True when this predicate can say something about a zone from its min/max/null summary.
+    // Predicates that need the real values (LIKE, bloom filter) return false and are skipped.
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const segment_v2::ZoneMap& zone_map) const { return true; }
+    // A predicate accepts some set of values. A zone map describes a set that covers everything
+    // the zone actually holds. The relation between the two sets is the whole answer:
+    //   they do not overlap        -> no row here can match   -> kNoMatch, drop the zone
+    //   the zone's set fits inside -> every row here matches   -> kAllMatch, drop the predicate
+    //   anything else                                          -> kMayMatch, read the rows
+    // Both conclusions stay safe because the zone map's set is a cover: whatever it rules out
+    // for that larger set is ruled out for the real values too.
+    ZoneMapFilterResult evaluate_zonemap_filter(const segment_v2::ZoneMap& zone_map) const {
+        if (!support_zonemap()) {
+            return ZoneMapFilterResult::kUnsupported;
+        }
+        // A pass_all zone carries no usable min/max.
+        if (zone_map.pass_all) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        const auto result = evaluate_zonemap_filter_impl(zone_map);
+        if (!_opposite) {
+            return result;
+        }
+        // A delete condition keeps the rows it does not match, so the two ends swap. Rows the
+        // condition misses include the NULL ones, which is why this needs no null check: at row
+        // level `_opposite` is a plain flip of a match that already counts NULL as no match.
+        if (result == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kAllMatch;
+        }
+        if (result == ZoneMapFilterResult::kAllMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return result;
+    }
 
-    virtual bool is_always_true(const segment_v2::ZoneMap& zone_map) const { return false; }
-
-    virtual bool evaluate_del(const segment_v2::ZoneMap& zone_map) const { return false; }
+    // Subclasses answer this one about the condition they hold, ignoring `opposite`. pass_all,
+    // `opposite`, and predicates that do not read zone maps at all are handled above.
+    virtual ZoneMapFilterResult evaluate_zonemap_filter_impl(
+            const segment_v2::ZoneMap& zone_map) const {
+        return ZoneMapFilterResult::kMayMatch;
+    }
 
     virtual bool evaluate_and(const ParquetBlockSplitBloomFilter* bf) const { return true; }
 

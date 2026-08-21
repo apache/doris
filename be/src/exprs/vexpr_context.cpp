@@ -200,19 +200,31 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
 }
 
 ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtrs& conjuncts,
-                                                          const ZoneMapEvalContext& ctx) {
-    for (const auto& conjunct : conjuncts) {
+                                                          const ZoneMapEvalContext& ctx,
+                                                          std::vector<bool>* always_true) {
+    DORIS_CHECK(always_true != nullptr);
+    always_true->assign(conjuncts.size(), false);
+    auto result = ZoneMapFilterResult::kAllMatch;
+    for (size_t i = 0; i < conjuncts.size(); ++i) {
+        const auto& conjunct = conjuncts[i];
         DORIS_CHECK(conjunct != nullptr);
         const auto& root = conjunct->root();
         DORIS_CHECK(root != nullptr);
         if (!root->can_evaluate_zonemap_filter()) {
+            result = ZoneMapFilterResult::kMayMatch;
             continue;
         }
-        if (root->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+        const auto conjunct_result = root->evaluate_zonemap_filter(ctx);
+        if (conjunct_result == ZoneMapFilterResult::kNoMatch) {
             return ZoneMapFilterResult::kNoMatch;
         }
+        if (conjunct_result != ZoneMapFilterResult::kAllMatch) {
+            result = ZoneMapFilterResult::kMayMatch;
+        } else {
+            (*always_true)[i] = true;
+        }
     }
-    return ZoneMapFilterResult::kMayMatch;
+    return result;
 }
 
 ZoneMapFilterResult VExprContext::evaluate_dictionary_filter(const VExprContextSPtrs& conjuncts,

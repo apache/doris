@@ -410,9 +410,21 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
     }
     const auto& zone_map = *zone_map_ptr;
     if (is_null) {
-        return zone_map.has_null ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
+        if (!zone_map.has_null) {
+            return ZoneMapFilterResult::kNoMatch; // no NULL row here
+        }
+        if (!zone_map.has_not_null) {
+            return ZoneMapFilterResult::kAllMatch; // every row is NULL
+        }
+        return ZoneMapFilterResult::kMayMatch;
     }
-    return zone_map.has_not_null ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
+    if (!zone_map.has_not_null) {
+        return ZoneMapFilterResult::kNoMatch; // every row is NULL
+    }
+    if (!zone_map.has_null) {
+        return ZoneMapFilterResult::kAllMatch; // no NULL row here
+    }
+    return ZoneMapFilterResult::kMayMatch;
 }
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
@@ -461,21 +473,37 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
         return unsupported_zonemap_filter(ctx);
     }
 
+    // The zone range does not reach [min_value, max_value], the range of the listed values, so
+    // nothing in this zone can be one of them.
+    const bool no_row_is_listed = zone_map.max_value < min_value || zone_map.min_value > max_value;
+    // Equal bounds mean every row in the zone holds the same value, so probing the list once
+    // answers for all of them. Wider ranges cannot be answered this way because the listed
+    // values leave gaps between min_value and max_value.
+    const bool every_row_is_listed = zone_map.min_value == zone_map.max_value &&
+                                     std::ranges::any_of(values, [&](const Field& value) {
+                                         return value == zone_map.min_value;
+                                     });
+    // A NULL row satisfies neither IN nor NOT IN, and a hidden Parquet NaN could satisfy either,
+    // so both stop the zone from matching completely.
+    const bool can_match_all =
+            !zone_map.has_null && !ctx.floating_nan_count_unknown(slot->column_id());
+
+    // IN and NOT IN read the same two facts and reach opposite conclusions.
     if (is_not_in) {
-        // NOT IN can only prune when the whole zone contains exactly one non-null value and that
-        // value is excluded by the set. Wider ranges may contain values that are not filtered.
-        if (zone_map.min_value == zone_map.max_value) {
-            const bool only_value_is_filtered = std::ranges::any_of(
-                    values, [&](const Field& value) { return value == zone_map.min_value; });
-            return only_value_is_filtered ? ZoneMapFilterResult::kNoMatch
-                                          : ZoneMapFilterResult::kMayMatch;
+        if (no_row_is_listed) {
+            return can_match_all ? ZoneMapFilterResult::kAllMatch : ZoneMapFilterResult::kMayMatch;
+        }
+        if (every_row_is_listed) {
+            return ZoneMapFilterResult::kNoMatch;
         }
         return ZoneMapFilterResult::kMayMatch;
     }
 
-    // First use the materialized IN-set min/max to rule out disjoint zone-map ranges.
-    if (zone_map.max_value < min_value || zone_map.min_value > max_value) {
+    if (no_row_is_listed) {
         return ZoneMapFilterResult::kNoMatch;
+    }
+    if (can_match_all && every_row_is_listed) {
+        return ZoneMapFilterResult::kAllMatch;
     }
 
     // For large IN sets, avoid checking every point on the scan hot path. The range overlap above

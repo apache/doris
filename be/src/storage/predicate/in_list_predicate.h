@@ -233,15 +233,45 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    ZoneMapFilterResult evaluate_zonemap_filter_impl(
+            const segment_v2::ZoneMap& zone_map) const override {
+        // Every row is NULL, and IN / NOT IN never pass the filter for a NULL row.
         if (!zone_map.has_not_null) {
-            return false;
+            return ZoneMapFilterResult::kNoMatch;
         }
+        const auto& min_value = zone_map.min_value.template get<Type>();
+        const auto& max_value = zone_map.max_value.template get<Type>();
+        // One NULL row is enough to stop the whole zone from matching.
+        const bool can_match_all = !zone_map.has_null;
+        // The zone range does not reach [_min_value, _max_value], the range of the listed values,
+        // so nothing in this zone can be one of them.
+        const bool no_row_is_listed =
+                Compare::greater(min_value, _max_value) || Compare::less(max_value, _min_value);
+        // Equal bounds mean every row in the zone holds the same value, so probing the list once
+        // answers for all of them. Wider ranges cannot be answered this way because the listed
+        // values leave gaps between _min_value and _max_value.
+        const bool every_row_is_listed =
+                Compare::equal(min_value, max_value) && _set_contains(min_value);
+
+        // IN and NOT IN read the same two facts and reach opposite conclusions.
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) &&
-                   Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value);
+            if (no_row_is_listed) {
+                return ZoneMapFilterResult::kNoMatch;
+            }
+            if (can_match_all && every_row_is_listed) {
+                return ZoneMapFilterResult::kAllMatch;
+            }
+            return ZoneMapFilterResult::kMayMatch;
         } else {
-            return true;
+            static_assert(PT == PredicateType::NOT_IN_LIST);
+            if (no_row_is_listed) {
+                return can_match_all ? ZoneMapFilterResult::kAllMatch
+                                     : ZoneMapFilterResult::kMayMatch;
+            }
+            if (every_row_is_listed) {
+                return ZoneMapFilterResult::kNoMatch;
+            }
+            return ZoneMapFilterResult::kMayMatch;
         }
     }
 
@@ -325,18 +355,6 @@ public:
         }
 
         return false;
-    }
-
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
-        if (zone_map.has_null) {
-            return false;
-        }
-        if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(zone_map.min_value.template get<Type>(), _max_value) ||
-                   Compare::less(zone_map.max_value.template get<Type>(), _min_value);
-        } else {
-            return false;
-        }
     }
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
@@ -628,6 +646,16 @@ private:
         }
         if (Compare::less(value, _min_value)) {
             _min_value = value;
+        }
+    }
+
+    // Is this single value one of the listed ones? Used on zone map bounds, where there is no
+    // column to read the value from.
+    bool _set_contains(const T& value) const {
+        if constexpr (is_string_type(Type)) {
+            return _values->find(value.data(), value.size());
+        } else {
+            return _values->find(&value, sizeof(T));
         }
     }
 

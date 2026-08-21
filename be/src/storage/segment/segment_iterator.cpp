@@ -121,6 +121,42 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
+namespace {
+
+// Walks one column's page zone maps and keeps the pages `judge` does not rule out. Rows below
+// `min_rowid` are never kept. Column predicates and pushed-down expressions both come through
+// here; they differ only in what `judge` does with a zone map.
+// Leaves `row_ranges` untouched when the column has no zone map, so callers seed it with the
+// rows they would read otherwise.
+template <typename Judge>
+Status prune_pages_by_zone_map(ColumnIterator* column_iterator, rowid_t min_rowid, Judge&& judge,
+                               RowRanges* row_ranges) {
+    DORIS_CHECK(column_iterator != nullptr && row_ranges != nullptr);
+    size_t num_zones = 0;
+    RETURN_IF_ERROR(column_iterator->get_page_zone_map_count(&num_zones));
+    if (num_zones == 0) {
+        return Status::OK();
+    }
+
+    RowRanges kept;
+    for (size_t i = 0; i < num_zones; ++i) {
+        RowRange page_range;
+        ZoneMap zone_map;
+        RETURN_IF_ERROR(column_iterator->get_page_zone_map(i, &page_range, &zone_map));
+        if (!page_range.is_valid() || page_range.to() <= min_rowid) {
+            continue;
+        }
+        if (judge(zone_map) == ZoneMapFilterResult::kNoMatch) {
+            continue;
+        }
+        kept.add(RowRange(std::max<int64_t>(page_range.from(), min_rowid), page_range.to()));
+    }
+    *row_ranges = std::move(kept);
+    return Status::OK();
+}
+
+} // namespace
+
 class ScopedColumnIteratorReadPhase {
 public:
     ScopedColumnIteratorReadPhase(ColumnIterator* column_iter, ColumnIterator::ReadPhase mode)
@@ -1168,11 +1204,28 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             }
             // get row ranges by zone map of this column,
             RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
-                    _opts.col_id_to_predicates.at(cid).get(),
-                    _opts.del_predicates_for_zone_map.count(cid) > 0
-                            ? &(_opts.del_predicates_for_zone_map.at(cid))
-                            : nullptr,
+            const auto* col_predicates = _opts.col_id_to_predicates.at(cid).get();
+            const auto* delete_predicates = _opts.del_predicates_for_zone_map.count(cid) > 0
+                                                    ? &(_opts.del_predicates_for_zone_map.at(cid))
+                                                    : nullptr;
+            RETURN_IF_ERROR(prune_pages_by_zone_map(
+                    _column_iterators[cid].get(), 0,
+                    [&](const ZoneMap& zone_map) {
+                        const auto result = col_predicates->evaluate_zonemap_filter(zone_map);
+                        if (result == ZoneMapFilterResult::kNoMatch ||
+                            delete_predicates == nullptr) {
+                            return result;
+                        }
+                        for (const auto& del_pred : *delete_predicates) {
+                            // A delete condition keeps the rows it does not match. Keeping no
+                            // row means the whole page is deleted, so skip it.
+                            if (del_pred->evaluate_zonemap_filter(zone_map) ==
+                                ZoneMapFilterResult::kNoMatch) {
+                                return ZoneMapFilterResult::kNoMatch;
+                            }
+                        }
+                        return result;
+                    },
                     &column_row_ranges));
             // intersect different columns's row ranges to get final row ranges by zone map
             RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
@@ -1182,11 +1235,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
-
-        size_t pre_size2 = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                       condition_row_ranges);
-        _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
 
@@ -3526,12 +3574,6 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         return Status::OK();
     }
 
-    ColumnIteratorOptions iter_opts {
-            .use_page_cache = _opts.use_page_cache,
-            .file_reader = _file_reader.get(),
-            .stats = _opts.stats,
-            .io_ctx = _opts.io_ctx,
-    };
     for (const auto& [slot_index, slot_conjuncts] : ctxs_by_slot) {
         if (cast_set<size_t>(slot_index) >= _schema->num_column_ids()) {
             continue;
@@ -3545,51 +3587,33 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         if (tablet_column == nullptr) {
             continue;
         }
-        std::shared_ptr<ColumnReader> reader;
-        Status st =
-                _segment->get_column_reader(*tablet_column, &reader, _opts.stats, &_opts.io_ctx);
-        if (st.is<ErrorCode::NOT_FOUND>()) {
-            continue;
-        }
-        RETURN_IF_ERROR(st);
-        if (reader == nullptr || !reader->has_zone_map()) {
-            continue;
-        }
-        const std::vector<ZoneMapPB>* page_zone_maps = nullptr;
-        RETURN_IF_ERROR(reader->get_page_zone_maps(iter_opts, &page_zone_maps));
-        if (page_zone_maps == nullptr || page_zone_maps->empty()) {
-            continue;
-        }
         auto data_type = _segment->get_data_type_of(*tablet_column, _opts);
         if (data_type == nullptr) {
             continue;
         }
 
-        RowRanges column_ranges;
         ZoneMapEvalStats page_stats;
-        for (uint32_t page_index = 0; page_index < page_zone_maps->size(); ++page_index) {
-            RowRange page_range;
-            RETURN_IF_ERROR(reader->get_row_range_for_page(page_index, iter_opts, &page_range));
-            if (!page_range.is_valid() || page_range.to() <= min_rowid) {
-                continue;
-            }
-            ZoneMapEvalContext ctx;
-            ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-            slot_zone_map.data_type = data_type;
-            ZoneMap zone_map;
-            RETURN_IF_ERROR(
-                    ZoneMap::from_proto((*page_zone_maps)[page_index], data_type, zone_map));
-            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
-            ctx.slots.emplace(slot_index, std::move(slot_zone_map));
-            const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx);
-            page_stats.merge_page_eval_stats(ctx.stats);
-            if (result != ZoneMapFilterResult::kNoMatch) {
-                column_ranges.add(
-                        RowRange(std::max<int64_t>(page_range.from(), min_rowid), page_range.to()));
-            } else {
-                ++_opts.stats->expr_zonemap_filtered_pages;
-            }
-        }
+        // One page proving a conjunct always true says nothing about the other pages, so nothing
+        // can be dropped here. Reused across pages so the walk does not allocate per page.
+        std::vector<bool> ignored_always_true;
+        RowRanges column_ranges = RowRanges::create_single(num_rows());
+        RETURN_IF_ERROR(prune_pages_by_zone_map(
+                _column_iterators[cid].get(), min_rowid,
+                [&](const ZoneMap& zone_map) {
+                    ZoneMapEvalContext ctx;
+                    ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+                    slot_zone_map.data_type = data_type;
+                    slot_zone_map.zone_map = std::make_shared<ZoneMap>(zone_map);
+                    ctx.slots.emplace(slot_index, std::move(slot_zone_map));
+                    const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx,
+                                                                              &ignored_always_true);
+                    page_stats.merge_page_eval_stats(ctx.stats);
+                    if (result == ZoneMapFilterResult::kNoMatch) {
+                        ++_opts.stats->expr_zonemap_filtered_pages;
+                    }
+                    return result;
+                },
+                &column_ranges));
         page_stats.accumulate_to(_opts.stats);
         RowRanges::ranges_intersection(*row_ranges, column_ranges, row_ranges);
         if (row_ranges->is_empty()) {

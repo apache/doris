@@ -80,4 +80,48 @@ suite("test_zonemap_always_true_count_on_index", "p0, nonConcurrent") {
     }
 
     qt_count_with_key_range countWithKeyRangeSql
+
+    // A zone map can prove IN and IS NOT NULL always true as well, not only a comparison.
+    // Both columns below are non-key and are not selected, so once their predicates are proved
+    // redundant their data must never be read.
+    def moreTable = "test_zonemap_always_true_more_predicates"
+    sql "DROP TABLE IF EXISTS ${moreTable}"
+    sql """
+        CREATE TABLE ${moreTable} (
+            k INT,
+            app_id VARCHAR(32) NOT NULL,
+            tag INT NOT NULL,
+            v INT,
+            INDEX idx_app_id_more (`app_id`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k, app_id)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
+        );
+    """
+
+    // Every row carries the same `tag`, so a list holding that one value covers the whole zone.
+    // No row has a NULL `v`.
+    sql """
+        INSERT INTO ${moreTable} VALUES
+            (1, 'app_a', 5, 10),
+            (2, 'app_a', 5, 20),
+            (3, 'app_b', 5, 30);
+    """
+    sql "sync"
+
+    def alwaysTrueSql = """
+        SELECT COUNT(1) FROM ${moreTable}
+        WHERE tag IN (5) AND v IS NOT NULL AND app_id = 'app_a'
+    """
+
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index",
+                [column_name: "tag,v"])
+        qt_always_true_in_and_is_not_null alwaysTrueSql
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
+    }
 }
