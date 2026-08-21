@@ -264,6 +264,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_query_cache_lookup_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheLookup", TUnit::UNIT, 1);
+    _inverted_index_query_cache_insert_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheInsert", TUnit::UNIT, 1);
     _inverted_index_query_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryTime", 1);
     _inverted_index_query_null_bitmap_timer =
@@ -348,6 +352,8 @@ Status OlapScanLocalState::_init_profile() {
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+    _snii_prx_profile_counters.initialize(_index_filter_profile.get());
+    _snii_phrase_profile_counters.initialize(_index_filter_profile.get());
     /*
     SegmentIterator:
         - AnnIndexLoadCosts: 102.262us
@@ -510,6 +516,13 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     auto res = std::find(p._olap_scan_node.key_column_name.begin(),
                          p._olap_scan_node.key_column_name.end(), key_name);
     return res != p._olap_scan_node.key_column_name.end();
+}
+
+bool OlapScanLocalState::can_push_down_column_predicate(const SlotDescriptor* slot) {
+    // The Operator-level method handles static column capabilities. The LocalState-level
+    // condition additionally handles the current scan range's binlog merge mode.
+    return Base::can_push_down_column_predicate(slot) &&
+           (!_is_binlog_merge_scan() || _is_key_column(slot->col_name()));
 }
 
 Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* fn_call,
@@ -1019,8 +1032,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 {0, _tablets[i].version},
                 {.skip_missing_versions = _state->skip_missing_version(),
                  .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
-                 .capture_row_binlog = olap_scan_node().__isset.read_row_binlog &&
-                                       olap_scan_node().read_row_binlog,
                  .enable_prefer_cached_rowset =
                          config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
                  .query_freshness_tolerance_ms =
@@ -1056,7 +1067,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         if (virtual_col_expr) {
             std::shared_ptr<doris::VExprContext> virtual_column_expr_ctx;
             RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_col_expr, virtual_column_expr_ctx));
-            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(
+                    state, p.operator_row_desc_before_projection()));
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
@@ -1064,11 +1076,11 @@ Status OlapScanLocalState::open(RuntimeState* state) {
     }
 
     if (_score_runtime) {
-        RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     if (_ann_topn_runtime) {
-        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

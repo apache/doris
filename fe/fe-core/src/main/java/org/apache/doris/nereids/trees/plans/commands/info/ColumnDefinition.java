@@ -211,6 +211,18 @@ public class ColumnDefinition {
         return onUpdateDefaultValue.isPresent();
     }
 
+    /**
+     * Returns the column's default value as the catalog-level string (the same value the translated
+     * {@link org.apache.doris.catalog.Column#getDefaultValue()} carries), or {@code null} when the column
+     * has no default. Exposed so {@code CreateTableInfoToConnectorRequestConverter} can thread it onto
+     * {@code ConnectorColumn.defaultValue} for connectors (Hive) that build metastore default constraints
+     * and gate DDL on per-column defaults; connectors that ignore create-time defaults (iceberg/paimon/
+     * maxcompute) are unaffected.
+     */
+    public String getDefaultValueString() {
+        return defaultValue.map(DefaultValue::getValue).orElse(null);
+    }
+
     public boolean isVisible() {
         return isVisible;
     }

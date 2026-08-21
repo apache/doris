@@ -35,6 +35,7 @@ import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
@@ -247,11 +248,7 @@ public class RuntimeFilterTranslator {
                     RuntimeFilterPartitionPruneClassifier.Classification classification =
                             RuntimeFilterPartitionPruneClassifier.classify(
                                     head.getType(), targetExpr, nereidsTargetExprList.get(i), scanNode);
-                    if (classification.canPrunePartitions()) {
-                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
-                    }
-                    origFilter.setTargetPartitionMonotonicity(
-                            scanNode.getId(), classification.getPartitionMonotonicity());
+                    setPartitionPruningMetadata(origFilter, scanNode, classification);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
@@ -354,11 +351,7 @@ public class RuntimeFilterTranslator {
                     RuntimeFilterPartitionPruneClassifier.Classification classification =
                             RuntimeFilterPartitionPruneClassifier.classify(
                                     filter.getType(), targetExpr, filter.getTargetExpressions().get(i), scanNode);
-                    if (classification.canPrunePartitions()) {
-                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
-                    }
-                    origFilter.setTargetPartitionMonotonicity(
-                            scanNode.getId(), classification.getPartitionMonotonicity());
+                    setPartitionPruningMetadata(origFilter, scanNode, classification);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
@@ -386,6 +379,18 @@ public class RuntimeFilterTranslator {
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
         return origFilter;
+    }
+
+    private void setPartitionPruningMetadata(org.apache.doris.planner.RuntimeFilter runtimeFilter,
+            ScanNode scanNode, RuntimeFilterPartitionPruneClassifier.Classification classification) {
+        if (classification.canPrunePartitions()) {
+            Preconditions.checkState(scanNode instanceof OlapScanNode,
+                    "partition-pruning runtime filter target must be an OlapScanNode");
+            runtimeFilter.markTargetCanPrunePartitions(scanNode.getId());
+            ((OlapScanNode) scanNode).snapshotPartitionBoundariesForRuntimeFilter();
+        }
+        runtimeFilter.setTargetPartitionMonotonicity(
+                scanNode.getId(), classification.getPartitionMonotonicity());
     }
 
     private void setWaitTimeMs(org.apache.doris.planner.RuntimeFilter filter,

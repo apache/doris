@@ -45,7 +45,7 @@ public class SubgraphEnumeratorTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
                 .build();
-        Counter counter = new Counter();
+        Counter counter = new Counter(hyperGraph);
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         long fullSet = LongBitmap.newBitmapBetween(0, 5);
@@ -69,7 +69,7 @@ public class SubgraphEnumeratorTest {
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
         long fullSet = LongBitmap.newBitmapBetween(0, 4);
-        Counter counter = new Counter();
+        Counter counter = new Counter(hyperGraph);
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         HashMap<Long, Integer> cache = new HashMap<>();
@@ -83,7 +83,7 @@ public class SubgraphEnumeratorTest {
         long fullSet = LongBitmap.newBitmapBetween(0, tableNum);
         for (int i = 0; i < 10; i++) {
             HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
-            Counter counter = new Counter();
+            Counter counter = new Counter(hyperGraph);
             SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
             subgraphEnumerator.enumerate();
             HashMap<Long, Integer> cache = new HashMap<>();
@@ -97,7 +97,7 @@ public class SubgraphEnumeratorTest {
         int edgeNum = 21;
         HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
 
-        Counter counter = new Counter();
+        Counter counter = new Counter(hyperGraph);
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         double startTime = System.currentTimeMillis();
         subgraphEnumerator.enumerate();

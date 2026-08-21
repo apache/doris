@@ -31,6 +31,9 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     String nestedTable = "nested_timeline"
     String pkTable = "pk_dv_timeline"
     String partitionTable = "partition_timeline"
+    String rowTrackingTable = "row_tracking_timeline"
+    String viewDb = "paimon_scan_options_view_db"
+    String historicalView = "historical_top_view"
 
     def latestSnapshotId = { String tableName ->
         List<List<Object>> rows = spark_paimon """
@@ -51,6 +54,20 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                 snapshot => ${snapshotId}
             )
         """
+    }
+
+    def snapshotCommitTimeMillis = { String tableName, String snapshotId ->
+        List<List<Object>> rows = spark_paimon """
+            -- Paimon's TIMESTAMP_NTZ commit time is a UTC wall clock; convert it to the
+            -- Spark session zone before casting so unix_millis keeps the actual instant.
+            SELECT unix_millis(CAST(
+                convert_timezone('UTC', current_timezone(), commit_time) AS TIMESTAMP
+            ))
+            FROM paimon.${dbName}.`${tableName}\$snapshots`
+            WHERE snapshot_id = ${snapshotId}
+        """
+        assertEquals(1, rows.size())
+        return rows[0][0].toString()
     }
 
     def assertUnknownColumn = { String query, String columnName ->
@@ -87,6 +104,17 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     try {
         spark_paimon_multi """
             CREATE DATABASE IF NOT EXISTS paimon.${dbName};
+            DROP TABLE IF EXISTS paimon.${dbName}.${rowTrackingTable};
+            CREATE TABLE paimon.${dbName}.${rowTrackingTable} (
+                id INT,
+                name STRING
+            ) USING paimon
+            TBLPROPERTIES (
+                'bucket'='-1',
+                'row-tracking.enabled'='true'
+            );
+            INSERT INTO paimon.${dbName}.${rowTrackingTable}
+                VALUES (1, 'alpha'), (2, 'beta');
             DROP TABLE IF EXISTS paimon.${dbName}.${topTable};
             CREATE TABLE paimon.${dbName}.${topTable} (
                 id INT,
@@ -119,6 +147,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                 VALUES (2, 'beta', 'old-v2', 20, 'added-v2', 200);
         """
         String topCpAdd = latestSnapshotId(topTable)
+        String topCpAddTimeMillis = snapshotCommitTimeMillis(topTable, topCpAdd)
         createTag(topTable, "top_cp_add", topCpAdd)
         Thread.sleep(1100)
 
@@ -337,6 +366,28 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         sql """use ${dbName}"""
         sql """refresh catalog ${catalogName}"""
 
+        // row_tracking exposes Paimon-generated hidden columns, so its incremental scan must
+        // bypass the C++ reader even when the session otherwise enables native Paimon scans.
+        sql """set force_jni_scanner=false"""
+        sql """set enable_paimon_cpp_reader=true"""
+        String rowTrackingExplain = sql("""
+            explain verbose
+            select id, name, _ROW_ID, _SEQUENCE_NUMBER
+            from ${rowTrackingTable}\$row_tracking
+            @incr('startSnapshotId'=0, 'endSnapshotId'=1)
+        """).collect { row -> row[0].toString() }.join("\n")
+        assertTrue(rowTrackingExplain.contains("paimonNativeReadSplits=0/"),
+                "row_tracking incremental scan must not select native Paimon splits")
+        assertTrue(rowTrackingExplain.contains("SplitStat [type=JNI"),
+                "row_tracking incremental scan must use JNI splits")
+        order_qt_row_tracking_first_snapshot_incr """
+            select id, name, _ROW_ID, _SEQUENCE_NUMBER
+            from ${rowTrackingTable}\$row_tracking
+            @incr('startSnapshotId'=0, 'endSnapshotId'=1)
+            order by id
+        """
+        sql """set enable_paimon_cpp_reader=false"""
+
         // Scenario TC01: validate latest schema/data, explicit new binding, predicate and aggregate.
         assertEquals([[1, null], [2, null], [3, null], [4, null], [5, 5000L], [6, 6000L]],
                 sql("""select id, victim from ${topTable} order by id"""))
@@ -363,6 +414,34 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             from ${topTable}@tag(top_cp0)
             order by id
         """))
+        order_qt_options_snapshot_schema """
+            select id, old_name, victim, metric
+            from ${topTable}@options('scan.snapshot-id'='${topCp0}')
+            order by id
+        """
+        order_qt_options_tag_schema """
+            select id, old_name, victim, metric
+            from ${topTable}@options('scan.tag-name'='top_cp0')
+            order by id
+        """
+        assertEquals([[1, "alpha", "old-v1", 10], [2, "beta", "old-v2", 20]],
+                sql("""
+                    select id, old_name, victim, metric
+                    from ${topTable}@options(
+                        'scan.creation-time-millis'='${topCpAddTimeMillis}'
+                    )
+                    order by id
+                """))
+        order_qt_audit_log_options_tag_schema """
+            select rowkind, id, old_name, victim, metric
+            from ${topTable}\$audit_log@options('scan.tag-name'='top_cp0')
+            order by id
+        """
+        order_qt_options_behavioral_latest_schema """
+            select id, MixedName
+            from ${topTable}@options('scan.plan-sort-partition'='true')
+            order by id
+        """
         assertEquals(topCp0Rows, sql("""
             select id, old_name, victim, metric
             from ${topTable}@branch(top_cp0_branch)
@@ -433,6 +512,13 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                     from ${nestedTable} for version as of ${nestedCp0}
                     where payload.old_child = 10
                 """))
+        order_qt_nested_options_snapshot_schema """
+            select id, payload.old_child,
+                   element_at(attributes, 'a').old_child,
+                   events[1].old_child
+            from ${nestedTable}@options('scan.snapshot-id'='${nestedCp0}')
+            where payload.old_child = 10
+        """
         assertEquals([[1, null, null, null], [2, 112, 122, 132]],
                 sql("""
                     select id, payload.added_child,
@@ -529,16 +615,71 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         // Scenario TC08/S20: illegal PK/partition changes fail atomically.
         test {
             sql """alter table ${pkTable} drop column id"""
-            exception "Drop column operation is not supported"
+            exception "DROP COLUMN not supported"
         }
         test {
             sql """alter table ${partitionTable} drop column old_partition"""
-            exception "Drop column operation is not supported"
+            exception "DROP COLUMN not supported"
         }
         assertEquals([[1, "alpha-updated"], [3, "gamma"]],
                 sql("""select id, full_name from ${pkTable} order by id"""))
         assertEquals([[1, "p1", "old"], [2, "p2", "old"], [3, "p3", "new"]],
                 sql("""select id, old_partition, new_payload from ${partitionTable} order by id"""))
+
+        // OPTIONS must survive CREATE VIEW rewriting, while unsupported consumers fail explicitly.
+        sql """create database if not exists internal.${viewDb}"""
+        sql """drop view if exists internal.${viewDb}.${historicalView}"""
+        sql """
+            create view internal.${viewDb}.${historicalView} as
+            select id, old_name, victim, metric
+            from ${catalogName}.${dbName}.${topTable}
+            @options('scan.snapshot-id'='${topCp0}')
+        """
+        order_qt_create_view_options_schema """
+            select id, old_name, victim, metric
+            from internal.${viewDb}.${historicalView}
+            order by id
+        """
+        test {
+            sql """
+                with historical as (
+                    select id from ${topTable}
+                )
+                select * from historical@options('scan.snapshot-id'='${topCp0}')
+            """
+            exception "Table scan parameters are not supported on CTE references"
+        }
+        test {
+            sql """
+                show replica distribution from ${catalogName}.${dbName}.${topTable}
+                @options('scan.snapshot-id'='${topCp0}')
+            """
+            exception "OPTIONS scan params are only supported in query relations"
+        }
+        test {
+            sql """
+                select * from ${topTable}@options(
+                    'scan.snapshot-id'='${topCp0}',
+                    'scan.creation-time-millis'='0'
+                )
+            """
+            exception "Only one Paimon startup position can be specified"
+        }
+        test {
+            sql """
+                select * from ${topTable}@options(
+                    'scan.mode'='latest',
+                    'scan.snapshot-id'='${topCp0}'
+                )
+            """
+            exception "is incompatible with startup position"
+        }
+        test {
+            sql """
+                select * from ${topTable}@options('scan.fallback-branch'='archive')
+            """
+            exception "scan.fallback-branch"
+        }
 
         // Scenario TC09/R13/R17: cache, JNI and CPP paths return the same historical schema/data.
         sql """switch ${noCacheCatalogName}"""
@@ -565,6 +706,14 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             order by id
         """)
         assertEquals(forcedJniRows, cppRows)
+        // Schema-selecting OPTIONS must bypass paimon-cpp, whose table handle always uses the
+        // latest schema, even when native Paimon scans are enabled for the session.
+        List<List<Object>> cppOptionsRows = sql("""
+            select id, old_name, victim, metric
+            from ${topTable}@options('scan.snapshot-id'='${topCp0}')
+            order by id
+        """)
+        assertEquals(forcedJniRows, cppOptionsRows)
 
         // Scenario T10/T11: retained tags survive expiration; missing refs never fall back to latest.
         spark_paimon """
@@ -594,6 +743,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     } finally {
         sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
+        sql """drop database if exists internal.${viewDb} force"""
         sql """drop catalog if exists ${catalogName}"""
         sql """drop catalog if exists ${noCacheCatalogName}"""
     }

@@ -20,7 +20,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <memory>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -37,6 +39,10 @@ class Block;
 namespace segment_v2 {
 class SegmentWriter;
 class VerticalSegmentWriter;
+class DerivedColumnGenerator;
+// Matches block_transform.h: at most one derived column (the row-store column)
+// for each flush, held as a {cid, generator} pair; null generator means none.
+using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
 } // namespace segment_v2
 
 struct SegmentStatistics;
@@ -101,6 +107,11 @@ public:
 
     ~SegmentFlusher();
 
+    // Runs the block transform chain on `block` and hands back the derived (row-store)
+    // column for the caller to feed into its writer.
+    Status transform_block(Block* block, int32_t segment_id,
+                           segment_v2::DerivedColumn* derived_column);
+
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const Block* block, int32_t segment_id,
@@ -124,7 +135,9 @@ public:
         ~Writer();
 
         Status add_rows(const Block* block, size_t row_offset, size_t input_row_num) {
-            return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
+            RETURN_IF_ERROR(_flusher->_add_rows(_writer, block, row_offset, input_row_num));
+            _flusher->_num_rows_written += input_row_num;
+            return Status::OK();
         }
 
         Status flush();

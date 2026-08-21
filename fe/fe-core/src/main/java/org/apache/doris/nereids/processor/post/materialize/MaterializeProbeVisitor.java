@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor.ProbeContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -56,10 +53,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     protected static final Logger LOG = LogManager.getLogger(MaterializeProbeVisitor.class);
 
     private static Set<Class> SUPPORT_RELATION_TYPES = ImmutableSet.of(
-            OlapTable.class,
-            HiveTable.class,
-            IcebergExternalTable.class,
-            HMSExternalTable.class
+            OlapTable.class
     );
 
     /**
@@ -124,15 +118,17 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     }
 
     boolean checkRelationTableSupportedType(PhysicalCatalogRelation relation) {
-        if (!SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass())) {
+        boolean supported = SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass());
+        if (!supported && relation.getTable() instanceof PluginDrivenExternalTable) {
+            // Post-flip iceberg becomes PluginDrivenMvccExternalTable (not in the legacy exact-class set);
+            // admit it via the connector capability instead of the legacy IcebergExternalTable.class member.
+            // Row/passthrough plugin connectors (jdbc/es) do not declare the capability, so they stay excluded.
+            supported = ((PluginDrivenExternalTable) relation.getTable()).supportsTopNLazyMaterialize();
+        }
+        if (!supported) {
             return false;
         }
 
-        if (relation.getTable() instanceof HMSExternalTable) {
-            HMSExternalTable hmsExternalTable = (HMSExternalTable) relation.getTable();
-            return (hmsExternalTable.getDlaType() == DLAType.HIVE && hmsExternalTable.supportedHiveTopNLazyTable())
-                    || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
-        }
         if (relation.getTable() instanceof OlapTable) {
             return supportOlapTopnLazyMaterialize((OlapTable) relation.getTable());
         }

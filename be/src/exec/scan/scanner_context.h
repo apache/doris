@@ -43,6 +43,7 @@
 
 namespace doris {
 
+class ResourceContext;
 class RuntimeState;
 class TupleDescriptor;
 class WorkloadGroup;
@@ -96,16 +97,9 @@ public:
         COMPLETED, // finished with result or error, waiting to be collected by scan node
         EOS,       // finished and no more data, waiting to be collected by scan node
     };
-    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
-        _resource_ctx = thread_context()->resource_ctx();
-        DorisMetrics::instance()->scanner_task_cnt->increment(1);
-    }
+    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner);
 
-    ~ScanTask() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
-        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
-        cached_block.reset();
-    }
+    ~ScanTask();
 
 private:
     // whether current scanner is finished
@@ -175,8 +169,7 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
 
 public:
     ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                   const TupleDescriptor* output_tuple_desc,
-                   const RowDescriptor* output_row_descriptor,
+                   const TupleDescriptor* output_tuple_desc, bool has_projection,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    std::shared_ptr<Dependency> dependency, std::atomic<int64_t>* shared_scan_limit,
                    std::shared_ptr<MemShareArbitrator> arb, std::shared_ptr<MemLimiter> limiter,
@@ -274,7 +267,6 @@ protected:
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc = nullptr;
-    const RowDescriptor* _output_row_descriptor = nullptr;
 
     Status _process_status = Status::OK();
     std::atomic_bool _should_stop = false;

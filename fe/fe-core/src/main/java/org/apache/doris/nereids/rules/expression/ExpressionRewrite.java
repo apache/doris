@@ -108,10 +108,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new LogicalCteConsumerRewrite().build(),
                 new LogicalResultSinkRewrite().build(),
                 new LogicalFileSinkRewrite().build(),
-                new LogicalHiveTableSinkRewrite().build(),
-                new LogicalIcebergTableSinkRewrite().build(),
-                new LogicalMaxComputeTableSinkRewrite().build(),
-                new LogicalIcebergMergeSinkRewrite().build(),
+                new LogicalExternalRowLevelMergeSinkRewrite().build(),
                 new LogicalConnectorTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
                 new LogicalDictionarySinkRewrite().build(),
@@ -234,10 +231,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<Expression> groupByExprs = agg.getGroupByExpressions();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(agg, ctx.cascadesContext);
                 List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs, context);
-
+                boolean groupByChanged = !newGroupByExprs.equals(groupByExprs);
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 RewriteResult<NamedExpression> result = rewriteAll(outputExpressions, rewriter, context);
-                if (!result.changed) {
+                if (!result.changed && !groupByChanged) {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, result.result,
@@ -503,34 +500,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class LogicalHiveTableSinkRewrite extends OneRewriteRuleFactory {
+    private class LogicalExternalRowLevelMergeSinkRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalHiveTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalIcebergTableSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalIcebergTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalMaxComputeTableSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalMaxComputeTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalIcebergMergeSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalIcebergMergeSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
+            return logicalExternalRowLevelMergeSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }

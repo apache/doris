@@ -23,8 +23,6 @@ on:
     branches:
       - master
   workflow_dispatch:
-  issue_comment:
-    types: [ created ]
 
 permissions:
   contents: read
@@ -36,11 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'pull_request') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
-      (github.event_name == 'issue_comment' &&
-       github.event.comment.body == 'run buildall' &&
-       github.actor == 'doris-robot' &&
-       github.event.issue.user.login == 'github-actions[bot]')
+      (github.event_name == 'push' && github.ref == 'refs/heads/master')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v7
@@ -74,19 +68,21 @@ jobs:
           if [ -z "$acmr" ]; then
             exit 0
           fi
-          {
-            echo "added_modified<<EOF"
-            echo "$acmr"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          # Hand the list over as a file, not as a step output consumed through an
+          # environment variable: a single env string is capped at MAX_ARG_STRLEN
+          # (128KiB), and a large PR blows past it, so exec'ing the next step's
+          # shell fails with "Argument list too long". Keep it out of the
+          # workspace, where the full-config fallback would license-check it.
+          printf '%s\n' "$acmr" > "${RUNNER_TEMP}/licenserc-changed-files.txt"
+          echo "changed_files_file=${RUNNER_TEMP}/licenserc-changed-files.txt" >> "$GITHUB_OUTPUT"
           echo "config_file=.licenserc-incremental.yaml" >> "$GITHUB_OUTPUT"
 
       - name: Generate incremental licenserc
         if: >-
           github.event_name == 'pull_request' &&
-          steps.changed-files.outputs.added_modified != ''
+          steps.changed-files.outputs.changed_files_file != ''
         env:
-          CHANGED_FILES: ${{ steps.changed-files.outputs.added_modified }}
+          CHANGED_FILES_FILE: ${{ steps.changed-files.outputs.changed_files_file }}
         run: |
           python3 - <<'EOF'
           import sys
@@ -97,8 +93,8 @@ jobs:
           with open('.licenserc.yaml') as f:
               config = yaml.safe_load(f)
 
-          changed = os.environ.get('CHANGED_FILES', '').strip().split('\n')
-          changed = [p.strip() for p in changed if p.strip()]
+          with open(os.environ['CHANGED_FILES_FILE']) as f:
+              changed = [p.strip() for p in f if p.strip()]
 
           config['header']['paths'] = changed
 

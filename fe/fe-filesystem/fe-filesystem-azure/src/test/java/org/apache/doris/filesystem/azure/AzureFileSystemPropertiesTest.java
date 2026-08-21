@@ -21,12 +21,14 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -117,6 +119,83 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("azure", backendMap.get("provider"));
         Assertions.assertEquals("true", backendMap.get("use_path_style"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(keyName -> keyName.startsWith("AZURE_")));
+        // The hadoop Configuration dump is the OAuth2 arm ONLY: SharedKey must stay the exact
+        // 7-key S3-style map, so a regression that applies the dump unconditionally shows up here.
+        Assertions.assertEquals(7, backendMap.size(), backendMap.toString());
+    }
+
+    /**
+     * Pins the OAuth2 backend map that moved here from fe-core {@code StorageAdapter} (which built a
+     * hadoop {@code Configuration} and dumped it). BE's live consumer is Microsoft Fabric OneLake:
+     * {@code abfs[s]://...dfs.fabric.microsoft.com} routes to {@code FILE_HDFS} and every entry is
+     * fed into BE's JNI hadoop builder, so dropping the hadoop-resolved keys silently changes what
+     * the ABFS connector is configured with.
+     */
+    @Test
+    void toBackendProperties_oauth2DumpsHadoopResolvedConfig() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.auth_type", "OAuth2",
+                "azure.oauth2_account_host", "myaccount.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // 1. The OAuth config the ABFS connector actually authenticates with.
+        Assertions.assertEquals("OAuth",
+                backendMap.get("fs.azure.account.auth.type.myaccount.dfs.core.windows.net"));
+        Assertions.assertEquals("org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
+                backendMap.get("fs.azure.account.oauth.provider.type.myaccount.dfs.core.windows.net"));
+        Assertions.assertEquals("client-id",
+                backendMap.get("fs.azure.account.oauth2.client.id.myaccount.dfs.core.windows.net"));
+        Assertions.assertEquals("client-secret",
+                backendMap.get("fs.azure.account.oauth2.client.secret.myaccount.dfs.core.windows.net"));
+        Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
+                backendMap.get("fs.azure.account.oauth2.client.endpoint.myaccount.dfs.core.windows.net"));
+
+        // 2. hadoop core-default.xml is merged in. This is the whole reason the module compiles
+        //    against hadoop-common: a plain key-value map would carry the OAuth keys above but none
+        //    of these, and the change would be invisible to every other assertion.
+        Assertions.assertEquals("file:///", backendMap.get("fs.defaultFS"));
+        Assertions.assertTrue(backendMap.containsKey("hadoop.security.authentication"), backendMap.toString());
+        Assertions.assertTrue(backendMap.size() > 100,
+                "expected a resolved hadoop config, got " + backendMap.size() + " keys");
+
+        // 3. Never S3-style: OAuth2 has no AK/SK the BE S3 adapter could consume.
+        Assertions.assertFalse(backendMap.containsKey("AWS_ACCESS_KEY"), backendMap.toString());
+        Assertions.assertFalse(backendMap.containsKey("provider"), backendMap.toString());
+    }
+
+    @Test
+    void toBackendProperties_oauth2PassesUserFsKeysThroughAndNormalizesCacheFlags() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.auth_type", "OAuth2",
+                "azure.oauth2_account_host", "myaccount.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
+                // arbitrary user fs.* key, not azure-scoped: legacy passed the whole fs.* family through
+                "fs.azure.readaheadqueue.depth", "8",
+                // explicit cache flag in a spelling only BooleanUtils understands
+                "fs.abfss.impl.disable.cache", "no"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        Assertions.assertEquals("8", backendMap.get("fs.azure.readaheadqueue.depth"));
+        // Explicit user value wins, but normalized to true/false — "no" must not reach BE verbatim.
+        Assertions.assertEquals("false", backendMap.get("fs.abfss.impl.disable.cache"));
+        // The other three legacy schemes are no longer force-disabled: the patched FileSystem keys
+        // its cache by the per-scheme credential fingerprint instead.
+        Assertions.assertNull(backendMap.get("fs.abfs.impl.disable.cache"));
+        Assertions.assertNull(backendMap.get("fs.wasb.impl.disable.cache"));
+        Assertions.assertNull(backendMap.get("fs.wasbs.impl.disable.cache"));
+        for (String scheme : List.of("abfs", "abfss", "wasb", "wasbs")) {
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    backendMap.get(FsCacheKeys.fsCacheKeyProperty(scheme)));
+        }
     }
 
     @Test

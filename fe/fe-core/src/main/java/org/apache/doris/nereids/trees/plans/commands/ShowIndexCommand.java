@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -63,6 +64,33 @@ public class ShowIndexCommand extends ShowCommand {
                     .addColumn(new Column("Null", ScalarType.createVarchar(160)))
                     .addColumn(new Column("Index_type", ScalarType.createVarchar(160)))
                     .addColumn(new Column("Comment", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Properties", ScalarType.createVarchar(400)))
+                    .build();
+
+    /**
+     * MySQL's own SHOW INDEX layout, which splits what Doris packs into one column: Comment
+     * carries status information about the index, Index_comment carries the description the
+     * user declared. A client that reads the declared description looks for Index_comment,
+     * so compatible mode has to name it that. Doris' own Properties is kept on the end,
+     * after everything MySQL documents, so nothing is lost by turning the switch on.
+     */
+    private static final ShowResultSetMetaData MYSQL_COMPATIBLE_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Table", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Non_unique", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Key_name", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Seq_in_index", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Column_name", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Collation", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Cardinality", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Sub_part", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Packed", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Index_type", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Index_comment", ScalarType.createVarchar(1024)))
+                    .addColumn(new Column("Visible", ScalarType.createVarchar(3)))
+                    .addColumn(new Column("Expression", ScalarType.createVarchar(1024)))
                     .addColumn(new Column("Properties", ScalarType.createVarchar(400)))
                     .build();
     private TableNameInfo tableNameInfo;
@@ -107,11 +135,59 @@ public class ShowIndexCommand extends ShowCommand {
     private ShowResultSet handleShowIndex(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
 
-        List<List<String>> rows = Lists.newArrayList();
-        // in show index, only support internal catalog
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                 .getDbOrAnalysisException(tableNameInfo.getDb());
+        boolean mysqlCompatible = ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata();
+        List<List<String>> rows = mysqlCompatible ? mysqlCompatibleRows(db) : legacyRows(db);
+        return new ShowResultSet(getMetaData(), rows);
+    }
+
+    /**
+     * Reports keys and indexes the way MySQL does: one row per indexed column, with the
+     * unique key of the table named PRIMARY so that ODBC and JDBC clients recognize it.
+     */
+    private List<List<String>> mysqlCompatibleRows(DatabaseIf db) throws Exception {
+        List<List<String>> rows = Lists.newArrayList();
+        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
+        table.readLock();
+        try {
+            for (TableKeyMeta.KeyRow row : TableKeyMeta.buildKeyRows(table)) {
+                // A null cell is sent as SQL NULL, which is what MySQL reports for a
+                // value that does not apply to the index.
+                rows.add(Lists.newArrayList(
+                        row.getTableName(),
+                        row.isNonUnique() ? "1" : "0",
+                        row.getIndexName(),
+                        String.valueOf(row.getSeqInIndex()),
+                        row.getColumnName(),
+                        row.getCollation(),
+                        row.getCardinality() == null ? null : String.valueOf(row.getCardinality()),
+                        null,
+                        null,
+                        row.isNullable() ? "YES" : "",
+                        row.getIndexType(),
+                        // MySQL keeps Comment for index status, of which Doris has none,
+                        // and reports the declared description as Index_comment.
+                        "",
+                        row.getComment(),
+                        "YES",
+                        null,
+                        row.getProperties()));
+            }
+        } finally {
+            table.readUnlock();
+        }
+        return rows;
+    }
+
+    /**
+     * The output Doris has always produced: secondary indexes only, one row per index,
+     * with the columns of an index joined into a single cell.
+     */
+    private List<List<String>> legacyRows(DatabaseIf db) throws Exception {
+        List<List<String>> rows = Lists.newArrayList();
+        // in show index, only support internal catalog
         if (db instanceof Database) {
             TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
             if (table instanceof OlapTable) {
@@ -129,7 +205,7 @@ public class ShowIndexCommand extends ShowCommand {
                 }
             }
         }
-        return new ShowResultSet(getMetaData(), rows);
+        return rows;
     }
 
     @Override
@@ -139,7 +215,9 @@ public class ShowIndexCommand extends ShowCommand {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata()
+                ? MYSQL_COMPATIBLE_META_DATA : META_DATA;
     }
 
     @Override

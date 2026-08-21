@@ -90,7 +90,7 @@ using simd::RawComparisonOp;
 
 std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name, bool reverse) {
     RawComparisonOp op;
-    if (function_name == "eq") {
+    if (function_name == "eq" || function_name == "eq_for_null") {
         op = RawComparisonOp::EQ;
     } else if (function_name == "ne") {
         op = RawComparisonOp::NE;
@@ -124,11 +124,92 @@ std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name,
     __builtin_unreachable();
 }
 
+bool raw_string_comparison_matches(int comparison, RawComparisonOp op) {
+    switch (op) {
+    case RawComparisonOp::EQ:
+        return comparison == 0;
+    case RawComparisonOp::NE:
+        return comparison != 0;
+    case RawComparisonOp::LT:
+        return comparison < 0;
+    case RawComparisonOp::LE:
+        return comparison <= 0;
+    case RawComparisonOp::GT:
+        return comparison > 0;
+    case RawComparisonOp::GE:
+        return comparison >= 0;
+    }
+    __builtin_unreachable();
+}
+
 template <typename T, PrimitiveType PT>
 void execute_raw_comparison(const uint8_t* values, size_t num_values, const Field& literal,
                             RawComparisonOp op, uint8_t* matches) {
     const T rhs = literal.get<PT>();
     simd::raw_compare(values, num_values, rhs, op, matches);
+}
+
+template <typename T>
+bool raw_scalar_comparison_matches(const T& lhs, const T& rhs, RawComparisonOp op) {
+    switch (op) {
+    case RawComparisonOp::EQ:
+        return lhs == rhs;
+    case RawComparisonOp::NE:
+        return lhs != rhs;
+    case RawComparisonOp::LT:
+        return lhs < rhs;
+    case RawComparisonOp::LE:
+        return lhs <= rhs;
+    case RawComparisonOp::GT:
+        return lhs > rhs;
+    case RawComparisonOp::GE:
+        return lhs >= rhs;
+    }
+    __builtin_unreachable();
+}
+
+template <PrimitiveType PT>
+void execute_raw_scalar_comparison(const uint8_t* values, size_t num_values, const Field& literal,
+                                   RawComparisonOp op, uint8_t* matches) {
+    using T = typename PrimitiveTypeTraits<PT>::CppType;
+    const T& rhs = literal.get<PT>();
+    for (size_t row = 0; row < num_values; ++row) {
+        T lhs;
+        std::memcpy(&lhs, values + row * sizeof(T), sizeof(T));
+        matches[row] &= raw_scalar_comparison_matches(lhs, rhs, op) ? 1 : 0;
+    }
+}
+
+size_t raw_comparison_value_size(PrimitiveType primitive_type) {
+    switch (primitive_type) {
+#define RETURN_RAW_COMPARISON_SIZE(TYPE) \
+    case TYPE:                           \
+        return sizeof(typename PrimitiveTypeTraits<TYPE>::CppType)
+        RETURN_RAW_COMPARISON_SIZE(TYPE_BOOLEAN);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TINYINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_SMALLINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_INT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_BIGINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_LARGEINT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_FLOAT);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DOUBLE);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATE);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATETIME);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TIMESTAMPTZ);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_TIMEV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL32);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL64);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMALV2);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL128I);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL256);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_IPV4);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_IPV6);
+#undef RETURN_RAW_COMPARISON_SIZE
+    default:
+        return 0;
+    }
 }
 
 } // namespace
@@ -408,9 +489,7 @@ bool VectorizedFnCall::can_execute_on_raw_fixed_values(const DataTypePtr& data_t
         !remove_nullable(slot_literal->literal_type)->equals(*raw_type)) {
         return false;
     }
-    const auto primitive_type = raw_type->get_primitive_type();
-    return primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT ||
-           primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
+    return raw_comparison_value_size(raw_type->get_primitive_type()) != 0;
 }
 
 Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
@@ -428,9 +507,7 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
     const auto op = raw_comparison_op(_function_name, slot_literal->literal_on_left);
     DORIS_CHECK(op.has_value());
     const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
-    const size_t expected_width = primitive_type == TYPE_INT || primitive_type == TYPE_FLOAT
-                                          ? sizeof(uint32_t)
-                                          : sizeof(uint64_t);
+    const size_t expected_width = raw_comparison_value_size(primitive_type);
     if (value_width != expected_width) {
         return Status::Corruption("Raw expression width {} does not match expected {}", value_width,
                                   expected_width);
@@ -452,8 +529,97 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
         execute_raw_comparison<double, TYPE_DOUBLE>(values, num_values, slot_literal->literal, *op,
                                                     matches);
         break;
+#define EXECUTE_RAW_SCALAR_COMPARISON(TYPE)                                                 \
+    case TYPE:                                                                              \
+        execute_raw_scalar_comparison<TYPE>(values, num_values, slot_literal->literal, *op, \
+                                            matches);                                       \
+        break
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_BOOLEAN);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TINYINT);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_SMALLINT);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_LARGEINT);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATE);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATETIME);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DATETIMEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMESTAMPTZ);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_TIMEV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL32);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL64);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMALV2);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL128I);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL256);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV4);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV6);
+#undef EXECUTE_RAW_SCALAR_COMPARISON
     default:
         __builtin_unreachable();
+    }
+    return Status::OK();
+}
+
+bool VectorizedFnCall::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                        int column_id) const {
+    if (data_type == nullptr || !is_string_type(remove_nullable(data_type)->get_primitive_type()) ||
+        !raw_comparison_op(_function_name, false).has_value()) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    return slot_literal.has_value() && slot_literal->slot_index == column_id &&
+           !slot_literal->literal.is_null() &&
+           is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()) &&
+           is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type());
+}
+
+Status VectorizedFnCall::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                      const DataTypePtr& data_type, int column_id,
+                                                      uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("Expression {} cannot evaluate raw binary values", expr_name());
+    }
+    DORIS_CHECK(values != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    DORIS_CHECK(slot_literal.has_value());
+    const auto op = raw_comparison_op(_function_name, slot_literal->literal_on_left);
+    DORIS_CHECK(op.has_value());
+    const auto& literal = slot_literal->literal.get<TYPE_STRING>();
+    const StringRef literal_ref(literal.data(), literal.size());
+    for (size_t row = 0; row < num_values; ++row) {
+        matches[row] &=
+                raw_string_comparison_matches(values[row].compare(literal_ref), *op) ? 1 : 0;
+    }
+    return Status::OK();
+}
+
+bool VectorizedFnCall::can_execute_on_null_map(const DataTypePtr& data_type, int column_id) const {
+    if (data_type == nullptr) {
+        return false;
+    }
+    if (_children.size() == 1 &&
+        (_function_name == "is_null_pred" || _function_name == "is_not_null_pred")) {
+        const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+        return slot != nullptr && slot->column_id() == column_id;
+    }
+    if (_function_name == "eq_for_null") {
+        const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+        return slot_literal.has_value() && slot_literal->slot_index == column_id &&
+               slot_literal->literal.is_null();
+    }
+    return false;
+}
+
+Status VectorizedFnCall::execute_on_null_map(const uint8_t* null_map, size_t num_values,
+                                             const DataTypePtr& data_type, int column_id,
+                                             uint8_t* matches) const {
+    if (!can_execute_on_null_map(data_type, column_id)) {
+        return Status::NotSupported("Expression {} cannot evaluate a NULL map", expr_name());
+    }
+    DORIS_CHECK(null_map != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const bool keep_nulls = _function_name == "is_null_pred" || _function_name == "eq_for_null";
+    for (size_t row = 0; row < num_values; ++row) {
+        matches[row] &= (null_map[row] != 0) == keep_nulls ? 1 : 0;
     }
     return Status::OK();
 }
@@ -505,11 +671,24 @@ bool VectorizedFnCall::is_deterministic() const {
 }
 
 bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
-    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {
-            "eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "is_null_pred", "is_not_null_pred"};
+    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {"eq",
+                                                                    "eq_for_null",
+                                                                    "ne",
+                                                                    "lt",
+                                                                    "le",
+                                                                    "gt",
+                                                                    "ge",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_null_pred",
+                                                                    "is_not_null_pred",
+                                                                    "element_at",
+                                                                    "struct_element"};
     // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
     // predicate. Keep function calls unsafe by default and opt in only operations that are total
-    // for their input domain; child checks then reject expressions such as gt(mod(x, -1), 0).
+    // for their input domain. Accessors return NULL for absent elements, so admitting them keeps
+    // nested metadata predicates reachable without crossing an error-producing child such as
+    // gt(mod(x, -1), 0).
     return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
            VExpr::is_safe_to_execute_on_selected_rows();
 }

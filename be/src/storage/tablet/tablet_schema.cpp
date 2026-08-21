@@ -43,6 +43,7 @@
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
+#include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/olap_common.h"
@@ -557,24 +558,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
 }
 
-TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
-                                                              const std::vector<std::string>& paths,
-                                                              int32_t parent_unique_id,
-                                                              int32_t max_subcolumns_count,
-                                                              bool enable_doc_mode) {
-    TabletColumn subcol;
-    subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    subcol.set_is_nullable(true);
-    subcol.set_unique_id(-1);
-    subcol.set_parent_unique_id(parent_unique_id);
-    PathInData path(root, paths);
-    subcol.set_path_info(path);
-    subcol.set_name(path.get_path());
-    subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
-    subcol.set_variant_enable_doc_mode(enable_doc_mode);
-    return subcol;
-}
-
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
@@ -664,22 +647,29 @@ AggregateFunctionPtr TabletColumn::get_aggregate_function_union(DataTypePtr type
 
 AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix,
                                                           int current_be_exec_version) const {
+    return get_aggregate_function(std::move(suffix), current_be_exec_version,
+                                  DataTypeFactory::instance().create_data_type(*this));
+}
+
+AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix,
+                                                          int current_be_exec_version,
+                                                          DataTypePtr runtime_type) const {
     AggregateFunctionPtr function = nullptr;
 
-    auto type = DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
-        function = get_aggregate_function_union(type, current_be_exec_version);
+    DORIS_CHECK(runtime_type != nullptr);
+    if (runtime_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+        function = get_aggregate_function_union(runtime_type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
         std::string agg_name = origin_name + suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type, type->is_nullable(),
+                agg_name, {runtime_type}, runtime_type, runtime_type->is_nullable(),
                 BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
-                         << ", column_type=" << type->get_name();
+                         << ", column_type=" << runtime_type->get_name();
         }
     }
     if (function) {
@@ -978,8 +968,8 @@ void TabletSchema::remove_index(int64_t index_id) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
                 pattern_to_index_map[field_pattern].emplace_back(index);
             } else {
-                IndexKey key = std::make_tuple(_indexes.back()->index_type(), col_uid,
-                                               _indexes.back()->get_index_suffix());
+                IndexKey key =
+                        std::make_tuple(index->index_type(), col_uid, index->get_index_suffix());
                 _col_id_suffix_to_index[key].push_back(new_pos);
             }
         }

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
@@ -37,7 +39,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
@@ -51,6 +55,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CloudGlobalTransactionMgrTest {
@@ -200,6 +208,130 @@ public class CloudGlobalTransactionMgrTest {
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
             masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
                     transactionId, null, null);
+        }
+    }
+
+    @Test
+    public void testCommitTransactionCarriesTableStreamUpdates() throws Exception {
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            TxnInfoPB txnInfo = TxnInfoPB.newBuilder()
+                    .setDbId(CatalogTestUtil.testDbId1)
+                    .addTableIds(CatalogTestUtil.testTableId1)
+                    .setTxnId(123533)
+                    .setLabel(CatalogTestUtil.testTxnLabel1)
+                    .setListenerId(-1)
+                    .build();
+            Mockito.doReturn(CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setTxnInfo(txnInfo)
+                    .build()).when(mockProxy).commitTxn(Mockito.any());
+
+            Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                    .setBaseDbId(10)
+                    .setBaseTableId(20)
+                    .setStreamDbId(30)
+                    .setStreamId(40)
+                    .build();
+            Cloud.TableStreamPartitionUpdatePB partitionUpdate =
+                    Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                            .setPartitionId(50)
+                            .setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                            .setExpectedOffsetTso(60)
+                            .setNextOffsetTso(70)
+                            .build();
+            CloudOlapTableStreamUpdate update = new CloudOlapTableStreamUpdate(identity,
+                    java.util.Map.of(50L, partitionUpdate));
+            TableStreamUpdateInfo updateInfo = new TableStreamUpdateInfo(30L, 40L, update);
+            Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+
+            masterTransMgr.commitAndPublishTransaction(
+                    masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
+                    Lists.newArrayList(table), 123533, Lists.newArrayList(), 10_000, null,
+                    Lists.newArrayList(updateInfo));
+
+            ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
+                    ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
+            Assert.assertTrue(requestCaptor.getValue().hasCommitTso());
+            Assert.assertEquals(1, requestCaptor.getValue().getTableStreamUpdatesCount());
+            Assert.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
+            Assert.assertEquals(partitionUpdate,
+                    requestCaptor.getValue().getTableStreamUpdates(0).getPartitionUpdates(0));
+        }
+    }
+
+    @Test
+    public void testSkipMakeTmpRsVisibleForIncompleteLazyCommit() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12345L).build())
+                .setIsLazyCommit(true)
+                .setIsLazyCommitIncomplete(true)
+                .build();
+
+        Assert.assertFalse(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    @Test
+    public void testMakeTmpRsVisibleForNonLazyCommitWithIncompleteFlag() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12346L).build())
+                .setIsLazyCommit(false)
+                .setIsLazyCommitIncomplete(true)
+                .build();
+
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    @Test
+    public void testMakeTmpRsVisibleForCompletedLazyCommit() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12347L).build())
+                .setIsLazyCommit(true)
+                .setIsLazyCommitIncomplete(false)
+                .build();
+
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    @Test
+    public void testMakeTmpRsVisibleForNonLazyCommit() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12348L).build())
+                .setIsLazyCommit(false)
+                .setIsLazyCommitIncomplete(false)
+                .build();
+
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    private boolean invokeNotifyBesMakeTmpRsVisible(CommitTxnResponse response) throws Exception {
+        boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
+        try {
+            Config.enable_notify_be_after_load_txn_commit = true;
+            AtomicBoolean notified = new AtomicBoolean(false);
+            CloudGlobalTransactionMgr transactionMgr = new CloudGlobalTransactionMgr() {
+                @Override
+                public void sendMakeCloudTmpRsVisibleTasks(long txnId,
+                        List<TTabletCommitInfo> commitInfos, Map<Long, Long> partitionVersionMap,
+                        long updateVersionVisibleTime) {
+                    notified.set(true);
+                }
+            };
+            Method notifyMethod = CloudGlobalTransactionMgr.class.getDeclaredMethod(
+                    "notifyBesMakeTmpRsVisible", CommitTxnResponse.class, List.class);
+            notifyMethod.setAccessible(true);
+
+            List<TabletCommitInfo> tabletCommitInfos =
+                    Lists.newArrayList(new TabletCommitInfo(10001L, 10002L));
+
+            notifyMethod.invoke(transactionMgr, response, tabletCommitInfos);
+            return notified.get();
+        } finally {
+            Config.enable_notify_be_after_load_txn_commit = originalEnableNotify;
         }
     }
 

@@ -60,6 +60,10 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vdirect_in_predicate.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
+#include "format/column_descriptor.h"
 #include "format/parquet/parquet_block_split_bloom_filter.h"
 #include "format/parquet/parquet_thrift_util.h"
 #include "format/parquet/schema_desc.h"
@@ -199,6 +203,48 @@ std::string encode_int64(const int64_t value) {
 class ParquetExprTest : public testing::Test {
 public:
     ParquetExprTest() {}
+
+    VExprSPtr create_string_literal(const std::string& value) {
+        TExprNode literal_node;
+        literal_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+        literal_node.__set_type(create_type_desc(TYPE_STRING));
+        TStringLiteral literal;
+        literal.__set_value(value);
+        literal_node.__set_string_literal(literal);
+        literal_node.__set_is_nullable(false);
+        return VLiteral::create_shared(literal_node);
+    }
+
+    VExprContextSPtr create_string_equal(RuntimeState* state, const RowDescriptor& row_desc,
+                                         VExprSPtr left, VExprSPtr right) {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name("eq");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        fn.__set_arg_types({create_type_desc(TYPE_STRING), create_type_desc(TYPE_STRING)});
+        fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode expr_node;
+        expr_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+        expr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        expr_node.__set_opcode(TExprOpcode::EQ);
+        expr_node.__set_fn(fn);
+        expr_node.__set_num_children(2);
+        expr_node.__set_is_nullable(true);
+        auto root = VectorizedFnCall::create_shared(expr_node);
+        root->add_child(std::move(left));
+        root->add_child(std::move(right));
+
+        auto context = VExprContext::create_shared(root);
+        auto status = context->prepare(state, row_desc);
+        EXPECT_TRUE(status.ok()) << status;
+        status = context->open(state);
+        EXPECT_TRUE(status.ok()) << status;
+        return context;
+    }
 
     void SetUp() override {
         std::string test_dir = "ut_dir/test_parquet_expr";
@@ -616,6 +662,144 @@ public:
     cctz::time_zone ctz = cctz::utc_time_zone();
     std::unordered_map<std::string, int> colname_to_slot_id;
 };
+
+TEST_F(ParquetExprTest, dict_filter_is_blocked_only_for_slots_in_multi_slot_conjuncts) {
+    arrow::StringBuilder left_builder;
+    arrow::StringBuilder right_builder;
+    arrow::StringBuilder filter_builder;
+    for (const auto& value : {"x", "x", "x", "y"}) {
+        ASSERT_TRUE(left_builder.Append(value).ok());
+    }
+    for (const auto& value : {"x", "x", "y", "y"}) {
+        ASSERT_TRUE(right_builder.Append(value).ok());
+    }
+    for (const auto& value : {"keep", "drop", "keep", "keep"}) {
+        ASSERT_TRUE(filter_builder.Append(value).ok());
+    }
+
+    std::shared_ptr<arrow::Array> left_array;
+    std::shared_ptr<arrow::Array> right_array;
+    std::shared_ptr<arrow::Array> filter_array;
+    ASSERT_TRUE(left_builder.Finish(&left_array).ok());
+    ASSERT_TRUE(right_builder.Finish(&right_array).ok());
+    ASSERT_TRUE(filter_builder.Finish(&filter_array).ok());
+
+    auto schema = arrow::schema({arrow::field("left_col", arrow::utf8(), false),
+                                 arrow::field("right_col", arrow::utf8(), false),
+                                 arrow::field("filter_col", arrow::utf8(), false)});
+    auto table = arrow::Table::Make(schema, {left_array, right_array, filter_array});
+    const std::string dict_filter_file = "ut_dir/test_parquet_expr/dict_filter.parquet";
+    auto output_result = arrow::io::FileOutputStream::Open(dict_filter_file);
+    ASSERT_TRUE(output_result.ok()) << output_result.status();
+    auto output = std::move(output_result).ValueUnsafe();
+    ::parquet::WriterProperties::Builder properties_builder;
+    properties_builder.enable_dictionary();
+    auto properties = properties_builder.build();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output,
+                                                      table->num_rows(), properties));
+    ASSERT_TRUE(output->Close().ok());
+
+    TDescriptorTable local_t_desc_table;
+    TTableDescriptor local_t_table_desc;
+    create_table_desc(local_t_desc_table, local_t_table_desc,
+                      {"left_col", "right_col", "filter_col"},
+                      {TPrimitiveType::STRING, TPrimitiveType::STRING, TPrimitiveType::STRING});
+    ObjectPool local_obj_pool;
+    DescriptorTbl* local_desc_tbl = nullptr;
+    auto status = DescriptorTbl::create(&local_obj_pool, local_t_desc_table, &local_desc_tbl);
+    ASSERT_TRUE(status.ok()) << status;
+    auto* tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
+    RowDescriptor row_desc(tuple_desc);
+
+    RuntimeState state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    state.set_desc_tbl(local_desc_tbl);
+    auto multi_slot_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[0]),
+                                VSlotRef::create_shared(tuple_desc->slots()[1]));
+    auto left_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[0]),
+                                create_string_literal("x"));
+    auto right_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[1]),
+                                create_string_literal("x"));
+    auto filter_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[2]),
+                                create_string_literal("keep"));
+
+    VExprContextSPtrs conjuncts = {multi_slot_conjunct, left_conjunct, right_conjunct,
+                                   filter_conjunct};
+    VExprContextSPtrs not_single_slot_filter_conjuncts = {multi_slot_conjunct};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts = {
+            {tuple_desc->slots()[0]->id(), {left_conjunct}},
+            {tuple_desc->slots()[1]->id(), {right_conjunct}},
+            {tuple_desc->slots()[2]->id(), {filter_conjunct}}};
+
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr file_reader;
+    status = local_fs->open_file(dict_filter_file, &file_reader);
+    ASSERT_TRUE(status.ok()) << status;
+
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(dict_filter_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(file_reader->size());
+    auto parquet_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, 64, &ctz,
+                                                       nullptr, &state, nullptr, true);
+    parquet_reader->set_file_reader(file_reader);
+
+    std::vector<std::string> column_names = {"left_col", "right_col", "filter_col"};
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& column_name : column_names) {
+        column_descs.push_back({column_name, nullptr, ColumnCategory::REGULAR, nullptr});
+    }
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"left_col", 0}, {"right_col", 1}, {"filter_col", 2}};
+    std::unordered_map<std::string, int> col_name_to_slot_id = {
+            {"left_col", tuple_desc->slots()[0]->id()},
+            {"right_col", tuple_desc->slots()[1]->id()},
+            {"filter_col", tuple_desc->slots()[2]->id()}};
+    ParquetInitContext parquet_context;
+    parquet_context.column_descs = &column_descs;
+    parquet_context.col_name_to_block_idx = &col_name_to_block_idx;
+    parquet_context.tuple_descriptor = tuple_desc;
+    parquet_context.row_descriptor = &row_desc;
+    parquet_context.params = &scan_params;
+    parquet_context.range = &scan_range;
+    parquet_context.conjuncts = &conjuncts;
+    parquet_context.colname_to_slot_id = &col_name_to_slot_id;
+    parquet_context.not_single_slot_filter_conjuncts = &not_single_slot_filter_conjuncts;
+    parquet_context.slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+    status = parquet_reader->init_reader(&parquet_context);
+    ASSERT_TRUE(status.ok()) << status;
+
+    Block block;
+    for (const auto* slot_desc : tuple_desc->slots()) {
+        block.insert(
+                {slot_desc->type()->create_column(), slot_desc->type(), slot_desc->col_name()});
+    }
+    size_t read_rows = 0;
+    bool eof = false;
+    status = parquet_reader->get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(parquet_reader->_current_group_reader, nullptr);
+
+    const auto& blocked_slot_ids =
+            parquet_reader->_current_group_reader->_dict_filter_blocked_slot_ids;
+    EXPECT_EQ(blocked_slot_ids.size(), 2);
+    EXPECT_TRUE(blocked_slot_ids.contains(tuple_desc->slots()[0]->id()));
+    EXPECT_TRUE(blocked_slot_ids.contains(tuple_desc->slots()[1]->id()));
+    const auto& dict_filter_columns = parquet_reader->_current_group_reader->_dict_filter_cols;
+    ASSERT_EQ(dict_filter_columns.size(), 1);
+    EXPECT_EQ(dict_filter_columns.front().first, "filter_col");
+
+    EXPECT_TRUE(eof);
+    ASSERT_EQ(read_rows, 1);
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(block.get_by_position(0).column->get_data_at(0).to_string(), "x");
+    EXPECT_EQ(block.get_by_position(1).column->get_data_at(0).to_string(), "x");
+    EXPECT_EQ(block.get_by_position(2).column->get_data_at(0).to_string(), "keep");
+}
 
 TEST_F(ParquetExprTest, test_min_max) {
     // open parquet with parquet's API

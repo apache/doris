@@ -43,6 +43,61 @@ suite("test_paimon_incr_read", "p0,external") {
 
         def test_incr_read = { String force ->
             sql """ set force_jni_scanner=${force} """
+
+            // Query-level OPTIONS params apply independently for both native and JNI readers.
+            order_qt_options_snapshot1 """
+                    select id, name, age from paimon_incr
+                    @options('scan.snapshot-id'='1') order by id
+                    """
+            order_qt_options_snapshot2 """
+                    select id, name, age from paimon_incr
+                    @options('scan.snapshot-id'='2') order by id
+                    """
+            order_qt_options_snapshot3 """
+                    select id, name, age from paimon_incr
+                    @options('scan.snapshot-id'='3') order by id
+                    """
+            // The latest query proves that a prior relation's dynamic option did not leak.
+            order_qt_options_isolation """select id, name, age from paimon_incr order by id"""
+
+            order_qt_relation_scoped_options """
+                    select right_orders.id
+                    from paimon_incr
+                    @options('scan.snapshot-id'='2') right_orders
+                    left anti join paimon_incr
+                    @options('scan.snapshot-id'='1') left_orders
+                    on right_orders.id = left_orders.id
+                    order by right_orders.id
+                    """
+
+            test {
+                sql """
+                        select * from paimon_incr
+                        @options('scan.snapshot-id'='999999')
+                        """
+                exception "snapshot"
+            }
+            test {
+                sql """select * from paimon_incr@options()"""
+                exception "OPTIONS requires a non-empty key/value map"
+            }
+            test {
+                sql """select * from paimon_incr@options(foo, bar)"""
+                exception "OPTIONS requires a non-empty key/value map"
+            }
+            test {
+                sql """select * from paimon_incr@options('scan.snapsh0t-id'='1')"""
+                exception "Unsupported Paimon query option"
+            }
+            test {
+                sql """select * from paimon_incr@options('scan.mode'='from-creation-timestamp')"""
+                exception "scan.creation-time-millis"
+            }
+            test {
+                sql """select * from paimon_incr@options('scan.bounded.watermark'='1')"""
+                exception "Unsupported Paimon query option"
+            }
+
             order_qt_snapshot_incr3  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
             order_qt_snapshot_incr4  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=3)"""
             order_qt_snapshot_incr5  """select * from paimon_incr@incr('startSnapshotId'=2, 'endSnapshotId'=3)"""
@@ -107,5 +162,3 @@ suite("test_paimon_incr_read", "p0,external") {
         // sql """drop catalog if exists ${catalog_name}"""
     }
 }
-
-

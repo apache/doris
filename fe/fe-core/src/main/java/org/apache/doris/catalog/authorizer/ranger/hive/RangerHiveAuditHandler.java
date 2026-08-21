@@ -19,7 +19,6 @@ package org.apache.doris.catalog.authorizer.ranger.hive;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveOperationType;
 import org.apache.ranger.audit.model.AuthzAuditEvent;
 import org.apache.ranger.plugin.audit.RangerDefaultAuditHandler;
 import org.apache.ranger.plugin.model.RangerPolicy;
@@ -30,17 +29,32 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.EnumSet;
+import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * ATTN: the {@code org.apache.hadoop.conf.Configuration} import below is a SANCTIONED EXCEPTION to the
+ * fe-core hadoop-decoupling effort — do not "clean" it away.
+ *
+ * <p>The type is imposed by the Ranger library, not chosen by Doris: {@link RangerDefaultAuditHandler}
+ * declares the constructor as {@code RangerDefaultAuditHandler(org.apache.hadoop.conf.Configuration)}, and
+ * the only argument ever passed is {@code RangerBasePlugin.getConfig()}, whose type chain is
+ * {@code RangerPluginConfig -> RangerConfiguration -> org.apache.hadoop.conf.Configuration}. Narrowing the
+ * parameter to {@code RangerPluginConfig} would make a grep look clean while removing no dependency at all:
+ * ranger-plugins-common itself pulls hadoop-client-api/hadoop-client-runtime onto the fe-core classpath.
+ *
+ * <p>Removing hadoop from here therefore requires moving the whole Ranger authorizer out of fe-core, which
+ * contradicts the standing decision that this package is a generic external-catalog authorizer kept in
+ * fe-core unchanged.
+ */
 public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
 
     public static final String ACCESS_TYPE_ROWFILTER = "ROW_FILTER";
@@ -52,18 +66,14 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     public static final String CONF_AUDIT_QUERY_REQUEST_SIZE = "xasecure.audit.solr.limit.query.req.size";
     public static final int DEFAULT_CONF_AUDIT_QUERY_REQUEST_SIZE = Integer.MAX_VALUE;
     private static final Logger LOG = LoggerFactory.getLogger(RangerDefaultAuditHandler.class);
-    private static final Set<String> ROLE_OPS = new HashSet<>();
-
-    static {
-        for (HiveOperationType e : EnumSet.of(HiveOperationType.CREATEROLE, HiveOperationType.DROPROLE,
-                HiveOperationType.SHOW_ROLES, HiveOperationType.SHOW_ROLE_GRANT, HiveOperationType.SHOW_ROLE_PRINCIPALS,
-                HiveOperationType.GRANT_ROLE, HiveOperationType.REVOKE_ROLE)) {
-            ROLE_OPS.add(e.name());
-        }
-    }
 
     private final int requestQuerySize;
+    private final Object auditBufferLock = new Object();
+    private final Object flushLock = new Object();
     private final Collection<AuthzAuditEvent> auditEvents = new ArrayList<>();
+    // Only accessed while holding flushLock. Successfully delivered events are removed one by one, so a
+    // provider exception leaves the failed event and every later event available for the next periodic tick.
+    private final Deque<AuthzAuditEvent> pendingAuditEvents = new ArrayDeque<>();
     private boolean deniedExists = false;
 
     public RangerHiveAuditHandler() {
@@ -237,21 +247,55 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     }
 
     public void flushAudit() {
-        for (AuthzAuditEvent auditEvent : auditEvents) {
-            if (deniedExists && auditEvent.getAccessResult() != 0) { // if deny exists, skip logging for allowed results
-                continue;
+        synchronized (flushLock) {
+            Collection<AuthzAuditEvent> eventsToFlush;
+            boolean deniedExistsForEvents;
+            // Keep the producer critical section limited to snapshot/reset. Provider delivery can block, but
+            // authorization callbacks remain free to enqueue into the next batch.
+            synchronized (auditBufferLock) {
+                eventsToFlush = new ArrayList<>(auditEvents);
+                deniedExistsForEvents = deniedExists;
+                auditEvents.clear();
+                deniedExists = false;
             }
 
-            super.logAuthzAudit(auditEvent);
+            for (AuthzAuditEvent auditEvent : eventsToFlush) {
+                // If a deny exists, skip logging allowed results from the same drained batch.
+                if (!deniedExistsForEvents || auditEvent.getAccessResult() == 0) {
+                    pendingAuditEvents.addLast(auditEvent);
+                }
+            }
+
+            while (!pendingAuditEvents.isEmpty()) {
+                AuthzAuditEvent auditEvent = pendingAuditEvents.peekFirst();
+                logAuditEvent(auditEvent);
+                // Remove only after the provider confirms delivery by returning normally.
+                pendingAuditEvents.removeFirst();
+            }
         }
     }
 
-    private void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
-        if (auditEvent != null) {
+    protected void logAuditEvent(AuthzAuditEvent auditEvent) {
+        super.logAuthzAudit(auditEvent);
+    }
+
+    void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
+        if (auditEvent == null) {
+            return;
+        }
+        synchronized (auditBufferLock) {
             auditEvents.add(auditEvent);
 
             if (auditEvent.getAccessResult() == 0) {
                 deniedExists = true;
+            }
+        }
+    }
+
+    int getPendingAuditEventCountForTest() {
+        synchronized (flushLock) {
+            synchronized (auditBufferLock) {
+                return pendingAuditEvents.size() + auditEvents.size();
             }
         }
     }

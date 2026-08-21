@@ -21,18 +21,20 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -235,7 +237,7 @@ public final class AzureFileSystemProperties
         // S3-style params. Mirrors legacy AzureProperties.getBackendConfigProperties();
         // native-SDK OAuth2 support may replace this in the future.
         if (isOauth2Auth()) {
-            return toHadoopConfigurationMap();
+            return oauth2BackendProperties();
         }
         Map<String, String> s3Props = new HashMap<>();
         s3Props.put("AWS_ENDPOINT", endpoint);
@@ -251,9 +253,10 @@ public final class AzureFileSystemProperties
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
         Map<String, String> cfg = new HashMap<>();
-        for (String scheme : Arrays.asList("abfs", "abfss", "wasb", "wasbs")) {
-            cfg.put("fs." + scheme + ".impl.disable.cache", "true");
-        }
+        // No blanket ABFS/WASB cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         rawProperties.forEach((key, value) -> {
             if (key.startsWith("fs.azure.")) {
                 cfg.put(key, value);
@@ -273,6 +276,55 @@ public final class AzureFileSystemProperties
             cfg.put("fs.azure.account.key", accountKey);
         }
         return Collections.unmodifiableMap(cfg);
+    }
+
+    /**
+     * BE property map for OAuth2, key-for-key equal to what legacy fe-core
+     * {@code AzureProperties.getBackendConfigProperties()} produced: it dumped its whole
+     * {@link Configuration}, so on top of {@link #toHadoopConfigurationMap()} the map also carries
+     * hadoop's {@code core-default.xml} and any {@code core-site.xml} reachable on the FE
+     * classpath ({@code start_fe.sh} puts {@code ${DORIS_HOME}/conf} and {@code ${HADOOP_CONF_DIR}}
+     * there, so this is a real operator-facing channel, not just hadoop's built-in defaults).
+     *
+     * <p>The live consumer is Microsoft Fabric OneLake: {@code LocationPath.getTFileTypeForBE()}
+     * routes {@code abfs[s]://...dfs.fabric.microsoft.com} to {@code FILE_HDFS}, and BE's
+     * {@code hdfs_builder.cpp} feeds every entry of this map into its JNI hadoop builder — which is
+     * how the {@code fs.azure.account.oauth2.*} keys reach the ABFS connector.
+     *
+     * <p>Ordering is load-bearing and mirrors the legacy sequence: hadoop defaults first, then the
+     * provider's own {@code fs.azure.*} view (which carries the per-scheme cache fingerprint), then
+     * user {@code fs.*} passthrough (so an explicit user value wins), then cache-disable
+     * normalization last.
+     *
+     * <p>The plugin bundles hadoop, but {@code FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES}
+     * makes {@code org.apache.hadoop.} parent-first, so whenever the FE host ships hadoop this
+     * resolves to the host copy and the bundled one is only a {@code findClass} fallback. That also
+     * means the XML defaults below come from wherever the context classloader finds them — hadoop's
+     * {@code Configuration} looks up {@code core-default.xml}/{@code core-site.xml} through the
+     * TCCL, not through this class's loader. A host that stops shipping hadoop would therefore need
+     * the TCCL pinned to the plugin loader here, not just the bundled jars.
+     */
+    private Map<String, String> oauth2BackendProperties() {
+        Configuration conf = new Configuration();
+        toHadoopConfigurationMap().forEach(conf::set);
+        rawProperties.forEach((key, value) -> {
+            if (key.startsWith("fs.") && StringUtils.isNotBlank(value)) {
+                conf.set(key, value);
+            }
+        });
+        for (String scheme : legacyCacheSchemes()) {
+            String key = "fs." + scheme + ".impl.disable.cache";
+            String userValue = rawProperties.get(key);
+            // No blanket disable any more (the fingerprint in toHadoopConfigurationMap() isolates
+            // credentials instead); an explicit user value is still honored, normalized to
+            // true/false ("yes"/"1" would reach BE verbatim through the fs.* passthrough above).
+            if (StringUtils.isNotBlank(userValue)) {
+                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
+            }
+        }
+        Map<String, String> dump = new HashMap<>();
+        conf.forEach(entry -> dump.put(entry.getKey(), entry.getValue()));
+        return Collections.unmodifiableMap(dump);
     }
 
     public String getEndpoint() {

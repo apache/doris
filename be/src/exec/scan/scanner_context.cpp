@@ -45,6 +45,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/tablet/tablet.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -53,10 +55,21 @@ namespace doris {
 
 using namespace std::chrono_literals;
 
+// ==================== ScanTask ====================
+ScanTask::ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
+    _resource_ctx = thread_context()->resource_ctx();
+    DorisMetrics::instance()->scanner_task_cnt->increment(1);
+}
+
+ScanTask::~ScanTask() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    DorisMetrics::instance()->scanner_task_cnt->increment(-1);
+    cached_block.reset();
+}
+
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                               const TupleDescriptor* output_tuple_desc,
-                               const RowDescriptor* output_row_descriptor,
+                               const TupleDescriptor* output_tuple_desc, bool has_projection,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, std::shared_ptr<Dependency> dependency,
                                std::atomic<int64_t>* shared_scan_limit,
@@ -71,10 +84,7 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
-          _output_tuple_desc(output_row_descriptor
-                                     ? output_row_descriptor->tuple_descriptors().front()
-                                     : output_tuple_desc),
-          _output_row_descriptor(output_row_descriptor),
+          _output_tuple_desc(output_tuple_desc),
           _batch_size(state->batch_size()),
           limit(limit_),
           _shared_scan_limit(shared_scan_limit),
@@ -96,8 +106,11 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
           _ins_idx(ins_idx),
           _enable_adaptive_scanners(enable_adaptive_scan) {
     DCHECK(_state != nullptr);
-    DCHECK(_output_row_descriptor == nullptr ||
-           _output_row_descriptor->tuple_descriptors().size() == 1);
+    if (has_projection) {
+        const auto& output_row_desc = local_state->_parent->operator_row_desc_after_projection();
+        DCHECK_EQ(output_row_desc.tuple_descriptors().size(), 1);
+        _output_tuple_desc = output_row_desc.tuple_descriptors().front();
+    }
     _query_id = _state->get_query_ctx()->query_id();
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
     ctx_id = UniqueId::gen_uid().to_string();

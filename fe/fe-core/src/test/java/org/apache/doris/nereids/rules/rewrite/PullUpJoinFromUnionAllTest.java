@@ -29,7 +29,6 @@ import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hudi.source.IncrementalRelation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,7 +41,6 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -122,23 +120,31 @@ class PullUpJoinFromUnionAllTest {
     }
 
     @Test
-    void comparatorRejectsDifferentHudiIncrementalRelations() {
+    void comparatorRejectsDifferentFileScanParams() {
+        // Post-migration, Hudi (and every external file table) binds to LogicalFileScan, and the Hudi
+        // incremental-read window is carried by scanParams (the incr(...) params) rather than a resolved
+        // IncrementalRelation on a dedicated LogicalHudiScan node. So the "a scan with a different incremental
+        // window must not be treated as the same scan" guarantee is now enforced by
+        // LogicalFileScan.hasSameScanState comparing scanParams: two file scans that differ only in scanParams
+        // must be rejected, identical ones accepted.
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Mockito.when(table.getId()).thenReturn(18L);
         Mockito.when(table.getName()).thenReturn("common_hudi");
         Mockito.when(table.getDatabase()).thenReturn(null);
         Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
 
-        IncrementalRelation relation = Mockito.mock(IncrementalRelation.class);
-        IncrementalRelation differentRelation = Mockito.mock(IncrementalRelation.class);
-        LogicalHudiScan scan = newHudiScan(table, relation);
-        LogicalHudiScan sameRelationScan = newHudiScan(table, relation);
-        LogicalHudiScan differentRelationScan = newHudiScan(table, differentRelation);
+        Optional<TableScanParams> scanParams = Optional.of(new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, ImmutableMap.of("end_ts", "10"), ImmutableList.of()));
+        Optional<TableScanParams> differentScanParams = Optional.of(new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, ImmutableMap.of("end_ts", "20"), ImmutableList.of()));
+        LogicalFileScan scan = newFileScan(table, scanParams);
+        LogicalFileScan sameParamsScan = newFileScan(table, scanParams);
+        LogicalFileScan differentParamsScan = newFileScan(table, differentScanParams);
 
         PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
                 new PullUpJoinFromUnionAll().new LogicalPlanComparator();
-        Assertions.assertTrue(comparator.isLogicalEqual(scan, sameRelationScan));
-        Assertions.assertFalse(comparator.isLogicalEqual(scan, differentRelationScan));
+        Assertions.assertTrue(comparator.isLogicalEqual(scan, sameParamsScan));
+        Assertions.assertFalse(comparator.isLogicalEqual(scan, differentParamsScan));
     }
 
     @Test
@@ -344,8 +350,20 @@ class PullUpJoinFromUnionAllTest {
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
     }
 
-    private static LogicalHudiScan newHudiScan(ExternalTable table, IncrementalRelation incrementalRelation) {
-        return new TestLogicalHudiScan(PlanConstructor.getNextRelationId(), table, incrementalRelation);
+    private static LogicalFileScan newFileScan(ExternalTable table, Optional<TableScanParams> scanParams) {
+        return new TestLogicalFileScan(PlanConstructor.getNextRelationId(), table, scanParams);
+    }
+
+    private static LogicalFileScan newFileScan(long tableId, TableSnapshot snapshot) {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getName()).thenReturn("ext_common");
+        Mockito.when(table.initSelectedPartitions(Mockito.any()))
+                .thenReturn(LogicalFileScan.SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        return new LogicalFileScan(new RelationId(1), table, Collections.singletonList("db"),
+                Collections.emptyList(), Optional.empty(), Optional.of(snapshot), Optional.empty(), Optional.empty());
     }
 
     private static LogicalOlapScan newScanWithTableSample(long tableId, String tableName,
@@ -397,18 +415,6 @@ class PullUpJoinFromUnionAllTest {
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(),
                 table, ImmutableList.of("db"), ImmutableList.of(1L),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
-    }
-
-    private static LogicalFileScan newFileScan(long tableId, TableSnapshot snapshot) {
-        ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getId()).thenReturn(tableId);
-        Mockito.when(table.getDatabase()).thenReturn(null);
-        Mockito.when(table.getName()).thenReturn("ext_common");
-        Mockito.when(table.initSelectedPartitions(Mockito.any()))
-                .thenReturn(LogicalFileScan.SelectedPartitions.NOT_PRUNED);
-        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
-        return new LogicalFileScan(new RelationId(1), table, Collections.singletonList("db"),
-                Collections.emptyList(), Optional.empty(), Optional.of(snapshot), Optional.empty(), Optional.empty());
     }
 
     private static LogicalSchemaScan newSchemaScan(long tableId, String tableName) {
@@ -499,11 +505,11 @@ class PullUpJoinFromUnionAllTest {
         return references.build();
     }
 
-    private static class TestLogicalHudiScan extends LogicalHudiScan {
-        private TestLogicalHudiScan(RelationId id, ExternalTable table, IncrementalRelation incrementalRelation) {
+    private static class TestLogicalFileScan extends LogicalFileScan {
+        private TestLogicalFileScan(RelationId id, ExternalTable table, Optional<TableScanParams> scanParams) {
             super(id, table, ImmutableList.of("db"), LogicalFileScan.SelectedPartitions.NOT_PRUNED,
-                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(incrementalRelation),
-                    ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), "", Optional.empty());
+                    ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), scanParams,
+                    Optional.empty(), Optional.empty(), "", Optional.empty());
         }
     }
 }

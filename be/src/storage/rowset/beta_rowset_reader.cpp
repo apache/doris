@@ -31,6 +31,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_number.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
@@ -41,6 +42,7 @@
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader_context.h"
@@ -145,12 +147,15 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             read_columns.push_back(cid);
         }
     }
-    if (_read_context->tso_predicate_column_id.has_value()) {
+    if (_read_context->tso_predicate_column_id.has_value() &&
+        read_columns_set.find(*_read_context->tso_predicate_column_id) == read_columns_set.end()) {
         read_columns.push_back(*_read_context->tso_predicate_column_id);
     }
-    // disable condition cache if you have delete condition
+    // disable condition cache if you have delete condition or forced pushed tso predicate
     _read_context->condition_cache_digest =
-            delete_columns_set.empty() ? _read_context->condition_cache_digest : 0;
+            (delete_columns_set.empty() && !_read_context->tso_predicate_column_id.has_value())
+                    ? _read_context->condition_cache_digest
+                    : 0;
     // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_columns.size();
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
@@ -171,6 +176,38 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             }
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(pred));
+        }
+    }
+
+    // Forced TSO range pushdown for binlog/snapshot incremental read. Build the (start_tso,
+    // end_tso] comparison predicates here and inject them directly, so they always reach the
+    // SegmentIterator for row-level filtering instead of going through the value/key predicate
+    // split in TabletReader::_init_conditions_param (where they may be dropped). This is a
+    // correctness requirement for MIN_DELTA, which groups consecutive same-key rows and would
+    // produce wrong results if out-of-range rows leaked into a group.
+    if (_read_context->tso_predicate_column_id.has_value() &&
+        (_read_context->start_tso.has_value() || _read_context->end_tso.has_value())) {
+        ColumnId tso_cid = *_read_context->tso_predicate_column_id;
+        auto tso_data_type = std::make_shared<DataTypeInt64>();
+        const std::string& tso_col_name = _read_context->tablet_schema->column(tso_cid).name();
+        auto add_tso_predicate = [&](std::shared_ptr<ColumnPredicate> pred) {
+            if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
+                _read_options.col_id_to_predicates.insert(
+                        {pred->column_id(), AndBlockColumnPredicate::create_shared()});
+            }
+            _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                    SingleColumnBlockPredicate::create_unique(pred));
+            _read_options.column_predicates.push_back(std::move(pred));
+        };
+        if (_read_context->start_tso.has_value()) {
+            add_tso_predicate(create_comparison_predicate<PredicateType::GT>(
+                    tso_cid, tso_col_name, tso_data_type,
+                    Field::create_field<TYPE_BIGINT>(*_read_context->start_tso), false));
+        }
+        if (_read_context->end_tso.has_value()) {
+            add_tso_predicate(create_comparison_predicate<PredicateType::LE>(
+                    tso_cid, tso_col_name, tso_data_type,
+                    Field::create_field<TYPE_BIGINT>(*_read_context->end_tso), false));
         }
     }
 
@@ -219,6 +256,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
+    _read_options.read_row_binlog = _read_context->read_row_binlog;
     int32_t tso_col_id = _read_context->tablet_schema->binlog_tso_col_idx();
     if (tso_col_id >= 0) {
         for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
@@ -247,6 +285,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             _read_options.io_ctx.remote_scan_cache_write_limiter =
                     query_ctx->remote_scan_cache_write_limiter();
         }
+        _read_options.io_ctx.inverted_index_snii_read_no_write_file_cache =
+                _read_context->runtime_state->query_options()
+                        .inverted_index_snii_read_no_write_file_cache;
     }
 
     if (_read_context->condition_cache_digest) {

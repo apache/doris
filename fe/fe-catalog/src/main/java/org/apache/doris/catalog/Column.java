@@ -55,7 +55,6 @@ public class Column implements GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
-    public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
@@ -153,6 +152,9 @@ public class Column implements GsonPostProcessable {
     private long autoIncInitValue;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
+    // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
+    // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
+    private transient String connectorDefaultValueSql;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -185,6 +187,15 @@ public class Column implements GsonPostProcessable {
     private int clusterKeyId = -1;
 
     private boolean isCompoundKey = false;
+
+    // Marks a connector-reserved passthrough column (e.g. iceberg v3 row-lineage _row_id /
+    // _last_updated_sequence_number). Set by ConnectorColumnConverter from the connector-declared
+    // ConnectorColumn.reservedPassthrough(); read by engine MERGE/UPDATE and sink binding so they recognize the
+    // synthetic passthrough column generically instead of string-matching source column names. NOT persisted
+    // (no @SerializedName on purpose): it is an external-table-only marker rebuilt each load from connector
+    // metadata and must never enter an internal-table schema image; on replay it stays at its default false
+    // (mirrors the runtime-only isCompoundKey / defineExpr fields).
+    private boolean reservedPassthrough = false;
 
     @SerializedName(value = "hasOnUpdateDefaultValue")
     private boolean hasOnUpdateDefaultValue = false;
@@ -376,12 +387,14 @@ public class Column implements GsonPostProcessable {
         this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
+        this.connectorDefaultValueSql = column.connectorDefaultValueSql;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getRealDefineName();
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
@@ -626,6 +639,9 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDefaultValueSql() {
+        if (connectorDefaultValueSql != null) {
+            return connectorDefaultValueSql;
+        }
         if (defaultValue == null) {
             return null;
         }
@@ -637,6 +653,14 @@ public class Column implements GsonPostProcessable {
         } else {
             return "'" + defaultValue.replace("'", "''") + "'";
         }
+    }
+
+    public String getConnectorDefaultValueSql() {
+        return connectorDefaultValueSql;
+    }
+
+    public void setConnectorDefaultValueSql(String connectorDefaultValueSql) {
+        this.connectorDefaultValueSql = connectorDefaultValueSql;
     }
 
     public void setComment(String comment) {
@@ -1007,6 +1031,14 @@ public class Column implements GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public boolean isReservedPassthrough() {
+        return reservedPassthrough;
+    }
+
+    public void setReservedPassthrough(boolean reservedPassthrough) {
+        this.reservedPassthrough = reservedPassthrough;
     }
 
     public long getAutoIncInitValue() {

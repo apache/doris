@@ -45,7 +45,7 @@ public class DistributePlannerReceiverDestinationTest {
 
     private DistributePlanner newPlanner() {
         List<PlanFragment> noFragments = Lists.newArrayList();
-        return new DistributePlanner(Mockito.mock(StatementContext.class), noFragments, false, false);
+        return new DistributePlanner(Mockito.mock(StatementContext.class), noFragments, false, false, false);
     }
 
     private AssignedJob instanceOn(DistributedPlanWorker worker) {

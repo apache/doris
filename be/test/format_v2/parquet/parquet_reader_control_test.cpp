@@ -27,10 +27,12 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
+#include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 #include "storage/utils.h"
@@ -179,9 +181,187 @@ TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
 
 TEST(SelectionVectorTest, IdentitySelectionDoesNotMaterializeFilter) {
     SelectionVector selection(4);
+    EXPECT_FALSE(selection.is_set());
     const uint8_t* filter = reinterpret_cast<const uint8_t*>(1);
     ASSERT_TRUE(selection.materialize_filter(4, 4, &filter).ok());
     EXPECT_EQ(filter, nullptr);
+}
+
+TEST(NativeNullableSelectionTest, BuildsPhysicalRangesAndSelectedNullsInOnePass) {
+    using native::FilterMap;
+
+    const std::vector<uint16_t> null_runs {2, 1, 3, 2, 2};
+    const std::vector<uint8_t> filter_data {1, 0, 1, 1, 0, 1, 1, 1, 0, 1};
+    FilterMap filter;
+    ASSERT_TRUE(filter.init(filter_data.data(), filter_data.size(), false).ok());
+    ParquetSelection selection;
+    NullMap output_nulls {1};
+    NullMap selected_nulls;
+    size_t num_filtered = 0;
+
+    ASSERT_TRUE(native::build_filtered_nullable_selection(null_runs, filter_data.size(), 3,
+                                                          &output_nulls, &filter, 0, &selection,
+                                                          &selected_nulls, &num_filtered)
+                        .ok());
+
+    EXPECT_EQ(selection.total_values, 7);
+    EXPECT_EQ(selection.selected_values, 4);
+    ASSERT_EQ(selection.ranges.size(), 4);
+    EXPECT_EQ(selection.ranges[0].first, 0);
+    EXPECT_EQ(selection.ranges[0].count, 1);
+    EXPECT_EQ(selection.ranges[1].first, 2);
+    EXPECT_EQ(selection.ranges[1].count, 1);
+    EXPECT_EQ(selection.ranges[2].first, 4);
+    EXPECT_EQ(selection.ranges[2].count, 1);
+    EXPECT_EQ(selection.ranges[3].first, 6);
+    EXPECT_EQ(selection.ranges[3].count, 1);
+    EXPECT_EQ(selected_nulls, (NullMap {0, 1, 0, 0, 1, 1, 0}));
+    EXPECT_EQ(output_nulls, (NullMap {1, 0, 1, 0, 0, 1, 1, 0}));
+    EXPECT_EQ(num_filtered, 3);
+}
+
+TEST(NativeNullableSelectionTest, UsesDirectPhysicalCoordinatesWithoutNulls) {
+    using native::FilterMap;
+
+    const std::vector<uint16_t> no_nulls {10};
+    const std::vector<uint8_t> filter_data {1, 1, 0, 1, 0, 0, 1, 1, 1, 0};
+    FilterMap filter;
+    ASSERT_TRUE(filter.init(filter_data.data(), filter_data.size(), false).ok());
+    ParquetSelection selection;
+    NullMap output_nulls;
+    NullMap selected_nulls;
+    size_t num_filtered = 0;
+
+    ASSERT_TRUE(native::build_filtered_nullable_selection(no_nulls, filter_data.size(), 0,
+                                                          &output_nulls, &filter, 0, &selection,
+                                                          &selected_nulls, &num_filtered)
+                        .ok());
+
+    EXPECT_EQ(selection.total_values, 10);
+    EXPECT_EQ(selection.selected_values, 6);
+    ASSERT_EQ(selection.ranges.size(), 3);
+    EXPECT_EQ(selection.ranges[0].first, 0);
+    EXPECT_EQ(selection.ranges[0].count, 2);
+    EXPECT_EQ(selection.ranges[1].first, 3);
+    EXPECT_EQ(selection.ranges[1].count, 1);
+    EXPECT_EQ(selection.ranges[2].first, 6);
+    EXPECT_EQ(selection.ranges[2].count, 3);
+    EXPECT_EQ(selected_nulls, (NullMap {0, 0, 0, 0, 0, 0}));
+    EXPECT_EQ(output_nulls, selected_nulls);
+    EXPECT_EQ(num_filtered, 4);
+}
+
+TEST(NativeNullableSelectionTest, EnablesFusionOnlyForMateriallyFragmentedNullableBatches) {
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(65536, 0, 3));
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(65536, 655, 1311));
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(65536, 32768, 3));
+    EXPECT_FALSE(native::should_use_fused_nullable_selection(512, 256, 512));
+    EXPECT_TRUE(native::should_use_fused_nullable_selection(65536, 6553, 13107));
+    EXPECT_TRUE(native::should_use_fused_nullable_selection(65536, 32768, 65536));
+}
+
+TEST(NativeNestedSelectionTest, BuildsSelectionAndCompactsSurvivingParentLevels) {
+    using native::ColumnSelectVector;
+    using native::FilterMap;
+    using native::level_t;
+
+    std::vector<level_t> repetition_levels {0, 1, 1, 0, 0, 1};
+    std::vector<level_t> definition_levels {3, 2, 1, 3, 0, 3};
+    std::vector<uint8_t> parent_filter_data {1, 0, 1};
+    FilterMap parent_filter;
+    ASSERT_TRUE(
+            parent_filter.init(parent_filter_data.data(), parent_filter_data.size(), false).ok());
+
+    ColumnSelectVector selection;
+    NullMap selected_nulls;
+    size_t ancestor_null_count = 0;
+    ASSERT_TRUE(selection
+                        .init_nested(&repetition_levels, &definition_levels, 0,
+                                     /*repeated_parent_def_level=*/2,
+                                     /*definition_level=*/3, &selected_nulls, &parent_filter, 0,
+                                     &ancestor_null_count)
+                        .ok());
+
+    EXPECT_EQ(ancestor_null_count, 2);
+    EXPECT_EQ(selection.num_values(), 4);
+    EXPECT_EQ(selection.num_nulls(), 1);
+    EXPECT_EQ(selection.num_filtered(), 1);
+    EXPECT_EQ(selected_nulls, NullMap({0, 1, 0}));
+    EXPECT_EQ(repetition_levels, (std::vector<level_t> {0, 1, 1, 0, 1}));
+    EXPECT_EQ(definition_levels, (std::vector<level_t> {3, 2, 1, 0, 3}));
+
+    ColumnSelectVector::DataReadType type;
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::CONTENT);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::NULL_DATA);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::FILTERED_CONTENT);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 1);
+    EXPECT_EQ(type, ColumnSelectVector::CONTENT);
+    EXPECT_EQ(selection.get_next_run<true>(&type), 0);
+}
+
+TEST(NativeNestedSelectionTest, PreservesPriorLevelsAcrossPageContinuation) {
+    using native::ColumnSelectVector;
+    using native::FilterMap;
+    using native::level_t;
+
+    std::vector<level_t> repetition_levels {0, 1, 1, 0, 1};
+    std::vector<level_t> definition_levels {3, 3, 2, 3, 1};
+    std::vector<uint8_t> parent_filter_data {1, 0};
+    FilterMap parent_filter;
+    ASSERT_TRUE(
+            parent_filter.init(parent_filter_data.data(), parent_filter_data.size(), false).ok());
+
+    ColumnSelectVector selection;
+    NullMap selected_nulls;
+    size_t ancestor_null_count = 0;
+    ASSERT_TRUE(selection
+                        .init_nested(&repetition_levels, &definition_levels,
+                                     /*level_start_index=*/2,
+                                     /*repeated_parent_def_level=*/2,
+                                     /*definition_level=*/3, &selected_nulls, &parent_filter, 0,
+                                     &ancestor_null_count)
+                        .ok());
+
+    EXPECT_EQ(ancestor_null_count, 1);
+    EXPECT_EQ(selection.num_values(), 2);
+    EXPECT_EQ(selection.num_nulls(), 1);
+    EXPECT_EQ(selection.num_filtered(), 1);
+    EXPECT_EQ(selected_nulls, NullMap({1}));
+    EXPECT_EQ(repetition_levels, (std::vector<level_t> {0, 1, 1}));
+    EXPECT_EQ(definition_levels, (std::vector<level_t> {3, 3, 2}));
+}
+
+TEST(SelectionVectorTest, BulkCompactionSupportsBothFilterCoordinates) {
+    SelectionVector selection(6);
+    const uint8_t row_filter[] = {0, 1, 1, 0, 1, 0};
+    ASSERT_EQ(selection.compact_with_row_filter(row_filter, 6), 3);
+    EXPECT_EQ(selection.get_index(0), 1);
+    EXPECT_EQ(selection.get_index(1), 2);
+    EXPECT_EQ(selection.get_index(2), 4);
+
+    const uint8_t compact_filter[] = {1, 0, 1};
+    ASSERT_EQ(selection.compact_with_selection_filter(compact_filter, 3), 2);
+    EXPECT_EQ(selection.get_index(0), 1);
+    EXPECT_EQ(selection.get_index(1), 4);
+    EXPECT_TRUE(selection.verify(2, 6).ok());
+}
+
+TEST(SelectionVectorTest, BatchResetRetainsMaterializedScratchHighWaterMark) {
+    SelectionVector selection(6);
+    ASSERT_NE(selection.data(), nullptr);
+    const uint8_t first_filter[] = {0, 1, 1, 0, 1, 0};
+    ASSERT_EQ(selection.compact_with_row_filter(first_filter, 6), 3);
+
+    selection.resize(6);
+    const uint8_t second_filter[] = {0, 0, 0, 0, 0, 1};
+    ASSERT_EQ(selection.compact_with_row_filter(second_filter, 6), 1);
+    EXPECT_EQ(selection.get_index(0), 5);
+    // Positions beyond the logical result remain reusable scratch. Clearing and resizing the
+    // owned vector would value-initialize this slot on every scanner batch.
+    EXPECT_EQ(selection.get_index(5), 5);
 }
 
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
@@ -241,6 +421,30 @@ TEST(ParquetColumnReaderControlTest, SchedulerOrsPageCrossingOncePerBatch) {
     EXPECT_TRUE(scheduler.finish_current_reader_batch_profiles());
     EXPECT_EQ(predicate_ptr->page_crossing_checks(), 1);
     EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
+}
+
+TEST(ParquetColumnReaderControlTest, PendingRequestActivatesOnlyAtRowGroupBoundary) {
+    ParquetScanScheduler scheduler;
+    auto initial = std::make_shared<format::FileScanRequest>();
+    auto refreshed = std::make_shared<format::FileScanRequest>();
+    refreshed->predicate_only_columns.push_back(format::LocalColumnId(7));
+
+    scheduler.set_scan_request(initial);
+    scheduler._has_current_row_group = true;
+    scheduler.queue_scan_request(refreshed);
+    scheduler.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_EQ(scheduler._active_request, initial);
+
+    scheduler._has_current_row_group = false;
+    scheduler._predicate_survival_ratio = 0.5;
+    scheduler._predicate_batch_sequence = 3;
+    scheduler._predicate_runtime_stats.emplace(1, detail::AdaptivePredicateStats {});
+    scheduler.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_EQ(scheduler._active_request, refreshed);
+    EXPECT_TRUE(scheduler._remaining_plans_need_replanning);
+    EXPECT_EQ(scheduler._predicate_survival_ratio, -1);
+    EXPECT_EQ(scheduler._predicate_batch_sequence, 0);
+    EXPECT_TRUE(scheduler._predicate_runtime_stats.empty());
 }
 
 TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {

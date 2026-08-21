@@ -102,6 +102,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
     }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
+    }
     if (in.has_visible_ts_ms()) {
         out->set_visible_ts_ms(in.visible_ts_ms());
     }
@@ -197,6 +200,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->Swap(in.mutable___split_schema());
+    }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
     if (in.has_visible_ts_ms()) {
         out->set_visible_ts_ms(in.visible_ts_ms());
@@ -310,6 +316,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
+    }
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
@@ -404,6 +413,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
+    }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
@@ -762,17 +774,11 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
-    if (in.has_row_binlog_schema()) {
-        doris_tablet_schema_to_cloud(out->mutable_row_binlog_schema(), in.row_binlog_schema());
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
-    if (in.row_binlog_rs_metas_size()) {
-        out->mutable_row_binlog_rs_metas()->Reserve(in.row_binlog_rs_metas_size());
-        for (const auto& rs_meta : in.row_binlog_rs_metas()) {
-            doris_rowset_meta_to_cloud(out->add_row_binlog_rs_metas(), rs_meta);
-        }
-    }
-    if (in.has_row_binlog_schema_hash()) {
-        out->set_row_binlog_schema_hash(in.row_binlog_schema_hash());
+    if (in.has_binlog_tablet_id()) {
+        out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
@@ -795,6 +801,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     }
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
+    }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
 }
 
@@ -853,20 +862,11 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
     }
-    if (in.has_row_binlog_schema()) {
-        doris_tablet_schema_to_cloud(out->mutable_row_binlog_schema(),
-                                     std::move(*in.mutable_row_binlog_schema()));
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
-    if (in.row_binlog_rs_metas_size()) {
-        int row_binlog_rs_metas_size = in.row_binlog_rs_metas_size();
-        out->mutable_row_binlog_rs_metas()->Reserve(row_binlog_rs_metas_size);
-        for (int i = 0; i < row_binlog_rs_metas_size; ++i) {
-            doris_rowset_meta_to_cloud(out->add_row_binlog_rs_metas(),
-                                       std::move(*in.mutable_row_binlog_rs_metas(i)));
-        }
-    }
-    if (in.has_row_binlog_schema_hash()) {
-        out->set_row_binlog_schema_hash(in.row_binlog_schema_hash());
+    if (in.has_binlog_tablet_id()) {
+        out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
@@ -889,6 +889,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     }
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
+    }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
 }
 
@@ -954,17 +957,11 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
-    if (in.has_row_binlog_schema()) {
-        cloud_tablet_schema_to_doris(out->mutable_row_binlog_schema(), in.row_binlog_schema());
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
-    if (in.row_binlog_rs_metas_size()) {
-        out->mutable_row_binlog_rs_metas()->Reserve(in.row_binlog_rs_metas_size());
-        for (const auto& rs_meta : in.row_binlog_rs_metas()) {
-            cloud_rowset_meta_to_doris(out->add_row_binlog_rs_metas(), rs_meta);
-        }
-    }
-    if (in.has_row_binlog_schema_hash()) {
-        out->set_row_binlog_schema_hash(in.row_binlog_schema_hash());
+    if (in.has_binlog_tablet_id()) {
+        out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
@@ -987,6 +984,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     }
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
+    }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
 }
 
@@ -1045,20 +1045,11 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
     }
-    if (in.has_row_binlog_schema()) {
-        cloud_tablet_schema_to_doris(out->mutable_row_binlog_schema(),
-                                     std::move(*in.mutable_row_binlog_schema()));
+    if (in.has_tablet_role()) {
+        out->set_tablet_role(in.tablet_role());
     }
-    if (in.row_binlog_rs_metas_size()) {
-        int row_binlog_rs_metas_size = in.row_binlog_rs_metas_size();
-        out->mutable_row_binlog_rs_metas()->Reserve(row_binlog_rs_metas_size);
-        for (int i = 0; i < row_binlog_rs_metas_size; ++i) {
-            cloud_rowset_meta_to_doris(out->add_row_binlog_rs_metas(),
-                                       std::move(*in.mutable_row_binlog_rs_metas(i)));
-        }
-    }
-    if (in.has_row_binlog_schema_hash()) {
-        out->set_row_binlog_schema_hash(in.row_binlog_schema_hash());
+    if (in.has_binlog_tablet_id()) {
+        out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
@@ -1081,6 +1072,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     }
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
+    }
+    if (in.has_inverted_index_storage_format()) {
+        out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
 }
 

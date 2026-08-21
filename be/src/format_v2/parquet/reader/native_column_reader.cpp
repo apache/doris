@@ -27,6 +27,8 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -35,9 +37,12 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/reader/variant_column_reader.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::parquet {
@@ -46,25 +51,57 @@ namespace {
 constexpr size_t MAX_RETAINED_BATCH_SCRATCH_BYTES = 4UL << 20;
 
 DataTypePtr projected_type(const ParquetColumnSchema& schema,
-                           const format::LocalColumnIndex* projection) {
-    if (!format::is_partial_projection(projection)) {
-        return schema.type;
-    }
+                           const format::LocalColumnIndex* projection, bool physical_variant) {
     switch (schema.kind) {
     case ParquetColumnSchemaKind::PRIMITIVE:
         return schema.type;
+    case ParquetColumnSchemaKind::VARIANT:
+        DORIS_CHECK(schema.variant_physical_type != nullptr);
+        if (!physical_variant || !format::is_partial_projection(projection)) {
+            return physical_variant ? schema.variant_physical_type : schema.type;
+        }
+        {
+            DataTypes child_types;
+            Strings child_names;
+            child_types.reserve(projection->children.size());
+            child_names.reserve(projection->children.size());
+            for (const auto& child_projection : projection->children) {
+                const auto child_it = std::ranges::find_if(schema.children, [&](const auto& child) {
+                    return child->local_id == child_projection.local_id();
+                });
+                DORIS_CHECK(child_it != schema.children.end());
+                child_types.push_back(make_nullable(
+                        projected_type(**child_it, &child_projection, physical_variant)));
+                child_names.push_back((*child_it)->name);
+            }
+            DataTypePtr type = std::make_shared<DataTypeStruct>(std::move(child_types),
+                                                                std::move(child_names));
+            return schema.variant_physical_type->is_nullable() ? make_nullable(std::move(type))
+                                                               : std::move(type);
+        }
     case ParquetColumnSchemaKind::STRUCT: {
         DataTypes child_types;
         Strings child_names;
-        child_types.reserve(projection->children.size());
-        child_names.reserve(projection->children.size());
-        for (const auto& child_projection : projection->children) {
-            const auto child_it = std::ranges::find_if(schema.children, [&](const auto& child) {
-                return child->local_id == child_projection.local_id();
-            });
-            DORIS_CHECK(child_it != schema.children.end());
-            child_types.push_back(make_nullable(projected_type(**child_it, &child_projection)));
-            child_names.push_back((*child_it)->name);
+        if (format::is_partial_projection(projection)) {
+            child_types.reserve(projection->children.size());
+            child_names.reserve(projection->children.size());
+            for (const auto& child_projection : projection->children) {
+                const auto child_it = std::ranges::find_if(schema.children, [&](const auto& child) {
+                    return child->local_id == child_projection.local_id();
+                });
+                DORIS_CHECK(child_it != schema.children.end());
+                child_types.push_back(make_nullable(
+                        projected_type(**child_it, &child_projection, physical_variant)));
+                child_names.push_back((*child_it)->name);
+            }
+        } else {
+            child_types.reserve(schema.children.size());
+            child_names.reserve(schema.children.size());
+            for (const auto& child : schema.children) {
+                child_types.push_back(
+                        make_nullable(projected_type(*child, nullptr, physical_variant)));
+                child_names.push_back(child->name);
+            }
         }
         DataTypePtr type = std::make_shared<DataTypeStruct>(child_types, child_names);
         return schema.type->is_nullable() ? make_nullable(type) : type;
@@ -72,25 +109,88 @@ DataTypePtr projected_type(const ParquetColumnSchema& schema,
     case ParquetColumnSchemaKind::LIST: {
         DORIS_CHECK(schema.children.size() == 1);
         const auto* child_projection =
-                format::find_child_projection(projection, schema.children[0]->local_id);
-        DORIS_CHECK(child_projection != nullptr);
+                format::is_partial_projection(projection)
+                        ? format::find_child_projection(projection, schema.children[0]->local_id)
+                        : nullptr;
+        DORIS_CHECK(!format::is_partial_projection(projection) || child_projection != nullptr);
         DataTypePtr type = std::make_shared<DataTypeArray>(
-                projected_type(*schema.children[0], child_projection));
+                projected_type(*schema.children[0], child_projection, physical_variant));
         return schema.type->is_nullable() ? make_nullable(type) : type;
     }
     case ParquetColumnSchemaKind::MAP: {
         DORIS_CHECK(schema.children.size() == 2);
         const auto* value_projection =
-                format::find_child_projection(projection, schema.children[1]->local_id);
-        DORIS_CHECK(value_projection != nullptr);
+                format::is_partial_projection(projection)
+                        ? format::find_child_projection(projection, schema.children[1]->local_id)
+                        : nullptr;
+        DORIS_CHECK(!format::is_partial_projection(projection) || value_projection != nullptr);
         DataTypePtr type = std::make_shared<DataTypeMap>(
-                make_nullable(schema.children[0]->type),
-                make_nullable(projected_type(*schema.children[1], value_projection)));
+                make_nullable(projected_type(*schema.children[0], nullptr, physical_variant)),
+                make_nullable(
+                        projected_type(*schema.children[1], value_projection, physical_variant)));
         return schema.type->is_nullable() ? make_nullable(type) : type;
     }
     }
     DORIS_CHECK(false);
     return nullptr;
+}
+
+std::unique_ptr<VariantMaterializationNode> build_variant_plan(
+        const ParquetColumnSchema& schema, const format::LocalColumnIndex* projection) {
+    auto plan = std::make_unique<VariantMaterializationNode>();
+    plan->schema = &schema;
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        plan->contains_variant = true;
+        if (projection != nullptr) {
+            plan->variant_projection = *projection;
+        }
+        plan->variant_state_schema = create_variant_state_schema(schema, projection);
+        return plan;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        return plan;
+    }
+
+    auto append_child = [&](const ParquetColumnSchema& child,
+                            const format::LocalColumnIndex* child_projection) {
+        auto child_plan = build_variant_plan(child, child_projection);
+        plan->contains_variant = plan->contains_variant || child_plan->contains_variant;
+        plan->children.push_back(std::move(child_plan));
+    };
+    if (schema.kind == ParquetColumnSchemaKind::STRUCT &&
+        format::is_partial_projection(projection)) {
+        for (const auto& child_projection : projection->children) {
+            const auto child_it = std::ranges::find_if(schema.children, [&](const auto& child) {
+                return child->local_id == child_projection.local_id();
+            });
+            DORIS_CHECK(child_it != schema.children.end());
+            append_child(**child_it, &child_projection);
+        }
+        return plan;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::LIST) {
+        DORIS_CHECK(schema.children.size() == 1);
+        const auto* child_projection =
+                format::is_partial_projection(projection)
+                        ? format::find_child_projection(projection, schema.children[0]->local_id)
+                        : nullptr;
+        append_child(*schema.children[0], child_projection);
+        return plan;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::MAP) {
+        DORIS_CHECK(schema.children.size() == 2);
+        append_child(*schema.children[0], nullptr);
+        const auto* value_projection =
+                format::is_partial_projection(projection)
+                        ? format::find_child_projection(projection, schema.children[1]->local_id)
+                        : nullptr;
+        append_child(*schema.children[1], value_projection);
+        return plan;
+    }
+    for (const auto& child : schema.children) {
+        append_child(*child, nullptr);
+    }
+    return plan;
 }
 
 const NativeFieldSchema* find_child_field(const NativeFieldSchema& parent,
@@ -100,6 +200,28 @@ const NativeFieldSchema* find_child_field(const NativeFieldSchema& parent,
                field.name == child.name;
     });
     return field_it == parent.children.end() ? nullptr : &*field_it;
+}
+
+Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSchema* field) {
+    DORIS_CHECK(field != nullptr);
+    // Variant's public type is logical; the native decoder must retain the physical shredded
+    // struct while timestamp semantics are copied into its descendants.
+    field->data_type = schema.kind == ParquetColumnSchemaKind::VARIANT
+                               ? schema.variant_physical_type
+                               : schema.type;
+    for (const auto& child_schema : schema.children) {
+        auto child_it = std::ranges::find_if(field->children, [&](const NativeFieldSchema& child) {
+            return (child_schema->parquet_field_id >= 0 &&
+                    child.field_id == child_schema->parquet_field_id) ||
+                   child.name == child_schema->name;
+        });
+        if (child_it == field->children.end()) {
+            return Status::Corruption("Native/reader parquet child schema mismatch at {}.{}",
+                                      field->name, child_schema->name);
+        }
+        RETURN_IF_ERROR(sync_native_field_types(*child_schema, &*child_it));
+    }
+    return Status::OK();
 }
 
 void collect_physical_subtree_ids(const NativeFieldSchema& field, std::set<uint64_t>* ids) {
@@ -145,10 +267,13 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
 
 } // namespace
 
-NativeColumnReader::NativeColumnReader(const ParquetColumnSchema& schema,
-                                       DataTypePtr projected_type,
+NativeColumnReader::NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr logical_type,
+                                       DataTypePtr native_type,
+                                       std::unique_ptr<VariantMaterializationNode> variant_plan,
                                        ParquetColumnReaderProfile profile)
-        : ParquetColumnReader(schema, std::move(projected_type), profile),
+        : ParquetColumnReader(schema, std::move(logical_type), profile),
+          _native_type(std::move(native_type)),
+          _variant_plan(std::move(variant_plan)),
           _nested(schema.kind != ParquetColumnSchemaKind::PRIMITIVE) {}
 
 NativeColumnReader::~NativeColumnReader() {
@@ -160,8 +285,9 @@ Status NativeColumnReader::create(
         io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
         const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-        const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-        bool enable_page_cache, const std::string& page_cache_file_key,
+        const cctz::time_zone* timezone,
+        std::optional<const cctz::time_zone*> int96_timezone_override, io::IOContext* io_ctx,
+        RuntimeState* runtime_state, bool enable_page_cache, const std::string& page_cache_file_key,
         bool enable_dictionary_filter, ParquetColumnReaderProfile profile,
         std::unique_ptr<ParquetColumnReader>* reader) {
     if (reader == nullptr) {
@@ -179,27 +305,41 @@ Status NativeColumnReader::create(
         return Status::InvalidArgument("Invalid native parquet top-level column id {} for {}",
                                        column_schema.local_id, column_schema.name);
     }
-    auto* field = const_cast<NativeFieldSchema*>(native_schema.get_column(column_schema.local_id));
-    DORIS_CHECK(field != nullptr);
-    if (field->name != column_schema.name &&
-        !(field->field_id >= 0 && field->field_id == column_schema.parquet_field_id)) {
+    const auto* metadata_field = native_schema.get_column(column_schema.local_id);
+    DORIS_CHECK(metadata_field != nullptr);
+    if (metadata_field->name != column_schema.name &&
+        !(metadata_field->field_id >= 0 &&
+          metadata_field->field_id == column_schema.parquet_field_id)) {
         return Status::Corruption(
                 "Native/metadata parquet schema mismatch at column {}: native={}, arrow={}",
-                column_schema.local_id, field->name, column_schema.name);
+                column_schema.local_id, metadata_field->name, column_schema.name);
     }
 
-    auto type = projected_type(column_schema, projection);
+    auto logical_type = projected_type(column_schema, projection, false);
+    auto native_type = logical_type;
+    std::unique_ptr<VariantMaterializationNode> variant_plan;
+    if (column_schema.contains_variant) {
+        // Native readers are instantiated per projected column and row group. Keep Variant tree
+        // construction out of ordinary scans instead of charging that setup cost at every split.
+        native_type = projected_type(column_schema, projection, true);
+        variant_plan = build_variant_plan(column_schema, projection);
+    }
+    auto native_reader = std::unique_ptr<NativeColumnReader>(new NativeColumnReader(
+            column_schema, std::move(logical_type), native_type, std::move(variant_plan), profile));
+    // Footer metadata is cached and shared across scans. Keep per-request timestamp semantics on a
+    // reader-owned copy so mixed Paimon TIMESTAMP/TIMESTAMP_LTZ columns cannot contaminate it.
+    native_reader->_native_field_schema = *metadata_field;
+    RETURN_IF_ERROR(sync_native_field_types(column_schema, &native_reader->_native_field_schema));
+    auto* field = &native_reader->_native_field_schema;
     std::shared_ptr<NativeSchemaNode> schema_node;
-    RETURN_IF_ERROR(build_native_schema_node(type, column_schema, &schema_node));
+    RETURN_IF_ERROR(build_native_schema_node(native_type, column_schema, &schema_node));
     std::set<uint64_t> projected_ids;
     collect_projected_ids(column_schema, projection, *field, &projected_ids);
-
-    auto native_reader = std::unique_ptr<NativeColumnReader>(
-            new NativeColumnReader(column_schema, std::move(type), profile));
     RETURN_IF_ERROR(native_reader->init(
             std::move(file), metadata, row_group_id, field, std::move(schema_node),
-            std::move(projected_ids), selected_ranges, offset_indexes, timezone, io_ctx,
-            runtime_state, enable_page_cache, page_cache_file_key, enable_dictionary_filter));
+            std::move(projected_ids), selected_ranges, offset_indexes, timezone,
+            int96_timezone_override, io_ctx, runtime_state, enable_page_cache, page_cache_file_key,
+            enable_dictionary_filter));
     *reader = std::move(native_reader);
     return Status::OK();
 }
@@ -209,8 +349,9 @@ Status NativeColumnReader::init(
         NativeFieldSchema* field, std::shared_ptr<NativeSchemaNode> schema_node,
         std::set<uint64_t> projected_column_ids, const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-        const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-        bool enable_page_cache, const std::string& page_cache_file_key,
+        const cctz::time_zone* timezone,
+        std::optional<const cctz::time_zone*> int96_timezone_override, io::IOContext* io_ctx,
+        RuntimeState* runtime_state, bool enable_page_cache, const std::string& page_cache_file_key,
         bool enable_dictionary_filter) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
@@ -255,9 +396,13 @@ Status NativeColumnReader::init(
             std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
             max_buffer_size, *_offset_indexes, native_runtime_state, false, _projected_column_ids,
             _filter_column_ids, page_cache_file_key, compat,
-            runtime_state != nullptr && runtime_state->enable_strict_mode()));
+            runtime_state != nullptr && runtime_state->enable_strict_mode(),
+            int96_timezone_override));
     DORIS_CHECK(_native_reader != nullptr);
-    _skip_column = _type->create_column();
+    _skip_column = _native_type->create_column();
+    if (_variant_plan != nullptr) {
+        _variant_physical_column = _native_type->create_column();
+    }
     return Status::OK();
 }
 
@@ -277,15 +422,22 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     native::FilterMap filter;
     RETURN_IF_ERROR(filter.init(filter_data, static_cast<size_t>(rows), filter_all));
     _native_reader->reset_filter_map_index();
-    ColumnPtr native_column(std::move(column));
+    const bool materialize_variant =
+            !dictionary_ids && _variant_plan != nullptr && output_type->equals(*_type);
+    if (materialize_variant) {
+        _variant_physical_column->clear();
+    }
+    ColumnPtr native_column = materialize_variant ? ColumnPtr(std::move(_variant_physical_column))
+                                                  : ColumnPtr(std::move(column));
     bool eof = false;
     int64_t native_calls = 0;
     int64_t consecutive_empty_calls = 0;
     while (*rows_read < rows && !eof) {
         ++native_calls;
         size_t loop_rows = 0;
+        const DataTypePtr& decoder_type = materialize_variant ? _native_type : output_type;
         RETURN_IF_ERROR(_native_reader->read_column_data(
-                native_column, output_type, _schema_node, filter,
+                native_column, decoder_type, _schema_node, filter,
                 static_cast<size_t>(rows - *rows_read), &loop_rows, &eof, dictionary_ids));
         if (loop_rows == 0 && !eof) {
             // A selected RowRanges plan may reject the current data page completely. V1 advances
@@ -293,7 +445,11 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
             // next page. Bound consecutive empty transitions by the Row Group row count to retain
             // a deterministic corruption exit if a decoder ever stops advancing.
             if (++consecutive_empty_calls > _row_group_rows + 1) {
-                column = IColumn::mutate(std::move(native_column));
+                if (materialize_variant) {
+                    _variant_physical_column = IColumn::mutate(std::move(native_column));
+                } else {
+                    column = IColumn::mutate(std::move(native_column));
+                }
                 return Status::Corruption("Native parquet reader made no progress for column {}",
                                           _name);
             }
@@ -302,7 +458,20 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
         consecutive_empty_calls = 0;
         *rows_read += static_cast<int64_t>(loop_rows);
     }
-    column = IColumn::mutate(std::move(native_column));
+    if (materialize_variant) {
+        if (*rows_read != rows) {
+            _variant_physical_column = IColumn::mutate(std::move(native_column));
+            return Status::Corruption("Native parquet reader returned {} rows, expected {} for {}",
+                                      *rows_read, rows, _name);
+        }
+        // The shredded state owns this decoded batch. Replace scanner scratch before handing the
+        // pointer off so typed path expressions can retain its physical leaves without a copy.
+        _variant_physical_column = _native_type->create_column();
+        RETURN_IF_ERROR(materialize_variant_columns(*_variant_plan, std::move(native_column),
+                                                    column, _profile));
+    } else {
+        column = IColumn::mutate(std::move(native_column));
+    }
     if (_profile.native_read_calls != nullptr) {
         COUNTER_UPDATE(_profile.native_read_calls, native_calls);
     }
@@ -317,19 +486,19 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     return Status::OK();
 }
 
-Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint8_t* filter_data,
-                                                        bool filter_all,
-                                                        const VExprSPtrs& conjuncts, int column_id,
-                                                        IColumn* projected_column,
-                                                        IColumn::Filter* row_filter,
-                                                        int64_t* rows_read, bool* used_filter) {
+Status NativeColumnReader::read_with_fixed_width_filter(
+        int64_t rows, const uint8_t* filter_data, bool filter_all, const VExprSPtrs& conjuncts,
+        int column_id, IColumn* projected_column, IColumn::Filter* row_filter, int64_t* rows_read,
+        bool* used_filter, DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(rows >= 0);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(rows_read != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
     row_filter->clear();
     *rows_read = 0;
     *used_filter = false;
+    *execution_kind = DirectPredicateExecutionKind::NONE;
     if (rows == 0) {
         return Status::OK();
     }
@@ -343,9 +512,10 @@ Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint
         size_t loop_rows = 0;
         IColumn::Filter loop_filter;
         bool loop_used = false;
+        DirectPredicateExecutionKind loop_kind = DirectPredicateExecutionKind::NONE;
         RETURN_IF_ERROR(_native_reader->read_fixed_width_filter(
                 conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read),
-                projected_column, &loop_filter, &loop_rows, &eof, &loop_used));
+                projected_column, &loop_filter, &loop_rows, &eof, &loop_used, &loop_kind));
         if (!loop_used) {
             if (UNLIKELY(*rows_read != 0)) {
                 // Footer encoding lists are untrusted. Once a prior page advanced the cursor, a
@@ -358,6 +528,13 @@ Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint
             }
             row_filter->clear();
             return Status::OK();
+        }
+        if (*execution_kind == DirectPredicateExecutionKind::NONE) {
+            *execution_kind = loop_kind;
+        } else if (loop_kind != DirectPredicateExecutionKind::DEFINITION_LEVEL) {
+            DORIS_CHECK(*execution_kind == DirectPredicateExecutionKind::DEFINITION_LEVEL ||
+                        *execution_kind == loop_kind);
+            *execution_kind = loop_kind;
         }
         row_filter->insert(row_filter->end(), loop_filter.begin(), loop_filter.end());
         if (loop_rows == 0 && !eof) {
@@ -533,7 +710,7 @@ Status NativeColumnReader::skip(int64_t rows) {
         _filter_scratch.assign(static_cast<size_t>(selected_rows), 0);
         int64_t rows_read = 0;
         RETURN_IF_ERROR(read_with_filter(selected_rows, _filter_scratch.data(), true, _skip_column,
-                                         _type, false, &rows_read));
+                                         _native_type, false, &rows_read));
         DORIS_CHECK(_skip_column->empty());
         DORIS_CHECK(rows_read == selected_rows);
         _logical_row_position += rows_read;
@@ -574,6 +751,11 @@ Status NativeColumnReader::select_with_dictionary_filter(
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(survivor_count != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    if (_variant_plan != nullptr) {
+        row_filter->clear();
+        *used_filter = false;
+        return Status::OK();
+    }
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
     *used_filter = false;
     *survivor_count = 0;
@@ -720,17 +902,25 @@ Status NativeColumnReader::select_with_dictionary_filter(
 Status NativeColumnReader::select_with_fixed_width_filter(
         const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
         const VExprSPtrs& conjuncts, int column_id, IColumn* projected_column,
-        IColumn::Filter* row_filter, bool* used_filter) {
+        IColumn::Filter* row_filter, bool* used_filter,
+        DirectPredicateExecutionKind* execution_kind) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK(execution_kind != nullptr);
+    if (_variant_plan != nullptr) {
+        // Direct fixed-width evaluation cannot preserve a Variant physical subtree's row shape.
+        row_filter->clear();
+        *used_filter = false;
+        *execution_kind = DirectPredicateExecutionKind::NONE;
+        return Status::OK();
+    }
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     int64_t rows_read = 0;
     RETURN_IF_ERROR(read_with_fixed_width_filter(batch_rows, filter_data, selected_rows == 0,
                                                  conjuncts, column_id, projected_column, row_filter,
-                                                 &rows_read, used_filter));
+                                                 &rows_read, used_filter, execution_kind));
     if (!*used_filter) {
         return Status::OK();
     }
@@ -744,6 +934,86 @@ Status NativeColumnReader::select_with_fixed_width_filter(
     advance_selected_span(rows_read);
     update_reader_read_rows(selected_rows);
     update_reader_skip_rows(batch_rows - selected_rows);
+    return Status::OK();
+}
+
+Status NativeColumnReader::select_with_runtime_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const VExprContextSPtrs& conjuncts, int column_id, MutableColumnPtr* projected_column,
+        IColumn::Filter* row_filter, bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    RETURN_IF_ERROR(validate_selected_span(batch_rows));
+    row_filter->clear();
+    *used_filter = false;
+    if (_nested || conjuncts.empty() || !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->is_rf_wrapper() &&
+                   conjunct->root()->can_execute_on_reader_values(_type, column_id);
+        })) {
+        return Status::OK();
+    }
+
+    const uint8_t* selection_filter = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &selection_filter));
+    // The scan contract can synthesize NULL on conversion even for a required Parquet field.
+    // Always retain that effective nullability in the RF temporary instead of turning a
+    // permissive conversion failure into a DataQualityError.
+    const auto value_type = make_nullable(_type);
+    auto values = value_type->create_column();
+    int64_t rows_read = 0;
+    RETURN_IF_ERROR(read_with_filter(batch_rows, selection_filter, selected_rows == 0, values,
+                                     value_type, false, &rows_read));
+    DORIS_CHECK_EQ(rows_read, batch_rows);
+    DORIS_CHECK_EQ(values->size(), selected_rows);
+
+    row_filter->resize_fill(selected_rows, 1);
+    {
+        Block value_block;
+        const auto dummy_type = std::make_shared<DataTypeUInt8>();
+        for (int position = 0; position < column_id; ++position) {
+            value_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), selected_rows),
+                                dummy_type, "runtime_filter_dummy"});
+        }
+        value_block.insert({values->get_ptr(), value_type, "runtime_filter_value"});
+        for (const auto& conjunct : conjuncts) {
+            bool can_filter_all = false;
+            // Once eligibility is established, adaptive RF sampling may make a later batch a
+            // no-op but must not send this forward-only reader back to scheduler materialization.
+            RETURN_IF_ERROR(conjunct->root()->execute_filter(conjunct.get(), &value_block,
+                                                             row_filter->data(), selected_rows,
+                                                             false, &can_filter_all));
+            if (can_filter_all) {
+                row_filter->clear();
+                row_filter->resize_fill(selected_rows, 0);
+                break;
+            }
+        }
+    }
+
+    if (projected_column != nullptr) {
+        const bool target_is_nullable = is_column_nullable(**projected_column);
+        auto filtered_values = IColumn::mutate(values->filter(*row_filter, -1));
+        // A required file field may back a nullable table slot after schema evolution. Preserve
+        // the target wrapper even though reader-local RF evaluation uses the physical file type.
+        if (target_is_nullable && !is_column_nullable(*filtered_values)) {
+            auto null_map = ColumnUInt8::create(filtered_values->size(), 0);
+            filtered_values =
+                    ColumnNullable::create(std::move(filtered_values), std::move(null_map));
+        } else if (!target_is_nullable && is_column_nullable(*filtered_values)) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(*filtered_values);
+            DORIS_CHECK(!nullable.has_null());
+            filtered_values = IColumn::mutate(nullable.get_nested_column_ptr());
+        }
+        *projected_column = std::move(filtered_values);
+    }
+    advance_selected_span(rows_read);
+    if (_profile.reader_select_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
+    }
+    update_reader_read_rows(selected_rows);
+    update_reader_skip_rows(batch_rows - selected_rows);
+    *used_filter = true;
     return Status::OK();
 }
 
@@ -774,6 +1044,10 @@ bool NativeColumnReader::crossed_page_since_last_batch() {
 
 Result<MutableColumnPtr> NativeColumnReader::dictionary_values() {
     DORIS_CHECK(_native_reader != nullptr);
+    if (_variant_plan != nullptr) {
+        return ResultError(
+                Status::NotSupported("Parquet Variant columns do not expose dictionary values"));
+    }
     return _native_reader->dictionary_values(_type);
 }
 

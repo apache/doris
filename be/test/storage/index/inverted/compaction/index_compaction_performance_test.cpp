@@ -21,7 +21,8 @@
 #include <map>
 #include <string>
 
-#include "storage/index/inverted/compaction/util/index_compaction_utils.cpp"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/compaction/util/index_compaction_utils.h"
 #include "storage/utils.h"
 
 namespace doris {

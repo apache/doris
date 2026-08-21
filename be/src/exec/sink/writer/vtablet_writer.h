@@ -248,10 +248,6 @@ public:
         return ss.str();
     }
 
-    void add_slave_tablet_nodes(int64_t tablet_id, const std::vector<int64_t>& slave_nodes) {
-        _slave_tablet_nodes[tablet_id] = slave_nodes;
-    }
-
     // this function is NON_REENTRANT
     Status init(RuntimeState* state);
     /// these two functions will call open_internal. should keep that clear --- REENTRANT
@@ -407,8 +403,6 @@ protected:
     // tablet_ids. New receivers ignore them and route by partition id, while old receivers use
     // this local tablet id instead of failing on an empty tablet_ids list.
     std::unordered_map<int64_t, int64_t> _adaptive_partition_compat_tablets;
-    // map from tablet_id to node_id where slave replicas locate in
-    std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
@@ -589,6 +583,8 @@ private:
     friend class VTabletWriter;
     friend class VRowDistribution;
 
+    static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
+
     int _max_failed_replicas(int64_t tablet_id);
 
     int _load_required_replicas_num(int64_t tablet_id);
@@ -719,8 +715,6 @@ private:
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
     OlapTableLocationParam* _location = nullptr;
-    bool _write_single_replica = false;
-    OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
     std::unique_ptr<OlapTabletFinder> _tablet_finder;

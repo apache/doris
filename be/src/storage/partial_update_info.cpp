@@ -30,18 +30,18 @@
 #include "core/value/bitmap_value.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
+#include "storage/mow/historical_row_fetcher.h"
+#include "storage/mow/key_probe.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/historical_row_retriever.h"
-#include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 
 namespace doris {
-namespace {
 
 ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx) {
     auto skip_bitmap_column =
@@ -50,8 +50,6 @@ ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_co
     block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
     return skip_bitmap_column_ptr;
 }
-
-} // namespace
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
@@ -384,12 +382,36 @@ Status FixedReadPlan::read_columns_by_plan(
     return Status::OK();
 }
 
+Status FixedReadPlan::fill_old_delete_signs(const Block& old_value_block,
+                                            const std::map<uint32_t, uint32_t>& read_index,
+                                            size_t num_rows,
+                                            std::vector<signed char>* old_delete_signs) const {
+    if (old_delete_signs == nullptr) {
+        return Status::OK();
+    }
+    const auto* old_delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(old_value_block);
+    if (old_delete_sign_column_data == nullptr) {
+        return Status::InternalError("old delete signs column not found, block: {}",
+                                     old_value_block.dump_structure());
+    }
+    old_delete_signs->assign(num_rows, 0);
+    for (size_t idx = 0; idx < num_rows; ++idx) {
+        auto it = read_index.find(cast_set<uint32_t>(idx));
+        if (it != read_index.end()) {
+            (*old_delete_signs)[idx] = old_delete_sign_column_data[it->second];
+        }
+    }
+    return Status::OK();
+}
+
 Status FixedReadPlan::fill_missing_columns(
         const segment_v2::HistoricalRowRetrieverContext& historical_context,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        uint32_t segment_start_pos, const Block* block) const {
+        uint32_t segment_start_pos, const Block* block,
+        std::vector<signed char>* old_delete_signs) const {
     auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
     auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
@@ -413,11 +435,14 @@ Status FixedReadPlan::fill_missing_columns(
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
                                          old_value_block, &read_index, true, nullptr));
 
-    const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
-    if (old_delete_signs == nullptr) {
+    const auto* old_delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(old_value_block);
+    if (old_delete_sign_column_data == nullptr) {
         return Status::InternalError("old delete signs column not found, block: {}",
                                      old_value_block.dump_structure());
     }
+    RETURN_IF_ERROR(fill_old_delete_signs(old_value_block, read_index,
+                                          use_default_or_null_flag.size(), old_delete_signs));
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
@@ -439,8 +464,7 @@ Status FixedReadPlan::fill_missing_columns(
 
             bool should_use_default = use_default_or_null_flag[idx];
             if (!should_use_default) {
-                bool old_row_delete_sign =
-                        (old_delete_signs != nullptr && old_delete_signs[pos_in_old_block] != 0);
+                bool old_row_delete_sign = old_delete_sign_column_data[pos_in_old_block] != 0;
                 if (old_row_delete_sign) {
                     if (!tablet_schema.has_sequence_col()) {
                         should_use_default = true;
@@ -814,8 +838,31 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
     return Status::OK();
 }
 
-BlockAggregator::BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer)
-        : _writer(vertical_segment_writer), _tablet_schema(*_writer._tablet_schema) {}
+BlockAggregator::BlockAggregator(TabletSchema& tablet_schema, BaseTabletSPtr tablet,
+                                 std::shared_ptr<MowContext> mow_context,
+                                 const PartialUpdateInfo& partial_update_info,
+                                 const RowKeyEncoder& key_encoder,
+                                 const segment_v2::MowKeyProbe& probe,
+                                 HistoricalRowFetcher& fetcher)
+        : _tablet_schema(tablet_schema),
+          _tablet(std::move(tablet)),
+          _mow_context(std::move(mow_context)),
+          _partial_update_info(partial_update_info),
+          _key_encoder(key_encoder),
+          _convertor(std::make_unique<OlapBlockDataConvertor>()),
+          _probe(probe),
+          _fetcher(fetcher) {
+    _convertor->resize(tablet_schema.num_columns());
+    for (uint32_t cid = 0; cid < tablet_schema.num_key_columns(); ++cid) {
+        _convertor->add_column_data_convertor_at(tablet_schema.column(cid), cid);
+    }
+    if (tablet_schema.has_sequence_col()) {
+        auto cid = cast_set<uint32_t>(tablet_schema.sequence_col_idx());
+        _convertor->add_column_data_convertor_at(tablet_schema.column(cid), cid);
+    }
+}
+
+BlockAggregator::~BlockAggregator() = default;
 
 void BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
                                     BitmapValue& skip_bitmap) {
@@ -893,30 +940,26 @@ Status BlockAggregator::aggregate_rows(
 
     _state.reset();
 
-    RowLocation loc;
-    RowsetSharedPtr rowset;
-    std::string previous_encoded_seq_value {};
-    Status st = _writer._tablet->lookup_row_key(
-            key, &_tablet_schema, false, specified_rowsets, &loc, _writer._mow_context->max_version,
-            segment_caches, &rowset, true, &previous_encoded_seq_value);
+    auto prev_seq_res = _probe.probe_previous_seq_value(key, specified_rowsets, segment_caches);
     int pos = start;
-    bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
-    DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+    DCHECK(prev_seq_res.has_value() || prev_seq_res.error().is<ErrorCode::MEM_LIMIT_EXCEEDED>())
             << "[BlockAggregator::aggregate_rows] unexpected error status while lookup_row_key:"
-            << st;
-    if (!is_expected_st) {
-        return st;
+            << prev_seq_res.error();
+    if (!prev_seq_res.has_value()) {
+        return prev_seq_res.error();
     }
+    std::string previous_encoded_seq_value = std::move(prev_seq_res.value().encoded_seq_value);
+    segment_v2::ProbeOutcome probe_out = std::move(prev_seq_res.value().outcome);
 
     std::string cur_seq_val;
-    if (st.ok()) {
+    if (probe_out.result == segment_v2::KeyProbeResult::FOUND) {
         for (pos = start; pos < end; pos++) {
             auto& skip_bitmap = skip_bitmaps->at(pos);
             bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
             // Discard all the rows whose seq value is smaller than previous_encoded_seq_value.
             if (row_has_sequence_col) {
                 std::string seq_val {};
-                _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
+                _key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
                 if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) < 0) {
                     continue;
                 }
@@ -933,12 +976,11 @@ Status BlockAggregator::aggregate_rows(
         if (row_has_sequence_col) {
             std::string seq_val {};
             // for rows that don't specify seqeunce col, seq_val will be encoded to minial value
-            _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
+            _key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
             cur_seq_val = std::move(seq_val);
         } else {
             cur_seq_val.clear();
-            RETURN_IF_ERROR(_writer._generate_encoded_default_seq_value(
-                    _tablet_schema, *_writer._opts.rowset_ctx->partial_update_info, &cur_seq_val));
+            RETURN_IF_ERROR(_generate_encoded_default_seq_value(&cur_seq_val));
         }
     }
 
@@ -951,7 +993,7 @@ Status BlockAggregator::aggregate_rows(
             append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
         } else {
             std::string seq_val {};
-            _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, rid);
+            _key_encoder.append_seq_suffix(&seq_val, seq_column, rid);
             if (Slice {seq_val}.compare(Slice {cur_seq_val}) >= 0) {
                 append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
                 cur_seq_val = std::move(seq_val);
@@ -963,6 +1005,33 @@ Status BlockAggregator::aggregate_rows(
     }
     return Status::OK();
 };
+
+Status BlockAggregator::_generate_encoded_default_seq_value(std::string* encoded_value) {
+    const auto& seq_column = _tablet_schema.column(_tablet_schema.sequence_col_idx());
+    auto block = _tablet_schema.create_block_by_cids(
+            {cast_set<uint32_t>(_tablet_schema.sequence_col_idx())});
+    if (seq_column.has_default_value()) {
+        auto idx = _tablet_schema.sequence_col_idx() - _tablet_schema.num_key_columns();
+        const auto& default_value = _partial_update_info.default_values[idx];
+        StringRef str {default_value};
+        RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
+                str, *block.get_by_position(0).column->assert_mutable().get()));
+
+    } else {
+        block.get_by_position(0).column->assert_mutable()->insert_default();
+    }
+    DCHECK_EQ(block.rows(), 1);
+    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
+    olap_data_convertor->add_column_data_convertor(seq_column);
+    olap_data_convertor->set_source_content(&block, 0, 1);
+    auto [status, column] = olap_data_convertor->convert_column_data(0);
+    if (!status.ok()) {
+        return status;
+    }
+    // include marker
+    _key_encoder.append_seq_suffix(encoded_value, column, 0);
+    return Status::OK();
+}
 
 Status BlockAggregator::aggregate_for_sequence_column(
         Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
@@ -982,7 +1051,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
     int same_key_rows {0};
     std::string previous_key {};
     for (int block_pos {0}; block_pos < num_rows; block_pos++) {
-        std::string key = _writer._key_encoder.full_encode(key_columns, block_pos);
+        std::string key = _key_encoder.full_encode(key_columns, block_pos);
         if (block_pos > 0 && previous_key == key) {
             same_key_rows++;
         } else {
@@ -1016,7 +1085,7 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
     auto seq_col_block = _tablet_schema.create_block_by_cids(cids);
     auto tmp_block = _tablet_schema.create_block_by_cids(cids);
     std::map<uint32_t, uint32_t> read_index;
-    RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _writer._rsid_to_rowset,
+    RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _fetcher.pinned_rowsets(),
                                                    seq_col_block, &read_index, false));
 
     auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assert_mutable();
@@ -1059,10 +1128,20 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
                     ? _tablet_schema.column(_tablet_schema.sequence_col_idx()).unique_id()
                     : -1;
     FixedReadPlan read_plan;
+    // This insert-after-delete pass doesn't report partial-update counts; discard them.
+    PartialUpdateStats discarded;
+    // the losing delete-sign row is removed from the block below instead of
+    // marking itself, so the probe only marks the old row
+    segment_v2::MowKeyProbe probe(
+            _tablet.get(), &_tablet_schema, _tablet_schema.has_sequence_col(), _mow_context,
+            RowsetId {}, 0,
+            segment_v2::MowKeyProbe::Policy {
+                    .mark_deleted = segment_v2::MowKeyProbe::MarkDeleted::OLD_ROW,
+            });
     for (size_t block_pos {0}; block_pos < num_rows; block_pos++) {
         size_t delta_pos = block_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
-        std::string key = _writer._key_encoder.full_encode(key_columns, delta_pos);
+        std::string key = _key_encoder.full_encode(key_columns, delta_pos);
         bool have_delete_sign =
                 (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
         if (delta_pos > 0 && previous_key == key) {
@@ -1073,22 +1152,19 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             DCHECK(previous_has_delete_sign);
             DCHECK(!have_delete_sign);
             ++duplicate_rows;
-            RowLocation loc;
-            RowsetSharedPtr rowset;
-            Status st = _writer._tablet->lookup_row_key(
-                    key, &_tablet_schema, false, specified_rowsets, &loc,
-                    _writer._mow_context->max_version, segment_caches, &rowset, true);
-            bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
-            DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+            auto probe_res = probe.probe(key, /*segment_pos=*/0, /*key_has_seq_suffix=*/false,
+                                         /*have_delete_sign=*/false, specified_rowsets,
+                                         segment_caches, discarded);
+            DCHECK(probe_res.has_value() || probe_res.error().is<ErrorCode::MEM_LIMIT_EXCEEDED>())
                     << "[BlockAggregator::aggregate_for_insert_after_delete] unexpected error "
                        "status while lookup_row_key:"
-                    << st;
-            if (!is_expected_st) {
-                return st;
+                    << probe_res.error();
+            if (!probe_res.has_value()) {
+                return probe_res.error();
             }
+            segment_v2::ProbeOutcome out = std::move(probe_res.value());
 
-            Slice previous_seq_slice {};
-            if (st.ok()) {
+            if (out.result == segment_v2::KeyProbeResult::FOUND) {
                 if (_tablet_schema.has_sequence_col()) {
                     // if the insert row doesn't specify the sequence column, we need to
                     // read the historical's sequence column value so that we don't need
@@ -1096,14 +1172,11 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
                     // for this row
                     bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
                     if (!row_has_sequence_col) {
-                        read_plan.prepare_to_read(loc, block_pos);
-                        _writer._rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+                        read_plan.prepare_to_read(out.loc, block_pos);
+                        _fetcher.pin_rowset(out.rowset);
                     }
                 }
-                // delete the existing row
-                _writer._mow_context->delete_bitmap->add(
-                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                        loc.row_id);
+                // the old-row delete mark is set inside probe()
             }
             // and remove the row with delete sign from the current block
             filter_map[block_pos - 1] = 0;
@@ -1144,9 +1217,9 @@ Status BlockAggregator::convert_pk_columns(Block* block, size_t row_pos, size_t 
                                            std::vector<IOlapColumnDataAccessor*>& key_columns) {
     key_columns.clear();
     for (uint32_t cid {0}; cid < _tablet_schema.num_key_columns(); cid++) {
-        RETURN_IF_ERROR(_writer._olap_data_convertor->set_source_content_with_specifid_column(
+        RETURN_IF_ERROR(_convertor->set_source_content_with_specifid_column(
                 block->get_by_position(cid), row_pos, num_rows, cid));
-        auto [status, column] = _writer._olap_data_convertor->convert_column_data(cid);
+        auto [status, column] = _convertor->convert_column_data(cid);
         if (!status.ok()) {
             return status;
         }
@@ -1160,9 +1233,9 @@ Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos, size_t 
     seq_column = nullptr;
     if (_tablet_schema.has_sequence_col()) {
         auto seq_col_idx = _tablet_schema.sequence_col_idx();
-        RETURN_IF_ERROR(_writer._olap_data_convertor->set_source_content_with_specifid_column(
+        RETURN_IF_ERROR(_convertor->set_source_content_with_specifid_column(
                 block->get_by_position(seq_col_idx), row_pos, num_rows, seq_col_idx));
-        auto [status, column] = _writer._olap_data_convertor->convert_column_data(seq_col_idx);
+        auto [status, column] = _convertor->convert_column_data(seq_col_idx);
         if (!status.ok()) {
             return status;
         }
@@ -1194,7 +1267,7 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
     if (block->rows() != num_rows) {
         num_rows = block->rows();
         // data in block has changed, should re-encode key columns, sequence column
-        _writer._olap_data_convertor->clear_source_content();
+        _convertor->clear_source_content();
         RETURN_IF_ERROR(convert_pk_columns(block, 0, num_rows, key_columns));
         RETURN_IF_ERROR(convert_seq_column(block, 0, num_rows, seq_column));
     }

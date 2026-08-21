@@ -34,6 +34,7 @@
 #include "core/value/decimalv2_value.h"
 #include "exec/common/int_exp.h"
 #include "exec/common/sip_hash.h"
+#include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_block.h"
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
@@ -306,6 +307,33 @@ Field ColumnDecimal<T>::operator[](size_t n) const {
 }
 
 template <PrimitiveType T>
+template <typename U>
+void ColumnDecimal<T>::permutation(bool reverse, size_t limit, HybridSorter& sorter,
+                                   PaddedPODArray<U>& res) const {
+    size_t s = data.size();
+    res.resize(s);
+    for (U i = 0; i < s; ++i) res[i] = i;
+
+    auto sort_end = res.end();
+    if (limit && static_cast<double>(limit) < static_cast<double>(s) / 8.0) {
+        sort_end = res.begin() + limit;
+        if (reverse)
+            std::partial_sort(res.begin(), sort_end, res.end(),
+                              [this](size_t a, size_t b) { return data[a] > data[b]; });
+        else
+            std::partial_sort(res.begin(), sort_end, res.end(),
+                              [this](size_t a, size_t b) { return data[a] < data[b]; });
+    } else {
+        if (reverse)
+            sorter.sort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] > data[b]; });
+        else
+            sorter.sort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] < data[b]; });
+    }
+}
+
+template <PrimitiveType T>
 void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int, HybridSorter& sorter,
                                        IColumn::Permutation& res) const {
     if (data.size() <= std::numeric_limits<UInt32>::max()) {
@@ -563,6 +591,8 @@ typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(s
     }
 }
 
+// A new instantiation here needs the matching 'extern template' declaration
+// in column_decimal.h (enforced by check-extern-template-pairing.py).
 template class ColumnDecimal<TYPE_DECIMAL32>;
 template class ColumnDecimal<TYPE_DECIMAL64>;
 template class ColumnDecimal<TYPE_DECIMALV2>;

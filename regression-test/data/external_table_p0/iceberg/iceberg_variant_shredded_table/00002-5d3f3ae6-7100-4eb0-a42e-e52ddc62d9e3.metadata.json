@@ -1,0 +1,74 @@
+{
+  "format-version" : 3,
+  "table-uuid" : "270e9d8f-db6e-4522-9dce-2b9872f7159b",
+  "location" : "s3a://warehouse/wh/iceberg_variant_read_db/variant_page_pruning",
+  "last-sequence-number" : 1,
+  "last-updated-ms" : 1785245120440,
+  "last-column-id" : 2,
+  "current-schema-id" : 0,
+  "schemas" : [ {
+    "type" : "struct",
+    "schema-id" : 0,
+    "fields" : [ {
+      "id" : 1,
+      "name" : "id",
+      "required" : false,
+      "type" : "int"
+    }, {
+      "id" : 2,
+      "name" : "v",
+      "required" : false,
+      "type" : "variant"
+    } ]
+  } ],
+  "default-spec-id" : 0,
+  "partition-specs" : [ {
+    "spec-id" : 0,
+    "fields" : [ ]
+  } ],
+  "last-partition-id" : 999,
+  "default-sort-order-id" : 0,
+  "sort-orders" : [ {
+    "order-id" : 0,
+    "fields" : [ ]
+  } ],
+  "properties" : {
+    "write.format.default" : "parquet",
+    "write.parquet.shred-variants" : "true",
+    "schema.name-mapping.default" : "[ {\n  \"field-id\" : 1,\n  \"names\" : [ \"id\" ]\n}, {\n  \"field-id\" : 2,\n  \"names\" : [ \"v\" ]\n} ]"
+  },
+  "current-snapshot-id" : 5420489606554005823,
+  "next-row-id" : 4096,
+  "refs" : {
+    "main" : {
+      "snapshot-id" : 5420489606554005823,
+      "type" : "branch"
+    }
+  },
+  "snapshots" : [ {
+    "sequence-number" : 1,
+    "snapshot-id" : 5420489606554005823,
+    "timestamp-ms" : 1785245120440,
+    "summary" : {
+      "operation" : "append",
+      "added-data-files" : "1",
+      "added-records" : "4096",
+      "added-files-size" : "34528",
+      "total-records" : "4096",
+      "total-files-size" : "34528",
+      "total-data-files" : "1",
+      "total-delete-files" : "0"
+    },
+    "manifest-list" : "s3a://warehouse/wh/iceberg_variant_read_db/variant_page_pruning/metadata/snap-5420489606554005823-1-b7958052-e154-425f-8850-f0011d0272c5.avro",
+    "schema-id" : 0,
+    "first-row-id" : 0,
+    "added-rows" : 4096
+  } ],
+  "statistics" : [ ],
+  "partition-statistics" : [ ],
+  "snapshot-log" : [ {
+    "timestamp-ms" : 1785245120440,
+    "snapshot-id" : 5420489606554005823
+  } ],
+  "metadata-log" : [ ]
+}

@@ -283,6 +283,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return primaryClusterToBackend.getOrDefault(clusterId, -1L);
     }
 
+    Long getNonColocatedPrimaryBackendId(String clusterId) {
+        return primaryClusterToBackend.get(clusterId);
+    }
+
     // For proc display only. In cloud mode a replica is hashed to a different BE in each
     // compute group, so expose a clusterId -> backendId mapping; the proc display builds
     // a separate bucket sequence per compute group from it so each group's sequence is

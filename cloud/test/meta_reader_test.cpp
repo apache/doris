@@ -154,6 +154,77 @@ TEST(MetaReaderTest, GetTableVersion) {
     }
 }
 
+TEST(MetaReaderTest, GetTableStreamOffset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "table_stream_instance";
+    TableStreamIdentityPB identity;
+    identity.set_base_db_id(1001);
+    identity.set_base_table_id(1002);
+    identity.set_stream_db_id(1003);
+    identity.set_stream_id(1004);
+    int64_t partition_id = 1005;
+    std::string key = versioned::table_stream_offset_key(
+            {instance_id, identity.base_db_id(), identity.base_table_id(), identity.stream_db_id(),
+             identity.stream_id(), partition_id});
+
+    TableStreamOffsetPB offset;
+    Versionstamp versionstamp;
+    MetaReader latest_reader(instance_id, txn_kv.get());
+    std::unique_ptr<Transaction> missing_read_txn;
+    ASSERT_EQ(txn_kv->create_txn(&missing_read_txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(latest_reader.get_table_stream_offset(missing_read_txn.get(), identity, partition_id,
+                                                    &offset, &versionstamp),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        TableStreamOffsetPB first;
+        first.set_partition_id(partition_id);
+        first.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+        first.set_offset_tso(101);
+        versioned_put(txn.get(), key, Versionstamp(100, 1), first.SerializeAsString());
+
+        TableStreamOffsetPB second = first;
+        second.set_offset_tso(202);
+        versioned_put(txn.get(), key, Versionstamp(200, 1), second.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    std::unique_ptr<Transaction> latest_read_txn;
+    ASSERT_EQ(txn_kv->create_txn(&latest_read_txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(latest_reader.get_table_stream_offset(latest_read_txn.get(), identity, partition_id,
+                                                    &offset, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offset.offset_tso(), 202);
+    EXPECT_EQ(versionstamp, Versionstamp(200, 1));
+
+    MetaReader snapshot_reader(instance_id, txn_kv.get(), Versionstamp(150, 0));
+    std::unique_ptr<Transaction> snapshot_read_txn;
+    ASSERT_EQ(txn_kv->create_txn(&snapshot_read_txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(snapshot_reader.get_table_stream_offset(snapshot_read_txn.get(), identity,
+                                                      partition_id, &offset, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offset.offset_tso(), 101);
+    EXPECT_EQ(versionstamp, Versionstamp(100, 1));
+
+    TableStreamPartitionSetPB binding;
+    binding.mutable_identity()->CopyFrom(identity);
+    binding.add_partition_ids(partition_id);
+    binding.add_partition_ids(partition_id + 1);
+    TableStreamOffsetMap offsets;
+    TableStreamOffsetVersionstampMap versionstamps;
+    ASSERT_EQ(snapshot_reader.get_table_stream_offsets(snapshot_read_txn.get(), {binding}, &offsets,
+                                                       &versionstamps, true),
+              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(offsets.at(identity.stream_id()).size(), 1);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(partition_id).offset_tso(), 101);
+    EXPECT_EQ(versionstamps.at(identity.stream_id()).at(partition_id), Versionstamp(100, 1));
+    EXPECT_FALSE(offsets.at(identity.stream_id()).contains(partition_id + 1));
+}
+
 TEST(MetaReaderTest, BatchGetTableVersion) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);

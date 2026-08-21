@@ -116,6 +116,78 @@ suite("bucket_shuffle_set_operation") {
         intersect
         select id from bucket_shuffle_set_operation2)""")
 
+    // A window function above a bucket-shuffle UNION ALL is a shuffle-for-correctness consumer:
+    // the analytic sink needs every row of a window partition inside one pipeline task. The union
+    // branches are aligned by the basic child's storage bucket function, so the union must require
+    // a bucket-hash local exchange from every branch. Requiring the generic hash instead let the
+    // branch arriving through a bucket-shuffle exchange keep its bucket placement while the branch
+    // scanning its own buckets (serial under a pooling scan, so it claims no distribution) was
+    // re-partitioned by execution hash: one window partition ended up split across two pipeline
+    // tasks and row_number() restarted at 1 in each.
+    // force_to_local_shuffle pins the pooling scan so the shape does not depend on the backend
+    // count of the environment running this suite.
+    // The variants below were not guessed: LocalExchangePlacementAuditTest walks finished plans and
+    // flags any set operation whose branches end up on different hash placements, and these are
+    // every shape it flagged — partition-by with and without ORDER BY, unequal bucket counts,
+    // three branches, and a nested union.
+    sql "set force_to_local_shuffle=true"
+
+    // The ordered golden results prove both the row count and that every window partition
+    // contains each row_number() exactly once. A partition split across pipeline tasks would
+    // produce duplicate row_number values inside one id.
+    order_qt_union_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+        ) u
+        order by id, value, rn"""
+
+    order_qt_union_under_window_no_order_by """
+        select id, value, row_number() over (partition by id) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+        ) u
+        order by id, value, rn"""
+
+    // the branches have different bucket counts, so one must be re-shuffled onto the other's
+    // buckets rather than keeping its own
+    order_qt_union_unequal_buckets_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation3
+        ) u
+        order by id, value, rn"""
+
+    order_qt_three_way_union_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+            union all
+            select id, value from bucket_shuffle_set_operation3
+        ) u
+        order by id, value, rn"""
+
+    order_qt_nested_union_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            (select id, value from bucket_shuffle_set_operation2
+             union all
+             select id, value from bucket_shuffle_set_operation3)
+        ) u
+        order by id, value, rn"""
+
+    sql "set force_to_local_shuffle=false"
+
     // when local shuffle is disabled entirely, every pipeline runs a single task per
     // instance so the bucket alignment holds naturally and bucket shuffle is still allowed
     sql "set enable_local_shuffle=false"

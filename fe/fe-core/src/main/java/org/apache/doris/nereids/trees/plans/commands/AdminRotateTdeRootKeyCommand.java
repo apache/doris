@@ -17,8 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.encryption.KeyManagerInterface;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -52,11 +56,22 @@ public class AdminRotateTdeRootKeyCommand extends Command implements ForwardWith
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate();
         KeyManagerInterface keyManager = ctx.getEnv().getKeyManager();
         if (keyManager != null) {
             keyManager.rotateRootKey(properties);
         } else {
             throw new AnalysisException("TDE is disabled, cannot rotate root key");
+        }
+    }
+
+    /**
+     * validate
+     */
+    public void validate() throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
 

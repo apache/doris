@@ -126,13 +126,6 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
-    // Such columns are not exist in frontend schema info, so we need to
-    // add them into tablet_schema for later column indexing.
-    static TabletColumn create_materialized_variant_column(const std::string& root,
-                                                           const std::vector<std::string>& paths,
-                                                           int32_t parent_unique_id,
-                                                           int32_t max_subcolumns_count,
-                                                           bool enable_doc_mode = false);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     int32_t length() const { return _length; }
@@ -155,6 +148,8 @@ public:
                                                       int current_be_exec_version) const;
     AggregateFunctionPtr get_aggregate_function(std::string suffix,
                                                 int current_be_exec_version) const;
+    AggregateFunctionPtr get_aggregate_function(std::string suffix, int current_be_exec_version,
+                                                DataTypePtr runtime_type) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -231,6 +226,9 @@ public:
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant.max_subcolumns_count = variant_max_subcolumns_count;
     }
+
+    bool variant_is_v2() const { return _variant_is_v2; }
+    void set_variant_is_v2(bool is_v2) { _variant_is_v2 = is_v2; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
 
@@ -325,6 +323,10 @@ private:
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
+    // TODO: Remove this transient read-schema marker after legacy ColumnVariant destinations are
+    // deleted and Variant readers always produce ColumnVariantV2. It only selects the in-memory
+    // compute destination and must never be serialized into tablet or segment metadata.
+    bool _variant_is_v2 = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -518,6 +520,7 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
+    bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
@@ -549,6 +552,31 @@ public:
             }
         }
         return inverted_indexes;
+    }
+    // True when anything at all lives in this schema's inverted index FILE.
+    //
+    // Spelled out as `has_inverted_index() || has_ann_index()` at ~27 call sites
+    // before this existed -- rowset writers, segment creation, segcompaction,
+    // snapshot and migration, and most of the cloud paths. Every one of them is
+    // asking the same question ("is there an index file to carry, warm, link or
+    // rewrite?"), and each open-coded copy is a place a third index type would
+    // have to be remembered.
+    bool has_inverted_or_ann_index() const { return has_inverted_index() || has_ann_index(); }
+
+    // Both index types that live in the inverted index FILE, in schema order.
+    // Every storage format stores them together: V1/V2/V3 as CLucene directories,
+    // SNII as text metadata groups plus an ANN blob logical index. A rewrite that
+    // enumerated only the inverted ones would seal a file missing every ANN index
+    // while the schema still claimed them.
+    const std::vector<const TabletIndex*> inverted_and_ann_indexes() const {
+        std::vector<const TabletIndex*> indexes;
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::INVERTED ||
+                index->index_type() == IndexType::ANN) {
+                indexes.emplace_back(index.get());
+            }
+        }
+        return indexes;
     }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {

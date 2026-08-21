@@ -80,8 +80,8 @@ Status VStatisticsIterator::next_batch(Block* block) {
                     _schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     auto col = columns[i]->clone_empty();
                     for (size_t j = 0; j < columns[i]->size(); ++j) {
-                        const auto& ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
-                        col->insert(Field::create_field<TYPE_CHAR>(ref.to_string()));
+                        const auto ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
+                        col->insert_data(ref.data, ref.size);
                     }
                     columns[i].swap(col);
                 }
@@ -296,10 +296,63 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
+        RETURN_IF_ERROR(_validate_compare_contract(opts));
         RETURN_IF_ERROR(advance());
     }
     _pre_ctx_same_bit.reserve(_block_row_max);
     _pre_ctx_same_bit.assign(_block_row_max, false);
+    return Status::OK();
+}
+
+// compare() reads block positions that are only DCHECK-bounds-checked in Block::compare_at(),
+// so in a release build a projection violating the merge contract turns into an out-of-bounds
+// read inside std::push_heap and kills the BE (issue #66390). Verify the contract once the
+// first block is loaded and surface a diagnosable error instead:
+//   - explicit compare columns (_compare_columns) must all point inside the block;
+//   - otherwise the default comparison touches positions [0, _num_key_columns), where
+//     _num_key_columns counts the key columns of the WHOLE tablet schema. Key columns always
+//     occupy column ids [0, num_key_columns) of the tablet schema, so the projection must
+//     start with exactly those ids, in order, for the positional comparison to be key order;
+//   - the sequence tie-break column, when present, must point inside the block as well.
+Status VMergeIteratorContext::_validate_compare_contract(const StorageReadOptions& opts) const {
+    const size_t block_columns = _block->columns();
+    auto contract_error = [&](const std::string& detail) {
+        std::string projected_ids;
+        for (auto cid : _output_schema->column_ids()) {
+            if (!projected_ids.empty()) {
+                projected_ids += ',';
+            }
+            projected_ids += std::to_string(cid);
+        }
+        return Status::InternalError(
+                "merge iterator compare contract violated: {}, tablet_id={}, rowset_id={}, "
+                "version={}, block_columns={}, num_key_columns={}, sequence_id_idx={}, "
+                "projected_column_ids=[{}]",
+                detail, opts.tablet_id, opts.rowset_id.to_string(), opts.version.to_string(),
+                block_columns, _num_key_columns, _sequence_id_idx, projected_ids);
+    };
+    if (_compare_columns != nullptr) {
+        for (uint32_t pos : *_compare_columns) {
+            if (pos >= block_columns) {
+                return contract_error(fmt::format("compare column position {} out of range", pos));
+            }
+        }
+    } else {
+        const auto num_key_columns = static_cast<size_t>(_num_key_columns);
+        if (num_key_columns > _output_schema->num_column_ids() || num_key_columns > block_columns) {
+            return contract_error("projection has fewer columns than the key prefix");
+        }
+        for (size_t i = 0; i < num_key_columns; ++i) {
+            if (_output_schema->column_ids()[i] != static_cast<ColumnId>(i)) {
+                return contract_error(
+                        fmt::format("position {} holds column id {} instead of key column {}", i,
+                                    _output_schema->column_ids()[i], i));
+            }
+        }
+    }
+    if (_sequence_id_idx != -1 && static_cast<size_t>(_sequence_id_idx) >= block_columns) {
+        return contract_error("sequence column position out of range");
+    }
     return Status::OK();
 }
 

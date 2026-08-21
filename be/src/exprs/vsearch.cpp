@@ -32,8 +32,6 @@
 #include "glog/logging.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/olap_common.h"
-#include "storage/segment/segment.h"
 
 namespace doris {
 using namespace segment_v2;
@@ -44,7 +42,7 @@ struct SearchInputBundle {
     std::unordered_map<std::string, IndexIterator*> iterators;
     std::unordered_map<std::string, IndexFieldNameAndTypePair> field_types;
     std::unordered_map<std::string, int> field_name_to_column_id;
-    std::vector<int> column_ids;
+    std::vector<int> column_indexes;
     ColumnsWithTypeAndName literal_args;
 };
 
@@ -60,6 +58,58 @@ void add_search_binding_diagnostic(const IndexExecContext* index_context,
     }
 }
 
+Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_ref,
+                                 const TSearchFieldBinding* binding,
+                                 IndexExecContext* index_context, SearchInputBundle* bundle) {
+    DCHECK(index_context != nullptr);
+    DCHECK(bundle != nullptr);
+
+    // VSlotRef::column_id() is the scan-schema position used by IndexExecContext.
+    const int column_index = slot_ref.column_id();
+    const std::string field_name =
+            binding != nullptr ? binding->field_name : slot_ref.column_name();
+    const bool is_variant_subcolumn = binding != nullptr && binding->__isset.is_variant_subcolumn &&
+                                      binding->is_variant_subcolumn;
+
+    bundle->field_name_to_column_id[field_name] = column_index;
+
+    auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_index);
+    if (iterator == nullptr) {
+        // For example, `data.items.message` has its own SlotRef in the scan schema. The
+        // storage layer may inherit index metadata from `data`, but it still constructs a
+        // child iterator whose stored field name contains the complete Variant path.
+        if (is_variant_subcolumn) {
+            add_search_binding_diagnostic(
+                    index_context,
+                    fmt::format("[VariantSearchBinding] phase=collect_inputs "
+                                "result=no_iterator logical_field={} column_index={} "
+                                "reason=slot_iterator_missing",
+                                field_name, column_index));
+        }
+        return Status::OK();
+    }
+
+    const auto* storage_name_type =
+            index_context->get_storage_name_and_type_by_column_id(column_index);
+    if (storage_name_type == nullptr) {
+        return Status::InternalError("storage_name_type not found for column {} in {}",
+                                     column_index, expr.expr_name());
+    }
+
+    bundle->iterators.emplace(field_name, iterator);
+    bundle->field_types.emplace(field_name, *storage_name_type);
+    bundle->column_indexes.emplace_back(column_index);
+    if (is_variant_subcolumn) {
+        add_search_binding_diagnostic(
+                index_context,
+                fmt::format("[VariantSearchBinding] phase=collect_inputs "
+                            "result=direct_iterator logical_field={} column_index={} "
+                            "stored_field={}",
+                            field_name, column_index, storage_name_type->first));
+    }
+    return Status::OK();
+}
+
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                              SearchInputBundle* bundle) {
     DCHECK(bundle != nullptr);
@@ -70,152 +120,18 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
         return Status::InternalError("No inverted index context available");
     }
 
-    // Get field bindings for variant subcolumn support
     const auto& search_param = expr.get_search_param();
     const auto& field_bindings = search_param.field_bindings;
 
-    std::unordered_map<std::string, ColumnId> parent_to_base_column_id;
-    std::unordered_map<std::string, std::string> parent_to_storage_field_prefix;
-
-    // Resolve and cache the base (parent) column id for a variant field binding.
-    // This avoids repeated schema lookups when multiple subcolumns share the same parent column.
-    auto resolve_parent_column_id = [&](const std::string& parent_field, ColumnId* column_id) {
-        // Guard against invalid inputs: variant bindings may miss parent_field, and callers must
-        // provide a valid output pointer to receive the resolved id.
-        if (parent_field.empty() || column_id == nullptr) {
-            return false;
-        }
-        auto it = parent_to_base_column_id.find(parent_field);
-        if (it != parent_to_base_column_id.end()) {
-            *column_id = it->second;
-            return true;
-        }
-        if (index_context == nullptr || index_context->segment() == nullptr) {
-            return false;
-        }
-        const int32_t ordinal =
-                index_context->segment()->tablet_schema()->field_index(parent_field);
-        if (ordinal < 0) {
-            return false;
-        }
-        ColumnId resolved_id = static_cast<ColumnId>(ordinal);
-        parent_to_base_column_id.emplace(parent_field, resolved_id);
-        if (auto* storage_name_type = index_context->get_storage_name_and_type_by_id(resolved_id);
-            storage_name_type != nullptr) {
-            parent_to_storage_field_prefix[parent_field] = storage_name_type->first;
-        }
-        *column_id = resolved_id;
-        return true;
-    };
-
-    int child_index = 0; // Index for iterating through children
+    size_t child_index = 0;
     for (const auto& child : expr.children()) {
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
-            int column_id = column_slot_ref->column_id();
-
-            // Determine the field_name from field_bindings (for variant subcolumns)
-            // field_bindings and children should have the same order
-            std::string field_name;
-            const TSearchFieldBinding* binding = nullptr;
-            if (child_index < field_bindings.size()) {
-                // Use field_name from binding (may include "parent.subcolumn" for variant)
-                binding = &field_bindings[child_index];
-                field_name = binding->field_name;
-            } else {
-                // Fallback to column_name if binding not found
-                field_name = column_slot_ref->column_name();
-            }
-
-            bundle->field_name_to_column_id[field_name] = column_id;
-
-            auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_id);
-            const auto* storage_name_type =
-                    index_context->get_storage_name_and_type_by_column_id(column_id);
-            bool field_added = false;
-            // For variant subcolumns, slot_ref might not map to a real indexed column in the scan schema.
-            // Fall back to the parent variant column's iterator and synthesize lucene field name.
-            if (iterator == nullptr && binding != nullptr &&
-                binding->__isset.is_variant_subcolumn && binding->is_variant_subcolumn &&
-                binding->__isset.parent_field_name && !binding->parent_field_name.empty()) {
-                ColumnId base_column_id = 0;
-                if (resolve_parent_column_id(binding->parent_field_name, &base_column_id)) {
-                    iterator = index_context->get_inverted_index_iterator_by_id(base_column_id);
-                    const auto* base_storage_name_type =
-                            index_context->get_storage_name_and_type_by_id(base_column_id);
-                    if (iterator != nullptr && base_storage_name_type != nullptr) {
-                        std::string prefix = base_storage_name_type->first;
-                        if (auto pit =
-                                    parent_to_storage_field_prefix.find(binding->parent_field_name);
-                            pit != parent_to_storage_field_prefix.end() && !pit->second.empty()) {
-                            prefix = pit->second;
-                        } else {
-                            parent_to_storage_field_prefix[binding->parent_field_name] = prefix;
-                        }
-
-                        std::string sub_path;
-                        if (binding->__isset.subcolumn_path) {
-                            sub_path = binding->subcolumn_path;
-                        }
-                        if (sub_path.empty()) {
-                            // Fallback: strip "parent." prefix from logical field name
-                            std::string pfx = binding->parent_field_name + ".";
-                            if (field_name.starts_with(pfx)) {
-                                sub_path = field_name.substr(pfx.size());
-                            }
-                        }
-                        if (!sub_path.empty()) {
-                            bundle->iterators[field_name] = iterator;
-                            bundle->field_types[field_name] =
-                                    std::make_pair(prefix + "." + sub_path, nullptr);
-                            int base_column_index =
-                                    index_context->column_index_by_id(base_column_id);
-                            if (base_column_index >= 0) {
-                                bundle->column_ids.emplace_back(base_column_index);
-                            }
-                            add_search_binding_diagnostic(
-                                    index_context.get(),
-                                    fmt::format("[VariantSearchBinding] phase=collect_inputs "
-                                                "result=parent_fallback logical_field={} "
-                                                "parent_field={} sub_path={} base_column_id={} "
-                                                "stored_field={} reason=slot_iterator_missing",
-                                                field_name, binding->parent_field_name, sub_path,
-                                                base_column_id, prefix + "." + sub_path));
-                            field_added = true;
-                        }
-                    }
-                } else {
-                    add_search_binding_diagnostic(
-                            index_context.get(),
-                            fmt::format("[VariantSearchBinding] phase=collect_inputs "
-                                        "result=reject logical_field={} parent_field={} "
-                                        "reason=parent_column_not_found",
-                                        field_name, binding->parent_field_name));
-                }
-            }
-
-            // Only collect fields that have iterators (materialized columns with indexes)
-            if (!field_added && iterator != nullptr) {
-                if (storage_name_type == nullptr) {
-                    return Status::InternalError("storage_name_type not found for column {} in {}",
-                                                 column_id, expr.expr_name());
-                }
-
-                bundle->iterators.emplace(field_name, iterator);
-                bundle->field_types.emplace(field_name, *storage_name_type);
-                bundle->column_ids.emplace_back(column_id);
-                if (binding != nullptr && binding->__isset.is_variant_subcolumn &&
-                    binding->is_variant_subcolumn) {
-                    add_search_binding_diagnostic(
-                            index_context.get(),
-                            fmt::format("[VariantSearchBinding] phase=collect_inputs "
-                                        "result=direct_iterator logical_field={} column_id={} "
-                                        "stored_field={}",
-                                        field_name, column_id, storage_name_type->first));
-                }
-            }
-
-            child_index++;
+            const TSearchFieldBinding* binding =
+                    child_index < field_bindings.size() ? &field_bindings[child_index] : nullptr;
+            RETURN_IF_ERROR(collect_slot_search_input(expr, *column_slot_ref, binding,
+                                                      index_context.get(), bundle));
+            ++child_index;
         } else if (child->is_literal()) {
             auto* literal = assert_cast<VLiteral*>(child.get());
             bundle->literal_args.emplace_back(literal->get_column_ptr(), literal->get_data_type(),
@@ -238,7 +154,7 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                                     field_bindings[child_index].__isset.subcolumn_path
                                             ? field_bindings[child_index].subcolumn_path
                                             : ""));
-                child_index++;
+                ++child_index;
                 continue;
             }
 
@@ -248,6 +164,24 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
     }
 
     return Status::OK();
+}
+
+bool search_status_allows_row_fallback(const Status& status) {
+    DORIS_CHECK(!status.ok());
+    return status.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+           status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+           status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+}
+
+Status prevent_search_row_fallback(Status status) {
+    DORIS_CHECK(!status.ok());
+    if (!search_status_allows_row_fallback(status)) {
+        return status;
+    }
+    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+            "SEARCH cannot fall back to row execution: {}", status.to_string());
 }
 
 } // namespace
@@ -286,7 +220,7 @@ Status VSearchExpr::execute_column_impl(VExprContext* context, const Block* bloc
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     if (_search_param.original_dsl.empty()) {
-        return Status::InvalidArgument("search DSL is empty");
+        return prevent_search_row_fallback(Status::InvalidArgument("search DSL is empty"));
     }
 
     auto index_context = context->get_index_context();
@@ -296,7 +230,9 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     }
 
     SearchInputBundle bundle;
-    RETURN_IF_ERROR(collect_search_inputs(*this, context, &bundle));
+    if (auto status = collect_search_inputs(*this, context, &bundle); !status.ok()) {
+        return prevent_search_row_fallback(std::move(status));
+    }
 
     VLOG_DEBUG << "VSearchExpr: bundle.iterators.size()=" << bundle.iterators.size();
 
@@ -326,12 +262,12 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();
-        return status;
+        return prevent_search_row_fallback(std::move(status));
     }
 
     index_context->set_index_result_for_expr(this, result_bitmap);
-    for (int column_id : bundle.column_ids) {
-        index_context->set_true_for_index_status(this, column_id);
+    for (int column_index : bundle.column_indexes) {
+        index_context->set_true_for_index_status(this, column_index);
     }
 
     return Status::OK();

@@ -46,14 +46,12 @@
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 namespace {
-
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
 
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
@@ -117,6 +115,16 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
                                                 TPushAggOp::type::MINMAX, std::nullopt));
 }
 
+TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
+    EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                           std::vector<int32_t> {}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                            std::vector<int32_t> {7}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT, std::nullopt));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::MINMAX,
+                                                            std::vector<int32_t> {}));
+}
+
 TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
@@ -142,6 +150,18 @@ public:
 
 private:
     std::shared_ptr<RetryableCloseState> _state;
+};
+
+class CapturingSplitTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions& options) override {
+        conjunct_count = options.conjuncts.has_value() ? options.conjuncts->size() : 0;
+        partition_prune_conjunct_count = options.partition_prune_conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t conjunct_count = 0;
+    size_t partition_prune_conjunct_count = 0;
 };
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -357,6 +377,24 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
+TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
+                    .ok());
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
+                    .ok());
+
+    const auto status =
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(
+                      "External Variant is supported only for Parquet files in FileScannerV2; "
+                      "file format ARROW is not supported"),
+              std::string::npos)
+            << status;
+}
+
 // Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
 // formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
 TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
@@ -444,6 +482,30 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
+TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
+    auto scan_range = [](std::optional<int64_t> row_count) {
+        TScanRangeParams params;
+        auto& file_range = params.scan_range.ext_scan_range.file_scan_range;
+        TFileRangeDesc range;
+        if (row_count.has_value()) {
+            TTableFormatFileDesc table_format;
+            table_format.__set_table_level_row_count(*row_count);
+            range.__set_table_format_params(table_format);
+        }
+        file_range.ranges.push_back(std::move(range));
+        return params;
+    };
+
+    LocalSplitSourceConnector proven({scan_range(4), scan_range(0)}, 2);
+    EXPECT_TRUE(proven.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector missing({scan_range(4), scan_range(std::nullopt)}, 2);
+    EXPECT_FALSE(missing.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
+    EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
+}
+
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
@@ -476,6 +538,54 @@ TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
     EXPECT_EQ(close_state->close_calls, 2);
     EXPECT_TRUE(scanner.close(&state).ok());
     EXPECT_EQ(close_state->close_calls, 2);
+}
+
+TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) {
+    TQueryOptions query_options;
+    query_options.__set_enable_runtime_filter_partition_prune(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    FileScanOperatorX parent(&pool, plan_node, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    RuntimeProfile profile("file_scanner_v2_partition_prune");
+    auto table_reader = std::make_unique<CapturingSplitTableReader>();
+    auto* captured = table_reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(table_reader));
+    scanner._local_state = &local_state;
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scanner._params = &params;
+    scanner._slot_id_to_global_index.emplace(7, format::GlobalIndex(0));
+    scanner._conjuncts = {VExprContext::create_shared(
+            slot_ref(7, 7, std::make_shared<DataTypeInt32>(), "partition_col"))};
+
+    const auto range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(scanner._prepare_table_reader_split(range, {}).ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 0);
+
+    ASSERT_TRUE(scanner._prepare_table_reader_split(
+                               range, {{"partition_col", Field::create_field<TYPE_INT>(1)}})
+                        .ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back

@@ -66,7 +66,6 @@ public:
 
     virtual RuntimeProfile* scanner_profile() = 0;
 
-    [[nodiscard]] virtual const TupleDescriptor* input_tuple_desc() const = 0;
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
@@ -76,6 +75,18 @@ public:
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
     virtual const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const = 0;
+
+    static bool is_count_star_pushdown(TPushAggOp::type agg_type,
+                                       const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        // An absent argument field is an old plan with unknown semantics. Only an explicitly empty
+        // argument list proves COUNT(*)/COUNT(1) and permits placeholder slots to be ignored.
+        return agg_type == TPushAggOp::type::COUNT && count_slot_ids.has_value() &&
+               count_slot_ids->empty();
+    }
+
+    bool is_count_star_pushdown() {
+        return is_count_star_pushdown(get_push_down_agg_type(), get_push_down_count_slot_ids());
+    }
 
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
@@ -244,7 +255,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     RuntimeProfile* scanner_profile() override { return _scanner_profile.get(); }
 
-    [[nodiscard]] const TupleDescriptor* input_tuple_desc() const override;
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
@@ -294,6 +304,10 @@ protected:
         return _normalize_conjuncts(state);
     }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
+
+    virtual bool can_push_down_column_predicate(const SlotDescriptor* slot) {
+        return _parent->cast<typename Derived::Parent>().can_push_down_column_predicate(slot);
+    }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
@@ -428,7 +442,6 @@ protected:
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;

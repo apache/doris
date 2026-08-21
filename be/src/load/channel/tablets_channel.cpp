@@ -126,12 +126,6 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
             memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
 }
 
-void TabletsChannel::_init_profile(RuntimeProfile* profile) {
-    DCHECK(profile != nullptr);
-    BaseTabletsChannel::_init_profile(profile);
-    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
-}
-
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
     // if _state is kOpened, it's a normal case, already open by other sender
@@ -248,6 +242,9 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
         wrequest.enable_table_memtable_backpressure = params.is_adaptive_random_bucket();
+        if (tablet.has_binlog_tablet_id()) {
+            wrequest.binlog_tablet_id = tablet.binlog_tablet_id();
+        }
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -302,6 +299,12 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     DCHECK(request.write_req_type == WriteRequestType::DATA);
     DCHECK(request.table_schema_param != nullptr);
 
+    // whether to write binlog is decided by binlog_tablet_id: it is set only when this backend
+    // also owns the binlog tablet that is paired with the base tablet.
+    if (request.binlog_tablet_id <= 0) {
+        return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
+    }
+
     int64_t row_binlog_index_id = 0;
     for (const auto* index_schema : request.table_schema_param->indexes()) {
         if (index_schema->index_id == request.index_id) {
@@ -309,13 +312,11 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
             break;
         }
     }
-    if (row_binlog_index_id <= 0) {
-        return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
-    }
+    DCHECK(row_binlog_index_id > 0);
 
-    const auto* row_binlog_index_schema = request.table_schema_param->row_binlog_index_schema();
+    const auto* row_binlog_index_schema =
+            request.table_schema_param->row_binlog_index_schema(row_binlog_index_id);
     DCHECK(row_binlog_index_schema != nullptr);
-    DCHECK(row_binlog_index_schema->index_id == row_binlog_index_id);
 
     // group_build_req is only for the group wrapper itself. It provides the group semantics and
     // metadata used by BaseDeltaWriter/GroupRowsetBuilder to expose tablet_id, txn_id,
@@ -329,6 +330,7 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
 
     WriteRequest sub_row_binlog_req = request;
     sub_row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
+    sub_row_binlog_req.tablet_id = request.binlog_tablet_id;
     sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
     sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
 
@@ -410,8 +412,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         }
     }
 
-    _write_single_replica = req.write_single_replica();
-
     // 2. wait all writer finished flush.
     for (auto* writer : need_wait_writers) {
         RETURN_IF_ERROR((writer->wait_flush()));
@@ -451,49 +451,14 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     for (auto* writer : need_wait_writers) {
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
-        _commit_txn(writer, req, res);
-    }
-
-    if (_write_single_replica) {
-        auto* success_slave_tablet_node_ids = res->mutable_success_slave_tablet_node_ids();
-        // The operation waiting for all slave replicas to complete must end before the timeout,
-        // so that there is enough time to collect completed replica. Otherwise, the task may
-        // timeout and fail even though most of the replicas are completed. Here we set 0.9
-        // times the timeout as the maximum waiting time.
-        SCOPED_TIMER(_slave_replica_timer);
-        while (!need_wait_writers.empty() &&
-               (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
-            std::set<DeltaWriter*>::iterator it;
-            for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-                bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
-                if (is_done) {
-                    need_wait_writers.erase(it++);
-                } else {
-                    it++;
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        for (auto* writer : need_wait_writers) {
-            writer->add_finished_slave_replicas(success_slave_tablet_node_ids);
-        }
-        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+        _commit_txn(writer, res);
     }
 
     return Status::OK();
 }
 
-void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
-                                 PTabletWriterAddBlockResult* res) {
-    PSlaveTabletNodes slave_nodes;
-    if (_write_single_replica) {
-        auto& nodes_map = req.slave_tablet_nodes();
-        auto it = nodes_map.find(writer->tablet_id());
-        if (it != nodes_map.end()) {
-            slave_nodes = it->second;
-        }
-    }
-    Status st = writer->commit_txn(slave_nodes);
+void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res) {
+    Status st = writer->commit_txn();
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
@@ -502,6 +467,14 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBloc
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        // report the row binlog tablet as a normal tablet so FE advances its version.
+        if (writer->binlog_tablet_id() > 0) {
+            PTabletInfo* binlog_tablet_info = tablet_vec->Add();
+            binlog_tablet_info->set_tablet_id(writer->binlog_tablet_id());
+            binlog_tablet_info->set_schema_hash(0);
+            binlog_tablet_info->set_received_rows(writer->total_received_rows());
+            binlog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        }
         _total_received_rows += writer->total_received_rows();
         _num_rows_filtered += writer->num_rows_filtered();
     } else {
@@ -600,6 +573,9 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .storage_vault_id = request.storage_vault_id(),
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
         };
+        if (tablet.has_binlog_tablet_id()) {
+            wrequest.binlog_tablet_id = tablet.binlog_tablet_id();
+        }
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -622,14 +598,6 @@ Status BaseTabletsChannel::cancel() {
     }
     _state = kFinished;
 
-    return Status::OK();
-}
-
-Status TabletsChannel::cancel() {
-    RETURN_IF_ERROR(BaseTabletsChannel::cancel());
-    if (_write_single_replica) {
-        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
-    }
     return Status::OK();
 }
 

@@ -59,6 +59,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -78,6 +79,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
@@ -215,6 +217,51 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where k1 = 1");
         Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testRfPartitionPruneSnapshotSurvivesEnablementChange() throws Exception {
+        int oldRuntimeFilterType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldEnablePartitionPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        boolean oldEnableRuntimeFilterPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPrune();
+        boolean oldDisableJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        try {
+            connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+
+            Planner planner = getSQLPlanner("select p.* from test_db.partitioned_t p "
+                    + "join [broadcast] test_db.t d on p.p1 = d.a");
+            List<OlapScanNode> scanNodes = new ArrayList<>();
+            for (PlanFragment fragment : planner.getFragments()) {
+                PlanNode root = fragment.getPlanRoot();
+                if (root != null) {
+                    root.collect(OlapScanNode.class, scanNodes);
+                }
+            }
+            OlapScanNode partitionedScan = scanNodes.stream()
+                    .filter(scan -> scan.getOlapTable().getName().equals("partitioned_t"))
+                    .findFirst()
+                    .orElseThrow();
+            Assertions.assertEquals(2, partitionedScan.getSelectedPartitionIds().size());
+
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            TPlanNode thriftScanNode = partitionedScan.treeToThrift().getNodes().get(0);
+
+            Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetPartitionBoundaries());
+            Assertions.assertEquals(Sets.newHashSet(partitionedScan.getSelectedPartitionIds()),
+                    thriftScanNode.olap_scan_node.getPartitionBoundaries().stream()
+                            .map(boundary -> boundary.getPartitionId())
+                            .collect(Collectors.toSet()));
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldRuntimeFilterType);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(oldEnablePartitionPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(oldEnableRuntimeFilterPrune);
+            connectContext.getSessionVariable().setDisableJoinReorder(oldDisableJoinReorder);
+        }
     }
 
     @Test

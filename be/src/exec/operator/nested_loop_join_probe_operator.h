@@ -268,11 +268,6 @@ public:
 
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
-    const RowDescriptor& intermediate_row_desc() const override {
-        DORIS_CHECK(_intermediate_row_desc != nullptr);
-        return *_intermediate_row_desc;
-    }
-
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
@@ -280,14 +275,6 @@ public:
             return {TLocalPartitionType::NOOP};
         }
         return {TLocalPartitionType::ADAPTIVE_PASSTHROUGH};
-    }
-
-    const RowDescriptor& row_desc() const override {
-        if (_output_row_descriptor) {
-            return *_output_row_descriptor;
-        }
-        DORIS_CHECK(_output_row_desc != nullptr);
-        return *_output_row_desc;
     }
 
     bool need_more_input_data(RuntimeState* state) const override;
@@ -307,5 +294,11 @@ private:
     std::set<int> _lazy_eval_column_ids;
     std::set<int> _materialize_column_ids;
 };
+
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+extern template class JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<NestedLoopJoinProbeLocalState>;
 
 } // namespace doris

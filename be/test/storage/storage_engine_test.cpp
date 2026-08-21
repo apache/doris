@@ -69,7 +69,6 @@ public:
 };
 
 TEST_F(StorageEngineTest, TestBrokenDisk) {
-    DEFINE_mString(broken_storage_path, "");
     std::string path = config::custom_config_dir + "/be_custom.conf";
 
     std::error_code ec;

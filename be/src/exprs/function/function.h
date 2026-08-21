@@ -42,15 +42,22 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
-#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
-#include "storage/index/inverted/inverted_index_iterator.h" // IWYU pragma: keep
-#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 
 namespace doris {
 struct InvertedIndexAnalyzerCtx;
+namespace expr_zonemap {
+struct DictionaryEvalContext;
+struct BloomFilterEvalContext;
+} // namespace expr_zonemap
+using DictionaryEvalContext = expr_zonemap::DictionaryEvalContext;
+using BloomFilterEvalContext = expr_zonemap::BloomFilterEvalContext;
+namespace segment_v2 {
+class IndexIterator;
+class InvertedIndexResultBitmap;
+} // namespace segment_v2
 } // namespace doris
 
 namespace doris {
@@ -680,6 +687,9 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           size_t input_rows_count);
+ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           const NullableColumnInfos& nullable_column_infos,
                            size_t input_rows_count);
 
 } // namespace doris

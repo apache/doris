@@ -33,19 +33,24 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vsearch.h"
+#include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/segment/variant/nested_group_provider.h"
+#include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
 #include "exprs/vslot_ref.h"
-#undef private
+#include "storage/segment/segment.h"
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+#include "exprs/vcompound_pred.h"
 
 namespace doris {
 
@@ -103,6 +108,22 @@ std::shared_ptr<IndexExecContext> make_inverted_context(
     segment_v2::ColumnIteratorOptions column_iter_opts;
     return std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
                                               nullptr, nullptr, column_iter_opts);
+}
+
+std::shared_ptr<segment_v2::Segment> make_segment_with_variant_parent() {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* parent = schema_pb.add_column();
+    parent->set_unique_id(0);
+    parent->set_name("data");
+    parent->set_type("VARIANT");
+    parent->set_is_key(false);
+    parent->set_is_nullable(true);
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+    return std::make_shared<segment_v2::Segment>(0, RowsetId(), tablet_schema,
+                                                 InvertedIndexFileInfo());
 }
 
 } // namespace
@@ -525,7 +546,7 @@ TEST_F(VSearchExprTest, TestEvaluateInvertedIndexEmptyDSL) {
     VExprContext context(dummy_expr);
     auto status = vsearch_expr->evaluate_inverted_index(&context, 100);
     EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.code() == ErrorCode::INVALID_ARGUMENT);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_TRUE(status.to_string().find("search DSL is empty") != std::string::npos);
 }
 
@@ -1277,6 +1298,7 @@ TEST_F(VSearchExprTest, TestEvaluateInvertedIndexWithEmptyDSL) {
     auto status = vsearch_expr->evaluate_inverted_index(&context, 100);
     EXPECT_FALSE(status.ok()); // Should return error due to empty DSL
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.to_string().find("search DSL is empty"), std::string::npos);
 }
 
 TEST_F(VSearchExprTest, FastExecuteReturnsPrecomputedColumn) {
@@ -1319,6 +1341,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexFailsWithoutStorageType) {
     auto status = expr->evaluate_inverted_index(context.get(), 128);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(ErrorCode::INTERNAL_ERROR, status.code());
+    EXPECT_NE(status.to_string().find("storage_name_type not found"), std::string::npos);
 }
 
 TEST_F(VSearchExprTest, EvaluateInvertedIndexWithUnsupportedChildReturnsError) {
@@ -1337,6 +1360,20 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexWithUnsupportedChildReturnsError) {
     auto status = expr->evaluate_inverted_index(context.get(), 64);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(status.to_string().find("Unsupported child node type"), std::string::npos);
+
+    TExprNode compound_node;
+    compound_node.__set_type(test_node.type);
+    compound_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    compound_node.__set_opcode(TExprOpcode::COMPOUND_AND);
+    compound_node.__set_num_children(1);
+    compound_node.__set_is_nullable(false);
+    auto compound = VCompoundPred::create_shared(compound_node);
+    compound->add_child(expr);
+    status = compound->evaluate_inverted_index(context.get(), 64);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(status.to_string().find("Unsupported child node type"), std::string::npos);
 }
 
 TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
@@ -1357,6 +1394,49 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
     auto status = expr->evaluate_inverted_index(context.get(), 32);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(status_map[0][expr.get()]);
+}
+
+TEST_F(VSearchExprTest, MissingVariantChildIteratorDoesNotUseParentIterator) {
+    TExprNode variant_node = test_node;
+    variant_node.search_param.original_dsl = "data.items.message:hello";
+    variant_node.search_param.root.field_name = "data.items.message";
+    auto& binding = variant_node.search_param.field_bindings.front();
+    binding.field_name = "data.items.message";
+    binding.__set_is_variant_subcolumn(true);
+    binding.__set_parent_field_name("data");
+    binding.__set_subcolumn_path("items.message");
+
+    auto expr = VSearchExpr::create_shared(variant_node);
+    expr->add_child(create_slot_ref(1, "data.items.message"));
+
+    // Scan column 0 is the Variant parent and has an iterator. Scan column 1 is the requested
+    // child and intentionally has none. SEARCH must not reinterpret the parent iterator as the
+    // child's index.
+    std::vector<ColumnId> col_ids = {0, 1};
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.emplace_back(std::make_unique<StubIndexIterator>());
+    index_iterators.emplace_back(nullptr);
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    storage_types.emplace_back("0.data", std::make_shared<DataTypeString>());
+    storage_types.emplace_back("0.data.items.message", std::make_shared<DataTypeString>());
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    status_map[0][expr.get()] = false;
+    status_map[1][expr.get()] = false;
+
+    // Keep the parent in the segment schema so a parent-rebinding implementation would find it.
+    segment_v2::ColumnIteratorOptions column_iter_opts;
+    auto segment = make_segment_with_variant_parent();
+    auto inverted_ctx =
+            std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
+                                               nullptr, segment.get(), column_iter_opts);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 32);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(inverted_ctx->has_index_result_for_expr(expr.get()));
+    EXPECT_FALSE(status_map[0][expr.get()]);
+    EXPECT_FALSE(status_map[1][expr.get()]);
 }
 
 TEST_F(VSearchExprTest, EvaluateInvertedIndexNestedFallbackReturnsNotSupportedInCE) {
@@ -1393,7 +1473,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexNestedFallbackReturnsNotSupportedIn
     ASSERT_TRUE(provider != nullptr);
     if (!provider->should_enable_nested_group_read_path()) {
         EXPECT_FALSE(status.ok());
-        EXPECT_EQ(ErrorCode::NOT_IMPLEMENTED_ERROR, status.code());
+        EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code());
         EXPECT_TRUE(status.to_string().find("NestedGroup support") != std::string::npos);
     } else {
         EXPECT_FALSE(status.ok());
@@ -1419,8 +1499,88 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
 
     auto status = expr->evaluate_inverted_index(context.get(), 256);
     EXPECT_FALSE(status.ok());
-    EXPECT_EQ(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, status.code());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code());
     EXPECT_FALSE(status_map[0][expr.get()]);
+}
+
+TEST_F(VSearchExprTest, EvaluateInvertedIndexRejectsSearchFallback) {
+    test_node.search_param.root.clause_type = "WILDCARD";
+    test_node.search_param.root.value = "hello*";
+    test_node.search_param.field_bindings[0].index_properties[INVERTED_INDEX_PARSER_KEY] =
+            INVERTED_INDEX_PARSER_ENGLISH;
+    test_node.search_param.field_bindings[0].__isset.index_properties = true;
+
+    auto expr = VSearchExpr::create_shared(test_node);
+    expr->add_child(create_slot_ref(0, "title"));
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("search_fallback_index");
+    index_pb.add_col_unique_id(1);
+    (*index_pb.mutable_properties())[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_STANDARD;
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+    auto index_file_reader = std::make_shared<segment_v2::IndexFileReader>(
+            nullptr, "/tmp/search_fallback_idx", InvertedIndexStorageFormatPB::V2);
+    auto reader = std::make_shared<segment_v2::FullTextIndexReader>(&index_meta, index_file_reader);
+    auto iterator = std::make_unique<segment_v2::InvertedIndexIterator>();
+    iterator->add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::vector<ColumnId> col_ids = {0};
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.emplace_back(std::move(iterator));
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    storage_types.emplace_back("title", std::make_shared<DataTypeString>());
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    status_map[0][expr.get()] = false;
+
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 256);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code());
+    EXPECT_NE(status.to_string().find("cannot fall back"), std::string::npos);
+    EXPECT_NE(status.to_string().find("No inverted index found for analyzer"), std::string::npos);
+    EXPECT_FALSE(status_map[0][expr.get()]);
+
+    for (TExprOpcode::type opcode : {TExprOpcode::COMPOUND_AND, TExprOpcode::COMPOUND_OR}) {
+        TExprNode compound_node;
+        compound_node.__set_type(test_node.type);
+        compound_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+        compound_node.__set_opcode(opcode);
+        compound_node.__set_num_children(1);
+        compound_node.__set_is_nullable(false);
+        auto compound = VCompoundPred::create_shared(compound_node);
+        compound->add_child(expr);
+
+        status = compound->evaluate_inverted_index(context.get(), 256);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code());
+        EXPECT_NE(status.to_string().find("No inverted index found for analyzer"),
+                  std::string::npos);
+    }
+
+    // A SNII sub-case used to live here: a TERM clause against a binding whose IndexFileReader
+    // reported SNII storage format, asserting the old hard refusal ("supports only WILDCARD").
+    // That refusal was removed -- SNII SEARCH now forwards every clause type to the reader as a
+    // query type (see FunctionSearch::build_leaf_query's SNII branch) -- so the assertion no
+    // longer holds. It is not being replaced with a corrected assertion here, because the mock
+    // combination it used was never reachable in production to begin with: it paired a SNII-
+    // format IndexFileReader with a segment_v2::FullTextIndexReader (a CLucene reader). In real
+    // code the two are set atomically at the single production construction site
+    // (ColumnReader::_load_index, storage/segment/column_reader.cpp:727-743): that function
+    // returns as soon as it sees SNII storage format, having constructed only a SniiIndexReader
+    // or SniiBkdIndexReader; a FullTextIndexReader is built exclusively in the mutually
+    // exclusive non-SNII branch below it. So "use_snii_native_reader() true with a CLucene
+    // reader bound" cannot occur outside a hand-built test double. Forwarding coverage for SNII
+    // TERM clauses (EQUAL_QUERY, default_operator "and" -> MATCH_ALL_QUERY, and the explicit
+    // minimum_should_match refusal) lives in FunctionSearchTest
+    // (TestSniiNativeForwardsTermClauseAsEqualQuery and friends,
+    // be/test/exprs/function/function_search_test.cpp), which uses a reader double shaped like
+    // the real SNII reader instead of a mismatched CLucene one.
 }
 
 // Note: Full testing with actual IndexExecContext and real iterators

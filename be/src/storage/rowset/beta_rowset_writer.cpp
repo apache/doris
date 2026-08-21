@@ -714,8 +714,7 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
 
     if (_context.tablet_schema->get_inverted_index_storage_format() >=
         InvertedIndexStorageFormatPB::V2) {
-        if (_context.tablet_schema->has_inverted_index() ||
-            _context.tablet_schema->has_ann_index()) {
+        if (_context.tablet_schema->has_inverted_or_ann_index()) {
             auto src_idx_path =
                     InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
             auto dst_idx_path =
@@ -1009,8 +1008,7 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
 
     // If segment compaction occurs, the idx file info will become inaccurate.
-    if ((_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) &&
-        _num_segcompacted == 0) {
+    if ((_context.tablet_schema->has_inverted_or_ann_index()) && _num_segcompacted == 0) {
         if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "
@@ -1104,7 +1102,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
-                                !_context.enable_unique_key_merge_on_write;
+                                !_context.enable_unique_key_merge_on_write &&
+                                !_rowset_meta->is_row_binlog();
     rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds, aggregate_key_bounds);
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
@@ -1185,7 +1184,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     RETURN_IF_ERROR(_create_file_writer(path, file_writer, FileType::SEGMENT_FILE));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         io::FileWriterPtr idx_file_writer;
         std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
@@ -1208,7 +1207,6 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     writer_options.write_type = _context.write_type;
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
-    writer_options.mow_ctx = _context.mow_context;
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,

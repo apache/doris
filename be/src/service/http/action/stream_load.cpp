@@ -55,7 +55,9 @@
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
@@ -92,9 +94,11 @@ static const std::string ASYNC_MODE = "async_mode";
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-StreamLoadAction::StreamLoadAction(ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
-    // Use LOAD privilege type: requires LOAD permission
+StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+    // Stream load forwards the parsed HTTP credentials to FE load RPCs, where LOAD
+    // privilege is checked against the actual db/table/txn. A generic BE HTTP
+    // pre-check cannot model every stream-load variant and would duplicate that
+    // resource-scoped authorization.
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
@@ -238,13 +242,6 @@ void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpR
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
-    // Call parent's auth check first
-    int ret = HttpHandlerWithAuth::on_header(req);
-    if (ret != 0) {
-        return ret; // Auth failed, return error
-    }
-
-    // Continue with stream load specific header processing
     req->mark_send_reply();
 
     streaming_load_current_processing->increment(1);
@@ -311,8 +308,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 
     // check content length
     ctx->body_bytes = 0;
-    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    const auto csv_max_body_mb = config::streaming_load_max_mb;
+    size_t csv_max_body_bytes = csv_max_body_mb * MEBIBYTE;
+    const auto json_max_body_mb = config::streaming_load_json_max_mb;
+    size_t json_max_body_bytes = json_max_body_mb * MEBIBYTE;
     bool read_json_by_line = false;
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
         if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
@@ -330,17 +329,21 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "json body size {} exceed BE's conf `streaming_load_json_max_mb` {}. increase "
-                    "it if you are sure this load is reasonable",
-                    ctx->body_bytes, json_max_body_bytes);
+                    "json body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) "
+                    "set by BE's conf streaming_load_json_max_mb. Increase it if you are sure "
+                    "this load is reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    json_max_body_bytes, json_max_body_mb);
         }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
-                    "are sure this load is reasonable",
-                    ctx->body_bytes, csv_max_body_bytes);
+                    "body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) set "
+                    "by BE's conf streaming_load_max_mb. Increase it if you are sure this load is "
+                    "reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    csv_max_body_bytes, csv_max_body_mb);
         }
     } else {
 #ifndef BE_TEST

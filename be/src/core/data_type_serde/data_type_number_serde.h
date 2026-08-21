@@ -29,10 +29,10 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/extended_types.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -122,6 +122,28 @@ public:
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
                                     ParquetMaterializationState& state) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
+    size_t retained_parquet_raw_predicate_scratch_bytes() const override {
+        return _parquet_predicate_values.capacity() * sizeof(typename ColumnType::value_type) +
+               _parquet_predicate_nulls.capacity();
+    }
+    size_t active_parquet_raw_predicate_scratch_bytes() const override {
+        return _parquet_predicate_values.size() * sizeof(typename ColumnType::value_type) +
+               _parquet_predicate_nulls.size();
+    }
+    void release_parquet_raw_predicate_scratch(size_t max_retained_bytes) const override {
+        if (_parquet_predicate_values.capacity() * sizeof(typename ColumnType::value_type) >
+            max_retained_bytes) {
+            typename ColumnType::Container().swap(_parquet_predicate_values);
+        }
+        if (_parquet_predicate_nulls.capacity() > max_retained_bytes) {
+            IColumn::Filter().swap(_parquet_predicate_nulls);
+        }
+    }
     Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
                                    const ParquetDecodeContext& context) const override;
     Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
@@ -161,6 +183,12 @@ public:
 protected:
     Status from_olap_string(const std::string& str, Field& field,
                             const FormatOptions& options) const override;
+
+    // One SerDe instance belongs to one persistent Parquet leaf reader. Keep converted POD and
+    // null scratch here so decoder fragments reuse high-water capacity instead of allocating a
+    // temporary column-sized pair of buffers on every callback.
+    mutable typename ColumnType::Container _parquet_predicate_values;
+    mutable IColumn::Filter _parquet_predicate_nulls;
 };
 
 template <PrimitiveType T>
@@ -319,5 +347,23 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
     }
     return Status::OK();
 }
+
+/// Instantiated once in data_type_number_serde.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
+extern template class DataTypeNumberSerDe<TYPE_TINYINT>;
+extern template class DataTypeNumberSerDe<TYPE_SMALLINT>;
+extern template class DataTypeNumberSerDe<TYPE_INT>;
+extern template class DataTypeNumberSerDe<TYPE_BIGINT>;
+extern template class DataTypeNumberSerDe<TYPE_LARGEINT>;
+extern template class DataTypeNumberSerDe<TYPE_FLOAT>;
+extern template class DataTypeNumberSerDe<TYPE_DOUBLE>;
+extern template class DataTypeNumberSerDe<TYPE_DATE>;
+extern template class DataTypeNumberSerDe<TYPE_DATEV2>;
+extern template class DataTypeNumberSerDe<TYPE_DATETIME>;
+extern template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
+extern template class DataTypeNumberSerDe<TYPE_IPV4>;
+extern template class DataTypeNumberSerDe<TYPE_IPV6>;
+extern template class DataTypeNumberSerDe<TYPE_TIMEV2>;
+extern template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 
 } // namespace doris

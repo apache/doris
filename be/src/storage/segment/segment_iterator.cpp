@@ -76,6 +76,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/compaction/collection_similarity.h"
 #include "storage/id_manager.h"
@@ -103,6 +104,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/condition_cache.h"
+#include "storage/segment/count_on_index_fastpath.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -382,7 +384,6 @@ std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_pr
     // Collect per-column raw byte metadata from the segment footer for the columns
     // this iterator will actually output (defined by _schema, which is built from
     // _opts.return_columns).
-    std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
     uint32_t seg_rows = _segment->num_rows();
     uint64_t total_raw_bytes = 0;
     double metadata_hint_bytes_per_row = 0.0;
@@ -614,6 +615,16 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     _init_segment_prefetchers();
 
+    // G03: engage the count-emission shortcut. All inputs are final here (the
+    // index apply ran, _row_bitmap saw every subtraction/intersection above,
+    // _vec_init_lazy_materialization fixed the eval flags), so the post-apply
+    // cardinality IS the exact row count today's batch loop would emit; the
+    // shortcut only changes how fast those default rows are produced.
+    _count_emit_shortcut = _should_engage_count_emit_shortcut(block);
+    if (_count_emit_shortcut) {
+        _count_emit_rows_remaining = _row_bitmap.cardinality();
+    }
+
     return Status::OK();
 }
 
@@ -825,6 +836,18 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
+            // G02 count-only fast path handshake: only while the single
+            // pushed-down MATCH predicate of a provably filter-free
+            // COUNT_ON_INDEX scan is evaluated may a reader answer with a
+            // count-shaped bitmap (see count_on_index_fastpath.h). The reply
+            // direction (did the reader actually fabricate one?) is captured
+            // into _count_fastpath_hit and both flags are reset on every exit
+            // path so no later read_from_index call can observe or forge them.
+            if (_index_query_context != nullptr) {
+                _index_query_context->count_on_index_fastpath = _count_on_index_fastpath_safe();
+                _index_query_context->count_on_index_fastpath_hit = false;
+            }
+            DEFER({ _capture_count_fastpath_hit(); });
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
@@ -1337,6 +1360,146 @@ Status SegmentIterator::_apply_index_expr() {
     return Status::OK();
 }
 
+bool SegmentIterator::_count_on_index_fastpath_safe() const {
+    CountOnIndexFastpathFacts facts;
+    facts.is_count_on_index_agg = _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX;
+    facts.has_column_predicates = !_col_predicates.empty();
+    facts.common_expr_count = _common_expr_ctxs_push_down.size();
+    facts.single_expr_is_match_pred =
+            _common_expr_ctxs_push_down.size() == 1 &&
+            _common_expr_ctxs_push_down.front()->root() != nullptr &&
+            _common_expr_ctxs_push_down.front()->root()->node_type() == TExprNodeType::MATCH_PRED;
+    facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
+    facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
+                                  _opts.delete_condition_predicates->num_of_column_predicate() > 0;
+    // Mirror of the _lazy_init delete-bitmap subtraction: the fast path is only
+    // sound when there is nothing to subtract for THIS segment.
+    const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
+                                        delete_bitmap_it->second == nullptr ||
+                                        delete_bitmap_it->second->isEmpty();
+    facts.has_col_id_predicates = !_opts.col_id_to_predicates.empty();
+    facts.has_topn_filters = !_opts.topn_filter_source_node_ids.empty();
+    facts.has_external_row_ranges = !_opts.row_ranges.is_empty();
+    // Catches every earlier pruning source in one check (condition cache, key
+    // ranges): the fabricated [0, df) range only counts correctly against a
+    // full [0, num_rows) bitmap.
+    facts.row_bitmap_is_full = _row_bitmap.cardinality() == uint64_t(num_rows());
+    facts.record_rowids = _opts.record_rowids;
+    facts.has_ann_topn = _opts.ann_topn_runtime != nullptr;
+    facts.has_score_runtime = _score_runtime != nullptr;
+    // Mirror of the _need_read_data preamble: rows must be emitted as defaults,
+    // never materialized from the fabricated row ids.
+    facts.no_need_read_data_opt_enabled =
+            _opts.runtime_state == nullptr ||
+            _opts.runtime_state->query_options().enable_no_need_read_data_opt;
+    facts.keys_type_supported = _opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
+                                (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+                                 _opts.enable_unique_key_merge_on_write);
+    return count_on_index_fastpath_safe(facts);
+}
+
+void SegmentIterator::_capture_count_fastpath_hit() {
+    if (_index_query_context == nullptr) {
+        return;
+    }
+    _count_fastpath_hit = _index_query_context->count_on_index_fastpath_hit;
+    _index_query_context->count_on_index_fastpath = false;
+    _index_query_context->count_on_index_fastpath_hit = false;
+}
+
+bool SegmentIterator::_column_emits_defaults_for_count(ColumnId cid) {
+    // Mirror of the per-batch fill in _read_columns_by_index: a column's batch
+    // content is reproducible by the emission shortcut iff the column takes
+    // the _no_need_read_key_data defaults fill or the _prune_column defaults
+    // fill. Anything else -- a real column read, a storage->schema cast in
+    // _init_current_block/_convert_to_expected_type (whose CAST(default) need
+    // not equal the schema-type default), or a version/lsn/tso rewrite source
+    // (those columns are never no-read, so the type/read checks below already
+    // veto them) -- must keep today's path.
+    if (_is_pred_column[cid]) {
+        return false;
+    }
+    const auto* column_desc = _schema->column(cid);
+    if (column_desc == nullptr) {
+        return false;
+    }
+    const auto& file_column_type = _storage_name_and_type[cid].second;
+    DataTypePtr expected_type = Schema::get_data_type_ptr(*column_desc);
+    if (file_column_type == nullptr || expected_type == nullptr ||
+        !file_column_type->equals(*expected_type)) {
+        return false;
+    }
+    return _no_need_read_key_data_eligible(cid) || !_need_read_data(cid);
+}
+
+bool SegmentIterator::_should_engage_count_emit_shortcut(const Block* block) {
+    if (!_count_fastpath_hit) {
+        return false;
+    }
+    CountEmitShortcutFacts facts;
+    facts.count_fastpath_hit = _count_fastpath_hit;
+    facts.needs_vec_eval = _is_need_vec_eval;
+    facts.needs_short_eval = _is_need_short_eval;
+    facts.needs_expr_eval = _is_need_expr_eval;
+    facts.has_remaining_col_predicates = !_col_predicates.empty();
+    facts.has_remaining_common_exprs = !_common_expr_ctxs_push_down.empty();
+    facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
+                                  _opts.delete_condition_predicates->num_of_column_predicate() > 0;
+    facts.lazy_materialization_read = _lazy_materialization_read;
+    facts.has_virtual_columns = !_virtual_column_exprs.empty();
+    facts.record_rowids = _opts.record_rowids || _record_rowids;
+    facts.has_read_limit = _opts.read_limit > 0;
+    facts.read_orderby_key_reverse = _opts.read_orderby_key_reverse;
+    facts.has_condition_cache_digest = _opts.condition_cache_digest != 0;
+    facts.block_shape_matches_schema = block->columns() == _schema->num_column_ids();
+    facts.all_columns_emit_defaults = true;
+    for (size_t i = 0; i < _schema->num_column_ids() && facts.all_columns_emit_defaults; ++i) {
+        facts.all_columns_emit_defaults = _column_emits_defaults_for_count(_schema->column_id(i));
+    }
+    const bool engage = count_emit_shortcut_safe(facts);
+    if (engage) {
+        SNII_COUNT_EMIT_COUNT(count_emit_shortcut_hits);
+    }
+    return engage;
+}
+
+Status SegmentIterator::_emit_count_shortcut_batch(Block* block) {
+    if (_count_emit_rows_remaining == 0) {
+        // EOF twin of _process_eof: shortcut batches never move the block's
+        // columns into _current_return_columns, so there is nothing to
+        // restore; deliver the empty block and release iterator memory the
+        // same way.
+        block->clear_column_data();
+        _column_iterators.clear();
+        _index_iterators.clear();
+        return Status::EndOfFile("no more data in segment");
+    }
+    const auto rows = static_cast<size_t>(
+            std::min<uint64_t>(_count_emit_rows_remaining, kCountEmitBatchRows));
+    block->clear_column_data(_schema->num_column_ids());
+    for (size_t i = 0; i < _schema->num_column_ids(); ++i) {
+        MutableColumnPtr column = std::move(*block->get_by_position(i).column).mutate();
+        // Same fill as the defaults branches of _read_columns_by_index
+        // (_no_need_read_key_data / _prune_column): NOT-NULL defaults.
+        // ColumnNullable::insert_many_defaults would insert NULLs and break
+        // count(col) parity.
+        if (is_column_nullable(*column)) {
+            auto* nullable_col_ptr = reinterpret_cast<ColumnNullable*>(column.get());
+            nullable_col_ptr->get_null_map_column().insert_many_defaults(rows);
+            nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(rows);
+        } else {
+            column->insert_many_defaults(rows);
+        }
+        block->replace_by_position(i, std::move(column));
+    }
+    _count_emit_rows_remaining -= rows;
+    _opts.stats->blocks_load += 1;
+    _opts.stats->raw_rows_read += rows;
+    SNII_COUNT_EMIT_COUNT(count_emit_shortcut_batches);
+    return Status::OK();
+}
+
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
     bool is_fallback =
             _opts.runtime_state->query_options().enable_fallback_on_missing_inverted_index;
@@ -1555,12 +1718,6 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
 
     for (auto cid : _schema->column_ids()) {
-        if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
-            _column_iterators[cid].reset(
-                    new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
-            continue;
-        }
-
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             auto& id_file_map = _opts.runtime_state->get_id_file_map();
             uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
@@ -1641,9 +1798,8 @@ Status SegmentIterator::_init_index_iterators() {
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
-            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
-            // This is because the sub-column is created in create_materialized_variant_column.
-            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+            // Scan-time Variant path placeholders retain the Variant storage type. Use their
+            // parent unique id and path to locate the extracted column's inverted-index metadata.
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // Keep shared_ptr alive to prevent use-after-free when accessing raw pointers
@@ -2460,8 +2616,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
         return;
     }
 
-    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
-        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+    if (!_opts.read_row_binlog) {
         return;
     }
 
@@ -2891,6 +3046,14 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
+    // G03: a count-fastpath scan emits the remaining count as default rows in
+    // statistics-sized batches; the row-bitmap iterator and the per-rowid
+    // machinery below are never touched. Engaged only when read_limit == 0,
+    // so the limit check below stays unreachable for shortcut scans.
+    if (_count_emit_shortcut) {
+        return _emit_count_shortcut_batch(block);
+    }
+
     if (_opts.read_limit > 0 && _rows_returned >= _opts.read_limit) {
         return _process_eof(block);
     }
@@ -3250,6 +3413,13 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
     }
 }
 
+// Dictionary codes are initially assigned in dictionary insertion order, so their numeric order
+// does not necessarily match the order of the encoded values. For example, an initial dictionary
+// {0: "zebra", 1: "apple", 2: "mango"} is sorted into {0: "apple", 1: "mango", 2: "zebra"},
+// and row codes are remapped from {0, 2, 1} to {2, 1, 0}. Range predicates compare codes with <,
+// <=, >, or >= and therefore require this conversion. IN/NOT IN predicates do not: they build a
+// membership bitmap indexed by the existing dictionary codes. Bloom-filter predicates instead need
+// hash values initialized for dictionary entries.
 void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
     for (auto predicate : _short_cir_eval_predicate) {
         _convert_dict_code_for_predicate_if_necessary_impl(predicate);
@@ -3492,8 +3662,7 @@ void SegmentIterator::_calculate_common_expr_index_exec_status() {
     }
 }
 
-bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& column,
-                                             size_t nrows_read) {
+bool SegmentIterator::_no_need_read_key_data_eligible(ColumnId cid) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
         return false;
     }
@@ -3520,6 +3689,14 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& col
         return false;
     }
 
+    return true;
+}
+
+bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& column,
+                                             size_t nrows_read) {
+    if (!_no_need_read_key_data_eligible(cid)) {
+        return false;
+    }
     insert_many_not_null_defaults(column, nrows_read);
     return true;
 }

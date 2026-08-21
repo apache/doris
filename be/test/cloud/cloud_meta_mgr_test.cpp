@@ -21,6 +21,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <set>
@@ -43,6 +45,57 @@ class CloudMetaMgrTest : public testing::Test {
     void SetUp() override {}
     void TearDown() override {}
 };
+
+TEST_F(CloudMetaMgrTest, response_status_uses_actual_code_when_valid) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::MS_TOO_BUSY));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::KV_TXN_CONFLICT));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::OK));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+
+    status.clear_code();
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::MS_TOO_BUSY));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.clear_actual_code();
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_falls_back_to_non_ok_code_for_invalid_actual_code) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_for_invalid_actual_code_with_ok) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::OK);
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_for_invalid_actual_code_without_code) {
+    MetaServiceResponseStatus status;
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_without_any_code) {
+    MetaServiceResponseStatus status;
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+
+    status.set_code(MetaServiceCode::OK);
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+}
 
 static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {
     auto* sp = SyncPoint::get_instance();

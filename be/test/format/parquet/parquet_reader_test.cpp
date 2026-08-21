@@ -236,6 +236,11 @@ public:
         pq_ctx.slot_id_to_filter_conjuncts = &slot_id_to_expr_ctxs;
         pq_ctx.params = &scan_params;
         pq_ctx.range = &scan_range;
+        if constexpr (filter_all && enable_lazy) {
+            // Exercise row-level lazy filtering instead of eliminating the row group from
+            // min/max or page-index metadata before a RowGroupReader is created.
+            pq_ctx.filter_groups = false;
+        }
         st = p_reader->init_reader(&pq_ctx);
         EXPECT_TRUE(st.ok()) << st;
 
@@ -274,6 +279,22 @@ public:
             EXPECT_EQ(total_rows, 0);
         } else {
             EXPECT_EQ(total_rows, 10000);
+        }
+
+        if constexpr (filter_all && enable_lazy) {
+            EXPECT_EQ(p_reader->reader_statistics().lazy_read_filtered_rows, 10000);
+            ASSERT_NE(p_reader->_current_group_reader, nullptr);
+
+            const auto follower_statistics =
+                    p_reader->_current_group_reader->_column_readers.at("string_col")
+                            ->column_statistics();
+            EXPECT_EQ(follower_statistics.page_read_counter, 0);
+            EXPECT_EQ(follower_statistics.parse_page_header_num, 0);
+
+            const auto predicate_statistics =
+                    p_reader->_current_group_reader->_column_readers.at("value_col")
+                            ->column_statistics();
+            EXPECT_GT(predicate_statistics.page_read_counter, 0);
         }
     }
 };

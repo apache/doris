@@ -136,6 +136,7 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 // enable recycler metrics statistics
 CONF_Bool(enable_recycler_stats_metrics, "false");
+CONF_mBool(retain_deleted_instance_tombstone, "true");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
@@ -314,8 +315,8 @@ CONF_mBool(enable_load_txn_status_check, "true");
 CONF_mBool(enable_tablet_job_check, "true");
 
 CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
-CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
-CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "false");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "false");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -327,8 +328,8 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
-// http scheme in S3Client to use. E.g. http or https
-CONF_String(s3_client_http_scheme, "http");
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
+CONF_String(s3_client_http_scheme, "https");
 CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });

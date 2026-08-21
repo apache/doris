@@ -32,7 +32,7 @@ import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileCacheAdmissionManager;
+import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -670,10 +670,6 @@ public class DorisFE {
     }
 
     public static void overwriteConfigs() {
-        if (Config.isCloudMode() && Config.enable_feature_binlog) {
-            Config.enable_feature_binlog = false;
-            LOG.warn("Force set enable_feature_binlog=false because it is not supported in the cloud mode yet");
-        }
     }
 
     private static void fuzzyConfigs() {

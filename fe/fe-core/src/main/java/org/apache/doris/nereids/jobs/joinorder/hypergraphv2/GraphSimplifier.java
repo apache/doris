@@ -245,7 +245,7 @@ public class GraphSimplifier {
         int upperBound = 1;
 
         // Try to probe the largest number of steps to satisfy the limit
-        Counter counter = new Counter(limit);
+        Counter counter = new Counter(graph, limit);
         SubgraphEnumerator enumerator = new SubgraphEnumerator(counter, graph);
         while (true) {
             boolean hitUpperLimit = false;

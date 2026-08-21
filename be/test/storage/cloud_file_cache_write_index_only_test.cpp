@@ -29,13 +29,13 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "core/block/block.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -404,6 +404,8 @@ protected:
                     EXPECT_TRUE(io_ctx->is_index_data);
                     EXPECT_TRUE(io_ctx->is_dryrun);
                     EXPECT_FALSE(io_ctx->is_warmup);
+                    ASSERT_TRUE(io_ctx->cache_write_mode_override.has_value());
+                    EXPECT_EQ(*io_ctx->cache_write_mode_override, io::CacheWriteMode::SYNC_WRITE);
                     observed->push_back(ObservedIndexPreload {
                             .reason = ctx->reason,
                             .segment_id = ctx->segment_id,
