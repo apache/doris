@@ -46,6 +46,19 @@ Status SniiCompoundWriter::poison(Status status) {
     DCHECK(!status.ok());
     if (failed_.ok()) {
         failed_ = std::move(status);
+        // First transition only. A poisoned compound can never seal, so every
+        // registered blob source is already dead -- and a source is routinely the
+        // SOLE owner of a staging file holding a whole faiss index or a BKD leaf
+        // region, because the producer hands it over at registration. Waiting for
+        // finish() to release them is not enough: after a poison, production
+        // usually never calls it. SegmentWriter::_write_inverted_index() returns
+        // before close_inverted_index(), and SegmentCreator::flush() keeps the
+        // failed writer, so the files and their descriptors would stay pinned
+        // until this writer is destroyed.
+        //
+        // Safe from inside finish()'s own loops: this only swaps the contents of
+        // each entry's source vectors, never resizes blobs_.
+        release_all_blob_sources();
     }
     return failed_;
 }
@@ -707,10 +720,9 @@ Status SniiCompoundWriter::write_tail() {
 Status SniiCompoundWriter::finish() {
     if (out_ == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
-    if (!failed_.ok()) {
-        release_all_blob_sources();
-        return failed_;
-    }
+    // poison() -- the only writer of failed_ -- already released every blob
+    // source at the transition, so there is nothing left to drop here.
+    if (!failed_.ok()) return failed_;
     if (finished_)
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>("compound: finish called twice");
     // Crash-safety invariant 6: a begun-but-unfinished streamed session already

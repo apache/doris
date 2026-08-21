@@ -1068,6 +1068,51 @@ TEST(SniiCompoundWriter, FinishFailureReleasesBlobSourcesWhileWriterRemainsAlive
             /*fail_on_append=*/3, SniiCompoundWriter::kBlobCopyChunkBytes + 1);
 }
 
+// A poisoned compound can never seal, so every registered blob source is dead --
+// and after the producer hands its file over, that source is the file's ONLY
+// owner. Production frequently never calls finish() after a poison:
+// SegmentWriter::_write_inverted_index() returns before close_inverted_index(),
+// and SegmentCreator::flush() keeps the failed writer, so a release that waits
+// for finish() never runs and the staging file and its descriptor stay pinned.
+TEST(SniiCompoundWriter, PoisonReleasesBlobSourcesWithoutWaitingForFinish) {
+    // Append 1 is the bootstrap header; append 2 is the first posting byte range
+    // of the text index below, which is what poisons the writer.
+    FailOnAppendWriter file(/*fail_on_append=*/2);
+    SniiCompoundWriter writer(&file);
+
+    std::unique_ptr<bkd::StagedBlobFile> created;
+    ASSERT_TRUE(bkd::StagedBlobFile::create("poison_boundary", &created).ok());
+    const std::string path = created->path();
+    const std::vector<uint8_t> bytes(64, 0x31);
+    ASSERT_TRUE(created->append(Slice(bytes)).ok());
+    ASSERT_TRUE(created->finalize().ok());
+
+    auto staged = std::shared_ptr<bkd::StagedBlobFile>(std::move(created));
+    std::vector<BlobFileSource> cold_files;
+    cold_files.push_back(BlobFileSource {
+            .name = "bkd_data",
+            .length = staged->bytes_written(),
+            .read_fn = [staged](uint64_t offset, size_t len, uint8_t* out) -> Status {
+                return staged->read_at(offset, len, out);
+            }});
+    ASSERT_TRUE(
+            writer.add_blob_index(5, "", LogicalIndexKind::kBkd, std::move(cold_files), {}).ok());
+    // The registered source is now the only owner, which is what a native-BKD
+    // producer leaves behind once it has handed the file over.
+    staged.reset();
+    ASSERT_TRUE(std::filesystem::exists(path));
+
+    // A later text index fails while streaming its physical sections.
+    const Status poisoned = writer.add_logical_index(MakeIndex(6, "body", 30));
+    ASSERT_FALSE(poisoned.ok());
+    ASSERT_NE(poisoned.to_string().find("injected append failure"), std::string::npos)
+            << poisoned.to_string();
+
+    // No finish() here on purpose: production does not reach one.
+    EXPECT_FALSE(std::filesystem::exists(path))
+            << "a poisoned compound kept its blob callback, pinning the staging file: " << path;
+}
+
 TEST(SniiCompoundWriter, ReopeningLogicalReaderClearsPreviousCommonGramsState) {
     auto with_common_grams = EmptyIndex(7, "with");
     with_common_grams.common_grams_metadata = CompleteCommonGramsMetadata();
