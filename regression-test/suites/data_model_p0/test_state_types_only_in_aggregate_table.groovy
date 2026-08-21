@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_state_types_only_in_aggregate_table", "nonConcurrent") {
+suite("test_state_types_only_in_aggregate_table") {
     sql "set enable_agg_state=true"
 
     sql "drop table if exists state_type_dup_hll"
@@ -54,7 +54,7 @@ suite("test_state_types_only_in_aggregate_table", "nonConcurrent") {
             distributed by hash(k) buckets 1
             properties("replication_num" = "1")
         """
-        exception "type is only supported in aggregate key tables"
+        exception "DUP_KEYS table should not specify aggregate type"
     }
 
     sql "drop table if exists state_type_alter_dup"
@@ -91,17 +91,18 @@ suite("test_state_types_only_in_aggregate_table", "nonConcurrent") {
         properties("replication_num" = "1")
     """
 
-    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
-        sql "drop table if exists state_type_compatibility_dup"
-        sql """
-            create table state_type_compatibility_dup (
-                k int,
-                h hll not null,
-                q quantile_state not null,
-                a agg_state<sum(int not null)> generic
-            ) duplicate key(k)
-            distributed by hash(k) buckets 1
-            properties("replication_num" = "1")
-        """
+    withGlobalLock("allow_non_aggregate_table_state_types") {
+        setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
+            sql "drop table if exists state_type_compatibility_dup"
+            sql """
+                create table state_type_compatibility_dup (
+                    k int,
+                    h hll not null,
+                    q quantile_state not null
+                ) duplicate key(k)
+                distributed by hash(k) buckets 1
+                properties("replication_num" = "1")
+            """
+        }
     }
 }

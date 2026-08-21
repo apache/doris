@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join_on", "query_p0,nonConcurrent") {
+suite("test_join_on", "query_p0") {
+    withGlobalLock("allow_non_aggregate_table_state_types") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     sql "DROP TABLE IF EXISTS join_on"
@@ -49,6 +50,7 @@ suite("test_join_on", "query_p0,nonConcurrent") {
     test {
         sql """select * from (select cast('' as variant) as a) t1 join (select cast('' as variant) as a) t2 on t1.a = t2.a"""
         exception "could not used in ComparisonPredicate (a = a)"
+    }
     }
     }
 }

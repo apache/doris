@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_table_hll", "nonConcurrent") {
+suite("test_unique_table_hll") {
+    withGlobalLock("allow_non_aggregate_table_state_types") {
     setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     for (def enable_mow : [true, false]) {
@@ -70,6 +71,7 @@ suite("test_unique_table_hll", "nonConcurrent") {
                     DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1"); """
             exception "Key column can not set complex type:k"
         }
+    }
     }
     }
 }
