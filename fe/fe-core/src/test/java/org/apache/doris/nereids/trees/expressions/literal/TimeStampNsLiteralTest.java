@@ -85,6 +85,23 @@ class TimeStampNsLiteralTest {
     }
 
     @Test
+    void testGuardDigitRoundsBeforeDstTimezoneConversion() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            Assertions.assertEquals("2024-03-10 03:00:00.000000000",
+                    new TimeStampNsLiteral(
+                            "2024-03-10T06:59:59.9999999995Z").getStringValue());
+            Assertions.assertEquals("2024-11-03 01:00:00.000000000",
+                    new TimeStampNsLiteral(
+                            "2024-11-03T05:59:59.9999999995Z").getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     void testRoundToDateTimeV2() {
         TimeStampNsLiteral literal = new TimeStampNsLiteral("2024-01-02 03:04:05.123456789");
         Assertions.assertEquals("2024-01-02 03:04:05.123456",

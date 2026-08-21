@@ -16,12 +16,15 @@
 // under the License.
 
 #include <cctz/time_zone.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "common/exception.h"
@@ -237,6 +240,23 @@ void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     group.source_rows.push_back(row);
 }
 
+void append_timestamp_nanos_string(FunctionContext* context, ScalarGroups& groups, size_t row,
+                                   int64_t nanos, bool utc_adjusted) {
+    const TimeStampNsValue value(nanos);
+    if (!utc_adjusted) {
+        const std::string text = value.to_string();
+        append_string(groups, row, StringRef(text.data(), text.size()));
+        return;
+    }
+
+    DORIS_CHECK(context != nullptr);
+    DORIS_CHECK(context->state() != nullptr);
+    const auto instant = cctz::time_point<cctz::seconds>(cctz::seconds(value.epoch_seconds()));
+    std::string text = cctz::format("%Y-%m-%d %H:%M:%S", instant, context->state()->timezone_obj());
+    fmt::format_to(std::back_inserter(text), ".{:09}", value.nanosecond());
+    append_string(groups, row, StringRef(text.data(), text.size()));
+}
+
 void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, VariantRef value,
                     PrimitiveType target_primitive, bool forced_null) {
     if (forced_null) {
@@ -295,14 +315,23 @@ void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, 
         append_timestamp(groups, row, value.get_timestamp_ntz_micros(), false);
         return;
     case VariantPrimitiveId::TIMESTAMP_NANOS:
-        if (target_primitive == TYPE_TIMESTAMP_NS || target_primitive == TYPE_STRING) {
+        if (target_primitive == TYPE_STRING) {
+            append_timestamp_nanos_string(context, groups, row, value.get_timestamp_nanos(), true);
+            return;
+        }
+        if (target_primitive == TYPE_TIMESTAMP_NS) {
             append_timestamp_nanos(context, groups, row, value.get_timestamp_nanos(), true);
             return;
         }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_nanos()), true);
         return;
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
-        if (target_primitive == TYPE_TIMESTAMP_NS || target_primitive == TYPE_STRING) {
+        if (target_primitive == TYPE_STRING) {
+            append_timestamp_nanos_string(context, groups, row, value.get_timestamp_ntz_nanos(),
+                                          false);
+            return;
+        }
+        if (target_primitive == TYPE_TIMESTAMP_NS) {
             append_timestamp_nanos(context, groups, row, value.get_timestamp_ntz_nanos(), false);
             return;
         }

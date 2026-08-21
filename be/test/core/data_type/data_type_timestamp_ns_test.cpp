@@ -139,6 +139,21 @@ TEST(DataTypeTimeStampNsTest, ParseTimezoneSuffixInSessionTimezone) {
                     .ok());
 }
 
+TEST(DataTypeTimeStampNsTest, RoundZonedInputBeforeSessionTimezoneConversion) {
+    TimezoneUtils::load_timezones_to_cache();
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+
+    int64_t value = 0;
+    ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-03-10T06:59:59.9999999995Z"), &value, &new_york)
+                        .ok());
+    EXPECT_EQ(TimeStampNsValue(value).to_string(), "2024-03-10 03:00:00.000000000");
+
+    ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-11-03T05:59:59.9999999995Z"), &value, &new_york)
+                        .ok());
+    EXPECT_EQ(TimeStampNsValue(value).to_string(), "2024-11-03 01:00:00.000000000");
+}
+
 TEST(DataTypeTimeStampNsTest, ParseAcceptsFractionalWidthsAndRejectsMalformedValues) {
     struct ValidCase {
         const char* input;

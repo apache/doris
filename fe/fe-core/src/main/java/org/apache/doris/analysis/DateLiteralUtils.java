@@ -261,6 +261,14 @@ public class DateLiteralUtils {
                     (int) year, (int) month, (int) day,
                     (int) hour, (int) minute, (int) second, (int) nanosecond);
 
+            // TIMESTAMP_NS must round on the source timeline. In particular, an explicit-zone
+            // value that carries across a DST transition must be converted only after the carry.
+            // Keep all pre-existing temporal types on their original conversion path.
+            if (type.isTimeStampNs()) {
+                literalDateTime = roundFractionalSecond(
+                        literalDateTime, ScalarType.TIMESTAMP_NS_SCALE, nanosecondGuardDigit);
+            }
+
             // Recompute the timezone offset using the target date rather than
             // Instant.now(), so DST-sensitive zones (e.g. America/Chicago)
             // produce the correct shift regardless of when the code runs.
@@ -284,8 +292,6 @@ public class DateLiteralUtils {
             }
 
             if (type.isTimeStampNs()) {
-                literalDateTime = roundFractionalSecond(
-                        literalDateTime, ScalarType.TIMESTAMP_NS_SCALE, nanosecondGuardDigit);
                 TimeStampNsLiteral result = new TimeStampNsLiteral(
                         literalDateTime.getYear(), literalDateTime.getMonthValue(),
                         literalDateTime.getDayOfMonth(), literalDateTime.getHour(),

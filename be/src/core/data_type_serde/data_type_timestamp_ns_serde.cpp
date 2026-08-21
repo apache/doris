@@ -69,11 +69,17 @@ Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
         ++nanos;
     }
 
+    const bool carry_second = nanos == TimeStampNsValue::NANOS_PER_SECOND;
+
     // Keep the fractional token in place so that the legacy parser validates its position and all
-    // trailing syntax. Zeroing the digits prevents its scale-0 rounding from changing the second;
-    // the nanosecond rounding above remains the only source of fractional rounding.
+    // trailing syntax. Its scale-0 rounding happens before an explicit source timezone is converted
+    // to the session timezone. Mark only a nanosecond carry for that existing path, so a DST
+    // transition is crossed on the source instant timeline rather than on the local civil clock.
     if (fraction_begin != std::string::npos) {
         std::fill(input.begin() + fraction_begin, input.begin() + fraction_end, '0');
+        if (carry_second) {
+            input[fraction_begin] = '5';
+        }
     }
     const StringRef input_ref(input.data(), input.size());
     DateV2Value<DateTimeV2ValueType> datetime;
@@ -88,12 +94,7 @@ Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
         return params.status;
     }
 
-    if (nanos == TimeStampNsValue::NANOS_PER_SECOND) {
-        if (!datetime.date_add_interval<TimeUnit::SECOND>(
-                    TimeInterval {TimeUnit::SECOND, 1, false})) {
-            return Status::InvalidArgument("TIMESTAMP_NS value overflows while rounding '{}'",
-                                           std::string(str.data, str.size));
-        }
+    if (carry_second) {
         nanos = 0;
     }
     datetime.set_microsecond(nanos / TimeStampNsValue::NANOS_PER_MICROSECOND);

@@ -85,23 +85,17 @@ public final class TimeStampNsLiteral extends DateLiteral {
         long minute = DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR);
         long second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
 
-        ZoneId zoneId = temporal.query(TemporalQueries.zone());
-        if (zoneId != null) {
-            LocalDateTime converted = DateUtils.convertTimeZone(
-                    year, month, day, hour, minute, second, zoneId, DateUtils.getTimeZone());
-            year = converted.getYear();
-            month = converted.getMonthValue();
-            day = converted.getDayOfMonth();
-            hour = converted.getHour();
-            minute = converted.getMinute();
-            second = converted.getSecond();
-        }
-
         LocalDateTime result = LocalDateTime.of((int) year, (int) month, (int) day,
                 (int) hour, (int) minute, (int) second,
                 DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND));
         if (DateUtils.getNanosecondGuardDigit(value) >= 5) {
             result = result.plusNanos(1);
+        }
+
+        ZoneId zoneId = temporal.query(TemporalQueries.zone());
+        if (zoneId != null) {
+            Instant instant = DateUtils.convertLocalToInstant(result, zoneId);
+            result = LocalDateTime.ofInstant(instant, DateUtils.getTimeZone());
         }
         return result;
     }

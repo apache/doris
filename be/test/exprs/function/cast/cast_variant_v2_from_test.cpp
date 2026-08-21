@@ -16,6 +16,7 @@
 // under the License.
 
 #include <array>
+#include <limits>
 #include <string_view>
 
 #include "common/exception.h"
@@ -35,6 +36,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/value/variant/variant_batch_builder.h"
@@ -438,6 +440,48 @@ TEST(CastVariantV2FromTest, NanosFloorToMicrosAndUtcUsesSessionTimezone) {
     }
     expect_datetime(values, 5, 1970, 1, 1, 0, 0, 0, 1);
     expect_datetime(values, 6, 1970, 1, 1, 8, 0, 0, 0);
+}
+
+TEST(CastVariantV2FromTest, AdjustedNanosStringifiesBeyondLocalTimestampNsRange) {
+    VariantBatchBuilder maximum_builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    {
+        auto row = maximum_builder.begin_row();
+        row.add_timestamp_nanos(std::numeric_limits<int64_t>::max(), true);
+        row.finish();
+    }
+    ColumnPtr maximum = finish(&maximum_builder);
+    CastResult maximum_string = execute_from_variant(maximum, std::make_shared<DataTypeString>(),
+                                                     nullptr, "Asia/Shanghai");
+    ASSERT_TRUE(maximum_string.status.ok()) << maximum_string.status;
+    const auto& maximum_nullable = nullable_result(maximum_string.column);
+    EXPECT_EQ(maximum_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(assert_cast<const ColumnString&>(maximum_nullable.get_nested_column()).get_data_at(0),
+              StringRef("2262-04-12 07:47:16.854775807"));
+
+    CastResult maximum_timestamp = execute_from_variant(
+            maximum, std::make_shared<DataTypeTimeStampNs>(), nullptr, "Asia/Shanghai");
+    ASSERT_TRUE(maximum_timestamp.status.ok()) << maximum_timestamp.status;
+    EXPECT_EQ(nullable_result(maximum_timestamp.column).get_null_map_data()[0], 1);
+
+    VariantBatchBuilder minimum_builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    {
+        auto row = minimum_builder.begin_row();
+        row.add_timestamp_nanos(std::numeric_limits<int64_t>::min(), true);
+        row.finish();
+    }
+    ColumnPtr minimum = finish(&minimum_builder);
+    CastResult minimum_string =
+            execute_from_variant(minimum, std::make_shared<DataTypeString>(), nullptr, "-08:00");
+    ASSERT_TRUE(minimum_string.status.ok()) << minimum_string.status;
+    const auto& minimum_nullable = nullable_result(minimum_string.column);
+    EXPECT_EQ(minimum_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(assert_cast<const ColumnString&>(minimum_nullable.get_nested_column()).get_data_at(0),
+              StringRef("1677-09-20 16:12:43.145224192"));
+
+    CastResult minimum_timestamp = execute_from_variant(
+            minimum, std::make_shared<DataTypeTimeStampNs>(), nullptr, "-08:00");
+    ASSERT_TRUE(minimum_timestamp.status.ok()) << minimum_timestamp.status;
+    EXPECT_EQ(nullable_result(minimum_timestamp.column).get_null_map_data()[0], 1);
 }
 
 TEST(CastVariantV2FromTest, ArrayCastReusesNonStrictStringParser) {

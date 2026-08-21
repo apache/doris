@@ -460,6 +460,23 @@ public class DateLiteralUtilsTest {
     }
 
     @Test
+    public void testTimestampNsRoundsBeforeDstTimezoneConversion() throws AnalysisException {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            Assertions.assertEquals("2024-03-10 03:00:00.000000000",
+                    createTimeStampNsLiteral(
+                            "2024-03-10 06:59:59.9999999995Z").getStringValue());
+            Assertions.assertEquals("2024-11-03 01:00:00.000000000",
+                    createTimeStampNsLiteral(
+                            "2024-11-03 05:59:59.9999999995Z").getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testInvalidTimestampNsseconds() {
         Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createLiteral(
                 "2023-02-29 14:30:45.123456789", ScalarType.createTimeStampNsType()));

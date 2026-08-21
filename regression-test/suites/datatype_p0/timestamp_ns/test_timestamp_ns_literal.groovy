@@ -172,7 +172,22 @@ suite("test_timestamp_ns_literal") {
 
     sql "drop table if exists test_timestamp_ns_timezone_naive_storage"
     def originalTimeZone = sql("select @@time_zone")[0][0]
+    def originalDebugSkipFoldConstant = sql("select @@debug_skip_fold_constant")[0][0]
     try {
+        sql "set time_zone = 'America/New_York'"
+        sql "set debug_skip_fold_constant = false"
+        qt_timezone_transition_rounding_fold """
+            select
+                cast('2024-03-10T06:59:59.9999999995Z' as timestamp_ns),
+                cast('2024-11-03T05:59:59.9999999995Z' as timestamp_ns)
+        """
+        sql "set debug_skip_fold_constant = true"
+        qt_timezone_transition_rounding_without_fold """
+            select
+                cast('2024-03-10T06:59:59.9999999995Z' as timestamp_ns),
+                cast('2024-11-03T05:59:59.9999999995Z' as timestamp_ns)
+        """
+
         sql "set time_zone = '+08:00'"
         sql """
             create table test_timestamp_ns_timezone_naive_storage (
@@ -194,6 +209,7 @@ suite("test_timestamp_ns_literal") {
             select id, dt from test_timestamp_ns_timezone_naive_storage order by id
         """
     } finally {
+        sql "set debug_skip_fold_constant = ${originalDebugSkipFoldConstant}"
         sql "set time_zone = '${originalTimeZone}'"
     }
 }
