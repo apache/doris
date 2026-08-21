@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ReauthenticatingRestSessionCatalogTest {
 
@@ -210,5 +211,29 @@ public class ReauthenticatingRestSessionCatalogTest {
         Assertions.assertSame(wedged, catalog.currentDelegate());
         Assertions.assertEquals(1, failure.getSuppressed().length);
         Assertions.assertInstanceOf(IllegalStateException.class, failure.getSuppressed()[0]);
+    }
+
+    @Test
+    public void testReplacementIsPublishedBeforeTableLoadsAreInvalidated() {
+        FakeRestSessionCatalog wedged = new FakeRestSessionCatalog("wedged", notAuthorized());
+        FakeRestSessionCatalog fresh = new FakeRestSessionCatalog("fresh", null);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        AtomicReference<ReauthenticatingRestSessionCatalog> catalogRef = new AtomicReference<>();
+        AtomicInteger invalidations = new AtomicInteger();
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(
+                wedged,
+                () -> fresh,
+                tracker,
+                () -> {
+                    Assertions.assertSame(fresh, catalogRef.get().currentDelegate(),
+                            "cache invalidation must fence misses only after the replacement generation is live");
+                    invalidations.incrementAndGet();
+                });
+        catalogRef.set(catalog);
+
+        List<Namespace> namespaces = catalog.listNamespaces(SessionContext.createEmpty(), NS);
+
+        Assertions.assertEquals(Collections.singletonList(Namespace.of("fresh")), namespaces);
+        Assertions.assertEquals(1, invalidations.get());
     }
 }

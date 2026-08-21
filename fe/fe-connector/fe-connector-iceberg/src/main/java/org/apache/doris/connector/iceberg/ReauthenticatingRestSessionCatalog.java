@@ -140,11 +140,6 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
             return;
         }
         try {
-            invalidateTables.run();
-        } catch (RuntimeException e) {
-            LOG.warn("Failed to retire Iceberg table cache before replacing REST client of catalog {}", name(), e);
-        }
-        try {
             resourceTracker.rotate(() -> closeReplacedDelegate(wedged), () -> delegate = replacement);
         } catch (RuntimeException replacementFailure) {
             // Connector teardown may close the tracker after the replacement has been fully built but before
@@ -154,6 +149,15 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
             closeReplacedDelegate(replacement);
             cause.addSuppressed(replacementFailure);
             throw cause;
+        }
+        try {
+            // Publish the new resource generation before fencing table-cache loads. A miss admitted while the
+            // wedged delegate was current then loses the cache-generation check and cannot publish an owner of
+            // the retired REST client; a miss after rotation either loads the replacement or is conservatively
+            // retried after this invalidation.
+            invalidateTables.run();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire Iceberg table cache after replacing REST client of catalog {}", name(), e);
         }
     }
 

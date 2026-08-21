@@ -113,10 +113,11 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
             return;
         }
 
+        ConnectContext taskConnectContext = null;
         try {
             // Step 1: Build a fresh ConnectContext for this group and stash the per-group scan scope + the
             // shared connector transaction (read back during planning by pinRewriteFileScope / finalizeSink).
-            ConnectContext taskConnectContext = buildConnectContext();
+            taskConnectContext = buildConnectContext();
             StatementContext stmtCtx = taskConnectContext.getStatementContext();
             stmtCtx.setRewriteSourceFilePaths(new ArrayList<>(group.getDataFilePaths()));
             stmtCtx.setRewriteSharedTransaction(sharedTransaction);
@@ -139,7 +140,16 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
             }
             throw new JobException("Rewrite group execution failed: " + e.getMessage(), e);
         } finally {
-            isFinished.set(true);
+            try {
+                if (taskConnectContext != null && taskConnectContext.getStatementContext() != null) {
+                    taskConnectContext.getStatementContext().close();
+                }
+            } finally {
+                if (ConnectContext.get() == taskConnectContext) {
+                    ConnectContext.remove();
+                }
+                isFinished.set(true);
+            }
         }
     }
 
@@ -155,7 +165,7 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         LOG.info("[Connector Rewrite Task] taskId: {} cancelled", taskId);
     }
 
-    private void executeGroup(ConnectContext taskConnectContext,
+    protected void executeGroup(ConnectContext taskConnectContext,
             RewriteTableCommand taskLogicalPlan,
             StatementBase taskParsedStmt) throws Exception {
         stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
@@ -211,7 +221,7 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         );
     }
 
-    private ConnectContext buildConnectContext() {
+    protected ConnectContext buildConnectContext() {
         ConnectContext taskContext = new ConnectContext();
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
         taskContext.setEnv(Env.getCurrentEnv());

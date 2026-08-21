@@ -149,6 +149,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     // coordinator, the distributed tasks only write" model. No effect on single-statement writes.
     private final Object beginLock = new Object();
     private volatile boolean writeStarted = false;
+    private boolean beginInProgress;
+    private boolean closed;
 
     // Op context captured at begin time, consumed by commit() (the volatile transaction write at the end of
     // beginWrite publishes these plain writes to the commit thread).
@@ -214,6 +216,17 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, IcebergWriteContext ctx) {
         synchronized (beginLock) {
+            while (beginInProgress && !writeStarted && !closed) {
+                try {
+                    beginLock.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new DorisConnectorException("Interrupted while beginning iceberg write", e);
+                }
+            }
+            if (closed) {
+                throw new DorisConnectorException("Iceberg transaction is already closed");
+            }
             if (writeStarted) {
                 // Already begun. A shared distributed-rewrite transaction is opened once by the first group's
                 // planWrite; subsequent concurrent group writes reuse the same loaded table + pinned OCC
@@ -221,60 +234,77 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 // for them (byte-identical to the pre-guard path).
                 return;
             }
-            this.writeOperation = ctx.getWriteOperation();
-            this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
-            this.staticPartitionValues = ctx.getStaticPartitionValues();
-            this.writeSchemaContext = ctx.getWriteSchemaContext();
-            this.zone = IcebergTimeUtils.resolveSessionZone(session);
-            try {
-                context.executeAuthenticated(() -> {
-                    // Reuse the write planner's mutable table, never the frozen read view: newTransaction
-                    // refreshes operations to establish a fresh OCC base without mutating bound read metadata.
-                    // The pinned write context is validated on this write-only table and again at the final CAS.
-                    IcebergStatementScope.TrackedTable tracked = resourceTracker == null ? null
-                            : IcebergStatementScope.sharedTrackedWritableTable(session, db, tableName,
-                                    resourceTracker, () -> catalogOps.loadTable(db, tableName),
-                                    table -> IcebergConnector.cachedTableCleanup(table, catalogFlavor));
-                    Table loaded = tracked == null
-                            ? IcebergStatementScope.sharedWritableTable(session, db, tableName,
-                                    () -> catalogOps.loadTable(db, tableName))
-                            : tracked.table();
-                    IcebergStatementScope.TrackedTableLease retained = tracked == null
-                            ? null : tracked.retainLease();
-                    this.table = loaded;
-                    try {
-                        validateBoundWriteGeneration(ctx, loaded);
-                        if (writeSchemaContext != null) {
-                            writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
-                        }
-                        applyBeginGuards(ctx, tableName);
-                        Transaction opened = openTransaction(loaded, ctx.isOverwrite());
-                        // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
-                        // drop/recreate race between the initial generation check and transaction construction.
-                        validateBoundWriteGeneration(ctx, loaded);
-                        if (writeSchemaContext != null) {
-                            writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+            beginInProgress = true;
+        }
+        this.writeOperation = ctx.getWriteOperation();
+        this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
+        this.staticPartitionValues = ctx.getStaticPartitionValues();
+        this.writeSchemaContext = ctx.getWriteSchemaContext();
+        this.zone = IcebergTimeUtils.resolveSessionZone(session);
+        try {
+            context.executeAuthenticated(() -> {
+                // Reuse the write planner's mutable table, never the frozen read view: newTransaction
+                // refreshes operations to establish a fresh OCC base without mutating bound read metadata.
+                // The pinned write context is validated on this write-only table and again at the final CAS.
+                IcebergStatementScope.TrackedTable tracked = resourceTracker == null ? null
+                        : IcebergStatementScope.sharedTrackedWritableTable(session, db, tableName,
+                                resourceTracker, () -> catalogOps.loadTable(db, tableName),
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogFlavor));
+                Table loaded = tracked == null
+                        ? IcebergStatementScope.sharedWritableTable(session, db, tableName,
+                                () -> catalogOps.loadTable(db, tableName))
+                        : tracked.table();
+                IcebergStatementScope.TrackedTableLease retained = tracked == null
+                        ? null : tracked.retainLease();
+                this.table = loaded;
+                try {
+                    validateBoundWriteGeneration(ctx, loaded);
+                    if (writeSchemaContext != null) {
+                        writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                    }
+                    applyBeginGuards(ctx, tableName);
+                    Transaction opened = openTransaction(loaded, ctx.isOverwrite());
+                    // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
+                    // drop/recreate race between the initial generation check and transaction construction.
+                    validateBoundWriteGeneration(ctx, loaded);
+                    if (writeSchemaContext != null) {
+                        writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                    }
+                    synchronized (beginLock) {
+                        if (closed) {
+                            this.table = null;
+                            throw new IllegalStateException(
+                                    "Iceberg transaction closed while its write table was loading");
                         }
                         this.transaction = opened;
                         this.tableLease = retained;
                         retained = null;
-                        return null;
-                    } finally {
-                        if (retained != null) {
-                            retained.close();
-                        }
-                        if (tracked != null && !tracked.isStatementOwned()) {
-                            tracked.close();
-                        }
+                        writeStarted = true;
                     }
-                });
-            } catch (Exception e) {
-                throw new DorisConnectorException(
-                        "Failed to begin write for iceberg table " + tableName + ": " + e.getMessage(), e);
+                    return null;
+                } finally {
+                    if (retained != null) {
+                        retained.close();
+                    }
+                    if (tracked != null && !tracked.isStatementOwned()) {
+                        tracked.close();
+                    }
+                }
+            });
+        } catch (Exception e) {
+            synchronized (beginLock) {
+                if (!writeStarted) {
+                    table = null;
+                    transaction = null;
+                }
             }
-            // Only flip after a fully successful begin, so a failed load can be retried (writeStarted stays
-            // false) rather than wedging the transaction in a half-begun state.
-            writeStarted = true;
+            throw new DorisConnectorException(
+                    "Failed to begin write for iceberg table " + tableName + ": " + e.getMessage(), e);
+        } finally {
+            synchronized (beginLock) {
+                beginInProgress = false;
+                beginLock.notifyAll();
+            }
         }
     }
 
@@ -1369,8 +1399,13 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     @Override
     public void close() {
-        IcebergStatementScope.TrackedTableLease lease = tableLease;
-        tableLease = null;
+        IcebergStatementScope.TrackedTableLease lease;
+        synchronized (beginLock) {
+            closed = true;
+            lease = tableLease;
+            tableLease = null;
+            beginLock.notifyAll();
+        }
         if (lease != null) {
             lease.close();
         }
