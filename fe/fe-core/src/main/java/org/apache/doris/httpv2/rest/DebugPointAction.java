@@ -24,6 +24,7 @@ import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,6 +38,25 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class DebugPointAction extends RestBaseController {
+
+    @RequestMapping(path = "/api/debug_point/status/{debugPoint}", method = RequestMethod.GET)
+    protected Object getDebugPointStatus(@PathVariable("debugPoint") String name,
+            HttpServletRequest request, HttpServletResponse response) {
+        if (!Config.enable_debug_points) {
+            return ResponseEntityBuilder.internalError(
+                    "Disable debug points. please check Config.enable_debug_points");
+        }
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
+        if (Strings.isNullOrEmpty(name)) {
+            return ResponseEntityBuilder.badRequest("Empty debug point name.");
+        }
+
+        DebugPoint debugPoint = DebugPointUtil.peekDebugPoint(name);
+        return ResponseEntityBuilder.ok(ImmutableMap.of(
+                "exists", debugPoint != null,
+                "execute_num", debugPoint == null ? 0 : debugPoint.executeNum.get()));
+    }
 
     @RequestMapping(path = "/api/debug_point/add/{debugPoint}", method = RequestMethod.POST)
     protected Object addDebugPoint(@PathVariable("debugPoint") String name,

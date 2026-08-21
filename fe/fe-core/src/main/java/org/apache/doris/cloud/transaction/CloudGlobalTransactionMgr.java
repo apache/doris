@@ -1203,14 +1203,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("error ", e);
             }
         }
-        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")) {
+        DebugPoint spinWaitDebugPoint = DebugPointUtil.getDebugPoint(
+                "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+        if (spinWaitDebugPoint != null) {
             LOG.info("debug point: block at CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
-            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
-            String token = debugPoint.param("token", "invalid_token");
-            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")) {
-                DebugPoint blockDebugPoint = DebugPointUtil.getDebugPoint(
-                        "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block");
+            String token = spinWaitDebugPoint.param("token", "invalid_token");
+            DebugPoint blockDebugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block");
+            while (blockDebugPoint != null) {
                 String passToken = blockDebugPoint.param("pass_token", "");
                 if (token.equals(passToken)) {
                     break;
@@ -1220,6 +1220,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 } catch (InterruptedException e) {
                     LOG.info("error ", e);
                 }
+                blockDebugPoint = DebugPointUtil.peekDebugPoint(
+                        "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block");
             }
             LOG.info("debug point: leave CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
         }
