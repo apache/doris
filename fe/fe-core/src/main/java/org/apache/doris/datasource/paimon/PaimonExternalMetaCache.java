@@ -123,7 +123,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
             // be looked up again: serve it directly instead of churning the snapshot entry.
             return executeForGeneration(tableValue, nameMapping,
                     () -> latestSnapshotProjectionLoader.loadAtFence(
-                            nameMapping, fence, tableValue.getGeneration()));
+                            nameMapping, fence, tableValue.getGeneration()))
+                    .bindCapturedAuthenticator(tableValue.getAuthenticator());
         }
         // Order fence observations, not snapshot ids: a rollback moves the latest snapshot
         // backwards, and a concurrent call may finish after a later observation (reversed
@@ -138,7 +139,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 ignored -> executeForGeneration(tableValue, nameMapping, () -> {
                     loaded.set(true);
                     return latestSnapshotProjectionLoader.loadAtFence(
-                            nameMapping, fence, tableValue.getGeneration());
+                            nameMapping, fence, tableValue.getGeneration())
+                            .bindCapturedAuthenticator(tableValue.getAuthenticator());
                 }));
         LatestFenceOwner owner = new LatestFenceOwner(nameMapping, tableValue.getGeneration());
         ObservedFence latest = latestObservedFences.compute(owner, (ignored, current) ->
@@ -212,10 +214,25 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         }
     }
 
-    public PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
+    /**
+     * Load a projection for a relation-scoped effective table. The caller derived
+     * {@code effectiveTable} from {@code tableGeneration}'s base handle, so the load and any later
+     * hydration of the returned value must run under that generation's captured execution context:
+     * re-resolving the catalog here could pair the retained handle with the resources of a
+     * concurrent property/credential ALTER, or fail while reset closes the old generation.
+     */
+    public PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable,
+            PaimonTableCacheValue tableGeneration) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return executeAuthenticated(nameMapping,
-                () -> latestSnapshotProjectionLoader.load(nameMapping, effectiveTable));
+        return executeForGeneration(tableGeneration, nameMapping,
+                () -> latestSnapshotProjectionLoader.load(nameMapping, effectiveTable))
+                .bindCapturedAuthenticator(tableGeneration.getAuthenticator());
+    }
+
+    /** Resolve the current table generation, exposing the handle and its captured context together. */
+    public PaimonTableCacheValue getTableCacheValue(ExternalTable dorisTable) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
     }
 
     public PaimonSnapshotCacheValue loadLatestSnapshotFence(ExternalTable dorisTable) {
@@ -224,19 +241,28 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         return loadLatestSnapshotFence(nameMapping, tableValue);
     }
 
+    /**
+     * Hydrate a statement fence into a full projection. The fence retains the physical table of
+     * the generation it was captured from, so hydration runs under the fence's captured execution
+     * context instead of re-resolving the catalog's current one, and the returned value carries
+     * the same context forward for later schema hydration.
+     */
     public PaimonSnapshotCacheValue loadSnapshotAtFence(
-            ExternalTable dorisTable, PaimonSnapshot fence) {
+            ExternalTable dorisTable, PaimonSnapshotCacheValue fenceValue) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return executeAuthenticated(nameMapping,
-                () -> latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence));
+        return executeForCapturedAuthenticator(fenceValue.getCapturedAuthenticator(), nameMapping,
+                () -> latestSnapshotProjectionLoader.loadAtFence(nameMapping, fenceValue.getSnapshot()))
+                .bindCapturedAuthenticator(fenceValue.getCapturedAuthenticator());
     }
 
+    /** Effective-table sibling of {@link #loadSnapshotAtFence(ExternalTable, PaimonSnapshotCacheValue)}. */
     public PaimonSnapshotCacheValue loadSnapshotAtFence(
-            ExternalTable dorisTable, Table effectiveTable, PaimonSnapshot fence) {
+            ExternalTable dorisTable, Table effectiveTable, PaimonSnapshotCacheValue fenceValue) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return executeAuthenticated(nameMapping,
+        return executeForCapturedAuthenticator(fenceValue.getCapturedAuthenticator(), nameMapping,
                 () -> latestSnapshotProjectionLoader.loadEffectiveAtFence(
-                        nameMapping, effectiveTable, fence));
+                        nameMapping, effectiveTable, fenceValue.getSnapshot()))
+                .bindCapturedAuthenticator(fenceValue.getCapturedAuthenticator());
     }
 
     public PaimonSchemaCacheValue getPaimonSchemaCacheValue(NameMapping nameMapping, long schemaId) {
@@ -376,7 +402,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     private PaimonSnapshotCacheValue loadLatestSnapshotFence(
             NameMapping nameMapping, PaimonTableCacheValue tableValue) {
         return executeForGeneration(tableValue, nameMapping,
-                () -> latestSnapshotProjectionLoader.loadFence(nameMapping, tableValue.getPaimonTable()));
+                () -> latestSnapshotProjectionLoader.loadFence(nameMapping, tableValue.getPaimonTable()))
+                .bindCapturedAuthenticator(tableValue.getAuthenticator());
     }
 
     private <T> T executeAuthenticated(NameMapping nameMapping, java.util.concurrent.Callable<T> task) {

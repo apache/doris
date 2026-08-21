@@ -35,8 +35,14 @@ public class PaimonUtils {
         return paimonExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
-    public static PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
-        return paimonExternalMetaCache(dorisTable).loadSnapshotProjection(dorisTable, effectiveTable);
+    public static PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable,
+            PaimonTableCacheValue tableGeneration) {
+        return paimonExternalMetaCache(dorisTable).loadSnapshotProjection(
+                dorisTable, effectiveTable, tableGeneration);
+    }
+
+    public static PaimonTableCacheValue getPaimonTableCacheValue(ExternalTable dorisTable) {
+        return paimonExternalMetaCache(dorisTable).getTableCacheValue(dorisTable);
     }
 
     public static PaimonSnapshotCacheValue loadLatestSnapshotFence(ExternalTable dorisTable) {
@@ -44,14 +50,14 @@ public class PaimonUtils {
     }
 
     public static PaimonSnapshotCacheValue loadSnapshotAtFence(
-            ExternalTable dorisTable, PaimonSnapshot fence) {
-        return paimonExternalMetaCache(dorisTable).loadSnapshotAtFence(dorisTable, fence);
+            ExternalTable dorisTable, PaimonSnapshotCacheValue fenceValue) {
+        return paimonExternalMetaCache(dorisTable).loadSnapshotAtFence(dorisTable, fenceValue);
     }
 
     public static PaimonSnapshotCacheValue loadSnapshotAtFence(
-            ExternalTable dorisTable, Table effectiveTable, PaimonSnapshot fence) {
+            ExternalTable dorisTable, Table effectiveTable, PaimonSnapshotCacheValue fenceValue) {
         return paimonExternalMetaCache(dorisTable).loadSnapshotAtFence(
-                dorisTable, effectiveTable, fence);
+                dorisTable, effectiveTable, fenceValue);
     }
 
     public static PaimonSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
@@ -71,7 +77,8 @@ public class PaimonUtils {
             // The generation-zero path performs an authenticated uncached load.
             return paimonExternalMetaCache(dorisTable).getPaimonSchemaCacheValue(
                     dorisTable.getOrBuildNameMapping(), snapshotValue.getSnapshot().getSchemaId(),
-                    snapshotValue.getTableGeneration(), snapshotValue.getSnapshot().getTable());
+                    snapshotValue.getTableGeneration(), snapshotValue.getSnapshot().getTable(),
+                    snapshotValue.getCapturedAuthenticator());
         }
         return getSchemaCacheValue(dorisTable, snapshotValue.getSnapshot().getSchemaId());
     }

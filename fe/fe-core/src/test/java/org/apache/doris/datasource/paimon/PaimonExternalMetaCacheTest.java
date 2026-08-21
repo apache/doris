@@ -89,6 +89,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class PaimonExternalMetaCacheTest {
     @Rule
@@ -938,6 +939,135 @@ public class PaimonExternalMetaCacheTest {
             Assert.assertNull("a concurrent old-generation schema load must not repopulate the cache",
                     cache.entry(1L, PaimonExternalMetaCache.ENTRY_SCHEMA,
                             PaimonSchemaCacheKey.class, SchemaCacheValue.class).peekIfPresent(staleKey));
+            Assert.assertEquals(0, authenticationDepth.get());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testFenceAndRelationHydrationStayOnCapturedGenerationAcrossAlter() {
+        AtomicInteger authenticationDepth = new AtomicInteger();
+        ExecutionAuthenticator capturedAuthenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                authenticationDepth.incrementAndGet();
+                try {
+                    return task.call();
+                } finally {
+                    authenticationDepth.decrementAndGet();
+                }
+            }
+        };
+        ExecutionAuthenticator resettingAuthenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) {
+                throw new AssertionError(
+                        "hydration of a captured generation must not consult the post-ALTER catalog context");
+            }
+        };
+        AtomicReference<ExecutionAuthenticator> currentAuthenticator =
+                new AtomicReference<>(capturedAuthenticator);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenAnswer(
+                invocation -> currentAuthenticator.get());
+        Mockito.doReturn(database).when(catalog).getDbNullable("db");
+        Mockito.when(database.getTableNullable("tbl")).thenReturn(externalTable);
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
+        Mockito.doReturn(Optional.of(externalTable)).when(database).getTable("tbl");
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue("schema hydration must stay on the captured generation context",
+                    authenticationDepth.get() > 0);
+            Column partitionColumn = new Column("part", Type.INT);
+            return new PaimonSchemaCacheValue(
+                    Collections.singletonList(partitionColumn),
+                    Collections.singletonList(partitionColumn), null);
+        }).when(externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
+
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable fenceTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable snapshotTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenAnswer(invocation -> {
+            Assert.assertTrue("fence capture must run authenticated", authenticationDepth.get() > 0);
+            return latestSchemaTable;
+        });
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+        Mockito.when(latestSnapshot.id()).thenReturn(7L);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(3L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fenceTable);
+        Mockito.when(fenceTable.copyWithoutTimeTravel(Mockito.anyMap())).thenAnswer(invocation -> {
+            Assert.assertTrue("snapshot pinning must stay on the captured generation context",
+                    authenticationDepth.get() > 0);
+            return snapshotTable;
+        });
+        Mockito.when(fenceTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(fenceTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(snapshotTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(snapshotTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.listPartitionEntries()).thenAnswer(invocation -> {
+            Assert.assertTrue("partition enumeration must stay on the captured generation context",
+                    authenticationDepth.get() > 0);
+            return Collections.emptyList();
+        });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            PaimonTableCacheValue tableValue = new PaimonTableCacheValue(baseTable, capturedAuthenticator);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            tables.put(mapping, tableValue);
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            // 1. The statement captures its fence while generation one is current.
+            PaimonSnapshotCacheValue fence = cache.loadLatestSnapshotFence(dorisTable);
+            Assert.assertSame(capturedAuthenticator, fence.getCapturedAuthenticator());
+
+            // 2. A concurrent ALTER replaces the catalog execution context and retires the
+            // captured generation before the statement hydrates its relations.
+            currentAuthenticator.set(resettingAuthenticator);
+            tables.invalidateKey(mapping);
+
+            // 3. Every later hydration path must stay on the captured context; consulting the
+            // catalog's current context throws above.
+            PaimonSnapshotCacheValue hydrated = cache.loadSnapshotAtFence(dorisTable, fence);
+            Assert.assertEquals(7L, hydrated.getSnapshot().getSnapshotId());
+            Assert.assertSame(capturedAuthenticator, hydrated.getCapturedAuthenticator());
+
+            PaimonSnapshotCacheValue effectiveHydrated =
+                    cache.loadSnapshotAtFence(dorisTable, fenceTable, fence);
+            Assert.assertSame(capturedAuthenticator, effectiveHydrated.getCapturedAuthenticator());
+
+            PaimonSnapshotCacheValue directProjection =
+                    cache.loadSnapshotProjection(dorisTable, baseTable, tableValue);
+            Assert.assertSame(capturedAuthenticator, directProjection.getCapturedAuthenticator());
+
+            // 4. Generation-zero schema resolution follows the value's captured context as well.
+            cache.getPaimonSchemaCacheValue(mapping, 3L, 0L, fenceTable,
+                    hydrated.getCapturedAuthenticator());
             Assert.assertEquals(0, authenticationDepth.get());
         } finally {
             cache.close();

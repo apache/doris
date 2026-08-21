@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
+
+import javax.annotation.Nullable;
 
 public class PaimonSnapshotCacheValue {
 
@@ -28,6 +31,15 @@ public class PaimonSnapshotCacheValue {
     private final long tableGeneration;
     private long retainedTablePayloadBytes;
     private MetaCacheSizeEstimate sizeEstimate;
+    /**
+     * Execution context captured from the table generation this value retains. Later projection
+     * or schema hydration of the retained physical table must run under this context, never under
+     * the catalog's current one: a concurrent property/credential ALTER may already have replaced
+     * the catalog resources while this statement still operates the retained generation.
+     * Not part of the accounted payload; it references catalog-generation-lifetime resources.
+     */
+    @Nullable
+    private transient volatile ExecutionAuthenticator capturedAuthenticator;
 
     public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot) {
         this(partitionInfo, snapshot, false, 0L);
@@ -52,6 +64,16 @@ public class PaimonSnapshotCacheValue {
 
     public PaimonSnapshot getSnapshot() {
         return snapshot;
+    }
+
+    public PaimonSnapshotCacheValue bindCapturedAuthenticator(@Nullable ExecutionAuthenticator authenticator) {
+        this.capturedAuthenticator = authenticator;
+        return this;
+    }
+
+    @Nullable
+    public ExecutionAuthenticator getCapturedAuthenticator() {
+        return capturedAuthenticator;
     }
 
     public boolean isSchemaFromSnapshotTable() {
