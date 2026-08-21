@@ -223,6 +223,14 @@ public class CloudSystemInfoServiceTest {
 
         String res = infoService.getPhysicalCluster(vcgName);
         Assert.assertEquals(pcgName1, res);
+
+        Backend activeBackend = toAdd1.get(1);
+        Assert.assertSame(activeBackend,
+                infoService.getBackendInCurrentCluster(pcgName1, activeBackend.getId()));
+        Assert.assertSame(activeBackend,
+                infoService.getBackendInCurrentCluster(vcgName, activeBackend.getId()));
+        Assert.assertNull(infoService.getBackendInCurrentCluster(vcgName, toAdd2.get(1).getId()));
+        Assert.assertNull(infoService.getBackendInCurrentCluster(vcgName, Long.MAX_VALUE));
     }
 
     // active has 3 dead be and standby has 3 alive be
