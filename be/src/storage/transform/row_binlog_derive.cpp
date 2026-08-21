@@ -114,7 +114,7 @@ Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
 // LSN is the per-row auto-inc value, and op describes the row change.
 void fill_binlog_system_columns(Block& out, const TabletSchema& binlog_schema,
                                 uint32_t binlog_tso_cid, uint32_t binlog_lsn_cid,
-                                uint32_t binlog_op_cid, const DorisVector<int64_t>& lsn_ids,
+                                uint32_t binlog_op_cid, const std::vector<int64_t>& lsn_ids,
                                 const std::vector<int64_t>& operators, size_t num_rows) {
     std::vector<uint32_t> binlog_cids = {binlog_tso_cid, binlog_lsn_cid, binlog_op_cid};
     Block binlog_system_block = binlog_schema.create_block_by_cids(binlog_cids);

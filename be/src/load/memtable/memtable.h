@@ -271,7 +271,7 @@ private:
     //for vectorized
     MutableBlock _input_mutable_block;
     MutableBlock _output_mutable_block;
-    AllocatedLsnVectorSharedPtr _output_allocated_lsns = std::make_shared<DorisVector<int64_t>>();
+    AllocatedLsnVectorSharedPtr _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
     bool _need_lsn = false;
     size_t _last_sorted_pos = 0;
     size_t _last_agg_pos = 0;

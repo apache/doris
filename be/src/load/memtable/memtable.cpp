@@ -189,7 +189,7 @@ MemTable::~MemTable() {
         _input_mutable_block.clear();
         _output_mutable_block.clear();
         // Reset the LSN sidecar to release its capacity tracked by the memtable tracker.
-        _output_allocated_lsns = std::make_shared<DorisVector<int64_t>>();
+        _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
     }
     if (_is_flush_success) {
         // If the memtable is flush success, then its memtracker's consumption should be 0
@@ -459,7 +459,7 @@ Status MemTable::_sort_by_cluster_keys() {
                                      : std::make_shared<RowInBlock>(i));
     }
     if (_need_lsn) {
-        _output_allocated_lsns = std::make_shared<DorisVector<int64_t>>();
+        _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
         _output_allocated_lsns->reserve(mutable_block.rows());
     }
     Tie tie = Tie(0, mutable_block.rows());
@@ -649,7 +649,7 @@ void MemTable::_aggregate() {
         //TODO(weixang):opt here.
         _output_mutable_block = MutableBlock::build_mutable_block(std::move(*empty_input_block));
         _output_mutable_block.clear_column_data();
-        _output_allocated_lsns = std::make_shared<DorisVector<int64_t>>();
+        _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();
     }
@@ -814,7 +814,7 @@ size_t MemTable::get_flush_reserve_memory_size() const {
 }
 
 Status MemTable::_to_block(std::unique_ptr<Block>* res) {
-    _output_allocated_lsns = std::make_shared<DorisVector<int64_t>>();
+    _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {

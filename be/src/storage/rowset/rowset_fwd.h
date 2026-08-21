@@ -19,8 +19,7 @@
 
 #include <memory>
 #include <unordered_map>
-
-#include "core/custom_allocator.h"
+#include <vector>
 
 namespace doris {
 
@@ -38,7 +37,7 @@ class RowsetWriter;
 using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 class RowsetBuilder;
 using RowsetBuilderSharedPtr = std::shared_ptr<RowsetBuilder>;
-using AllocatedLsnVectorSharedPtr = std::shared_ptr<DorisVector<int64_t>>;
-using ConstAllocatedLsnVectorSharedPtr = std::shared_ptr<const DorisVector<int64_t>>;
+using AllocatedLsnVectorSharedPtr = std::shared_ptr<std::vector<int64_t>>;
+using ConstAllocatedLsnVectorSharedPtr = std::shared_ptr<const std::vector<int64_t>>;
 
 } // namespace doris

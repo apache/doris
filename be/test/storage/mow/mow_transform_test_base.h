@@ -478,7 +478,7 @@ protected:
 
     // The per-segment LSN range the binlog derive consumes (one LSN per row).
     static AllocatedLsnVectorSharedPtr make_seg_lsn(size_t num_rows, int64_t start = 1000) {
-        auto lsn_ids = std::make_shared<DorisVector<int64_t>>();
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
         for (size_t i = 0; i < num_rows; ++i) {
             lsn_ids->push_back(start + static_cast<int64_t>(i));
         }

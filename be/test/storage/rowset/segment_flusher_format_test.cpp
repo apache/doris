@@ -3116,7 +3116,7 @@ protected:
         options.source.is_transient_rowset_writer = source_is_transient;
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
         for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
-            auto lsn_ids = std::make_shared<DorisVector<int64_t>>();
+            auto lsn_ids = std::make_shared<std::vector<int64_t>>();
             for (int64_t row = 0; row < 3; ++row) {
                 lsn_ids->push_back(1000 + segment_id * 100 + row);
             }
