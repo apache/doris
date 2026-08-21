@@ -132,6 +132,7 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 // enable recycler metrics statistics
 CONF_Bool(enable_recycler_stats_metrics, "false");
+CONF_mBool(retain_deleted_instance_tombstone, "true");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");

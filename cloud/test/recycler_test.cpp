@@ -3303,7 +3303,12 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
         std::string value;
-        ASSERT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(instance_key({instance_id}), &value));
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_id}), &value));
+        InstanceInfoPB retained_instance;
+        ASSERT_TRUE(retained_instance.ParseFromString(value));
+        ASSERT_EQ(retained_instance.status(), InstanceInfoPB::DELETED);
+        ASSERT_EQ(retained_instance.recycle_state(),
+                  InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
     }
 
     // check if all the objects are deleted
@@ -3366,6 +3371,67 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
         check_delete_bitmap_file_size(accessor, tablet_id, 0);
     }
+}
+
+TEST(RecyclerTest, recycle_deleted_instance_metadata_successor_state) {
+    auto run_case = [](const std::string& suffix, bool put_successor,
+                       InstanceRecycleState successor_state,
+                       InstanceRecycleState expected_predecessor_state,
+                       bool successor_has_recycle_state = true) {
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+
+        const std::string predecessor_id = "predecessor_" + suffix;
+        const std::string successor_id = "successor_" + suffix;
+
+        InstanceInfoPB predecessor;
+        predecessor.set_instance_id(predecessor_id);
+        predecessor.set_status(InstanceInfoPB::DELETED);
+        predecessor.set_recycle_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+        predecessor.set_successor_instance_id(successor_id);
+        put_instance_info(txn_kv.get(), predecessor);
+
+        if (put_successor) {
+            InstanceInfoPB successor;
+            successor.set_instance_id(successor_id);
+            successor.set_status(InstanceInfoPB::DELETED);
+            if (successor_has_recycle_state) {
+                successor.set_recycle_state(successor_state);
+            }
+            put_instance_info(txn_kv.get(), successor);
+        }
+
+        InstanceRecycler recycler(txn_kv, predecessor, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.recycle_deleted_instance_metadata(), 0);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(instance_key({predecessor_id}), &value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(predecessor.ParseFromString(value));
+        ASSERT_EQ(predecessor.recycle_state(), expected_predecessor_state);
+        if (put_successor) {
+            ASSERT_EQ(txn->get(instance_key({successor_id}), &value), TxnErrorCode::TXN_OK);
+            InstanceInfoPB successor;
+            ASSERT_TRUE(successor.ParseFromString(value));
+            ASSERT_EQ(successor.has_recycle_state(), successor_has_recycle_state);
+        }
+    };
+
+    run_case("successor_completed", true,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    run_case("successor_pending", true,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    run_case("successor_missing", false,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    run_case("successor_legacy_without_state", true,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+             InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING, false);
 }
 
 TEST(RecyclerTest, init_deleted_instance_with_terminal_recycle_state) {
