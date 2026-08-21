@@ -32,8 +32,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/Types_types.h"
+#include "runtime/descriptors.h"
 #include "testutil/column_helper.h"
 #include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -185,6 +191,52 @@ TEST_F(FunctionTimezoneHourMinuteTest, nullable_input) {
     EXPECT_EQ(data.get_element(0), 8);
     EXPECT_FALSE(col.is_null_at(0));
     EXPECT_TRUE(col.is_null_at(1));
+}
+
+TEST_F(FunctionTimezoneHourMinuteTest, disables_default_constant_implementation) {
+    // The result depends on the session time_zone, so the default constant
+    // implementation must stay disabled: it would fold a constant input into
+    // a cached result column and, via VectorizedFnCall::is_constant(), let
+    // the point-query short-circuit executor reuse a value computed with the
+    // default +08:00 zone after the request's time_zone is applied.
+    auto block = ColumnHelper::create_block<DataTypeTimeStampTz>(
+            {make_timestamptz(2024, 1, 15, 12, 0, 0, 0)});
+    for (const std::string& func_name : {"timezone_hour", "timezone_minute"}) {
+        FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+                func_name, block.get_columns_with_type_and_name(),
+                std::make_shared<DataTypeInt64>());
+        ASSERT_NE(func, nullptr) << func_name;
+        EXPECT_FALSE(func->is_use_default_implementation_for_constants()) << func_name;
+    }
+}
+
+TEST_F(FunctionTimezoneHourMinuteTest, fn_call_with_literal_is_not_constant) {
+    // Regression guard for the point-query short-circuit path: even with a
+    // literal argument, VectorizedFnCall::is_constant() must report false so
+    // the executor re-evaluates the expression per request instead of
+    // reusing a column cached under the default timezone.
+    auto tz_col = ColumnTimeStampTz::create();
+    tz_col->insert_value(make_timestamptz(2024, 1, 15, 12, 0, 0, 0));
+    TExprNode literal_node = create_texpr_node_from((*tz_col)[0], TYPE_TIMESTAMPTZ, 0, 6);
+
+    TExprNode fn_node;
+    fn_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    fn_node.__set_type(create_type_desc(TYPE_BIGINT));
+    TFunction fn;
+    fn.name.__set_function_name("timezone_hour");
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn_node.__set_fn(fn);
+    fn_node.__set_num_children(1);
+
+    TExpr texpr;
+    texpr.nodes.push_back(fn_node);
+    texpr.nodes.push_back(literal_node);
+
+    VExprContextSPtr ctx;
+    ASSERT_TRUE(VExpr::create_expr_tree(texpr, ctx).ok()) << "create expr tree";
+    ASSERT_NE(ctx, nullptr);
+    ASSERT_TRUE(ctx->prepare(&_state, RowDescriptor()).ok()) << "prepare expr";
+    EXPECT_FALSE(ctx->root()->is_constant());
 }
 
 } // namespace doris

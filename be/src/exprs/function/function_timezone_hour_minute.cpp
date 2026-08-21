@@ -95,6 +95,14 @@ public:
         return std::make_shared<DataTypeInt64>();
     }
 
+    // The result depends on the session time_zone, so a constant result must
+    // never be cached: the point-query short-circuit executor opens output
+    // expressions with the default timezone and later reuses cached constant
+    // columns without re-evaluating them (VectorizedFnCall::is_constant
+    // consults this flag). Disable it like other nondeterministic functions
+    // (e.g. random, uuid).
+    bool use_default_implementation_for_constants() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         return execute_timezone_offset_part(context, block, arguments, result, input_rows_count,
@@ -115,6 +123,9 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt64>();
     }
+
+    // See FunctionTimezoneHour::use_default_implementation_for_constants.
+    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
