@@ -78,7 +78,6 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private transient List<String> parentNamespace = Collections.emptyList();
     private transient String catalogType;
     private transient String rootDatabase;
-    private transient Map<String, String> lanceStorageOptions = Collections.emptyMap();
     private transient Object namespaceLock = new Object();
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
@@ -96,7 +95,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            lanceStorageOptions = LanceStorageOptions.toLanceOptions(
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.toLanceOptions(
                     catalogProperty.getOrderedStoragePropertiesList());
 
             allocator = new RootAllocator(ALLOCATOR_LIMIT);

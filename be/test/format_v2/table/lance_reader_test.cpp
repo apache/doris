@@ -949,6 +949,31 @@ TEST(LanceTableReaderScanTest, ReadsLatestSnapshotWithoutFragmentIds) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+TEST(LanceTableReaderScanTest, RejectsStorageOptionWithEmbeddedNul) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_storage_option_embedded_nul");
+
+    // lance-c reads these as C strings, so a NUL truncates the option here while the FE goes on
+    // using the whole thing, leaving the two halves opening the dataset with different
+    // configuration. Dropping it instead of failing would only move that divergence.
+    TFileScanRangeParams scan_params;
+    scan_params.__set_lance_storage_options(
+            {{std::string("aws_region\0ignored", 18), "us-east-1"}});
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    const auto status = prepare_range(&reader, make_latest_lance_range(dataset_uri));
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("contains a NUL"), std::string::npos);
+    EXPECT_TRUE(reader.close().ok());
+}
+
 TEST(LanceTableReaderTypeTest, ReadsNumericTypesFromAllTypesFixture) {
     // The committed fixture contains four rows covering values, nulls, and boundary cases.
     const std::filesystem::path dataset_uri =
