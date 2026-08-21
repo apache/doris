@@ -57,6 +57,15 @@
 namespace doris {
 
 // Helper structure to hold either RE2 or Boost.Regex
+// Advance one UTF-16 code unit, matching Java `Matcher.find()`'s progress after an
+// empty match (Spark semantics): a 4-byte UTF-8 character is two UTF-16 code
+// units, so it advances by half of the character; anything shorter advances by
+// the full UTF-8 character.
+static size_t advance_one_utf16_unit(const char* p) {
+    const auto lead = static_cast<uint8_t>(*p);
+    return lead >= 0xF0 ? 2 : get_utf8_byte_length(lead);
+}
+
 struct RegexpExtractEngine {
     std::unique_ptr<re2::RE2> re2_regex;
     std::unique_ptr<boost::regex> boost_regex;
@@ -234,10 +243,9 @@ struct RegexpExtractEngine {
                     if (whole.data() >= data + size) {
                         break;
                     }
-                    // Advance one full UTF-8 character FROM THE MATCH LOCATION, never
-                    // into a continuation byte and never rescanning the same match.
-                    pos = (whole.data() - data) +
-                          get_utf8_byte_length(static_cast<uint8_t>(*whole.data()));
+                    // Advance one UTF-16 code unit FROM THE MATCH LOCATION (Java
+                    // Matcher semantics), never rescanning the same match.
+                    pos = (whole.data() - data) + advance_one_utf16_unit(whole.data());
                 } else {
                     // Advance past the match via its pointer into the original subject.
                     pos = (whole.data() - data) + whole.size();
@@ -262,14 +270,13 @@ struct RegexpExtractEngine {
                     results.emplace_back(matches[index].str());
                 }
                 if (matches[0].length() == 0) {
-                    // Advance past the zero-width match itself (one full UTF-8
-                    // character), otherwise a match found after the origin would be
-                    // emitted twice or the next search could split a multibyte char.
+                    // Advance one UTF-16 code unit past the zero-width match (Java
+                    // Matcher semantics), otherwise a match found after the origin
+                    // would be emitted twice.
                     if (matches[0].first == search_end) {
                         break;
                     }
-                    search_start = matches[0].first +
-                                   get_utf8_byte_length(static_cast<uint8_t>(*matches[0].first));
+                    search_start = matches[0].first + advance_one_utf16_unit(matches[0].first);
                 } else {
                     search_start = matches[0].second;
                 }
