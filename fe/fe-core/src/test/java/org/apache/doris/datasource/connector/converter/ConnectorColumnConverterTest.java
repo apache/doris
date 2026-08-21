@@ -209,8 +209,10 @@ class ConnectorColumnConverterTest {
     @Test
     void testDecimalV2TypeNameUnaffectedByV3Canonicalization() {
         // DECIMALV2 is a distinct legacy type family; it must keep its own type name, not be folded
-        // into the DECIMALV3 canonicalization above.
-        ScalarType decimalV2 = ScalarType.createDecimalType(9, 2);
+        // into the DECIMALV3 canonicalization above. Built via the PrimitiveType-explicit overload so
+        // this does not depend on Config.enable_decimal_conversion (createDecimalType(precision, scale)
+        // silently upgrades to a DECIMALV3 width whenever that flag is on, which it is in this suite).
+        ScalarType decimalV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2, 9, 2);
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(decimalV2);
         Assertions.assertEquals("DECIMALV2", ct.getTypeName());
     }
