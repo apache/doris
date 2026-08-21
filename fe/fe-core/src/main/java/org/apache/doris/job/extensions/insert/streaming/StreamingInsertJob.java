@@ -312,7 +312,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             String srcTable = entry.getKey();
             CreateTableCommand createTblCmd = entry.getValue();
             if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
-                createTblCmd.run(ConnectContext.get(), null);
+                createTblCmd.execute(ConnectContext.get(), null);
             }
             // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);

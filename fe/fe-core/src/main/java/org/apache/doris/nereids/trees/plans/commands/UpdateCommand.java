@@ -117,7 +117,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
-                Optional.empty(), true, Optional.empty()).run(ctx, executor);
+                Optional.empty(), true, Optional.empty()).execute(ctx, executor);
     }
 
     /**

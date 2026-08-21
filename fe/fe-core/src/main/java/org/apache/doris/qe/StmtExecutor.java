@@ -850,8 +850,7 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded(context);
             try {
-                ((Command) logicalPlan).verifyCommandSupported(context);
-                ((Command) logicalPlan).run(context, this);
+                ((Command) logicalPlan).execute(context, this);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);

@@ -141,7 +141,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             return;
         }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
-                Optional.empty(), true, Optional.empty()).run(ctx, executor);
+                Optional.empty(), true, Optional.empty()).execute(ctx, executor);
     }
 
     @Override

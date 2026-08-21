@@ -356,7 +356,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
                 Optional.of(insertCtx), Optional.empty(), false, branchName);
-        insertCommand.run(ctx, executor);
+        insertCommand.execute(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
             LOG.warn("InsertInto state error:{}", errMsg);

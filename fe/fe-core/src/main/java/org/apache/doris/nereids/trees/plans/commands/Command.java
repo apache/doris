@@ -51,6 +51,32 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
 
     public abstract void run(ConnectContext ctx, StmtExecutor executor) throws Exception;
 
+    /**
+     * Execute this command through the shared command lifecycle.
+     */
+    public final void execute(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        Throwable failure = null;
+        try {
+            before(ctx);
+            run(ctx, executor);
+        } catch (Exception | Error e) {
+            failure = e;
+            throw e;
+        } finally {
+            after(ctx, failure);
+        }
+    }
+
+    private void before(ConnectContext ctx) throws DdlException {
+        if (Config.isCloudMode() && this instanceof CloudRestrictedCommand) {
+            ((CloudRestrictedCommand) this).cloudRestrictionPolicy().validate(ctx, this);
+        }
+    }
+
+    private void after(ConnectContext ctx, Throwable failure) {
+        // Reserved for shared cleanup, auditing, or metrics. It must not hide the original failure.
+    }
+
     @Override
     public Optional<GroupExpression> getGroupExpression() {
         throw new RuntimeException("Command do not implement getGroupExpression");
@@ -121,18 +147,6 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
     }
-
-    public void verifyCommandSupported(ConnectContext ctx) throws DdlException {
-        // check command has been supported in cloud mode
-        if (Config.isCloudMode()) {
-            checkSupportedInCloudMode(ctx);
-        }
-    }
-
-    // check if the command is supported in cloud mode
-    // see checkStmtSupported() in fe/fe-core/src/main/java/org/apache/doris/qe/ShowExecutor.java
-    // override this method if the command is not supported in cloud mode
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {}
 
     // For prepare statement only, used to get the result set metadata in prepare stage.
     // Subclass need to override this to return correct metadata.

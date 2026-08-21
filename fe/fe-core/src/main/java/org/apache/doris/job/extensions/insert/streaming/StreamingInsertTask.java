@@ -122,7 +122,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
         String errMsg = null;
         try {
-            taskCommand.run(ctx, stmtExecutor);
+            taskCommand.execute(ctx, stmtExecutor);
             if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
                 return;
             } else {
