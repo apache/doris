@@ -32,6 +32,6 @@ The earlier development-process assumption that a123 FE HTTP used `58330` is obs
 - Mutations require `X-Doris-CSRF-Token`; `/me` returns the token associated with the login session.
 - Authorization is operation-specific. The legacy `/rest/v1/**` behavior is not globally weakened.
 
-## M0 fixture policy
+## M0 response contract policy
 
-Fixtures under `src/test/fixtures/m0` contain only schema-relevant, synthetic values. They preserve field names and shapes observed from the live a123 FE/BE but exclude cookies, passwords, hostnames, logs, full SQL text, tokens, and runtime identifiers. Configuration has separate FE and BE fixtures because their source column sets differ.
+The unused synthetic M0 fixtures were removed because they did not match several real FE response shapes and therefore could not serve as contract evidence. API response assumptions must be covered by an executable test against a response shape verified from the corresponding FE controller or a captured, sanitized runtime response.

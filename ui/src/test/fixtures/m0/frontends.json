@@ -1,9 +1,0 @@
-{
-  "msg": "success",
-  "code": 0,
-  "data": {
-    "columnNames": ["Name", "Host", "EditLogPort", "HttpPort", "QueryPort", "Role", "IsMaster", "Alive", "Version"],
-    "rows": [["fe-example", "127.0.0.1", "9010", "8030", "59330", "FOLLOWER", "true", "true", "doris-example"]]
-  },
-  "count": 0
-}

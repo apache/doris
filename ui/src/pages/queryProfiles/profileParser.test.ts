@@ -20,6 +20,7 @@ import {
   parseProfileText,
   ProfileParserError,
 } from './profileParser';
+import tpcdsQuery41MergedProfile from '../../test/fixtures/profiles/tpcds-query41-merged-profile.txt?raw';
 
 function representativeProfile(version = '4.1.0') {
   return [
@@ -91,5 +92,87 @@ describe('MergedProfile parser', () => {
       max: 309,
       min: 253,
     });
+  });
+
+  it('maps current Doris operator counters to their actual semantics', () => {
+    // Captured MergedProfile shape and counter names emitted by Doris BE.
+    const graph = parseProfileText([
+      'MergedProfile:',
+      '  Fragment 0:',
+      '    Pipeline 0(instance_num=1):',
+      '      AGGREGATION_SINK_OPERATOR(nereids_id=842)(id=3):',
+      '        CommonCounters:',
+      '          - InputRows: sum 6, avg 3, max 4, min 2',
+      '          - RowsProduced: sum 2, avg 1, max 1, min 1',
+      '          - MemoryUsage: sum 1.25 MB, avg 640.00 KB, max 1.00 MB, min 256.00 KB',
+      '          - PeakMemoryUsage: sum 2.00 MB, avg 1.00 MB, max 1.50 MB, min 512.00 KB',
+      'DetailProfile(test):',
+    ].join('\n'));
+
+    expect(graph.graph.nodes[0].metrics).toMatchObject({
+      inputRows: { sum: 6, avg: 3, max: 4, min: 2 },
+      outputRows: { sum: 2, avg: 1, max: 1, min: 1 },
+      memoryUsageBytes: { sum: 1_310_720, avg: 655_360, max: 1_048_576, min: 262_144 },
+      memoryPeakBytes: { sum: 2_097_152, avg: 1_048_576, max: 1_572_864, min: 524_288 },
+    });
+  });
+
+  it('keeps the Doris 4.0 MemoryUsagePeak spelling as a compatibility fallback', () => {
+    const profile = representativeProfile().replace(
+      '          - ExecTime: avg 2ms, max 3ms, min 1ms',
+      '          - MemoryUsagePeak: sum 2.00 MB, avg 2.00 MB, max 2.00 MB, min 2.00 MB',
+    );
+    expect(parseProfileText(profile).graph.nodes[0].metrics?.memoryPeakBytes?.max).toBe(2_097_152);
+  });
+
+  it('parses row and memory metrics from a captured Doris TPC-DS Profile', () => {
+    const graph = parseProfileText(tpcdsQuery41MergedProfile);
+    const aggregationSink = graph.graph.nodes.find(
+      node => node.operatorType === 'AGGREGATION_SINK_OPERATOR' && node.nereidsId === 842,
+    );
+
+    expect(graph.summary).toMatchObject({ fragmentCount: 5, pipelineCount: 13 });
+    expect(aggregationSink?.metrics).toMatchObject({
+      inputRows: { sum: 6, max: 3 },
+      outputRows: null,
+      memoryPeakBytes: { sum: 1_310_720, max: 436_511 },
+    });
+  });
+
+  it('pairs the BE partitioned hash join operator names', () => {
+    const graph = parseProfileText([
+      'MergedProfile:',
+      '  Fragment 0:',
+      '    Pipeline 0(instance_num=1):',
+      '      PARTITIONED_HASH_JOIN_PROBE_OPERATOR(nereids_id=12)(id=4):',
+      '    Pipeline 1(instance_num=1):',
+      '      PARTITIONED_HASH_JOIN_SINK_OPERATOR(nereids_id=12)(id=4):',
+      'DetailProfile(test):',
+    ].join('\n'));
+
+    expect(graph.graph.edges).toEqual([
+      expect.objectContaining({ kind: 'BUILD_DEPENDENCY', relationId: '12' }),
+    ]);
+    expect(graph.unresolvedReferences).toHaveLength(0);
+  });
+
+  it('parses multicast dest_ids lists and reports unresolved branches', () => {
+    const graph = parseProfileText([
+      'MergedProfile:',
+      '  Fragment 0:',
+      '    Pipeline 0(instance_num=1):',
+      '      MULTI_CAST_DATA_STREAM_SINK_OPERATOR(id=9, dest_ids=[7,8]):',
+      '  Fragment 1:',
+      '    Pipeline 0(instance_num=1):',
+      '      MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR(id=7):',
+      '  Fragment 2:',
+      '    Pipeline 0(instance_num=1):',
+      '      MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR(id=8):',
+      'DetailProfile(test):',
+    ].join('\n'));
+
+    expect(graph.graph.nodes[0].destIds).toEqual([7, 8]);
+    expect(graph.graph.edges.filter(edge => edge.kind === 'MULTICAST')).toHaveLength(2);
+    expect(graph.unresolvedReferences).toHaveLength(0);
   });
 });

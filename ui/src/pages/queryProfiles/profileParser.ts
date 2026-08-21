@@ -60,6 +60,7 @@ const FRAGMENT_RE = /^\s*Fragment\s+(\d+):\s*$/;
 const PIPELINE_RE = /^\s*Pipeline\s+(\d+)\s*\(\s*instance_num\s*=\s*(\d+)\s*\):\s*$/;
 const OPERATOR_RE = /^\s+([A-Z][A-Z0-9_]*_OPERATOR)(.*):\s*$/;
 const ATTRIBUTE_RE = /([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+)/g;
+const LIST_ATTRIBUTE_RE = /([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\[([^\]]*)\]/g;
 const TABLE_NAME_RE = /table_name=([^,)]+(?:\([^)]*\))?)/;
 const COUNTERS_RE = /^\s*(?:Common|Custom)Counters:\s*$/;
 const PLANINFO_RE = /^\s*-\s*PlanInfo\s*$/;
@@ -76,7 +77,7 @@ export const OPERATOR_SPECS: Readonly<Record<string, OperatorSpec>> = {
     LOCAL_EXCHANGE_SINK_OPERATOR: ['LOCAL_EXCHANGE', 'SINK', 'LOCAL EXCHANGE SINK'],
     HASH_JOIN_OPERATOR: ['HASH_JOIN', 'PROBE', 'HASH JOIN'],
     HASH_JOIN_SINK_OPERATOR: ['HASH_JOIN', 'BUILD', 'HASH JOIN BUILD'],
-    PARTITIONED_HASH_JOIN_OPERATOR: ['PARTITIONED_HASH_JOIN', 'PROBE', 'PARTITIONED HASH JOIN'],
+    PARTITIONED_HASH_JOIN_PROBE_OPERATOR: ['PARTITIONED_HASH_JOIN', 'PROBE', 'PARTITIONED HASH JOIN'],
     PARTITIONED_HASH_JOIN_SINK_OPERATOR: ['PARTITIONED_HASH_JOIN', 'BUILD', 'PARTITIONED HASH JOIN BUILD'],
     NESTED_LOOP_JOIN_OPERATOR: ['CROSS_JOIN', 'PROBE', 'NESTED LOOP JOIN'],
     NESTED_LOOP_JOIN_SINK_OPERATOR: ['CROSS_JOIN', 'BUILD', 'NESTED LOOP JOIN BUILD'],
@@ -84,10 +85,16 @@ export const OPERATOR_SPECS: Readonly<Record<string, OperatorSpec>> = {
     CROSS_JOIN_SINK_OPERATOR: ['CROSS_JOIN', 'BUILD', 'CROSS JOIN BUILD'],
     AGGREGATION_OPERATOR: ['AGGREGATION', 'SOURCE', 'AGGREGATION'],
     AGGREGATION_SINK_OPERATOR: ['AGGREGATION', 'SINK', 'AGGREGATION SINK'],
+    PARTITIONED_AGGREGATION_OPERATOR: ['PARTITIONED_AGGREGATION', 'SOURCE', 'PARTITIONED AGGREGATION'],
+    PARTITIONED_AGGREGATION_SINK_OPERATOR: ['PARTITIONED_AGGREGATION', 'SINK', 'PARTITIONED AGGREGATION SINK'],
+    BUCKETED_AGGREGATION_OPERATOR: ['BUCKETED_AGGREGATION', 'SOURCE', 'BUCKETED AGGREGATION'],
+    BUCKETED_AGGREGATION_SINK_OPERATOR: ['BUCKETED_AGGREGATION', 'SINK', 'BUCKETED AGGREGATION SINK'],
     STREAMING_AGGREGATION_OPERATOR: ['STREAMING_AGGREGATION', 'SOURCE', 'STREAMING AGGREGATION'],
     DISTINCT_STREAMING_AGGREGATION_OPERATOR: ['STREAMING_AGGREGATION', 'SOURCE', 'DISTINCT STREAMING AGGREGATION'],
     SORT_OPERATOR: ['SORT', 'SOURCE', 'SORT'],
     SORT_SINK_OPERATOR: ['SORT', 'SINK', 'SORT SINK'],
+    SPILL_SORT_SOURCE_OPERATOR: ['SPILL_SORT', 'SOURCE', 'SPILL SORT'],
+    SPILL_SORT_SINK_OPERATOR: ['SPILL_SORT', 'SINK', 'SPILL SORT SINK'],
     LOCAL_MERGE_SORT_SOURCE_OPERATOR: ['SORT', 'SOURCE', 'LOCAL MERGE SORT'],
     PARTITION_SORT_OPERATOR: ['PARTITION_SORT', 'SOURCE', 'PARTITION SORT'],
     PARTITION_SORT_SINK_OPERATOR: ['PARTITION_SORT', 'SINK', 'PARTITION SORT SINK'],
@@ -106,6 +113,15 @@ export const OPERATOR_SPECS: Readonly<Record<string, OperatorSpec>> = {
     REPEAT_OPERATOR: ['REPEAT', 'SOURCE', 'REPEAT'],
     TABLE_FUNCTION_OPERATOR: ['TABLE_FUNCTION', 'SOURCE', 'TABLE FUNCTION'],
     ASSERT_NUM_ROWS_OPERATOR: ['ASSERT_NUM_ROWS', 'SOURCE', 'ASSERT NUM ROWS'],
+    CACHE_SOURCE_OPERATOR: ['CACHE', 'SOURCE', 'QUERY CACHE'],
+    CACHE_SINK_OPERATOR: ['CACHE', 'SINK', 'QUERY CACHE SINK'],
+    INTERSECT_OPERATOR: ['SET', 'SOURCE', 'INTERSECT'],
+    EXCEPT_OPERATOR: ['SET', 'SOURCE', 'EXCEPT'],
+    SET_SINK_OPERATOR: ['SET', 'SINK', 'SET BUILD'],
+    SET_PROBE_SINK_OPERATOR: ['SET', 'SINK', 'SET PROBE'],
+    REC_CTE_OPERATOR: ['REC_CTE', 'SOURCE', 'RECURSIVE CTE'],
+    REC_CTE_SINK_OPERATOR: ['REC_CTE', 'SINK', 'RECURSIVE CTE SINK'],
+    REC_CTE_ANCHOR_SINK_OPERATOR: ['REC_CTE', 'SINK', 'RECURSIVE CTE ANCHOR'],
 };
 
 const PLAN_INFO_WHITELIST: Readonly<Record<string, string>> = {
@@ -144,10 +160,16 @@ const PAIRING_RULES: readonly PairingRule[] = [
     ['PARTITIONED_HASH_JOIN', ['BUILD'], ['PROBE'], 'BUILD_DEPENDENCY'],
     ['CROSS_JOIN', ['BUILD'], ['PROBE'], 'BUILD_DEPENDENCY'],
     ['AGGREGATION', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
+    ['PARTITIONED_AGGREGATION', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
+    ['BUCKETED_AGGREGATION', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
     ['SORT', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
+    ['SPILL_SORT', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
     ['PARTITION_SORT', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
     ['ANALYTIC_EVAL', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
     ['UNION', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
+    ['CACHE', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
+    ['SET', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
+    ['REC_CTE', ['SINK'], ['SOURCE'], 'BLOCKING_DEPENDENCY'],
 ];
 
 const utf8Encoder = new TextEncoder();
@@ -173,6 +195,13 @@ function parseAttributes(value: string): Record<string, number[]> {
         const parsed = Number(match[2]);
         if (!Number.isSafeInteger(parsed)) continue;
         (attributes[match[1]] ??= []).push(parsed);
+    }
+    for (const match of value.matchAll(LIST_ATTRIBUTE_RE)) {
+        const parsed = match[2]
+            .split(',')
+            .map(item => Number(item.trim()))
+            .filter(Number.isSafeInteger);
+        if (parsed.length > 0) attributes[match[1]] = parsed;
     }
     return attributes;
 }
@@ -304,10 +333,12 @@ function finalizeNode(node: ParsedNode): ProfileDagNode {
         ...output,
         timing,
         metrics: {
-            inputRows: aggregateMetric(node.counters.RowsProduced),
-            outputRows: aggregateMetric(node.counters.RowsReturned),
+            inputRows: aggregateMetric(node.counters.InputRows),
+            outputRows: aggregateMetric(node.counters.RowsProduced),
             memoryUsageBytes: aggregateMetric(node.counters.MemoryUsage),
-            memoryPeakBytes: aggregateMetric(node.counters.MemoryUsagePeak),
+            // PeakMemoryUsage is the current BE counter. MemoryUsagePeak keeps
+            // Visual Profile compatible with profiles captured from Doris 4.0.
+            memoryPeakBytes: aggregateMetric(node.counters.PeakMemoryUsage ?? node.counters.MemoryUsagePeak),
         },
         analysis: { heat: null, waitHeat: null, isBottleneck: false },
     };
@@ -462,7 +493,7 @@ export function parseProfileText(text: string): ProfileGraphIR {
                 planNodeId: attributes.id?.[0] ?? null,
                 nereidsId: attributes.nereids_id?.[0] ?? null,
                 destId: attributes.dest_id?.[0] ?? null,
-                destIds: attributes.dest_id ?? [],
+                destIds: attributes.dest_ids ?? attributes.dest_id ?? [],
                 known: Boolean(spec),
                 lineNumber: index + 1,
                 headerAttributes: attributes,
