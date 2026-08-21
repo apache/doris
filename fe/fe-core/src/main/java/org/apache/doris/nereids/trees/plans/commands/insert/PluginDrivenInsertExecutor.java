@@ -166,9 +166,9 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
      * <p>By the time this runs, the remote write is already durably committed and FE cannot roll
      * it back: for jdbc the BE commits directly via PreparedStatement; for the connector-transaction
      * path (maxcompute) the write session is committed by the transaction manager in onComplete,
-     * before this step. {@code super.doAfterCommit()} only refreshes FE-side metadata cache and
-     * writes an external-table refresh edit log (a cache-invalidation hint to followers); it never
-     * touches the already-committed remote data.</p>
+     * before this step. {@code super.doAfterCommit()} records a refresh hint for followers, then
+     * invalidates connector, metadata, and row-count caches; it never touches the already-committed
+     * remote data.</p>
      *
      * <p>If that refresh fails (e.g., catalog dropped concurrently, edit log I/O error), reporting
      * the INSERT as failed would mislead the user into retrying and writing duplicate data. The

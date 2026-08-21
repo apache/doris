@@ -55,7 +55,7 @@ Status convert_seq_column(OlapBlockDataConvertor& convertor, const TabletSchema&
 
 Block widen_partial_update_block(const TabletSchema& schema,
                                  const std::vector<uint32_t>& update_cids, const Block& narrow) {
-    Block full_block = schema.create_block();
+    Block full_block = schema.create_storage_block();
     size_t input_id = 0;
     for (auto cid : update_cids) {
         // Carry the input's type along with its column: a variant V2 input column

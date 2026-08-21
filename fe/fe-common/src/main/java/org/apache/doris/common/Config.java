@@ -3635,7 +3635,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField
-    public static int cloud_snapshot_handler_interval_second = 3600;
+    public static int cloud_snapshot_handler_interval_second = 10;
     @ConfField(mutable = true)
     public static long cloud_snapshot_timeout_seconds = 600;
     @ConfField(mutable = true)

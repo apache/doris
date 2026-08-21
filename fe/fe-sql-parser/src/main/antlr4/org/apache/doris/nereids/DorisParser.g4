@@ -930,8 +930,7 @@ workloadPolicyActions
     ;
 
 workloadPolicyAction
-    : SET_SESSION_VARIABLE STRING_LITERAL
-    | identifier (STRING_LITERAL)?
+    : identifier (STRING_LITERAL)?
     ;
 
 workloadPolicyConditions
@@ -2327,7 +2326,6 @@ nonReserved
     | MICROSECOND
     | SEPARATOR
     | SERIALIZABLE
-    | SET_SESSION_VARIABLE
     | SESSION
     | SESSION_USER
     | SHAPE

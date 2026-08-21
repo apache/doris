@@ -1916,6 +1916,32 @@ static void attach_timestamp_semantics(const ColumnMapping& mapping, LocalColumn
         attach_timestamp_semantics(child_mapping, &*child_it);
     }
 }
+static Status apply_projected_file_definition_to_mapping(const ColumnDefinition& projected_field,
+                                                         ColumnMapping* mapping) {
+    DORIS_CHECK(mapping != nullptr);
+    mapping->file_type = projected_field.type;
+    mapping->projected_file_children = projected_field.children;
+    for (auto& child_mapping : mapping->child_mappings) {
+        if (!child_mapping.file_local_id.has_value()) {
+            continue;
+        }
+        const auto child_it =
+                std::ranges::find_if(projected_field.children, [&](const ColumnDefinition& child) {
+                    return child.file_local_id() == *child_mapping.file_local_id;
+                });
+        if (child_it == projected_field.children.end()) {
+            return Status::InternalError(
+                    "Projected file type for '{}' is missing mapped child id {}",
+                    mapping->file_column_name, *child_mapping.file_local_id);
+        }
+        // A full root projection changes every descendant's runtime shape too. Keep the recursive
+        // mapping in sync so a formerly pruned child cannot be mistaken for a trivial direct column.
+        RETURN_IF_ERROR(apply_projected_file_definition_to_mapping(*child_it, &child_mapping));
+    }
+    mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
+    return Status::OK();
+}
+
 // Update the mapping's file type according to the projection, and determine whether the projection
 // is trivial (i.e. the projected file type is the same as the table type, so no need to
 // rematerialize the complex value back to table layout after reading from file).
@@ -1934,10 +1960,7 @@ static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& proj
     field.children = mapping->original_file_children;
     ColumnDefinition projected_field;
     RETURN_IF_ERROR(project_column_definition(field, projection, &projected_field));
-    mapping->file_type = std::move(projected_field.type);
-    mapping->projected_file_children = std::move(projected_field.children);
-    mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-    return Status::OK();
+    return apply_projected_file_definition_to_mapping(projected_field, mapping);
 }
 
 static const ColumnDefinition* find_file_child_by_name(

@@ -675,9 +675,12 @@ public abstract class BaseAnalysisTask {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
                 }
-                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
-                LOG.warn(message);
-                throw new RuntimeException(message);
+                // Don't throw: keep writing the row into the statistics table so that the
+                // whole job still finishes. toColumnStatistic() will defensively convert
+                // this pattern to ColumnStatistic.UNKNOWN at read time, so the optimizer
+                // never sees the bogus numbers. See issue #64122.
+                LOG.warn("ColStatsData is invalid, will write to table but be treated as UNKNOWN at read time. {}",
+                        colStatsData.toSQL(true));
             }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {

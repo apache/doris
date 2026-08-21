@@ -1950,6 +1950,21 @@ build_hadoop_libs_3_4() {
     rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/*.a"
     find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
     find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
+
+    # 3.3.6.6 installed this same layout under hadoop_hdfs/, and that prefix is what
+    # branch-3.0, branch-3.1, the cloud module and anything outside this tree still
+    # include and link. Only 3.4.2.4 is built now, so point the old name at it rather
+    # than ship a second 182MB copy per platform. Relative target, so the prebuilt
+    # archive stays relocatable - the same shape as the lib -> lib64 link the install
+    # prefix is set up with.
+    #
+    # No trailing slash: `rm -rf link/` deletes what the link points at on BSD rm and
+    # does nothing on GNU rm, while `rm -rf link` removes just the link everywhere.
+    # The removal has to run first - `ln -s` against an existing real directory would
+    # land inside it instead of replacing it.
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs" "${TP_INSTALL_DIR}/lib/hadoop_hdfs"
+    ln -sfn hadoop_hdfs_3_4 "${TP_INSTALL_DIR}/include/hadoop_hdfs"
+    ln -sfn hadoop_hdfs_3_4 "${TP_INSTALL_DIR}/lib/hadoop_hdfs"
 }
 
 # AvxToNeon

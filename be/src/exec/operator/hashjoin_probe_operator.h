@@ -216,7 +216,7 @@ private:
     std::vector<std::string> _right_table_column_names;
     std::vector<TExpr> _partition_exprs;
 
-    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    // Index of column(slot) from right table in the join row descriptor.
     size_t _right_col_idx;
 };
 

@@ -39,8 +39,7 @@ TEST(OperatorProjectionTest, PublishesSharedColumnAndReusesOutputBlock) {
 
     MockOperatorX op;
     op._row_descriptor = row_descriptor;
-    op._output_row_descriptor =
-            std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &pool);
+    op.set_projection_for_test(MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
 
     MockRuntimeState state;
     const auto max_operator_id = op.operator_id() - 1;
