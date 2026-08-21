@@ -64,9 +64,9 @@ jobs:
         with:
           node-version: '22.12.0'
 
-      # build.sh installs with --legacy-peer-deps; use the same resolution here.
+      # Same resolution as build.sh: the committed lockfile, with --legacy-peer-deps.
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
         working-directory: ui
 
       - name: Lint

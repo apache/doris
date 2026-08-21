@@ -1045,8 +1045,9 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
-        "${NPM}" cache clean --force
-        "${NPM}" install --legacy-peer-deps
+        # ci, not install: the shipped bundle must come from the committed lockfile so that
+        # the same source tree always produces the same static/ payload.
+        "${NPM}" ci --legacy-peer-deps
         "${NPM}" run build
     fi
     echo "ui dist: ${ui_dist}"
