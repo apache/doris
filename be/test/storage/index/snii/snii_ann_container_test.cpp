@@ -52,17 +52,21 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <roaring/roaring.hh>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/scan/vector_search_user_params.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_writer.h"
+#include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
@@ -199,9 +203,23 @@ protected:
         // the wrong entry would then also disagree on fileLength.
         _synthetic["fake_bkd_data"] = synthetic_bytes(0x11, 4096 + 17);
         _synthetic["fake_bkd_index"] = synthetic_bytes(0x77, 1024 + 3);
+        // IVF-on-disk reads its lists through AnnIndexIVFListCache, which
+        // exec_env_init installs unconditionally at BE startup -- so this is the
+        // production path, not a test convenience. Installed only if nobody else
+        // in this binary already has one, and torn down only by whoever installed
+        // it: create_global_cache DCHECKs on a second install, and clobbering
+        // another fixture's cache is how shared-state bugs start.
+        if (AnnIndexIVFListCache::instance() == nullptr) {
+            (void)AnnIndexIVFListCache::create_global_cache(8 * 1024 * 1024);
+            _owns_ivf_list_cache = true;
+        }
     }
 
     void TearDown() override {
+        if (_owns_ivf_list_cache) {
+            AnnIndexIVFListCache::destroy_global_cache();
+            _owns_ivf_list_cache = false;
+        }
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -276,6 +294,7 @@ protected:
     TabletIndex _meta;
     TabletIndex _fake_bkd_meta;
     TabletIndex _ivf_on_disk_meta;
+    bool _owns_ivf_list_cache = false;
     std::map<std::string, std::vector<uint8_t>> _synthetic;
 };
 
@@ -364,6 +383,64 @@ TEST_F(SniiAnnContainerTest, FaissLoadsTheIndexBackOutOfTheContainer) {
     auto ann_reader = std::make_shared<AnnIndexReader>(&_meta, reader);
     io::IOContext io_ctx;
     assert_ok(ann_reader->load_index(&io_ctx));
+}
+
+// IVF-on-disk is the only ANN shape that emits two sub-files, and ann.ivfdata --
+// the bulk of the index -- is the one whose bytes reach faiss through
+// StagedBlobFile::read_at and DorisCompoundReader rather than through faiss's own
+// file handling. Nothing else exercises that: the load test above uses _meta (a
+// single ann.faiss), IvfOnDiskSubFilesAreSealedInAscendingNameOrder checks only
+// the two names and their order, and the standalone IVF save/load test runs on a
+// RAMDirectory. A wrong length or a wrong absolute extent on ann.ivfdata would
+// leave every one of those green and surface only when the index is queried.
+//
+// The oracle is make_vectors(), not anything the container reported: a row's own
+// vector must come back as its own row id at distance zero. nlist is 4 and the
+// default ivf_nprobe is 32, so every list is probed and the answer is exact.
+TEST_F(SniiAnnContainerTest, IvfOnDiskAnswersAQueryThroughTheProductionReader) {
+    const std::string prefix = std::string(kTestDir) + "/ivf_query_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ivf_query_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9912);
+    feed_ann_index(&writer, &_ivf_on_disk_meta);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+    assert_ok(writer.begin_close());
+    assert_ok(writer.finish_close());
+
+    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                    InvertedIndexStorageFormatPB::SNII);
+    assert_ok(reader->init());
+    auto ann_reader = std::make_shared<AnnIndexReader>(&_ivf_on_disk_meta, reader);
+    io::IOContext io_ctx;
+    assert_ok(ann_reader->load_index(&io_ctx));
+
+    constexpr uint32_t kProbeRow = 17;
+    const std::vector<float> vectors = make_vectors();
+    const std::vector<float> query(vectors.begin() + static_cast<int64_t>(kProbeRow) * kDim,
+                                   vectors.begin() + static_cast<int64_t>(kProbeRow + 1) * kDim);
+    roaring::Roaring candidates;
+    candidates.addRange(0, kRows);
+
+    AnnTopNParam param {.query_value = query.data(),
+                        .query_value_size = kDim,
+                        .limit = 4,
+                        ._user_params = VectorSearchUserParams {},
+                        .roaring = &candidates,
+                        .rows_of_segment = kRows,
+                        .enable_result_cache = false};
+    AnnIndexStats stats;
+    assert_ok(ann_reader->query(&io_ctx, &param, &stats));
+
+    ASSERT_NE(param.row_ids, nullptr);
+    ASSERT_FALSE(param.row_ids->empty());
+    EXPECT_EQ((*param.row_ids)[0], kProbeRow)
+            << "the nearest neighbour of a row's own vector must be that row";
+    ASSERT_NE(param.distance, nullptr);
+    EXPECT_NEAR(param.distance[0], 0.0F, 1e-4F);
 }
 
 // A BKD blob has its own reader and no CLucene representation at all. Serving a
