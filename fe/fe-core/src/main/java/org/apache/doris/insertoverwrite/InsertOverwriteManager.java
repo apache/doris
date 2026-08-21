@@ -361,6 +361,19 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable, Ab
     }
 
     /**
+     * Whether the given MTMV table currently has an INSERT OVERWRITE running on this FE master.
+     */
+    public boolean hasRunningTask(long dbId, long tableId) {
+        runningLock.readLock().lock();
+        try {
+            Set<Long> tables = runningTables.get(dbId);
+            return tables != null && tables.contains(tableId);
+        } finally {
+            runningLock.readLock().unlock();
+        }
+    }
+
+    /**
      * replay logs
      *
      * @param insertOverwriteLog

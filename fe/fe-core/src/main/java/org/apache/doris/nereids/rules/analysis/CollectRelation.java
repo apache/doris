@@ -268,6 +268,15 @@ public class CollectRelation implements AnalysisRuleFactory {
                 LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
             }
             for (MTMV mtmv : mtmvSet) {
+                // Skip MTMVs that currently have an INSERT OVERWRITE in flight.
+                if (Env.getCurrentEnv().getInsertOverwriteManager()
+                        .hasRunningTask(mtmv.getDatabase().getId(), mtmv.getId())) {
+                    if (isDebugEnabled) {
+                        LOG.debug("skip candidate mtmv {} because an insert overwrite is in flight",
+                                new BaseTableInfo(mtmv));
+                    }
+                    continue;
+                }
                 cascadesContext.getStatementContext().getCandidateMTMVs().add(mtmv);
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
                 mtmv.readMvLock();
