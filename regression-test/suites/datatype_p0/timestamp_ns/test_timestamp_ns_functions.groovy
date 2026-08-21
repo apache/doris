@@ -282,6 +282,56 @@ suite("test_timestamp_ns_functions") {
                 cast('1970-01-01 00:00:02.123456789' as timestamp_ns), 2,
                 cast('1970-01-01 00:00:00.500000000' as timestamp_ns))
     """
+    def otherCustomOriginSql = """
+        select
+            year_floor(
+                cast('2024-02-29 04:05:06.123456789' as timestamp_ns), 1,
+                cast('2023-03-01 04:05:06.123456789' as timestamp_ns)),
+            year_ceil(
+                cast('2024-02-29 04:05:06.123456789' as timestamp_ns), 1,
+                cast('2023-03-01 04:05:06.123456789' as timestamp_ns)),
+            month_floor(
+                cast('2024-04-10 04:05:06.123456789' as timestamp_ns), 1,
+                cast('2024-03-15 04:05:06.123456789' as timestamp_ns)),
+            month_ceil(
+                cast('2024-04-10 04:05:06.123456789' as timestamp_ns), 1,
+                cast('2024-03-15 04:05:06.123456789' as timestamp_ns)),
+            week_floor(
+                cast('2024-03-12 04:05:06.123456789' as timestamp_ns), 1,
+                cast('2024-03-06 04:05:06.123456789' as timestamp_ns)),
+            week_ceil(
+                cast('2024-03-12 04:05:06.123456789' as timestamp_ns), 1,
+                cast('2024-03-06 04:05:06.123456789' as timestamp_ns)),
+            day_floor(
+                cast('2024-03-02 11:34:56.123456789' as timestamp_ns), 1,
+                cast('2024-03-01 12:34:56.123456789' as timestamp_ns)),
+            day_ceil(
+                cast('2024-03-02 11:34:56.123456789' as timestamp_ns), 1,
+                cast('2024-03-01 12:34:56.123456789' as timestamp_ns)),
+            hour_floor(
+                cast('2024-03-01 12:15:00.123456789' as timestamp_ns), 1,
+                cast('2024-03-01 10:30:00.123456789' as timestamp_ns)),
+            hour_ceil(
+                cast('2024-03-01 12:15:00.123456789' as timestamp_ns), 1,
+                cast('2024-03-01 10:30:00.123456789' as timestamp_ns)),
+            minute_floor(
+                cast('2024-03-01 10:22:15.123456789' as timestamp_ns), 1,
+                cast('2024-03-01 10:20:30.123456789' as timestamp_ns)),
+            minute_ceil(
+                cast('2024-03-01 10:22:15.123456789' as timestamp_ns), 1,
+                cast('2024-03-01 10:20:30.123456789' as timestamp_ns)),
+            second_floor(
+                cast('2024-03-01 10:20:32.400000001' as timestamp_ns), 1,
+                cast('2024-03-01 10:20:30.500000001' as timestamp_ns)),
+            second_ceil(
+                cast('2024-03-01 10:20:32.400000001' as timestamp_ns), 1,
+                cast('2024-03-01 10:20:30.500000001' as timestamp_ns))
+    """
+    qt_other_custom_origin_fold otherCustomOriginSql
+    sql "set debug_skip_fold_constant = true"
+    qt_other_custom_origin_runtime otherCustomOriginSql
+    sql "set debug_skip_fold_constant = false"
+
     def quarterCustomOriginSql = """
         select
             quarter_floor(

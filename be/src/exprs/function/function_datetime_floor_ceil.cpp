@@ -768,8 +768,13 @@ struct DateTimeFloorCeilCore {
 
             if constexpr (Flag::Unit == YEAR) {
                 diff = ts_arg.year() - ts_origin.year();
-                trivial_part_ts_arg = nanos_since_date(ts_arg, 1, 1);
-                trivial_part_ts_res = nanos_since_date(ts_origin, 1, 1);
+                const auto calendar_remainder = [&](const TimeStampNsValue& value) {
+                    return (static_cast<int64_t>(value.month()) * 32 + value.day()) * HOUR_PER_DAY *
+                                   SECOND_PER_HOUR * TimeStampNsValue::NANOS_PER_SECOND +
+                           nanos_since_midnight(value);
+                };
+                trivial_part_ts_arg = calendar_remainder(ts_arg);
+                trivial_part_ts_res = calendar_remainder(ts_origin);
             }
             if constexpr (Flag::Unit == QUARTER) {
                 const int64_t total_months = (ts_arg.year() - ts_origin.year()) * 12 +
