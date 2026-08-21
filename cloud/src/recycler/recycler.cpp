@@ -38,6 +38,7 @@
 #include <numeric>
 #include <optional>
 #include <random>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -87,6 +88,7 @@ using namespace std::chrono;
 namespace {
 
 constexpr size_t kRowsetBatchGetSize = 256;
+constexpr size_t kRecentCompletedInstanceCount = 5;
 
 int64_t packed_file_retry_sleep_ms() {
     const int64_t min_ms = std::max<int64_t>(0, config::packed_file_txn_retry_sleep_min_ms);
@@ -113,6 +115,12 @@ void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
     if (!is_packed_slice_path(rowset, path)) {
         file_paths->push_back(path);
     }
+}
+
+bool should_retain_deleted_instance_tombstone(const InstanceInfoPB& instance) {
+    return config::retain_deleted_instance_tombstone &&
+           instance.status() == InstanceInfoPB::DELETED &&
+           instance.recycle_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
 }
 
 bool filter_out_instance(const std::string& instance_id) {
@@ -288,8 +296,28 @@ void Recycler::instance_scanner_callback() {
             if (!instances.empty()) {
                 // enqueue instances
                 std::lock_guard lock(mtx_);
+                std::vector<InstanceInfoPB> completed_instances;
                 for (auto& instance : instances) {
                     if (filter_out_instance(instance.instance_id())) continue;
+                    if (should_retain_deleted_instance_tombstone(instance)) {
+                        completed_instances.push_back(instance);
+                        continue;
+                    }
+                    auto [_, success] = pending_instance_set_.insert(instance.instance_id());
+                    // skip instance already in pending queue
+                    if (success) {
+                        pending_instance_queue_.push_back(std::move(instance));
+                    }
+                }
+                std::ranges::sort(completed_instances, [&](const auto& l, const auto& r) {
+                    if (l.recycle_state_update_time_ms() != r.recycle_state_update_time_ms()) {
+                        return l.recycle_state_update_time_ms() > r.recycle_state_update_time_ms();
+                    }
+                    return l.instance_id() < r.instance_id();
+                });
+                auto recent_completed_instances =
+                        completed_instances | std::views::take(kRecentCompletedInstanceCount);
+                for (auto& instance : recent_completed_instances) {
                     auto [_, success] = pending_instance_set_.insert(instance.instance_id());
                     // skip instance already in pending queue
                     if (success) {
@@ -858,8 +886,11 @@ int InstanceRecycler::recycle_deleted_instance() {
     auto start_time = steady_clock::now();
     const auto recycle_state = instance_info_.recycle_state();
 
-    if (config::retain_deleted_instance_tombstone &&
-        recycle_state == InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+    if (should_retain_deleted_instance_tombstone(instance_info_)) {
+        LOG_WARNING("instance recycle completed, retain deleted instance key")
+                .tag("instance_id", instance_id_)
+                .tag("recycle_state", InstanceRecycleState_Name(recycle_state))
+                .tag("recycle_state_update_time_ms", instance_info_.recycle_state_update_time_ms());
         return 0;
     }
 

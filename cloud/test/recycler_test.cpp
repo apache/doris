@@ -11364,6 +11364,72 @@ TEST(RecyclerTest, enable_recycler_skip_instance_scanner) {
     EXPECT_TRUE(recycler.pending_instance_queue_.empty());
 }
 
+TEST(RecyclerTest, instance_scanner_enqueues_recent_completed_instances) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const auto old_whitelist = config::recycle_whitelist;
+    const auto old_blacklist = config::recycle_blacklist;
+    const bool old_retain_deleted_instance_tombstone = config::retain_deleted_instance_tombstone;
+    const int64_t old_recycle_interval = config::recycle_interval_seconds;
+    const int64_t old_sleep = config::recycler_sleep_before_scheduling_seconds;
+    DORIS_CLOUD_DEFER {
+        config::recycle_whitelist = old_whitelist;
+        config::recycle_blacklist = old_blacklist;
+        config::retain_deleted_instance_tombstone = old_retain_deleted_instance_tombstone;
+        config::recycle_interval_seconds = old_recycle_interval;
+        config::recycler_sleep_before_scheduling_seconds = old_sleep;
+    };
+    config::recycle_whitelist.clear();
+    config::recycle_blacklist.clear();
+    config::retain_deleted_instance_tombstone = true;
+    config::recycle_interval_seconds = 3600;
+    config::recycler_sleep_before_scheduling_seconds = 0;
+
+    for (int i = 0; i < 7; ++i) {
+        InstanceInfoPB instance;
+        instance.set_instance_id(fmt::format("completed_{}", i));
+        instance.set_status(InstanceInfoPB::DELETED);
+        instance.set_recycle_state(INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+        instance.set_recycle_state_update_time_ms(100 + i);
+        if (i == 1) {
+            instance.set_recycle_state_update_time_ms(102);
+        }
+        put_instance_info(txn_kv.get(), instance);
+    }
+    for (int i = 0; i < 7; ++i) {
+        InstanceInfoPB instance;
+        instance.set_instance_id(fmt::format("normal_{}", i));
+        instance.set_status(InstanceInfoPB::NORMAL);
+        put_instance_info(txn_kv.get(), instance);
+    }
+
+    Recycler recycler(txn_kv);
+    std::thread scanner([&]() { recycler.instance_scanner_callback(); });
+
+    std::vector<std::string> actual_instance_ids;
+    bool scan_completed = false;
+    {
+        std::unique_lock lock(recycler.mtx_);
+        scan_completed = recycler.pending_instance_cond_.wait_for(
+                lock, std::chrono::seconds(5),
+                [&]() { return recycler.pending_instance_queue_.size() >= 12; });
+        for (const auto& instance : recycler.pending_instance_queue_) {
+            actual_instance_ids.push_back(instance.instance_id());
+        }
+    }
+    recycler.stopped_ = true;
+    recycler.notifier_.notify_all();
+    scanner.join();
+
+    ASSERT_TRUE(scan_completed);
+    std::ranges::sort(actual_instance_ids);
+    std::vector<std::string> expected_instance_ids {
+            "completed_1", "completed_3", "completed_4", "completed_5", "completed_6", "normal_0",
+            "normal_1",    "normal_2",    "normal_3",    "normal_4",    "normal_5",    "normal_6"};
+    EXPECT_EQ(actual_instance_ids, expected_instance_ids);
+}
+
 TEST(RecyclerTest, enable_recycler_skip_recycle_callback) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
