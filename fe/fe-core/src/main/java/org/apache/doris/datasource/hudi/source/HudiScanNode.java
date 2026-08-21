@@ -92,9 +92,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -624,58 +626,90 @@ public class HudiScanNode extends HiveScanNode {
                 finishBatchSplit(finalBatchOwner, startTime);
             }
         };
-        try {
-            producerExecutor.execute(() -> {
-                try {
-                    for (HivePartition partition : prunedPartitions) {
-                        if (batchException.get() != null || splitAssignment.isStop()) {
-                            break;
-                        }
-                        try {
-                            splittersOnFlight.acquire();
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            recordBatchException(e);
-                            break;
-                        }
-                        if (batchException.get() != null || splitAssignment.isStop()) {
-                            splittersOnFlight.release();
-                            break;
-                        }
-                        pendingTasks.incrementAndGet();
-                        try {
-                            scheduleExecutor.execute(() -> {
-                                try {
-                                    List<Split> allFiles = Lists.newArrayList();
-                                    getPartitionSplits(partition, allFiles, false);
-                                    if (allFiles.size() > numSplitsPerPartition.get()) {
-                                        numSplitsPerPartition.set(allFiles.size());
-                                    }
-                                    if (splitAssignment.needMoreSplit()) {
-                                        splitAssignment.addToQueue(allFiles);
-                                    }
-                                } catch (Throwable t) {
-                                    recordBatchException(t);
-                                } finally {
-                                    splittersOnFlight.release();
-                                    taskFinished.run();
-                                }
-                            });
-                        } catch (RuntimeException e) {
-                            splittersOnFlight.release();
-                            recordBatchException(e);
-                            taskFinished.run();
-                            break;
-                        }
+        TerminalTask producerTask = terminalTask(() -> {
+            try {
+                for (HivePartition partition : prunedPartitions) {
+                    if (batchException.get() != null || splitAssignment.isStop()) {
+                        break;
                     }
-                } catch (Throwable t) {
-                    recordBatchException(t);
-                } finally {
-                    taskFinished.run();
+                    try {
+                        splittersOnFlight.acquire();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        recordBatchException(e);
+                        break;
+                    }
+                    if (batchException.get() != null || splitAssignment.isStop()) {
+                        splittersOnFlight.release();
+                        break;
+                    }
+                    pendingTasks.incrementAndGet();
+                    TerminalTask partitionTask = terminalTask(() -> {
+                        try {
+                            List<Split> allFiles = Lists.newArrayList();
+                            getPartitionSplits(partition, allFiles, false);
+                            if (allFiles.size() > numSplitsPerPartition.get()) {
+                                numSplitsPerPartition.set(allFiles.size());
+                            }
+                            if (splitAssignment.needMoreSplit()) {
+                                splitAssignment.addToQueue(allFiles);
+                            }
+                        } catch (Throwable t) {
+                            recordBatchException(t);
+                        }
+                    }, () -> {
+                        splittersOnFlight.release();
+                        taskFinished.run();
+                    });
+                    finalBatchOwner.track(partitionTask);
+                    try {
+                        scheduleExecutor.execute(partitionTask);
+                    } catch (RuntimeException e) {
+                        recordBatchException(e);
+                        partitionTask.cancelBeforeStart();
+                        break;
+                    }
                 }
-            });
+            } catch (Throwable t) {
+                recordBatchException(t);
+            }
+        }, taskFinished);
+        finalBatchOwner.track(producerTask);
+        try {
+            producerExecutor.execute(producerTask);
         } catch (RuntimeException e) {
             recordBatchException(e);
+            producerTask.cancelBeforeStart();
+        }
+    }
+
+    private TerminalTask terminalTask(Runnable task, Runnable taskFinished) {
+        return new TerminalTask(task, taskFinished);
+    }
+
+    @VisibleForTesting
+    static class TerminalTask extends FutureTask<Void> {
+        private final AtomicBoolean started = new AtomicBoolean();
+        private final Runnable taskFinished;
+
+        TerminalTask(Runnable task, Runnable taskFinished) {
+            super(task, null);
+            this.taskFinished = taskFinished;
+        }
+
+        @Override
+        public void run() {
+            if (started.compareAndSet(false, true)) {
+                super.run();
+            }
+        }
+
+        boolean cancelBeforeStart() {
+            return started.compareAndSet(false, true) && cancel(false);
+        }
+
+        @Override
+        protected void done() {
             taskFinished.run();
         }
     }
@@ -705,6 +739,8 @@ public class HudiScanNode extends HiveScanNode {
         private final AtomicBoolean finished = new AtomicBoolean();
         private final AtomicReference<RuntimeException> finishFailure = new AtomicReference<>();
         private final CountDownLatch terminal = new CountDownLatch(1);
+        private final ConcurrentLinkedQueue<TerminalTask> tasks = new ConcurrentLinkedQueue<>();
+        private final AtomicBoolean stopping = new AtomicBoolean();
 
         BatchFsViewOwner(SplitAssignment splitAssignment, HudiFsViewCacheValue.Lease lease) {
             this.splitAssignment = splitAssignment;
@@ -724,15 +760,24 @@ public class HudiScanNode extends HiveScanNode {
             }
         }
 
+        void track(TerminalTask task) {
+            tasks.add(task);
+            if (stopping.get()) {
+                task.cancelBeforeStart();
+            }
+        }
+
         @Override
         public void close() {
             RuntimeException stopFailure = null;
             if (!finished.get()) {
+                stopping.set(true);
                 try {
                     splitAssignment.stop();
                 } catch (RuntimeException e) {
                     stopFailure = e;
                 }
+                tasks.forEach(TerminalTask::cancelBeforeStart);
             }
             boolean interrupted = false;
             while (true) {
