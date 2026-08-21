@@ -46,7 +46,7 @@ suite("test_local_shuffle_bucket_upgrade") {
         """/*+SET_VAR(
             enable_sql_cache=false, disable_join_reorder=true,
             disable_colocate_plan=true,
-            auto_broadcast_join_threshold=-1, broadcast_row_count_limit=0,
+            broadcast_row_count_limit=0,
             experimental_force_to_local_shuffle=true,
             experimental_enable_parallel_scan=false,
             enable_runtime_filter_prune=false,
