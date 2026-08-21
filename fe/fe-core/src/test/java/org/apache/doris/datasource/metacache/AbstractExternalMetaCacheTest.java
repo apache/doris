@@ -31,6 +31,7 @@ import org.junit.Test;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class AbstractExternalMetaCacheTest {
 
@@ -67,6 +68,46 @@ public class AbstractExternalMetaCacheTest {
                     2L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
             Assert.assertFalse(disabledEntry.stats().isEffectiveEnabled());
             Assert.assertEquals(0, disabledEntry.initializedStripeCountForTest());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMaximumWeightRequiresRegisteredEntryEstimator() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("meta.cache.test_engine.schema.max-weight", "5");
+
+            IllegalArgumentException exception = Assert.assertThrows(
+                    IllegalArgumentException.class, () -> cache.initCatalog(1L, properties));
+            Assert.assertTrue(exception.getMessage().contains("size estimator"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRegisteredEntryEstimatorEnablesMaximumWeight() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            WeightedExternalMetaCache cache = new WeightedExternalMetaCache(refreshExecutor);
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("meta.cache.weighted_engine.value.max-weight", "5");
+            cache.initCatalog(1L, properties);
+
+            MetaCacheEntry<String, Integer> entry = cache.entry(1L, "value", String.class, Integer.class);
+            entry.put("first", 4);
+            entry.put("second", 4);
+            // Wait for Caffeine's queued maintenance without making the statistics read trigger it.
+            refreshExecutor.submit(() -> null).get(3L, TimeUnit.SECONDS);
+
+            MetaCacheEntryStats stats = entry.stats();
+            Assert.assertTrue(stats.isWeightBounded());
+            Assert.assertEquals(5L, stats.getMaxWeight());
+            Assert.assertTrue(stats.getEstimatedWeight() <= 5L);
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -157,6 +198,19 @@ public class AbstractExternalMetaCacheTest {
                             new Column("ID", PrimitiveType.INT))),
                     CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
                     MetaCacheEntryInvalidation.forNameMapping(SchemaCacheKey::getNameMapping)));
+        }
+    }
+
+    private static final class WeightedExternalMetaCache extends AbstractExternalMetaCache {
+        private WeightedExternalMetaCache(ExecutorService refreshExecutor) {
+            super("weighted_engine", refreshExecutor);
+            registerEntry(MetaCacheEntryDef.of(
+                    "value",
+                    String.class,
+                    Integer.class,
+                    String::length,
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100L))
+                    .withSizeEstimator((key, value) -> value));
         }
     }
 }

@@ -300,7 +300,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
                 wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
                 cacheSpec,
                 refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
-                MetaCacheEntry.defaultObjectStripeCount());
+                MetaCacheEntry.defaultObjectStripeCount(), entryDef.getSizeEstimator());
     }
 
     private <K, V> Function<K, V> wrapSchemaValidator(Function<K, V> loader, Class<V> valueType) {
