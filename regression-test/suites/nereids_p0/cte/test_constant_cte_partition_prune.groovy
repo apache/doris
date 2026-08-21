@@ -41,6 +41,17 @@ suite("test_constant_cte_partition_prune") {
     // to a single day partition
     sql "SET inline_cte_referenced_threshold=2"
 
+    // seed every partition so that PRUNE_EMPTY_PARTITION does not eliminate the scans
+    // (an all-empty table would rewrite the scan to an empty relation and the
+    // partition-pruning info below would not show up in the explain output)
+    sql """INSERT INTO constant_cte_prune_t VALUES
+        ('2026-01-01', 'sn1', 1.0),
+        ('2026-07-26', 'sn2', 2.0),
+        ('2026-07-27', 'sn3', 3.0),
+        ('2026-07-28', 'sn4', 4.0),
+        ('2026-07-29', 'sn5', 5.0),
+        ('2026-09-01', 'sn6', 6.0)"""
+
     explain {
         sql """
             WITH params AS (
