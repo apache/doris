@@ -38,6 +38,8 @@ public class ObjectInfo {
     // only used for aws
     private final String externalId;
     private final String token;
+    private final Boolean usePathStyle;
+    private final Cloud.CredProviderTypePB credentialsProviderType;
 
     // Used to get sts token
     public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk,
@@ -56,19 +58,30 @@ public class ObjectInfo {
         this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
                 objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
                 objectStoreInfoPB.getPrefix(), null, objectStoreInfoPB.getRoleArn(),
-                objectStoreInfoPB.getExternalId(), null);
+                objectStoreInfoPB.getExternalId(), null,
+                objectStoreInfoPB.hasUsePathStyle() ? objectStoreInfoPB.getUsePathStyle() : null,
+                objectStoreInfoPB.hasCredProviderType() ? objectStoreInfoPB.getCredProviderType() : null);
     }
 
     public ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB, String roleName, String arn,
             String externalId, String token) {
         this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
                 objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
-                objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token);
+                objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token,
+                objectStoreInfoPB.hasUsePathStyle() ? objectStoreInfoPB.getUsePathStyle() : null,
+                objectStoreInfoPB.hasCredProviderType() ? objectStoreInfoPB.getCredProviderType() : null);
     }
 
     public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk, String bucket,
             String endpoint, String region, String prefix, String roleName, String arn, String externalId,
             String token) {
+        this(provider, ak, sk, bucket, endpoint, region, prefix, roleName, arn, externalId, token,
+                null, null);
+    }
+
+    public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk, String bucket,
+            String endpoint, String region, String prefix, String roleName, String arn, String externalId,
+            String token, Boolean usePathStyle, Cloud.CredProviderTypePB credentialsProviderType) {
         this.provider = provider;
         this.ak = ak;
         this.sk = sk;
@@ -80,6 +93,8 @@ public class ObjectInfo {
         this.arn = arn;
         this.externalId = externalId;
         this.token = token;
+        this.usePathStyle = usePathStyle;
+        this.credentialsProviderType = credentialsProviderType;
     }
 
     public Cloud.ObjectStoreInfoPB.Provider getProvider() {
@@ -124,6 +139,14 @@ public class ObjectInfo {
 
     public String getToken() {
         return token;
+    }
+
+    public Boolean getUsePathStyle() {
+        return usePathStyle;
+    }
+
+    public Cloud.CredProviderTypePB getCredentialsProviderType() {
+        return credentialsProviderType;
     }
 
     @Override

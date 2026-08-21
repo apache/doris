@@ -36,6 +36,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class JdbcDorisConnectorTest {
 
@@ -223,6 +224,43 @@ class JdbcDorisConnectorTest {
         Assertions.assertDoesNotThrow(() -> {
             connector.getWritePlanProvider();
         }, "missing driver_class must not NPE inside HikariCP during client initialization");
+    }
+
+    @Test
+    void testLazyClientUsesEngineDriverMaterialization() throws IOException {
+        AtomicBoolean resolved = new AtomicBoolean();
+        ConnectorContext context = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_catalog";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public String resolveJdbcDriverUrl(String driverUrl, String checksum) {
+                resolved.set(true);
+                Assertions.assertEquals("driver.jar", driverUrl);
+                Assertions.assertEquals("0123456789abcdef0123456789abcdef", checksum);
+                return "file:///tmp/checksum-versioned-driver.jar";
+            }
+        };
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcCatalogProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
+        props.put(JdbcCatalogProperties.DRIVER_URL, "driver.jar");
+        props.put(JdbcCatalogProperties.DRIVER_CHECKSUM, "0123456789abcdef0123456789abcdef");
+        props.put(JdbcCatalogProperties.DRIVER_CLASS, "java.lang.Object");
+
+        JdbcDorisConnector connector = new JdbcDorisConnector(props, context);
+        try {
+            connector.getWritePlanProvider();
+            Assertions.assertTrue(resolved.get());
+        } finally {
+            connector.close();
+        }
     }
 
     @Test

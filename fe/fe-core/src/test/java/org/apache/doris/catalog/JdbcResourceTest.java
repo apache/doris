@@ -30,16 +30,26 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.rules.TemporaryFolder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.File;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Map;
 
 public class JdbcResourceTest {
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     private final ResourceMgr resourceMgr = new ResourceMgr();
 
@@ -247,6 +257,39 @@ public class JdbcResourceTest {
         Assert.assertThrows(IllegalArgumentException.class, () -> {
             JdbcResource.getFullDriverUrl(invalidUrl4);
         });
+    }
+
+    @Test
+    public void testMaterializedDriverUrlUsesChecksumIdentity() throws Exception {
+        String savedDriversDir = Config.jdbc_drivers_dir;
+        String savedSecurePath = Config.jdbc_driver_secure_path;
+        try {
+            File driversDir = temporaryFolder.newFolder("drivers");
+            File source = temporaryFolder.newFile("driver.jar");
+            Config.jdbc_drivers_dir = driversDir.getAbsolutePath();
+            Config.jdbc_driver_secure_path = "*";
+
+            byte[] firstVersion = "first-version".getBytes(StandardCharsets.UTF_8);
+            Files.write(source.toPath(), firstVersion);
+            String firstChecksum = DigestUtils.md5Hex(firstVersion);
+            String firstUrl = JdbcResource.resolveDriverUrlForClassLoader(
+                    "file://" + source.getAbsolutePath(), firstChecksum);
+
+            byte[] secondVersion = "second-version".getBytes(StandardCharsets.UTF_8);
+            Files.write(source.toPath(), secondVersion);
+            String secondChecksum = DigestUtils.md5Hex(secondVersion);
+            String secondUrl = JdbcResource.resolveDriverUrlForClassLoader(
+                    "file://" + source.getAbsolutePath(), secondChecksum);
+
+            Assert.assertNotEquals(firstUrl, secondUrl);
+            Assert.assertArrayEquals(firstVersion, Files.readAllBytes(new File(new URI(firstUrl)).toPath()));
+            Assert.assertArrayEquals(secondVersion, Files.readAllBytes(new File(new URI(secondUrl)).toPath()));
+            Assert.assertEquals(firstUrl, JdbcResource.resolveDriverUrlForClassLoader(
+                    "file://" + source.getAbsolutePath(), firstChecksum));
+        } finally {
+            Config.jdbc_drivers_dir = savedDriversDir;
+            Config.jdbc_driver_secure_path = savedSecurePath;
+        }
     }
 
     @Test

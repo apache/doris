@@ -53,6 +53,19 @@ public interface ConnectorContext {
     }
 
     /**
+     * Resolves and materializes a JDBC driver through engine-owned storage services.
+     *
+     * <p>The checksum identifies immutable driver content. An engine implementation may return a
+     * checksum-versioned local URL so lazy connector creation after replay or FE promotion does not
+     * depend on a file left by the FE that originally created the catalog. The default returns
+     * {@code null}; standalone connector tests and engines without this service retain the connector's
+     * local directory resolution.
+     */
+    default String resolveJdbcDriverUrl(String driverUrl, String checksum) {
+        return null;
+    }
+
+    /**
      * The contents of {@code <name>.conf} in this connector's own plugin directory, keys and values
      * verbatim, immutable. {@code <name>} is this connector's {@link ConnectorProvider#name()}.
      *

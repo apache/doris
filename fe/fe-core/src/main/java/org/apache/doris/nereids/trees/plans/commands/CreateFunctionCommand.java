@@ -46,6 +46,7 @@ import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -484,6 +485,24 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     private String checkAndReturnDefaultJavaUdfUrl(String url) {
         String defaultUrl = EnvUtils.getDorisHome() + "/plugins/java_udf";
+        // Storage Vault mode keeps the original local-file behavior. Only legacy SaaS mode has
+        // an instance object store whose plugins directory is shared by every FE and BE.
+        if (CloudPluginDownloader.isLegacySaaSMode()) {
+            String targetPath = defaultUrl + "/" + url;
+            try {
+                String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                        CloudPluginDownloader.PluginType.JAVA_UDF, url, targetPath);
+                if (!downloadedPath.isEmpty()) {
+                    return "file://" + downloadedPath;
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to download Java UDF from cloud: " + url, e);
+                throw new RuntimeException("Cannot download UDF from cloud: " + url
+                        + ". Please retry later or check your UDF has been uploaded to cloud. Error: "
+                        + Util.getRootCauseMessage(e), e);
+            }
+        }
+        // Return the file path (original UDF behavior)
         return "file://" + defaultUrl + "/" + url;
     }
 

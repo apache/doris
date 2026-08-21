@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.storage;
 
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
@@ -115,7 +116,8 @@ public class ObjectInfoAdapter {
                 ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getAccessKey(),
                         stsToken.getSecretKey(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
                         infoPB.getPrefix(), stagePB.getRoleName(), stagePB.getArn(), encodedExternalId,
-                        stsToken.getSecurityToken());
+                        stsToken.getSecurityToken(), arnObj.getUsePathStyle(),
+                        arnObj.getCredentialsProviderType());
                 LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
                 return objInfo;
             }
@@ -174,6 +176,13 @@ public class ObjectInfoAdapter {
         putIfNotBlank(props, STS_EXTERNAL_ID_KEY,  obj.getExternalId());
         putIfNotBlank(props, "AWS_ROLE_ARN", obj.getArn());
         putIfNotBlank(props, "AWS_EXTERNAL_ID", obj.getExternalId());
+        if (obj.getUsePathStyle() != null) {
+            props.put("use_path_style", obj.getUsePathStyle().toString());
+        }
+        if (obj.getCredentialsProviderType() != null
+                && obj.getCredentialsProviderType() != Cloud.CredProviderTypePB.SIMPLE) {
+            props.put("s3.credentials_provider_type", obj.getCredentialsProviderType().name());
+        }
         return props;
     }
 

@@ -350,6 +350,10 @@ public final class JdbcCatalogProperties {
         return driverChecksum;
     }
 
+    void setDriverChecksum(String driverChecksum) {
+        this.driverChecksum = driverChecksum;
+    }
+
     public int getConnectionPoolMinSize() {
         return connectionPoolMinSize;
     }

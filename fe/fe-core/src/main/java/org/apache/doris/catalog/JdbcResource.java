@@ -23,6 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
+import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -44,15 +46,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * External JDBC Catalog resource for external table query.
@@ -71,6 +79,8 @@ import java.util.Objects;
  */
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
+    private static final Pattern MD5_CHECKSUM = Pattern.compile("^[0-9a-fA-F]{32}$");
+    private static final ConcurrentHashMap<Path, Object> DRIVER_VERSION_LOCKS = new ConcurrentHashMap<>();
 
     public static final String JDBC_MYSQL = "jdbc:mysql";
     public static final String JDBC_MARIADB = "jdbc:mariadb";
@@ -340,6 +350,85 @@ public class JdbcResource extends Resource {
     }
 
     /**
+     * Materializes a checksum-addressed driver URL for the FE JDBC classloader.
+     *
+     * <p>The catalog persists the checksum at CREATE time. Using it in the local path makes the URL
+     * an immutable classloader identity, so replacing a bare-name object in cloud storage cannot
+     * silently reuse classes loaded for the old bytes. This also materializes the driver on a newly
+     * promoted FE during lazy connector creation.
+     */
+    public static String resolveDriverUrlForClassLoader(String driverUrl, String checksum) {
+        if (checksum == null || checksum.isEmpty()) {
+            return getFullDriverUrl(driverUrl);
+        }
+        if (!MD5_CHECKSUM.matcher(checksum).matches()) {
+            throw new IllegalArgumentException("Invalid JDBC driver checksum: " + checksum);
+        }
+
+        String normalizedChecksum = checksum.toLowerCase(Locale.ROOT);
+        Path targetPath = Paths.get(Config.jdbc_drivers_dir, ".cache", normalizedChecksum, "driver.jar")
+                .toAbsolutePath().normalize();
+        Object targetLock = DRIVER_VERSION_LOCKS.computeIfAbsent(targetPath, path -> new Object());
+        synchronized (targetLock) {
+            try {
+                if (Files.exists(targetPath)
+                        && normalizedChecksum.equals(computeLocalChecksum(targetPath))) {
+                    return targetPath.toUri().toString();
+                }
+
+                String fullDriverUrl = null;
+                if (!driverUrl.contains(":/") && !driverUrl.startsWith("/")) {
+                    Path mutableMirror = Paths.get(Config.jdbc_drivers_dir, driverUrl)
+                            .toAbsolutePath().normalize();
+                    if (Files.exists(mutableMirror)
+                            && normalizedChecksum.equals(computeLocalChecksum(mutableMirror))) {
+                        fullDriverUrl = mutableMirror.toUri().toString();
+                    }
+                }
+                if (fullDriverUrl == null) {
+                    fullDriverUrl = getFullDriverUrl(driverUrl);
+                }
+                Files.createDirectories(targetPath.getParent());
+                Path tempPath = Files.createTempFile(targetPath.getParent(), ".driver.", ".tmp");
+                try {
+                    MessageDigest digest = MessageDigest.getInstance("MD5");
+                    try (InputStream source = Util.getInputStreamFromUrl(
+                            fullDriverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+                            DigestInputStream input = new DigestInputStream(source, digest)) {
+                        Files.copy(input, tempPath, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    String downloadedChecksum = Hex.encodeHexString(digest.digest());
+                    if (!normalizedChecksum.equals(downloadedChecksum)) {
+                        throw new IllegalArgumentException("JDBC driver checksum changed while materializing "
+                                + driverUrl + ": expected " + normalizedChecksum + ", actual "
+                                + downloadedChecksum);
+                    }
+                    Files.move(tempPath, targetPath, StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                    return targetPath.toUri().toString();
+                } finally {
+                    Files.deleteIfExists(tempPath);
+                }
+            } catch (IOException | NoSuchAlgorithmException e) {
+                throw new RuntimeException("Failed to materialize JDBC driver " + driverUrl + ": "
+                        + e.getMessage(), e);
+            }
+        }
+    }
+
+    private static String computeLocalChecksum(Path path) throws IOException, NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("MD5");
+        try (InputStream source = Files.newInputStream(path);
+                DigestInputStream input = new DigestInputStream(source, digest)) {
+            byte[] buffer = new byte[4096];
+            while (input.read(buffer) >= 0) {
+                // DigestInputStream updates the digest while reading.
+            }
+        }
+        return Hex.encodeHexString(digest.digest());
+    }
+
+    /**
      * Check whether {@code driverUrl} falls under one of the semicolon-separated prefixes configured in
      * {@link Config#jdbc_driver_secure_path}. Matching is structural (component-based) rather than a raw string
      * prefix, so that neither prefix confusion ({@code /opt/drivers} vs {@code /opt/drivers-evil}) nor path
@@ -441,7 +530,21 @@ public class JdbcResource extends Resource {
             File targetFile = new File(targetPath);
             String oldTargetPath = defaultOldDriverUrl + "/" + driverUrl;
             File oldTargetFile = new File(oldTargetPath);
-            if (targetFile.exists()) {
+            if (CloudPluginDownloader.isLegacySaaSMode()) {
+                // The instance object store is authoritative in legacy SaaS mode. Always publish
+                // its current contents atomically instead of trusting a stale file from an earlier
+                // catalog creation.
+                try {
+                    String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                            PluginType.JDBC_DRIVERS, driverUrl, targetPath);
+                    return "file://" + downloadedPath;
+                } catch (Exception e) {
+                    LOG.warn("failed to download jdbc driver url: " + driverUrl, e);
+                    throw new RuntimeException("Cannot download JDBC driver from cloud: " + driverUrl
+                            + ". Please retry later or check your driver has been uploaded to cloud. Error: "
+                            + Util.getRootCauseMessage(e), e);
+                }
+            } else if (targetFile.exists()) {
                 // File exists in new default directory
                 return "file://" + targetPath;
             } else if (oldTargetFile.exists()) {
