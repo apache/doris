@@ -202,6 +202,20 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         mvKeysType = planValidator.context.keysType;
         dbName = planValidator.context.dbName;
         baseIndexName = planValidator.context.baseIndexName;
+        // The MV's effective catalog (explicitly specified or current session catalog) must be the internal catalog,
+        // because sync materialized views are stored as indexes on OlapTables.
+        String mvCtl = name.getCtl();
+        if (mvCtl == null || mvCtl.isEmpty()) {
+            mvCtl = ctx.getDefaultCatalog();
+        }
+        checkCatalogConsistency(mvCtl);
+        // The MV's effective database (explicitly specified or current session db) must match the base table's db,
+        // because a sync materialized view is stored as an index on the base table.
+        String mvDb = name.getDb();
+        if (mvDb == null || mvDb.isEmpty()) {
+            mvDb = ctx.getDatabase();
+        }
+        checkDatabaseConsistency(mvDb, dbName);
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, baseIndexName,
                         PrivPredicate.ALTER)) {
@@ -228,6 +242,24 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
         return Pair.of(plan, planner.getCascadesContext());
+    }
+
+    void checkCatalogConsistency(String mvCtl) {
+        if (mvCtl != null && !mvCtl.isEmpty()
+                && !mvCtl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new AnalysisException(String.format(
+                    "The catalog '%s' of the sync materialized view must be the internal catalog '%s'",
+                    mvCtl, InternalCatalog.INTERNAL_CATALOG_NAME));
+        }
+    }
+
+    void checkDatabaseConsistency(String mvDb, String baseTableDb) {
+        if (mvDb != null && !mvDb.isEmpty() && !mvDb.equals(baseTableDb)) {
+            throw new AnalysisException(String.format(
+                    "The database '%s' of the sync materialized view must be the same as"
+                            + " the database '%s' of the base table",
+                    mvDb, baseTableDb));
+        }
     }
 
     private class ValidateContext {
