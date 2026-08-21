@@ -170,24 +170,33 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
     return std::make_shared<ReadSchema>(std::move(cols));
 }
 
-TabletSchemaSPtr make_tablet_schema(const ReadSchemaSPtr& schema) {
-    auto tablet_schema = std::make_shared<TabletSchema>();
-    for (const auto& column : schema->columns()) {
-        tablet_schema->append_column(*column);
-    }
-    return tablet_schema;
-}
-
 // Wire a BlockReader as if init() had already completed for a row-binlog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator.
 void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size) {
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // Must be set before constructing the fake LevelIterator: its base ctor
-    // snapshots reader->_read_schema.
-    reader._read_schema = make_read_schema();
-    reader._tablet_schema = make_tablet_schema(reader._read_schema);
+    // The fake LevelIterator base ctor dereferences reader->tablet_schema(). The
+    // schema must also carry the key-column count: _min_delta_next_block groups rows
+    // by comparing the leading num_key_columns() columns, so key column 0 must be
+    // flagged as a key for the group boundaries to be detected.
+    auto schema = std::make_shared<TabletSchema>();
+    const std::string col_names[] = {
+            "key",          "val",          binlog::build_before_column_name("val"),
+            BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL};
+    for (int i = 0; i < 6; ++i) {
+        TabletColumn col;
+        col.set_name(col_names[i]);
+        col.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+        col.set_unique_id(i);
+        col.set_is_key(i == KEY_IDX); // only the leading key column is a key
+        schema->append_column(std::move(col));
+    }
+    reader._tablet_schema = schema;
+
+    // Identity read schema over the full merged binlog layout. ReadSchema derives
+    // num_key_columns() from is_key(), which _min_delta_next_block uses for group boundaries.
+    reader._read_schema = std::make_shared<ReadSchema>(schema->columns());
 
     reader._next_row.block = source;
     reader._next_row.row_pos = 0;

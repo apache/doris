@@ -52,7 +52,6 @@ struct RowsetReaderContext {
     // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
     // For example, use lower rowset version / segment id first.
     bool use_insert_order_when_same = false;
-    bool force_key_ordered_read = false;
     // ordinals (positions in read_schema) of the orderby key columns
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // limit of rows for read_orderby_key

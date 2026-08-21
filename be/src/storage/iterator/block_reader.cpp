@@ -179,6 +179,11 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
     const int32_t tso_ordinal = _read_schema->tso_ordinal();
     const int32_t lsn_ordinal = _read_schema->lsn_ordinal();
     const int32_t op_ordinal = _read_schema->op_ordinal();
+    // A group is a run of consecutive rows sharing the same user key. Row-binlog reads are
+    // globally key-ordered (ReaderParams::force_key_ordered_read), and the key columns are the
+    // leading num_key_columns() columns of every read block, so a group boundary is exactly
+    // where the user key changes. _stored_data_columns keeps the group's first row at index 0.
+    const size_t num_key_columns = _tablet_schema->num_key_columns();
     while (output_row_count < batch_max_rows()) {
         if (_emit_pending_row(target_columns, output_row_count)) {
             continue;
@@ -201,8 +206,27 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             return res;
         }
 
-        if (!_eof && _next_row.is_same) {
-            continue;
+        // Extend the current group while the next row shares the same user key. is_same cannot
+        // be used here: it marks cross-segment key matches for dedup, so consecutive same-key
+        // rows that a compaction/quick-merge folded into one segment are left unmarked, which
+        // would split one key's change chain into several groups. Compare the leading key
+        // columns directly against the group's first row (index 0 of _stored_data_columns).
+        if (!_eof) {
+            if (_next_row.is_same) {
+                continue;
+            }
+            bool same_key = true;
+            for (size_t k = 0; k < num_key_columns; ++k) {
+                if (_stored_data_columns[k]->compare_at(0, _next_row.row_pos,
+                                                        *_next_row.block->get_by_position(k).column,
+                                                        -1) != 0) {
+                    same_key = false;
+                    break;
+                }
+            }
+            if (same_key) {
+                continue;
+            }
         }
         size_t group_size = _stored_data_columns[0]->size();
         auto first_op = _read_binlog_op(*_stored_data_columns[op_ordinal], 0);
