@@ -454,10 +454,12 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     // We assume that each current inactive thread will grab one item from the
     // queue.  If it seems like we'll need another thread, we create one.
     //
-    // Rather than creating the thread here, while holding the lock, we defer
-    // it to down below. This is because thread creation can be rather slow
-    // (hundreds of milliseconds in some cases) and we'd like to allow the
-    // existing threads to continue to process tasks while we do so.
+    // Rather than creating an additional thread here, while holding the lock,
+    // we defer it to down below. This is because thread creation can be rather
+    // slow (hundreds of milliseconds in some cases) and we'd like to allow the
+    // existing threads to continue to process tasks while we do so. The first
+    // thread is an exception: it must be created before publishing the task so
+    // a failed submission cannot leave a runnable in a pool with no workers.
     //
     // In theory, a currently active thread could finish immediately after this
     // calculation but before our new worker starts running. This would mean we
@@ -471,9 +473,23 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     int additional_threads =
             static_cast<int>(_queue.size()) + threads_from_this_submit - inactive_threads;
     bool need_a_thread = false;
+    bool create_first_thread = false;
     if (additional_threads > 0 && _num_threads + _num_threads_pending_start < _max_threads) {
+        create_first_thread = _num_threads == 0 && _num_threads_pending_start == 0;
         need_a_thread = true;
         _num_threads_pending_start++;
+    }
+
+    if (create_first_thread) {
+        // Keep the lock until the task is published. A successfully created dispatch thread will
+        // wait for the lock, while a creation failure can return without changing any queue state.
+        Status status = create_thread();
+        if (!status.ok()) {
+            _num_threads_pending_start--;
+            thread_pool_submit_failed->increment(1);
+            return status;
+        }
+        need_a_thread = false;
     }
 
     Task task;
@@ -521,13 +537,14 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
             l.lock();
             _num_threads_pending_start--;
             if (_num_threads + _num_threads_pending_start == 0) {
-                // If we have no threads, we can't do any work.
-                return status;
+                _no_threads_cond.notify_all();
             }
-            // If we failed to create a thread, but there are still some other
-            // worker threads, log a warning message and continue.
-            LOG(WARNING) << "Thread pool " << _name
-                         << " failed to create thread: " << status.to_string();
+            if (_pool_status.ok()) {
+                // The task was published only because another worker can execute it.
+                DORIS_CHECK_GT(_num_threads + _num_threads_pending_start, 0);
+                LOG(WARNING) << "Thread pool " << _name
+                             << " failed to create thread: " << status.to_string();
+            }
         }
     }
 
@@ -687,6 +704,8 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
+    DBUG_EXECUTE_IF("ThreadPool.create_thread.inject_failure",
+                    { return Status::RuntimeError("injected thread creation failure"); });
     return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
@@ -717,6 +736,9 @@ Status ThreadPool::set_min_threads(int min_threads) {
 
 Status ThreadPool::set_max_threads(int max_threads) {
     std::lock_guard<std::mutex> l(_lock);
+    if (max_threads <= 0) {
+        return Status::InvalidArgument("Thread pool {} max_threads must be greater than 0", _name);
+    }
     DBUG_EXECUTE_IF("ThreadPool.set_max_threads.force_set", {
         _max_threads = max_threads;
         return Status::OK();

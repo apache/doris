@@ -46,6 +46,7 @@
 #include "gtest/gtest.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/random.h"
 #include "util/time.h"
@@ -132,6 +133,40 @@ TEST_F(ThreadPoolTest, TestSimpleTasks) {
     _pool->wait();
     EXPECT_EQ(10 + 15 + 20 + 15, counter.load());
     _pool->shutdown();
+}
+
+TEST_F(ThreadPoolTest, TestCreateFirstThreadFailureDoesNotEnqueueTask) {
+    const bool old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("ThreadPool.create_thread.inject_failure");
+    Defer cleanup = [&] {
+        DebugPoints::instance()->remove("ThreadPool.create_thread.inject_failure");
+        config::enable_debug_points = old_enable_debug_points;
+    };
+
+    // Initialization deliberately tolerates a thread creation failure so a later submit can retry.
+    EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
+    EXPECT_EQ(0, _pool->num_threads());
+
+    std::atomic<int> rejected_task_runs = 0;
+    Status submit_status = _pool->submit_func([&] { ++rejected_task_runs; });
+    EXPECT_FALSE(submit_status.ok());
+    EXPECT_EQ(0, _pool->get_queue_size());
+    EXPECT_EQ(0, rejected_task_runs.load());
+
+    DebugPoints::instance()->remove("ThreadPool.create_thread.inject_failure");
+    std::atomic<int> accepted_task_runs = 0;
+    EXPECT_TRUE(_pool->submit_func([&] { ++accepted_task_runs; }).ok());
+    _pool->wait();
+
+    EXPECT_EQ(0, rejected_task_runs.load());
+    EXPECT_EQ(1, accepted_task_runs.load());
+}
+
+TEST_F(ThreadPoolTest, TestRejectNonPositiveMaxThreads) {
+    int old_max_threads = _pool->max_threads();
+    EXPECT_TRUE(_pool->set_max_threads(0).is<INVALID_ARGUMENT>());
+    EXPECT_EQ(old_max_threads, _pool->max_threads());
 }
 
 class SlowTask : public Runnable {
