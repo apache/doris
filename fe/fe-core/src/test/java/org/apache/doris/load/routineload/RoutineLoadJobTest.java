@@ -34,6 +34,8 @@ import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
@@ -50,6 +52,7 @@ import com.google.common.collect.Maps;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -497,6 +500,88 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, uniqueKeyUpdateMode);
         // isPartialUpdate should be false for UPDATE_FLEXIBLE_COLUMNS
         Assert.assertFalse(isPartialUpdate);
+    }
+
+    // When a job is cancelled, the CANCELLED operation persisted to edit log must carry the error reason,
+    // so that followers replaying the log (and a promoted new master) keep the cancel reason.
+    @Test
+    public void testCancelledOperationCarriesReason() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            // db has been deleted, update() will cancel the job with a DB_ERR reason
+            Mockito.doReturn(null).when(catalog).getDbNullable(Mockito.anyLong());
+
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJob.update();
+
+            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+
+            ArgumentCaptor<RoutineLoadOperation> captor = ArgumentCaptor.forClass(RoutineLoadOperation.class);
+            Mockito.verify(editLog).logOpRoutineLoadJob(captor.capture());
+            RoutineLoadOperation operation = captor.getValue();
+            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, operation.getJobState());
+            Assert.assertNotNull("cancel reason must be carried in the edit log operation",
+                    operation.getErrorReason());
+        }
+    }
+
+    // On deserialize failure in gsonPostProcess, an active job should be terminalized via executeCancel:
+    // state becomes CANCELLED, endTimestamp gets set (not -1) and a cancel reason is recorded.
+    @Test
+    public void testGsonPostProcessCancelOnDeserializeFailure() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            // return empty so the orElseThrow inside gsonPostProcess fires and drops into the catch block
+            Mockito.doReturn(java.util.Optional.empty()).when(catalog).getDb(Mockito.anyLong());
+
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+            // a non-parsable origin statement guarantees the parsing fails and falls into the catch block,
+            // and also keeps origStmt non-null so the catch block's logging does not NPE
+            Deencapsulation.setField(routineLoadJob, "origStmt", new OriginStatement("invalid stmt", 0));
+            routineLoadJob.gsonPostProcess();
+
+            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+            Assert.assertTrue("endTimestamp must be set when terminalizing the job",
+                    routineLoadJob.getEndTimestamp() != -1);
+            Assert.assertNotNull(Deencapsulation.getField(routineLoadJob, "cancelReason"));
+        }
+    }
+
+    // A final job whose endTimestamp is not yet set (e.g. cleanup racing with an in-progress
+    // cancel/stop) must not be expired this round, and must not throw and break cleanup.
+    @Test
+    public void testIsExpiredSkipsWhenEndTimestampMissing() {
+        RoutineLoadJob missingEndTs = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(missingEndTs, "state", RoutineLoadJob.JobState.CANCELLED);
+        // endTimestamp keeps its default value -1
+        Assert.assertFalse(missingEndTs.isExpired());
+
+        // a non-final job is never expired
+        RoutineLoadJob running = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(running, "state", RoutineLoadJob.JobState.RUNNING);
+        Assert.assertFalse(running.isExpired());
+
+        // a final job that ended long ago (epoch) is expired via the normal path
+        RoutineLoadJob oldJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(oldJob, "state", RoutineLoadJob.JobState.CANCELLED);
+        Deencapsulation.setField(oldJob, "endTimestamp", 0L);
+        Assert.assertTrue(oldJob.isExpired());
     }
 
 }
