@@ -4197,4 +4197,112 @@ public class IcebergScanPlanProviderTest {
             throw new UnsupportedOperationException();
         }
     }
+
+    @Test
+    public void deleteFileSizePropagatedFromIcebergManifest() {
+        Table table = createTable("t_filesize", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t_filesize/f1.parquet", 512, null, null))
+                .commit();
+        DeleteFile posDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t_filesize/pos-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(1L)
+                .build();
+        table.newRowDelta().addDeletes(posDelete).commit();
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t_filesize"), Collections.emptyList())
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        IcebergScanRange range = (IcebergScanRange) ranges.get(0);
+
+        List<TIcebergDeleteFileDesc> descs = range.rewritableDeleteDescs();
+        Assertions.assertFalse(descs.isEmpty());
+        TIcebergDeleteFileDesc desc = descs.get(0);
+        Assertions.assertTrue(desc.isSetFileSize());
+        Assertions.assertEquals(128L, desc.getFileSize());
+    }
+
+    @Test
+    public void deletionVectorFileSizePropagatedFromIcebergManifest() {
+        Table table = createTable("t_dv_filesize", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "3"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t_dv_filesize/f1.parquet", 512, null, null))
+                .commit();
+        DeleteFile dvDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t_dv_filesize/dv.puffin")
+                .withFormat(FileFormat.PUFFIN)
+                .withFileSizeInBytes(256L)
+                .withRecordCount(1L)
+                .withContentOffset(16L)
+                .withContentSizeInBytes(64L)
+                .withReferencedDataFile("s3://b/db/t_dv_filesize/f1.parquet")
+                .build();
+        table.newRowDelta().addDeletes(dvDelete).commit();
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t_dv_filesize"), Collections.emptyList())
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        IcebergScanRange range = (IcebergScanRange) ranges.get(0);
+
+        List<TIcebergDeleteFileDesc> descs = range.rewritableDeleteDescs();
+        Assertions.assertFalse(descs.isEmpty());
+        TIcebergDeleteFileDesc desc = descs.get(0);
+        Assertions.assertEquals(3, desc.getContent());
+        Assertions.assertTrue(desc.isSetFileSize());
+        Assertions.assertEquals(256L, desc.getFileSize());
+    }
+
+    @Test
+    public void equalityDeleteFileSizePropagatedFromIcebergManifest() {
+        Table table = createTable("t_eq_filesize", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t_eq_filesize/f1.parquet", 512, null, null))
+                .commit();
+        DeleteFile eqDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofEqualityDeletes(1)
+                .withPath("s3://b/db/t_eq_filesize/eq.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(96L)
+                .withRecordCount(1L)
+                .build();
+        table.newRowDelta().addDeletes(eqDelete).commit();
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t_eq_filesize"), Collections.emptyList())
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        IcebergScanRange range = (IcebergScanRange) ranges.get(0);
+
+        // equality deletes are excluded from rewritableDeleteDescs; verify via populateRangeParams
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+        List<TIcebergDeleteFileDesc> descs = formatDesc.getIcebergParams().getDeleteFiles();
+        Assertions.assertFalse(descs.isEmpty());
+        TIcebergDeleteFileDesc desc = descs.get(0);
+        Assertions.assertEquals(2, desc.getContent());
+        Assertions.assertTrue(desc.isSetFileSize());
+        Assertions.assertEquals(96L, desc.getFileSize());
+    }
 }

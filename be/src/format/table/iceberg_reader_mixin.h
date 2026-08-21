@@ -848,7 +848,7 @@ Status IcebergReaderMixin<BaseReader>::_read_equality_delete_file(
     delete_desc.path = delete_file.path;
     delete_desc.start_offset = 0;
     delete_desc.size = -1;
-    delete_desc.file_size = -1;
+    delete_desc.file_size = delete_file.__isset.file_size ? delete_file.file_size : -1;
 
     std::unique_ptr<GenericReader> reader = _create_equality_reader(delete_desc);
     RETURN_IF_ERROR(reader->init_schema_reader());

@@ -40,6 +40,7 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
+#include "util/bvar_helper.h"
 #include "util/obj_lru_cache.h"
 #include "util/slice.h"
 
@@ -120,7 +121,11 @@ Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* read
 Status HdfsFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(dir, _fs_name);
-    int res = hdfsCreateDirectory(_fs_handler->hdfs_fs, real_path.string().c_str());
+    int res;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_create_dir_latency);
+        res = hdfsCreateDirectory(_fs_handler->hdfs_fs, real_path.string().c_str());
+    }
     if (res == -1) {
         return Status::IOError("failed to create directory {}: {}", dir.native(), hdfs_error());
     }
@@ -183,6 +188,7 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
+    SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
     hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
     if (file_info == nullptr) {
         return Status::IOError("failed to get file size of {}: {}", path.native(), hdfs_error());
@@ -225,6 +231,7 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
 }
 
 Status HdfsFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    CHECK_HDFS_HANDLER(_fs_handler);
     Path normal_orig_name = convert_path(orig_name, _fs_name);
     Path normal_new_name = convert_path(new_name, _fs_name);
     int ret = hdfsRename(_fs_handler->hdfs_fs, normal_orig_name.c_str(), normal_new_name.c_str());

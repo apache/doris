@@ -214,11 +214,14 @@ IcebergDeleteFileReaderOptions delete_reader_options(RuntimeState* runtime_state
 } // namespace
 
 TEST(IcebergDeleteFileReaderHelperTest, BuildDeleteFileRange) {
-    auto range = build_iceberg_delete_file_range("s3://bucket/delete.parquet");
+    auto range = build_iceberg_delete_file_range("s3://bucket/delete.parquet", -1);
     EXPECT_EQ(range.path, "s3://bucket/delete.parquet");
     EXPECT_EQ(range.start_offset, 0);
     EXPECT_EQ(range.size, -1);
     EXPECT_EQ(range.file_size, -1);
+
+    auto range2 = build_iceberg_delete_file_range("s3://bucket/delete.parquet", 1024);
+    EXPECT_EQ(range2.file_size, 1024);
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, IsDeletionVector) {
@@ -384,7 +387,7 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileR
     IcebergDeleteFileIOContext io_context(&state);
 
     {
-        TFileRangeDesc exact_range = build_iceberg_delete_file_range(dv_path);
+        TFileRangeDesc exact_range = build_iceberg_delete_file_range(dv_path, -1);
         exact_range.start_offset = 4;
         exact_range.size = dv_size - exact_range.start_offset;
         DeletionVectorReader exact_reader(&state, &profile, scan_params, exact_range,
@@ -397,7 +400,8 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileR
         DeletionVectorReader oversized_reader(&state, &profile, scan_params, oversized_range,
                                               &io_context.io_ctx);
         const auto oversized_status = oversized_reader.open();
-        EXPECT_TRUE(oversized_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << oversized_status;
+        EXPECT_TRUE(oversized_status.template is<ErrorCode::DATA_QUALITY_ERROR>())
+                << oversized_status;
         EXPECT_NE(oversized_status.to_string().find("range exceeds file size"), std::string::npos);
         EXPECT_NE(oversized_status.to_string().find(dv_path), std::string::npos);
     }
@@ -613,6 +617,8 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFi
     delete_file.path = kMixedPositionDeleteFile;
     delete_file.file_format = TFileFormatType::FORMAT_PARQUET;
     delete_file.__isset.file_format = true;
+    delete_file.__isset.file_size = true;
+    delete_file.file_size = -1;
 
     IcebergDeleteFileReaderOptions options;
     options.state = &runtime_state;
