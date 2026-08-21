@@ -78,18 +78,6 @@ PrimaryKeyModelRowRetriever::PrimaryKeyModelRowRetriever() = default;
 
 PrimaryKeyModelRowRetriever::~PrimaryKeyModelRowRetriever() = default;
 
-void PrimaryKeyModelRowRetriever::clear() {
-    _key_columns.clear();
-    _seq_column = nullptr;
-    _use_default_or_null_flag.clear();
-    _has_default_or_nullable = false;
-    _operators.clear();
-    _old_delete_signs.clear();
-    // drops the previous block's rowset pins and read plan
-    DCHECK(_context.tablet_schema != nullptr) << "clear() before init()";
-    _row_fetcher = std::make_unique<HistoricalRowFetcher>(_context);
-}
-
 Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_sign_column_data,
                                                             size_t row_pos, size_t num_rows) {
     auto& tablet_schema = _context.tablet_schema;
@@ -176,7 +164,7 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     }
 
     // Create block to hold historical values for value columns.
-    Block old_value_block = tablet_schema->create_block_by_cids(value_cids);
+    Block old_value_block = tablet_schema->create_storage_block(value_cids);
     CHECK_EQ(value_cids.size(), old_value_block.columns());
 
     // key: logical row index in current batch; value: index in old_value_block

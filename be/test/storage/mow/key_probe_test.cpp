@@ -502,8 +502,8 @@ protected:
                                       int32_t k, bool row_has_seq, int32_t seq,
                                       DataWriteType write_type) {
         const auto seq_idx = static_cast<uint32_t>(schema->sequence_col_idx());
-        Block block = row_has_seq ? schema->create_block_by_cids({0, seq_idx})
-                                  : schema->create_block_by_cids({0});
+        Block block = row_has_seq ? schema->create_storage_block({0, seq_idx})
+                                  : schema->create_storage_block({0});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
         OlapBlockDataConvertor convertor;

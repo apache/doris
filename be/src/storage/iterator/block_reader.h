@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -37,7 +38,6 @@
 
 namespace doris {
 class ColumnPredicate;
-class FunctionFilter;
 class RuntimeProfile;
 
 class BlockReader final : public TabletReader {
@@ -64,10 +64,6 @@ private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);
-    // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
-    // And this is an optimization for AGGR tables.
-    // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    Status _direct_agg_key_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
@@ -79,15 +75,13 @@ private:
 
     Status _detail_change_next_block(Block* block, bool* eof);
 
-    Status _ensure_binlog_column_pos(const Block& src_block);
-
     int64_t _read_binlog_op(const IColumn& col, size_t row) const;
 
     Status _write_binlog_op(IColumn& col, int64_t op) const;
 
-    bool _is_binlog_meta_column(int idx) const;
+    void _init_row_binlog_column_ordinals();
 
-    int _resolve_source_column_index(int idx, bool use_before) const;
+    uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
 
     bool _min_delta_values_equal(size_t last_row) const;
 
@@ -103,8 +97,6 @@ private:
 
     Status _insert_data_normal(MutableColumns& columns);
 
-    // for partial update table
-    void _update_last_mutil_seq(int seq_idx);
     void _compare_sequence_map_and_replace(MutableColumns& columns);
 
     // Check if the accumulated output columns have reached the preferred byte budget,
@@ -131,9 +123,9 @@ private:
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
 
-    std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
-    std::vector<int> _agg_columns_idx;
-    std::vector<int> _return_columns_loc;
+    // Read-schema ordinals of the non-key columns of AGG tables, folded
+    // through the aggregate machinery.
+    std::vector<uint32_t> _agg_columns_idx;
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
@@ -165,28 +157,13 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
-    int _binlog_tso_pos = -1;
-    int _binlog_lsn_pos = -1;
-    int _binlog_op_pos = -1;
-    bool _binlog_column_pos_inited = false;
+    // Read-schema ordinal mapping from each AFTER value to its physical BEFORE companion.
+    // Key, metadata, BEFORE, and unpaired columns map to themselves.
+    std::vector<ColumnId> _row_binlog_before_column_ordinals;
 
-    bool _has_seq_map = false;
-    // for check multi seq
-    std::unordered_map<uint32_t, MutableColumnPtr> _seq_columns;
-    // MutableColumns _seq_columns;
-    // seq in return_columns, val pos in _normal_columns_idx
-    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_in_origin_block;
-    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_not_in_origin_block;
-    // For each source-block position, the position of its physical BEFORE companion (or itself
-    // when no companion exists). Built lazily from row-binlog schema ordinals and consulted via
-    // _resolve_source_column_index when emitting BEFORE rows.
-    std::vector<int> _before_column_idx;
-    // Physical AFTER/BEFORE column pairs used to compare the complete row image for MIN_DELTA.
-    // These include columns widened into the storage projection solely for comparison and are
-    // therefore independent of the SQL output projection.
-    std::vector<std::pair<int, int>> _min_delta_value_column_pairs;
-    // False when the source block does not carry an AFTER/BEFORE pair for every value column. In
-    // that case MIN_DELTA retains UPDATE output conservatively.
+    // Complete AFTER/BEFORE value-column pairs used by MIN_DELTA no-op detection. These are
+    // read-schema ordinals and include comparison-only columns preserved by the FE scan schema.
+    std::vector<std::pair<ColumnId, ColumnId>> _min_delta_value_column_pairs;
     bool _min_delta_value_pairs_complete = false;
     Arena _arena;
 };

@@ -150,9 +150,9 @@ TEST(ScannerProjectionTest, merges_padding_block_when_limit_eos_without_extra_fl
 
     auto op = std::make_shared<MockScanOperatorX>();
     op->_row_descriptor = row_descriptor;
-    op->_output_row_descriptor =
-            std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &pool);
-    op->_output_tuple_desc = op->_output_row_descriptor->tuple_descriptors()[0];
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
 
     auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
     local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
@@ -180,9 +180,9 @@ TEST(ScannerProjectionTest, publishes_shared_column_and_reuses_output_block) {
 
     auto op = std::make_shared<MockScanOperatorX>();
     op->_row_descriptor = row_descriptor;
-    op->_output_row_descriptor =
-            std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &pool);
-    op->_output_tuple_desc = op->_output_row_descriptor->tuple_descriptors()[0];
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
 
     auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
     local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
@@ -225,9 +225,9 @@ TEST(ScannerProjectionTest, projects_incompatible_blocks_before_reading_the_next
 
     auto op = std::make_shared<MockScanOperatorX>();
     op->_row_descriptor = row_descriptor;
-    op->_output_row_descriptor =
-            std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &pool);
-    op->_output_tuple_desc = op->_output_row_descriptor->tuple_descriptors()[0];
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
 
     auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
     local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);

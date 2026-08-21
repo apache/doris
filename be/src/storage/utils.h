@@ -223,25 +223,6 @@ struct RowLocation {
 using RowLocationSet = std::set<RowLocation>;
 using RowLocationPairList = std::list<std::pair<RowLocation, RowLocation>>;
 
-struct GlobalRowLoacation {
-    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
-            : tablet_id(tid), row_location(rsid, sid, rid) {}
-    int64_t tablet_id;
-    RowLocation row_location;
-
-    bool operator==(const GlobalRowLoacation& rhs) const {
-        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
-    }
-
-    bool operator<(const GlobalRowLoacation& rhs) const {
-        if (tablet_id != rhs.tablet_id) {
-            return tablet_id < rhs.tablet_id;
-        } else {
-            return row_location < rhs.row_location;
-        }
-    }
-};
-
 struct GlobalRowLoacationV2 {
     GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)
             : version(ver), backend_id(bid), file_id(fid), row_id(rid) {}

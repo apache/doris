@@ -20,8 +20,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -36,14 +34,6 @@ constexpr int64_t STREAM_CHANGE_INSERT = 0;
 constexpr int64_t STREAM_CHANGE_DELETE = 1;
 constexpr int64_t STREAM_CHANGE_UPDATE_BEFORE = 2;
 constexpr int64_t STREAM_CHANGE_UPDATE_AFTER = 3;
-
-// Build the __BEFORE__ column name for a base column.
-inline std::string build_before_column_name(std::string_view name) {
-    std::string before_name = "__BEFORE__";
-    before_name.append(name.data(), name.size());
-    before_name.append("__");
-    return before_name;
-}
 
 using RowBinlogValueColumnPair = std::pair<uint32_t, uint32_t>;
 
@@ -101,7 +91,6 @@ inline bool get_row_binlog_value_column_pairs(const TabletSchema& schema,
     }
     return true;
 }
-
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };
 
 // MIN_DELTA uses row binlog op codes as indices into a 2D lookup table, so we guard the op layout here.

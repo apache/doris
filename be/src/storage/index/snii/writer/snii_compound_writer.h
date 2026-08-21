@@ -279,12 +279,11 @@ private:
 
     Status ensure_bootstrap();
     Status write_bootstrap();
-    // Writes indexes_[index]'s norms/null-bitmap/bsbf immediately after its
-    // [posting][dict] pair and fills placements_[index]. Keeping one index's sections
+    // Writes one index's norms/null-bitmap/bsbf immediately after its
+    // [posting][dict] pair and fills its placement. Keeping one index's sections
     // contiguous is what makes a single-index cold query touch one cache block instead
     // of three; the previous layout grouped these by section type across all indexes.
-    // Must be called after indexes_/placements_ have been pushed for this index.
-    Status write_index_aux_sections(size_t index);
+    Status write_index_aux_sections(LogicalIndexWriter& writer, Placement& placement);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
     Status poison(Status status);

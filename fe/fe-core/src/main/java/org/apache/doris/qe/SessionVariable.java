@@ -830,6 +830,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
+    public static final String ENABLE_HYPERSCAN_FALLBACK = "enable_hyperscan_fallback";
+
     public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
             "cloud_partitions_table_use_cached_visible_version";
 
@@ -3550,6 +3552,10 @@ public class SessionVariable implements Serializable, Writable {
             description = "Enable extended regular expressions, support look-around zero-width assertions")
     public boolean enableExtendedRegex = false;
 
+    @VarAttrDef.VarAttr(name = ENABLE_HYPERSCAN_FALLBACK, needForward = true, affectQueryResultInExecution = true,
+            description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
+    public boolean enableHyperscanFallback = true;
+
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
             needForward = true,
@@ -5680,6 +5686,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
+        tResult.setEnableHyperscanFallback(enableHyperscanFallback);
         if (fileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
                     Config.file_cache_query_limit_max_percent));

@@ -405,6 +405,46 @@ TEST(VariantValueTest, ObjectLookupSortedAndUnsortedMetadata) {
     EXPECT_EQ(id, 1);
 }
 
+TEST(VariantValueTest, ObjectViewMatchesRandomAccessAndRetainsBoundsChecks) {
+    const std::string sorted_metadata = metadata({"a", "b"}, true);
+    const std::string false_value = primitive(VariantPrimitiveId::FALSE_VALUE);
+    const std::string true_value = primitive(VariantPrimitiveId::TRUE_VALUE);
+    const std::string encoded = object_value({0, 1}, {1, 0}, {false_value, true_value});
+    const VariantRef ref = value_ref(sorted_metadata, encoded);
+
+    const VariantRef::ObjectView object = ref.object_view();
+    ASSERT_EQ(object.size(), 2);
+    for (uint32_t index = 0; index < object.size(); ++index) {
+        uint32_t view_field = std::numeric_limits<uint32_t>::max();
+        uint32_t direct_field = std::numeric_limits<uint32_t>::max();
+        const VariantRef view_value = object.value_at(index, &view_field);
+        const VariantRef direct_value = ref.object_value_at(index, &direct_field);
+        EXPECT_EQ(view_field, direct_field);
+        EXPECT_EQ(view_value.value.data, direct_value.value.data);
+        EXPECT_EQ(view_value.value.size, direct_value.value.size);
+    }
+    EXPECT_TRUE(object.value_at(0).get_bool());
+    EXPECT_FALSE(object.value_at(1).get_bool());
+    EXPECT_THROW(object.value_at(object.size()), Exception);
+
+    const std::string invalid_id_object =
+            object_value({2}, {0}, {primitive(VariantPrimitiveId::NULL_VALUE)});
+    const VariantRef::ObjectView invalid_id =
+            value_ref(sorted_metadata, invalid_id_object).object_view();
+    EXPECT_THROW(invalid_id.value_at(0), Exception);
+
+    const std::string truncated_object(1, static_cast<char>(VariantBasicType::OBJECT));
+    EXPECT_THROW(value_ref(sorted_metadata, truncated_object).object_view(), Exception);
+    const std::string truncated_metadata = sorted_metadata.substr(0, 2);
+    EXPECT_THROW(value_ref(truncated_metadata, encoded).object_view(), Exception);
+
+    // An empty object has no field ids, so iterating it must not inspect otherwise unused
+    // metadata. This preserves the random-access API's validation boundary.
+    const std::string empty_object = object_value({}, {}, {});
+    const VariantRef::ObjectView empty = value_ref(truncated_metadata, empty_object).object_view();
+    EXPECT_EQ(empty.size(), 0);
+}
+
 TEST(VariantValueTest, ObjectFindRejectsInvalidReceivers) {
     const std::string empty_metadata = metadata({}, true);
     VariantRef found;

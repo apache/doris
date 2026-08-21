@@ -42,12 +42,16 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -524,6 +528,23 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testReplayCreateDbRemovesCaseEquivalentPreviousIncarnation() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog(2);
+        catalog.setInitializedForTest(true);
+        long previousDbId = Util.genIdByName(catalog.getName(), "MixedDb");
+        long createdDbId = Util.genIdByName(catalog.getName(), "mixeddb");
+        TestExternalDatabase previousDb =
+                new TestExternalDatabase(catalog, previousDbId, "MixedDb", "MixedDb");
+        catalog.addDatabaseForTest(previousDb);
+
+        catalog.replayCreateDb("mixeddb");
+
+        Assertions.assertNotEquals(previousDbId, createdDbId);
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("MixedDb"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(previousDbId));
+    }
+
+    @Test
     public void testCaseInsensitiveDatabaseUnregisterClearsCanonicalColdIdMap() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog(2);
         catalog.setInitializedForTest(true);
@@ -953,7 +974,7 @@ public class ExternalCatalogTest extends TestWithFeService {
                     Util.genIdByName(catalog.getName(), db.getFullName(), "MixedTbl")));
             Assertions.assertEquals(0, db.getTableLookupCount());
 
-            mgr.unregisterExternalTable("db_ci", "MixedTbl", catalog.getName(), true);
+            mgr.unregisterExternalTableFromEvent("db_ci", "MixedTbl", catalog.getName());
 
             Assertions.assertNull(schemaEntry.getIfPresent(exactCaseKey));
             Assertions.assertEquals(0, db.getTableLookupCount());
@@ -985,8 +1006,24 @@ public class ExternalCatalogTest extends TestWithFeService {
         Map<String, CatalogIf> nameToCatalog = Deencapsulation.getField(mgr, "nameToCatalog");
         nameToCatalog.put(catalog.getName(), catalog);
         mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        ExternalMetaCacheMgr cacheMgr = env.getExtMetaCacheMgr();
+        ExternalRowCountCache originalRowCountCache = cacheMgr.getRowCountCache();
+        ExternalRowCountCache rowCountCache = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+        Deencapsulation.setField(cacheMgr, "rowCountCache", rowCountCache);
         try {
-            mgr.registerExternalTableFromEvent("db1", "tbl1", catalog.getName(), 123L, true);
+            ExternalTable statsTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(statsTable.fetchRowCountWithMetaCache(false)).thenReturn(100L);
+            try (MockedStatic<StatisticsUtil> statisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+                statisticsUtil.when(() -> StatisticsUtil.findTable(catalog.getId(), db.getId(), tableId))
+                        .thenReturn(statsTable);
+                Assertions.assertEquals(100L,
+                        rowCountCache.getCachedRowCount(catalog.getId(), db.getId(), tableId, false));
+
+                mgr.registerExternalTableFromEvent("db1", "tbl1", "tbl1", catalog.getName(), 123L);
+
+                Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                        rowCountCache.getCachedRowCountIfPresent(catalog.getId(), db.getId(), tableId));
+            }
 
             TestExternalTable eventTable = db.getCachedTableForTest("tbl1");
             Assertions.assertNotNull(eventTable);
@@ -996,6 +1033,7 @@ public class ExternalCatalogTest extends TestWithFeService {
             Assertions.assertEquals("tbl1", db.getCachedTableNameByIdForTest(tableId));
             Assertions.assertEquals(0, db.getTableLookupCount());
         } finally {
+            Deencapsulation.setField(cacheMgr, "rowCountCache", originalRowCountCache);
             nameToCatalog.remove(catalog.getName());
             mgr.getIdToCatalog().remove(catalog.getId());
         }
@@ -1015,7 +1053,8 @@ public class ExternalCatalogTest extends TestWithFeService {
         nameToCatalog.put(catalog.getName(), catalog);
         mgr.getIdToCatalog().put(catalog.getId(), catalog);
         try {
-            mgr.registerExternalTableFromEvent("db_ci", "MixedTbl", catalog.getName(), 123L, true);
+            mgr.registerExternalTableFromEvent(
+                    "db_ci", "MixedTbl", "MixedTbl", catalog.getName(), 123L);
 
             long mixedCaseId = Util.genIdByName(catalog.getName(), db.getFullName(), "MixedTbl");
             long lowerCaseId = Util.genIdByName(catalog.getName(), db.getFullName(), "mixedtbl");
@@ -1027,7 +1066,7 @@ public class ExternalCatalogTest extends TestWithFeService {
 
             // Hive treats table names case-insensitively. A later DROP event may use another spelling, but mode 2
             // must still resolve it to the exact retained CREATE identity and remove that ID mapping.
-            mgr.unregisterExternalTable("db_ci", "mixedTBL", catalog.getName(), true);
+            mgr.unregisterExternalTableFromEvent("db_ci", "mixedTBL", catalog.getName());
 
             Assertions.assertNull(db.getCachedTableNameByIdForTest(mixedCaseId));
             Assertions.assertNull(db.getCachedTableNameByIdForTest(lowerCaseId));
@@ -1050,7 +1089,8 @@ public class ExternalCatalogTest extends TestWithFeService {
         nameToCatalog.put(catalog.getName(), catalog);
         mgr.getIdToCatalog().put(catalog.getId(), catalog);
         try {
-            mgr.registerExternalTableFromEvent("db_ci", remoteTableName, catalog.getName(), 1L, true);
+            mgr.registerExternalTableFromEvent(
+                    "db_ci", remoteTableName, localTableName, catalog.getName(), 1L);
             long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), localTableName);
 
             Assertions.assertEquals(0, db.getTableLookupCount());
@@ -1060,7 +1100,9 @@ public class ExternalCatalogTest extends TestWithFeService {
 
             // The remote table has already disappeared when DROP_TABLE is delivered. The ignored event path must
             // still resolve the canonical local key without a load-through lookup and remove the cold ID mapping.
-            mgr.unregisterExternalTable("db_ci", dropTableName, catalog.getName(), true);
+            String localDropTableName = catalog.canonicalLocalTableNameFromRemote(
+                    db.getRemoteName(), dropTableName);
+            mgr.unregisterExternalTableFromEvent("db_ci", localDropTableName, catalog.getName());
 
             Assertions.assertEquals(0, db.getTableLookupCount());
             Assertions.assertNull(db.getCachedTableNamesForTest());
@@ -1633,15 +1675,6 @@ public class ExternalCatalogTest extends TestWithFeService {
         public TestExternalTable getTableNullable(String tableName) {
             tableLookupCount.incrementAndGet();
             return null;
-        }
-
-        @Override
-        public boolean registerTable(TableIf tableIf) {
-            makeSureInitialized();
-            TestExternalTable table = (TestExternalTable) tableIf;
-            updateTableCache(table, table.getRemoteName(), table.getName(), false);
-            setLastUpdateTime(System.currentTimeMillis());
-            return true;
         }
 
         int getTableLookupCount() {

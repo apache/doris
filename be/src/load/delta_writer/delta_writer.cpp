@@ -178,8 +178,10 @@ Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
     }
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
-        while (_memtable_writer->flush_running_count() >=
-               config::memtable_flush_running_count_limit) {
+        const auto effective_flush_running_count_limit =
+                config::memtable_flush_running_count_limit *
+                (_req.write_req_type == WriteRequestType::GROUP ? 2 : 1);
+        while (_memtable_writer->flush_running_count() >= effective_flush_running_count_limit) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }

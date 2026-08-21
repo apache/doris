@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Stack;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
@@ -439,12 +440,29 @@ public class BindExpression implements AnalysisRuleFactory {
             // 2. the expandColumnsAlias is empty, we should use origin boundSlot
             if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
                     && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
-                if (boundSlot.getDataType() instanceof StructType
-                        && generate.getExpandColumnAlias().get(i).size() > 1) {
+                int aliasCount = generate.getExpandColumnAlias().get(i).size();
+                boolean shouldExpandStruct = boundSlot.getDataType() instanceof StructType && aliasCount > 1;
+                if (boundGenerator instanceof Stack) {
+                    int outputColumnCount = ((Stack) boundGenerator).getOutputColumnCount();
+                    if (aliasCount != outputColumnCount) {
+                        throw new AnalysisException(String.format(
+                                "table %s has %d columns available but %d columns specified",
+                                slot.getQualifier().get(0), outputColumnCount, aliasCount));
+                    }
+                    shouldExpandStruct = outputColumnCount > 1;
+                }
+                if (shouldExpandStruct) {
+                    Preconditions.checkState(boundSlot.getDataType() instanceof StructType,
+                            "multi-column generator output must use a struct carrier");
                     // if the alias is not empty, we should bind it with struct_element as child expr with alias
                     // element_at(#expand_col#k, #k) as #k
                     // element_at(#expand_col#v, #v) as #v
                     List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
+                    if (aliasCount != fields.size()) {
+                        throw new AnalysisException(String.format(
+                                "table %s has %d columns available but %d columns specified",
+                                slot.getQualifier().get(0), fields.size(), aliasCount));
+                    }
                     for (int idx = 0; idx < fields.size(); ++idx) {
                         expandAlias.add(new Alias(new ElementAt(
                                 boundSlot, new StringLiteral(fields.get(idx).getName())),

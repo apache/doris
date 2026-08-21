@@ -523,7 +523,6 @@ SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
 SET: 'SET';
 SETS: 'SETS';
-SET_SESSION_VARIABLE: 'SET_SESSION_VARIABLE';
 SHAPE: 'SHAPE';
 SHOW: 'SHOW';
 SIGNED: 'SIGNED';
@@ -665,8 +664,14 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
-    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
+    : '\'' (
+          {!isNoBackslashEscapes}? ('\\' . | '\'\'' | ~('\'' | '\\'))*
+        | {isNoBackslashEscapes}? ('\'\'' | ~('\''))*
+      ) '\''
+    | '"' (
+          {!isNoBackslashEscapes}? ('\\' . | '""' | ~('"' | '\\'))*
+        | {isNoBackslashEscapes}? ('""' | ~('"'))*
+      ) '"'
     ;
 
 VARBINARY_LITERAL

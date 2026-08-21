@@ -159,6 +159,32 @@ endif()
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
+# Build-hygiene gates: seconds-level, zero-build-dependency text checks that
+# keep the backend's compile-time invariants from regressing (header layering
+# rules and budgets, extern-template pairing, unity-skip coverage for
+# test-included sources). Running them at configure time makes a violation a
+# build error on every path that builds the BE -- CI, build.sh, the UT build --
+# with no separate wiring, and it fails in the first seconds instead of
+# somewhere inside a long compile. Every failure message carries the mechanism
+# and the fix path; see build-support/check-build-hygiene.sh.
+option(ENABLE_BUILD_HYGIENE "Run the build-hygiene gates at configure time" ON)
+message(STATUS "ENABLE_BUILD_HYGIENE is ${ENABLE_BUILD_HYGIENE}")
+if (ENABLE_BUILD_HYGIENE)
+    execute_process(
+        COMMAND bash "${BASE_DIR}/../build-support/check-build-hygiene.sh"
+        ERROR_VARIABLE BUILD_HYGIENE_ERRORS
+        RESULT_VARIABLE BUILD_HYGIENE_RESULT
+    )
+    if (NOT BUILD_HYGIENE_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "build-hygiene gates failed (exit ${BUILD_HYGIENE_RESULT}):\n"
+            "${BUILD_HYGIENE_ERRORS}"
+            "Fix the violation (each message ends with its fix path), or "
+            "configure with -DENABLE_BUILD_HYGIENE=OFF to bypass in an "
+            "emergency.")
+    endif()
+endif()
+
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)
@@ -372,6 +398,21 @@ add_compile_options(-g
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
+
+# Faster dev compiles: DORIS_DEV_DEBUG_INFO=line-tables keeps only the line
+# tables (enough for stack traces and perf) instead of full debug info; 'full'
+# asks for the default full DWARF explicitly, which is what run-be-ut.sh needs
+# to be overridable with, since UT builds default to line-tables.
+# It must be appended after the -g/-gdwarf-5 above: clang lets the last debug-info
+# flag win, and this keeps the default command line unchanged.
+if ("${DORIS_DEV_DEBUG_INFO}" STREQUAL "line-tables")
+    if (NOT COMPILER_CLANG)
+        message(FATAL_ERROR "DORIS_DEV_DEBUG_INFO=line-tables requires clang")
+    endif()
+    add_compile_options(-gline-tables-only)
+elseif (NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "" AND NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "full")
+    message(FATAL_ERROR "Unknown DORIS_DEV_DEBUG_INFO value: ${DORIS_DEV_DEBUG_INFO} (supported: line-tables, full)")
+endif()
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare)
@@ -1033,6 +1074,7 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
+    add_subdirectory(${SRC_DIR}/io/cache/benchmark)
     install(FILES
         ${BASE_DIR}/../bin/start_file_cache_microbench.sh
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE

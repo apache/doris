@@ -35,7 +35,6 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <numeric>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -51,6 +50,7 @@
 #include "core/data_type/data_type_number.h"
 #include "storage/binlog.h"
 #include "storage/iterator/binlog_block_reader_utils.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 
@@ -271,6 +271,23 @@ private:
     std::shared_ptr<Block> _source;
 };
 
+// Read schema mirroring the merged binlog block layout above.
+ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
+                                        "key", "val", binlog::build_before_column_name("val"),
+                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+    std::vector<TabletColumnPtr> cols;
+    auto add_bigint = [&](const std::string& name) {
+        auto col = std::make_shared<TabletColumn>();
+        col->set_name(name);
+        col->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+        cols.push_back(std::move(col));
+    };
+    for (const auto& name : names) {
+        add_bigint(name);
+    }
+    return std::make_shared<ReadSchema>(std::move(cols));
+}
+
 // Wire a BlockReader as if init() had already completed for a row-binlog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator.
 void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size,
@@ -278,17 +295,18 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The fake LevelIterator and MIN_DELTA value-pair discovery both need the physical schema.
+    // The physical tablet schema supplies stable unique ids for AFTER/BEFORE pairing. The fake
+    // source block supplies the materialized types used by this read schema.
     reader._tablet_schema = std::move(schema);
-    reader._return_columns.resize(source->columns());
-    std::iota(reader._return_columns.begin(), reader._return_columns.end(), 0);
-
-    // By default every physical column is returned in-place. Tests with comparison-only columns
-    // override this mapping below.
-    reader._normal_columns_idx.resize(source->columns());
-    reader._return_columns_loc.resize(source->columns());
-    std::iota(reader._normal_columns_idx.begin(), reader._normal_columns_idx.end(), 0);
-    std::iota(reader._return_columns_loc.begin(), reader._return_columns_loc.end(), 0);
+    ASSERT_EQ(reader._tablet_schema->num_columns(), source->columns());
+    std::vector<DataTypePtr> read_types;
+    read_types.reserve(source->columns());
+    for (size_t ordinal = 0; ordinal < source->columns(); ++ordinal) {
+        read_types.emplace_back(source->get_by_position(ordinal).type);
+    }
+    reader._read_schema =
+            std::make_shared<ReadSchema>(reader._tablet_schema->columns(), std::move(read_types));
+    reader._init_row_binlog_column_ordinals();
 
     reader._next_row.block = source;
     reader._next_row.row_pos = 0;
@@ -329,12 +347,17 @@ std::vector<OutRow> drain(BlockReader& reader, Status (BlockReader::*fn)(Block*,
     bool eof = false;
     int guard = 0;
     while (!eof) {
-        Block block = make_output_block();
+        Block block = reader._read_schema->create_read_block();
         Status st = (reader.*fn)(&block, &eof);
         EXPECT_TRUE(st.ok()) << st;
+        const int32_t op_ordinal = reader._read_schema->op_ordinal();
+        if (op_ordinal < 0) {
+            ADD_FAILURE() << "row-binlog read schema has no op column";
+            return result;
+        }
         for (size_t r = 0; r < block.rows(); ++r) {
             result.push_back({out_i64(block, KEY_IDX, r), out_i64(block, VAL_IDX, r),
-                              out_i64(block, OP_IDX, r)});
+                              out_i64(block, op_ordinal, r)});
         }
         if (++guard >= 1000) {
             ADD_FAILURE() << "drain did not terminate";
@@ -362,6 +385,20 @@ protected:
     void TearDown() override { config::enable_adaptive_batch_size = _saved_adaptive; }
     bool _saved_adaptive = false;
 };
+
+TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaWithoutBeforeUsesCurrentColumn) {
+    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL});
+
+    EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
+    auto read_schema = make_read_schema(
+            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL});
+
+    EXPECT_EQ(-1, read_schema->lsn_ordinal());
+    EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
+}
 
 // ============================================================================
 // _min_delta_next_block branch coverage
@@ -660,10 +697,6 @@ void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> sour
     configure_reader(reader, source, batch_size,
                      make_test_tablet_schema({{"val", FieldType::OLAP_FIELD_TYPE_BIGINT},
                                               {"val2", FieldType::OLAP_FIELD_TYPE_BIGINT}}));
-    // Return key/val1/before-val1/meta only. val2 and before-val2 remain available internally
-    // at physical positions 2 and 4, with no target output position.
-    reader._normal_columns_idx = {0, 1, 3, 5, 6, 7};
-    reader._return_columns_loc = {0, 1, -1, 2, -1, 3, 4, 5};
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns) {

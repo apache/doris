@@ -22,7 +22,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
 namespace doris {
 
 namespace {
@@ -80,5 +79,4 @@ TEST_F(BinlogBlockReaderUtilsTest, RejectMalformedValuePairLayout) {
     EXPECT_FALSE(binlog::get_row_binlog_value_column_pairs(schema, &pairs));
     EXPECT_TRUE(pairs.empty());
 }
-
 } // namespace doris

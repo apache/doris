@@ -569,7 +569,8 @@ Status PipelineTask::execute(bool* done) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
-                _block->clear_column_data(_root->row_desc().num_materialized_slots());
+                _block->clear_column_data(
+                        _root->operator_row_desc_after_projection().num_materialized_slots());
             }
         }};
         // `_wake_up_early` must be after `_is_blocked()`
