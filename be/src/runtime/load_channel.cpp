@@ -72,7 +72,9 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
     _last_updated_time.store(time(nullptr));
-    _init_profile();
+    if (enable_profile) {
+        _init_profile();
+    }
 }
 
 LoadChannel::~LoadChannel() {
@@ -88,6 +90,7 @@ LoadChannel::~LoadChannel() {
 }
 
 void LoadChannel::_init_profile() {
+    DCHECK(_enable_profile);
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
     _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
     _handle_mem_limit_timer = ADD_TIMER(_profile, "HandleMemLimitTime");
@@ -179,7 +182,9 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
                     { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
-    COUNTER_UPDATE(_add_batch_times, 1);
+    if (_enable_profile) {
+        COUNTER_UPDATE(_add_batch_times, 1);
+    }
     SCOPED_ATTACH_TASK(_resource_ctx);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
@@ -193,7 +198,9 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     // 2. add block to tablets channel
     if (request.has_block()) {
         RETURN_IF_ERROR(channel->add_batch(request, response));
-        _add_batch_number_counter->update(1);
+        if (_enable_profile) {
+            _add_batch_number_counter->update(1);
+        }
     }
 
     // 3. handle eos
@@ -204,7 +211,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         if (!st.ok()) {
             return st;
         }
-    } else if (_add_batch_number_counter->value() % 100 == 1) {
+    } else if (_enable_profile && _add_batch_number_counter->value() % 100 == 1) {
         _report_profile(response);
     }
     _last_updated_time.store(time(nullptr));
@@ -214,7 +221,9 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
                                 const PTabletWriterAddBlockRequest& request,
                                 PTabletWriterAddBlockResult* response) {
-    _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
+    if (_enable_profile) {
+        _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
+    }
     bool finished = false;
     auto index_id = request.index_id();
 
