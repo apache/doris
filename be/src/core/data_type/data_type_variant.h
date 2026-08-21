@@ -77,11 +77,7 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(nesting_level);
     };
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        node->set_type(TTypeNodeType::VARIANT);
-        node->set_variant_max_subcolumns_count(_max_subcolumns_count);
-        node->set_variant_enable_doc_mode(_enable_doc_mode);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
     bool enable_doc_mode() const { return _enable_doc_mode; }

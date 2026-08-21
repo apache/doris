@@ -23,6 +23,7 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
 #include <glog/logging.h>
 
 #include <algorithm>
