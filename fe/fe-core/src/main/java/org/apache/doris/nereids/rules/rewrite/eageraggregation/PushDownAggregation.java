@@ -101,10 +101,15 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         if (mode < 0) {
             return plan;
         } else {
+            Plan originalPlan = plan;
             JoinReorderRule rule = new JoinReorderRule();
             plan = rule.rewrite(plan, null);
             plan = new ColumnPruning().rewriteRoot(plan, jobContext);
+
             Plan result = plan.accept(this, jobContext);
+            if (result != plan) {
+                return originalPlan;
+            }
             if (SessionVariable.isFeDebug()) {
                 result = new AdjustNullable(true).rewriteRoot(result, null);
             }
