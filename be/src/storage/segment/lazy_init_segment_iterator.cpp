@@ -21,11 +21,11 @@
 
 namespace doris::segment_v2 {
 
-LazyInitSegmentIterator::LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int64_t segment_id,
-                                                 bool should_use_cache, SchemaSPtr schema,
-                                                 const StorageReadOptions& opts)
+LazyInitSegmentIterator::LazyInitSegmentIterator(BetaRowsetSharedPtr rowset,
+                                                 RowsetSegmentRef segment, bool should_use_cache,
+                                                 SchemaSPtr schema, const StorageReadOptions& opts)
         : _rowset(std::move(rowset)),
-          _segment_id(segment_id),
+          _segment(segment),
           _should_use_cache(should_use_cache),
           _schema(std::move(schema)),
           _read_options(opts) {}
@@ -41,7 +41,7 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
     {
         SegmentCacheHandle segment_cache_handle;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats,
+                _rowset, _segment, &segment_cache_handle, _should_use_cache, false, opts.stats,
                 &opts.io_ctx));
         const auto& tmp_segments = segment_cache_handle.get_segments();
         segment = tmp_segments[0];

@@ -399,14 +399,14 @@ protected:
             for (auto s_id = 0; s_id < input_data[rs_id].size(); s_id++) {
                 for (auto row_id = 0; row_id < input_data[rs_id][s_id].size(); row_id++) {
                     RowLocation src(input_rowsets[rs_id]->rowset_id(), s_id, row_id);
-                    RowLocation dst;
+                    RowIdConversion::DestinationRowId dst;
                     int res = rowid_conversion.get(src, &dst);
                     if (res < 0) {
                         continue;
                     }
                     size_t rowid_in_output_data = dst.row_id;
-                    EXPECT_GT(segment_num_rows[dst.segment_id], dst.row_id);
-                    for (auto n = 1; n <= dst.segment_id; n++) {
+                    EXPECT_GT(segment_num_rows[dst.segment_pos], dst.row_id);
+                    for (auto n = 1; n <= dst.segment_pos; n++) {
                         rowid_in_output_data += segment_num_rows[n - 1];
                     }
                     EXPECT_EQ(std::get<0>(output_data[rowid_in_output_data]),
@@ -491,12 +491,14 @@ TEST_F(TestRowIdConversion, Basic) {
     }
     RowIdConversion rowid_conversion;
     src_rowset.init(0);
+    std::vector<uint32_t> rs0_segment_ids = {0, 1};
     std::vector<uint32_t> rs0_segment_num_rows = {4, 3};
-    auto st = rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
+    auto st = rowid_conversion.init_segment_map(src_rowset, rs0_segment_ids, rs0_segment_num_rows);
     EXPECT_EQ(st.ok(), true);
     src_rowset.init(1);
+    std::vector<uint32_t> rs1_segment_ids = {0};
     std::vector<uint32_t> rs1_segment_num_rows = {4};
-    st = rowid_conversion.init_segment_map(src_rowset, rs1_segment_num_rows);
+    st = rowid_conversion.init_segment_map(src_rowset, rs1_segment_ids, rs1_segment_num_rows);
     EXPECT_EQ(st.ok(), true);
     rowid_conversion.set_dst_rowset_id(dst_rowset);
 
@@ -506,45 +508,87 @@ TEST_F(TestRowIdConversion, Basic) {
     int res = 0;
     src_rowset.init(0);
     RowLocation src0(src_rowset, 0, 0);
-    RowLocation dst0;
+    RowIdConversion::DestinationRowId dst0;
     res = rowid_conversion.get(src0, &dst0);
 
-    EXPECT_EQ(dst0.rowset_id, dst_rowset);
-    EXPECT_EQ(dst0.segment_id, 0);
+    EXPECT_EQ(rowid_conversion.get_dst_rowset_id(), dst_rowset);
+    EXPECT_EQ(dst0.segment_pos, 0);
     EXPECT_EQ(dst0.row_id, 0);
     EXPECT_EQ(res, 0);
 
     src_rowset.init(0);
     RowLocation src1(src_rowset, 1, 2);
-    RowLocation dst1;
+    RowIdConversion::DestinationRowId dst1;
     res = rowid_conversion.get(src1, &dst1);
 
-    EXPECT_EQ(dst1.rowset_id, dst_rowset);
-    EXPECT_EQ(dst1.segment_id, 1);
+    EXPECT_EQ(dst1.segment_pos, 1);
     EXPECT_EQ(dst1.row_id, 2);
     EXPECT_EQ(res, 0);
 
     src_rowset.init(1);
     RowLocation src2(src_rowset, 0, 3);
-    RowLocation dst2;
+    RowIdConversion::DestinationRowId dst2;
     res = rowid_conversion.get(src2, &dst2);
 
-    EXPECT_EQ(dst2.rowset_id, dst_rowset);
-    EXPECT_EQ(dst2.segment_id, 2);
+    EXPECT_EQ(dst2.segment_pos, 2);
     EXPECT_EQ(dst2.row_id, 3);
     EXPECT_EQ(res, 0);
 
     src_rowset.init(1);
     RowLocation src3(src_rowset, 0, 4);
-    RowLocation dst3;
+    RowIdConversion::DestinationRowId dst3;
     res = rowid_conversion.get(src3, &dst3);
     EXPECT_EQ(res, -1);
 
     src_rowset.init(100);
     RowLocation src4(src_rowset, 5, 4);
-    RowLocation dst4;
+    RowIdConversion::DestinationRowId dst4;
     res = rowid_conversion.get(src4, &dst4);
     EXPECT_EQ(res, -1);
+}
+
+TEST_F(TestRowIdConversion, ConvertDestinationPositionToPhysicalSegmentId) {
+    auto tablet_schema = create_schema(UNIQUE_KEYS);
+    auto input_rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(input_rowset_meta, 2, 2);
+    RowsetId input_rowset_id;
+    input_rowset_id.init(100);
+    input_rowset_meta->set_rowset_id(input_rowset_id);
+    input_rowset_meta->set_segment_ids({10});
+    auto input_rowset =
+            std::make_shared<BetaRowset>(tablet_schema, input_rowset_meta, absolute_dir);
+
+    auto output_rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(output_rowset_meta, 2, 2);
+    RowsetId output_rowset_id;
+    output_rowset_id.init(200);
+    output_rowset_meta->set_rowset_id(output_rowset_id);
+    output_rowset_meta->set_segment_ids({100});
+    auto output_rowset =
+            std::make_shared<BetaRowset>(tablet_schema, output_rowset_meta, absolute_dir);
+
+    RowIdConversion rowid_conversion;
+    ASSERT_TRUE(rowid_conversion.init_segment_map(input_rowset_id, {10}, {1}).ok());
+    rowid_conversion.set_dst_rowset_id(output_rowset_id);
+    rowid_conversion.add({RowLocation(input_rowset_id, 10, 0)}, {1});
+
+    DeleteBitmap input_delete_bitmap(1);
+    input_delete_bitmap.add({input_rowset_id, 10, 5}, 0);
+    DeleteBitmap output_delete_bitmap(1);
+    std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+    auto tablet = create_tablet(*tablet_schema, true);
+    tablet->calc_compaction_output_rowset_delete_bitmap(
+            {input_rowset}, output_rowset, rowid_conversion, 0, 10, nullptr, &location_map,
+            input_delete_bitmap, &output_delete_bitmap);
+
+    EXPECT_TRUE(output_delete_bitmap.contains({output_rowset_id, 100, 5}, 0));
+    EXPECT_FALSE(output_delete_bitmap.contains({output_rowset_id, 0, 5}, 0));
+    ASSERT_EQ(location_map.size(), 1);
+    ASSERT_EQ(location_map.at(input_rowset).size(), 1);
+    const auto& [src, dst] = location_map.at(input_rowset).front();
+    EXPECT_EQ(src.segment_id, 10);
+    EXPECT_EQ(dst.rowset_id, output_rowset_id);
+    EXPECT_EQ(dst.segment_id, 100);
 }
 
 INSTANTIATE_TEST_SUITE_P(
