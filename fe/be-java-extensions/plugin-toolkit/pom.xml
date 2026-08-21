@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>be-java-extensions</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>plugin-toolkit</artifactId>
+    <name>Doris BE Plugin Toolkit</name>
+    <description>
+        Utilities shared by the plugins' source, never by their runtime.
+
+        Unlike jni-spi this jar is NOT on BE's classpath: each plugin that wants it declares a
+        normal compile dependency and gets its own copy inside its own directory. So two plugins
+        using it share the source but not the classes, which is the whole point - a bug fix reaches
+        both, while neither can be affected by the other's version of anything. Trino's
+        trino-plugin-toolkit works the same way.
+
+        The corollary is that anything added here is duplicated into every consumer, so it must be
+        code that genuinely has more than one, and it must stay dependency-free: a dependency here
+        would be forced on every plugin that wants any part of the toolkit.
+    </description>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Narrowed to test scope for the same reason as in jni-spi: the fe parent pom declares
+          these for every module, and a child cannot drop an inherited dependency. See that pom
+          for the full explanation. Do not "fix" these to compile scope.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-plugin-toolkit</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-plugin-toolkit-stays-dependency-free</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>*</exclude>
+                                    </excludes>
+                                    <includes>
+                                        <!--
+                                          jni-spi is pre-authorised, but only in provided scope: a
+                                          compile-scope SPI would be copied into every consuming
+                                          plugin's directory, and the loader rejects a plugin that
+                                          ships its own SPI copy.
+                                        -->
+                                        <include>org.apache.doris:jni-spi:*:*:provided</include>
+                                        <include>*:*:*:*:test</include>
+                                    </includes>
+                                    <message>
+                                        plugin-toolkit must stay dependency-free. Its jar is copied
+                                        into every plugin that uses any part of it, so a dependency
+                                        added here is imposed on all of them - including plugins
+                                        that only wanted one unrelated helper. Put code that needs
+                                        a library in the plugin that needs it.
+                                    </message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

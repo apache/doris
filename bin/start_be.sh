@@ -216,26 +216,34 @@ if [[ "${SKIP_CHECK_ULIMIT:- "false"}" != "true" ]]; then
     fi
 fi
 
-# add java libs
-# Must add hadoop libs, because we should load specified jars
-# instead of jars in hadoop libs, such as avro
-preload_jars=("preload-extensions")
-preload_jars+=("java-udf")
+# Build the ONE classpath the JVM is created from. It used to be assembled twice - once into
+# CLASSPATH for hadoop's libhdfs and once into DORIS_CLASSPATH for Doris' own JNI - and the two
+# never held the same thing, so which of them the JVM was built from decided what the JVM could
+# see. Both are exported from this single list below.
 
-DORIS_PRELOAD_JAR=
-for preload_jar_dir in "${preload_jars[@]}"; do
-    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ "${f}" == *"preload-extensions-project.jar" ]]; then
-            DORIS_PRELOAD_JAR="${f}"
-            continue
-        elif [[ -z "${DORIS_CLASSPATH}" ]]; then
-            export DORIS_CLASSPATH="${f}"
-        else
-            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        fi
+# conf/ comes first so that hadoop libhdfs finds the .xml config files there. Seeding the list
+# with it is also what lets every block below append unconditionally: an empty element in a class
+# path means the current directory, not nothing, so a list that starts out empty puts the working
+# directory on the class path the first time something appends to it.
+#
+# This classpath serves BE itself and libhdfs, and nothing else: a Java plugin's classloader
+# cannot reach it by design, so conf/*.xml here says nothing to the plugins. The hadoop
+# configuration files they read live in the directory named by the BE config
+# jni_plugin_hadoop_conf_dir (plugins/hadoop_conf by default).
+DORIS_CLASSPATH="${DORIS_HOME}/conf/"
+
+# The shared layer: the plugin SPI and the loader that reads plugins/jni. These are the only
+# Doris classes a plugin is allowed to share with BE, which is why they are the only ones that
+# belong on the system classpath.
+if [[ -d "${DORIS_HOME}/lib/jni/spi" ]]; then
+    for f in "${DORIS_HOME}/lib/jni/spi"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
-done
+fi
 
+# The hadoop drop C++ libhdfs reads. Every Java table format now carries its own copy of hadoop
+# inside its plugin directory, so this one is here for libhdfs alone - which is why it is the only
+# thing besides conf and the SPI still on this classpath.
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
     for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
@@ -246,49 +254,96 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
-# add jindofs
-# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
-if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
-    for f in "${DORIS_HOME}/lib/java_extensions/jindofs"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
+# The third-party hadoop filesystems - JindoFS for oss-hdfs://, JuiceFS for jfs:// - go on the
+# system classpath so the native libhdfs reader can resolve those schemes. They must come after
+# lib/hadoop_hdfs or they override its hadoop jars.
+#
+# The directory they live in is deliberately NOT only for libhdfs: PluginRuntime appends the same
+# jars to every Java plugin's own classpath, because a plugin classloader cannot reach this class
+# path and would otherwise have no oss:// or jfs:// at all. Two readers, one copy on disk - the
+# JuiceFS Hadoop SDK alone is a 180 MB fat jar.
+#
+# Which directory that is comes from be.conf, not from a path spelled out here. It is BE config
+# jni_plugin_fs_dir, the JVM half honours it (JvmLauncher turns it into -Ddoris.jni.fs.dir), and
+# an operator who points it at a path shared between deployments has to move BOTH halves - a
+# hard-coded path here would move the Java plugins and silently leave the native reader without
+# oss-hdfs:// and jfs://, with nothing in the log saying so. Read by hand because the export loop
+# at the top of this script only picks up UPPERCASE keys, the same reason set_tcmalloc_heap_limit
+# reads mem_limit by hand; `|| true` because the key is normally absent, and the eval expands a
+# value written as ${DORIS_HOME}/... exactly as the BE's own config loader does.
+jni_fs_dir="$(grep -E '^[[:blank:]]*jni_plugin_fs_dir[[:blank:]]*=' "${DORIS_HOME}/conf/be.conf" | tail -n 1 || true)"
+jni_fs_dir="$(echo "${jni_fs_dir#*=}" | sed 's/^[[:blank:]]*//; s/[[:blank:]]*$//')"
+if [[ -z "${jni_fs_dir}" ]]; then
+    jni_fs_dir="${DORIS_HOME}/plugins/jni_fs"
+else
+    jni_fs_dir="$(eval echo "${jni_fs_dir}")"
 fi
 
-# add juicefs
-# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
-if [[ -d "${DORIS_HOME}/lib/java_extensions/juicefs" ]]; then
-    for f in "${DORIS_HOME}/lib/java_extensions/juicefs"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+# Every subdirectory holding jars, which is what PluginRuntime.sharedFilesystemJars() takes, so
+# that the two readers of this one directory really do see the same jars. Enumerating instead of
+# naming jindofs and juicefs is what makes a third filesystem dropped in here reach both.
+fs_dirs=()
+for fs_dir in "${jni_fs_dir}"/*/; do
+    fs_dir="${fs_dir%/}"
+    if [[ -d "${fs_dir}" ]] && compgen -G "${fs_dir}/*.jar" > /dev/null; then
+        fs_dirs+=("${fs_dir}")
+    fi
+done
+
+# The two older locations are still read so that an in-place upgrade keeps resolving these schemes
+# for libhdfs before the new tree is laid down: lib/<name> is where both FE and BE put them until
+# this release, and lib/java_extensions/<name> is where BE alone put them before that. Neither
+# reaches the plugins - only the configured directory does - so the WARN is worth acting on. Only
+# the two filesystems that ever had those locations, because only they can be there.
+#
+# The choice is made on jar presence, not directory presence: post-build.sh creates the directory
+# before it tries to populate it, so an empty one is reachable (e.g. a --juicefs build with no
+# network to fetch the jar from) and must not silently win over a populated older location - that
+# would resolve neither, without a warning saying why.
+for fs_libs in jindofs juicefs; do
+    if compgen -G "${jni_fs_dir}/${fs_libs}/*.jar" > /dev/null; then
+        continue
+    fi
+    for legacy in "lib/${fs_libs}" "lib/java_extensions/${fs_libs}"; do
+        if compgen -G "${DORIS_HOME}/${legacy}/*.jar" > /dev/null; then
+            fs_dirs+=("${DORIS_HOME}/${legacy}")
+            echo "WARN: ${fs_libs} found under the deprecated ${legacy}; the native reader" \
+                 "will use it, but Java plugins will NOT - move it to" \
+                 "${jni_fs_dir}/${fs_libs}, which is where this build deploys it." >&2
+            break
+        fi
+    done
+done
+
+if [[ "${#fs_dirs[@]}" -gt 0 ]]; then
+    for fs_dir in "${fs_dirs[@]}"; do
+        for f in "${fs_dir}"/*.jar; do
+            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        done
     done
 fi
+unset fs_libs fs_dir fs_dirs legacy
 
-# add custom_libs to CLASSPATH
-# ATTN, custom_libs is deprecated, use plugins/java_extensions
-if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
-    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
-fi
+# custom_lib and plugins/java_extensions hold user Java function jars, and they are deliberately
+# NOT put on this classpath any more: the java-udf plugin reads those two directories itself and
+# loads what is in them behind its own contract classloader, so a user function no longer sees
+# whatever BE happens to ship. Adding them back here would give user code the hadoop drop above.
 
-# add plugins/java_extensions to CLASSPATH
-if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
-    for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
-        CLASSPATH="${CLASSPATH}:${f}"
-    done
-fi
-
-# make sure the preload-extensions-project.jar is at first order, so that some classed
-# with same qualified name can be loaded priority from preload-extensions-project.jar.
-DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
-
+# Also for libhdfs alone, for the same reason as conf/ above.
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
+    DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
-# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
-# and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
-# DORIS_CLASSPATH is for self-managed jni
+# Anything the operator already had on CLASSPATH keeps working, appended last. Only when it is
+# non-empty: an empty element in a classpath means the current directory, not nothing.
+if [[ -n "${CLASSPATH}" ]]; then
+    DORIS_CLASSPATH="${DORIS_CLASSPATH}:${CLASSPATH}"
+fi
+
+# One list, two names. CLASSPATH is what hadoop's libhdfs reads; DORIS_CLASSPATH carries the
+# same paths as a ready-made JVM option. BE prefers CLASSPATH and strips the option prefix off
+# the other, so whichever it ends up using it builds the same JVM.
+export CLASSPATH="${DORIS_CLASSPATH}"
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
 # log ${DORIS_CLASSPATH}
@@ -402,10 +457,6 @@ set_tcmalloc_heap_limit() {
 
 # set_tcmalloc_heap_limit || exit 1
 
-## set hdfs3 conf
-if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
-    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
-fi
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(
@@ -562,6 +613,35 @@ add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UN
 add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+
+# Where the hadoop on this class path - the one C++ libhdfs uses - sends its logging.
+#
+# That hadoop drop binds Log4j2 (lib/hadoop_hdfs/lib carries log4j-core and log4j-slf4j2-impl) and
+# is the only Log4j2 left on this class path, the Java plugins having moved to java.util.logging
+# behind their own classloaders. Nothing configures it any more: the log4j2.properties that used
+# to do so shipped inside java-common, which no longer exists. Log4j2 then falls back to its
+# DefaultConfiguration - ERROR only, to the console - so hadoop's INFO and WARN vanish and what is
+# left lands in be.out, which is where the JVM's crash output goes. Debugging an HDFS problem
+# served by the native reader is exactly when those lines are wanted.
+#
+# Named explicitly rather than dropped on the class path so that an operator can see which file is
+# in force and edit it, and so a build cannot silently replace it. Only when the file is actually
+# there: a deployment without it keeps Log4j2's own default rather than getting a startup error
+# about a configuration that does not exist.
+if [[ -f "${DORIS_HOME}/conf/hadoop_log4j2.properties" ]]; then
+    add_java_opt_if_missing "-Ddoris.log.dir=${DORIS_HOME}/log"
+    add_java_opt_if_missing "-Dlog4j2.configurationFile=file:${DORIS_HOME}/conf/hadoop_log4j2.properties"
+else
+    # Said out loud rather than passed over in silence, because the deployments that reach this
+    # branch are the ones most likely to want the file: an in-place upgrade keeps conf/, so a BE
+    # upgraded onto this release has the new lib/ and the old conf/ and gets no hadoop logging at
+    # all - which is only noticed while debugging an HDFS problem, at the worst possible moment.
+    # A fresh install always has the file, so this is never noise on one.
+    echo "WARN: conf/hadoop_log4j2.properties is missing, so hadoop's own INFO and WARN lines" \
+         "(the native libhdfs reader) are not written to log/hadoop.log. It ships with this" \
+         "release; an in-place upgrade keeps the old conf/ and does not lay it down. Copy it" \
+         "from the release package into ${DORIS_HOME}/conf/ to get those lines back." >&2
+fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"

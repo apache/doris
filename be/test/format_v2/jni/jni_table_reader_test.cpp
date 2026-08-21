@@ -55,9 +55,9 @@ public:
     std::chrono::milliseconds close_delay {0};
 
 protected:
-    std::string connector_class() const override {
+    Jni::PluginRef plugin_ref() const override {
         std::this_thread::sleep_for(init_delay);
-        return "test/FakeJniScanner";
+        return {"test", "fake"};
     }
 
     Status build_scanner_params(std::map<std::string, std::string>* params) const override {

@@ -626,7 +626,6 @@ else()
     else()
         include_directories(${DORIS_JAVA_HOME}/include/darwin)
     endif()
-    add_definitions("-DLIBJVM")
 endif()
 
 if (NOT OS_MACOSX)
@@ -680,29 +679,21 @@ if (ENABLE_PAIMON_CPP)
     message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
 endif()
 
-if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
-    add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
+add_library(hadoop_hdfs STATIC IMPORTED)
+set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
 
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hadoop_hdfs
-    )
-    add_definitions(-DUSE_HADOOP_HDFS)
-    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
-    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
-    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
-else()
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
-
-    # TODO: use arm hadoop hdfs to replace this
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hdfs3
-    )
-    add_definitions(-DUSE_LIBHDFS3)
-endif()
+set(COMMON_THIRDPARTY
+    ${COMMON_THIRDPARTY}
+    hadoop_hdfs
+)
+# USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+# the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface.
+# Unconditional since the libhdfs3 alternative was removed: there is only one libhdfs left, and
+# every #ifdef on it went with the alternative - nothing in be/ tests it any more. Kept as a
+# definition rather than deleted because it is part of how this build identifies itself: a
+# doris-thirdparty libhdfs, whose hdfsSetLogger extension io/hdfs_builder.cpp uses unconditionally
+# for that reason.
+add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
@@ -1115,6 +1106,10 @@ if(NOT BUILD_BENCHMARK)
         ${BASE_DIR}/../conf/asan_suppr.conf
         ${BASE_DIR}/../conf/lsan_suppr.conf
         ${BASE_DIR}/../conf/ubsan_suppr.conf
+        # Configures the hadoop on BE's system class path, which is what C++ libhdfs uses; the
+        # Java plugins log through JniLogging instead. bin/start_be.sh names it with
+        # -Dlog4j2.configurationFile, and only when it is present.
+        ${BASE_DIR}/../conf/hadoop_log4j2.properties
         DESTINATION ${OUTPUT_DIR}/conf)
 endif()
 

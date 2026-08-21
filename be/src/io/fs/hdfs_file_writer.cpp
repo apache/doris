@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <fmt/core.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <limits>
@@ -56,9 +57,7 @@ bvar::Adder<uint64_t> hdfs_file_writer_async_close_processing(
         "hdfs_file_writer_async_close_processing");
 
 static constexpr size_t MB = 1024 * 1024;
-#ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
-#endif
 
 Status validate_hdfs_write_batch_buffer_size(int64_t batch_buffer_size_mb,
                                              int64_t file_cache_block_size) {
@@ -107,8 +106,16 @@ public:
         return static_cast<size_t>(static_cast<double>(max_jvm_heap_size()) *
                                    config::max_hdfs_wirter_jni_heap_usage_ratio);
     }
-    Status acquire_memory(size_t memory_size, int try_time) {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+    // *charged says whether memory_size was actually added to the counter, so that the caller
+    // releases exactly what it charged and nothing else. enable_hdfs_mem_limiter is mutable at
+    // runtime: reading it independently here and in release_memory() is what let an operator
+    // turning it on between one write's acquire and its release subtract from a counter that
+    // was never added to, underflowing it and failing every hdfs write on that node from then
+    // on. Only the limiter enable is latched this way - max_usage() may move freely, since
+    // nothing subtracts from it.
+    Status acquire_memory(size_t memory_size, int try_time, bool* charged) {
+        *charged = false;
+#ifdef BE_TEST
         return Status::OK();
 #else
         if (!config::enable_hdfs_mem_limiter) {
@@ -131,19 +138,22 @@ public:
                     max_usage(), max_jvm_heap_size(), config::max_hdfs_wirter_jni_heap_usage_ratio);
         }
         cur_memory_comsuption += memory_size;
+        *charged = true;
         return Status::OK();
 #endif
     }
 
+    // Releases what acquire_memory() reported as charged. It deliberately does not consult
+    // enable_hdfs_mem_limiter again - see the note there - and clamps anyway, so that a caller
+    // that gets the pairing wrong loses accounting rather than the whole node's write path.
     void release_memory(size_t memory_size) {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
-#else
-        if (!config::enable_hdfs_mem_limiter) {
+#ifndef BE_TEST
+        if (memory_size == 0) {
             return;
         }
         std::unique_lock lck {cur_memory_latch};
         size_t origin_size = cur_memory_comsuption;
-        cur_memory_comsuption -= memory_size;
+        cur_memory_comsuption -= std::min(memory_size, cur_memory_comsuption);
         if (cur_memory_comsuption < max_usage() && origin_size > max_usage()) {
             cv.notify_all();
         }
@@ -197,12 +207,11 @@ void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
 }
 
 Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
-#ifdef USE_LIBHDFS3
-    return Status::OK();
-#else
     size_t actual_size = std::max(CLIENT_WRITE_PACKET_SIZE, size);
     int try_time = 0;
-    if (auto st = g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time); !st.ok()) {
+    bool charged = false;
+    if (auto st = g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time, &charged);
+        !st.ok()) {
         if (_approximate_jni_buffer_size > 0) {
             int ret;
             {
@@ -222,17 +231,21 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
         // Other hdfs writers might have occupied too much memory, we need to sleep for a while to wait for them
         // releasing their memory
         for (; try_time < config::hdfs_jni_write_max_retry_time; try_time++) {
-            if (g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time).ok()) {
-                _approximate_jni_buffer_size += actual_size;
+            if (g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time, &charged).ok()) {
+                if (charged) {
+                    _approximate_jni_buffer_size += actual_size;
+                }
                 return Status::OK();
             }
         }
         return st;
     }
 
-    _approximate_jni_buffer_size += actual_size;
+    // Only what the limiter actually took, so that _flush_and_reset... gives back exactly that.
+    if (charged) {
+        _approximate_jni_buffer_size += actual_size;
+    }
     return Status::OK();
-#endif
 }
 
 Status HdfsFileWriter::close(bool non_block) {
@@ -280,14 +293,9 @@ Status HdfsFileWriter::_close_impl() {
     if (_sync_file_data) {
         {
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hsync_latency);
-#ifdef USE_LIBHDFS3
-            ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsSync(_hdfs_handler->hdfs_fs, _hdfs_file),
-                                               "HdfsFileWriter::close::hdfsHSync");
-#else
             ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
                                                "HdfsFileWriter::close::hdfsHSync");
             _flush_and_reset_approximate_jni_buffer_size();
-#endif
         }
         TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsSync",
                                                Status::InternalError("failed to sync hdfs file"));
@@ -461,21 +469,6 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
                                              const std::string& fs_name,
                                              const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
-#ifdef USE_LIBHDFS3
-    std::string hdfs_dir = path.parent_path().string();
-    int exists = hdfsExists(handler->hdfs_fs, hdfs_dir.c_str());
-    if (exists != 0) {
-        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
-        int ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
-        if (ret != 0) {
-            std::stringstream ss;
-            ss << "create dir failed. "
-               << " fs_name: " << fs_name << " path: " << hdfs_dir << ", err: " << hdfs_error();
-            LOG(WARNING) << ss.str();
-            return ResultError(Status::InternalError(ss.str()));
-        }
-    }
-#endif
     // open file
 
     hdfsFile hdfs_file = nullptr;

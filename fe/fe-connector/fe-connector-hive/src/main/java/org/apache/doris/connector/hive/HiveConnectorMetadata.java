@@ -1492,6 +1492,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            // Route a foreign (hudi) handle to its owning sibling: this answer decides whether fe-core pins the
+            // real partition set for a FOR TIME/VERSION AS OF query or an empty one, and only the sibling knows
+            // whether its listPartitions reads the pin. Answering for it would report the gateway's own
+            // snapshot-blindness and leave every time-travel query with partition=0/0.
+            return siblingMetadata(session, handle).listsPartitionsAtSnapshot(session, handle);
+        }
+        // Hive has no time travel at all (resolveTimeTravel above returns empty), so nothing ever asks this of
+        // a hive handle; false is the honest answer either way.
+        return false;
+    }
+
+    @Override
     public List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         if (!(handle instanceof HiveTableHandle)) {

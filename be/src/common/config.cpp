@@ -1690,6 +1690,54 @@ DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
 // who leaves both untouched expects both to find them.
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
 
+// The directory BE loads its Java plugins from. Each subdirectory is one plugin, named by the
+// directory: that name is what BE addresses it by and what appears in "is not deployed".
+// It lives under plugins/ rather than lib/ because lib/ is the engine tree a package upgrade
+// replaces wholesale - a plugin deployed there would not survive one.
+DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
+
+// The hadoop configuration files (core-site.xml, hdfs-site.xml, ...) that Java plugins can read.
+// A plugin's classloader deliberately cannot reach BE's own classpath, and conf/ is on that
+// classpath - so a hadoop Configuration built inside a plugin sees nothing dropped into conf/,
+// which is where it came from before plugins were isolated. This directory is the drop point that
+// replaces it, and it is a directory of its own rather than conf/ so that what BE reads and what
+// plugins read stay two separate lists. FE has always had the same directory for the XML its
+// catalogs name through hadoop.config.resources (FE config hadoop_config_dir).
+//
+// Nothing has to be here: a catalog that carries its hadoop properties explicitly needs no file.
+DEFINE_String(jni_plugin_hadoop_conf_dir, "${DORIS_HOME}/plugins/hadoop_conf");
+
+// Third-party hadoop FileSystem implementations shared by every Java plugin: JindoFS for oss://
+// and oss-hdfs://, JuiceFS for jfs://. One subdirectory per filesystem, each holding its jars.
+//
+// Shared rather than bundled into each plugin because no plugin declares them - hadoop reaches a
+// filesystem by class name out of a Configuration, so nothing links against them - and because
+// the JuiceFS Hadoop SDK is a 180 MB fat jar that would have to be copied into every plugin that
+// might read a table on it. PluginRuntime appends the jars found here to each plugin's own
+// classpath, AFTER the plugin's jars, so a plugin's own hadoop still wins; each plugin loads its
+// own copy in its own classloader, so the isolation is unchanged. This is also the directory
+// bin/start_be.sh puts on the system class path for the native libhdfs reader, which needs the
+// same jars for the same schemes - one copy on disk serves both, and both honour this config:
+// the script reads it out of be.conf by hand (the export loop there only picks up UPPERCASE
+// keys), and JvmLauncher passes it to the JVM as -Ddoris.jni.fs.dir. Every subdirectory holding
+// jars is taken, on both sides.
+//
+// Nothing has to be here: both filesystems are opt-in build flags (DISABLE_BUILD_JINDOFS=OFF,
+// DISABLE_BUILD_JUICEFS=OFF), and a build without them leaves this directory absent.
+DEFINE_String(jni_plugin_fs_dir, "${DORIS_HOME}/plugins/jni_fs");
+
+// Whether to load every deployed plugin at startup rather than on the query that first needs
+// one. Off by default: warming a plugin keeps its whole jar closure open for the life of the
+// process - one classloader per plugin, holding every jar in its directory - which is several
+// hundred file descriptors on a BE that may never read a Java table format at all. That budget
+// is shared with everything else the process opens, and on macOS a descriptor numbered past
+// FD_SETSIZE breaks every libcurl transfer, because curl is built without poll() there and its
+// select() fallback cannot name one. Turning this on buys the opposite trade: a broken
+// deployment is found in the log at startup rather than in a user's query.
+// It is not a reason to create a JVM either way: with no plugin deployed there is nothing to
+// warm, and a BE that reads no Java table format still starts without one.
+DEFINE_Bool(java_plugin_warmup, "false");
+
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
 DEFINE_mString(ca_cert_file_paths,

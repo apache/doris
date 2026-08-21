@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>be-java-extensions</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>hive-apache-shade</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris BE Java Extensions - Hive Apache Shade</name>
+    <description>
+        Hive as Trino repackages it, holding one copy of Hive's storage API rather than two.
+
+        io.trino.hive:hive-apache carries its own copy of the ~104 classes that Hive also publishes
+        standalone as org.apache.hive:hive-storage-api - the column vectors, search arguments and
+        Hive value types that a reader touches on every row. A plugin that reads Hudi needs both
+        jars: hive-apache for the serdes and object inspectors, hive-storage-api because ORC and
+        Hudi are compiled against it and call methods that only the newer standalone artifact has
+        (TimestampColumnVector.changeCalendar, VectorizedRowBatch as a MutableFilterContext).
+
+        With both jars in a plugin directory, which copy answers is decided by the order the plugin
+        classloader reads the directory in - and the older one sorts first. Before isolation the
+        same collision was resolved per class by whichever copy a fat jar assembly happened to
+        unpack last, which is why a Hudi table on ORC works today and would not afterwards.
+
+        So the two are merged here into one jar, with the standalone artifact's copies kept, and
+        HiveApacheShadeTest asserts exactly that of the jar this module produces.
+    </description>
+
+    <properties>
+        <hive-apache.version>3.1.2-22</hive-apache.version>
+        <hive-storage-api.version>2.8.1</hive-storage-api.version>
+        <!-- The module's own class output, so a reactor build sees the merged tree the
+             same way it sees compiled sources - before any jar exists. -->
+        <merged.classes>${project.build.outputDirectory}</merged.classes>
+        <source.jars>${project.build.directory}/source-jars</source.jars>
+    </properties>
+
+    <dependencies>
+        <!--
+          Both are optional with everything excluded, the way hive-udf-shade declares its source:
+          the classes are baked into this module's jar, so a consumer must not resolve either
+          artifact again - that would put the second copy right back into its plugin directory.
+        -->
+        <dependency>
+            <groupId>io.trino.hive</groupId>
+            <artifactId>hive-apache</artifactId>
+            <version>${hive-apache.version}</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-storage-api</artifactId>
+            <version>${hive-storage-api.version}</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--
+          Not optional, and the only one: hive's date and time handling is written against joda,
+          which is what hive-apache brings along and a consumer therefore still needs.
+        -->
+        <dependency>
+            <groupId>joda-time</groupId>
+            <artifactId>joda-time</artifactId>
+            <version>2.8.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>hive-apache-shade</finalName>
+        <directory>${project.basedir}/target/</directory>
+        <plugins>
+            <!--
+              The two unpacks below MERGE into a directory that build.sh does not clean: it runs
+              `mvn package` without `clean`, so whatever the previous build left in target/classes
+              is still there. maven-dependency-plugin only ever adds, so a version bump would leave
+              the old hive's classes beside the new one's - two hive versions in one jar, and all
+              three tests still green, because they only look at classes the NEW jars also carry.
+              The META-INF/maven exclusion on each unpack has the same hole: it stops the entry from
+              being written again, not from surviving.
+
+              So the merge starts from an empty directory, every time. Bound to generate-resources,
+              which is the phase before the unpacks, and scoped to this one directory rather than
+              the whole of target/ so that an incremental build keeps everything else.
+            -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>empty-merged-classes-before-unpack</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                        <configuration>
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${merged.classes}</directory>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+              The merge, stated as an order rather than as a list of classes: unpack the repackaged
+              hive, then unpack the standalone storage API on top of it. The overlapping classes are
+              whichever ones the second unpack happens to bring, so bumping either version keeps
+              working without anyone editing a list here - and the shade plugin was the wrong tool
+              for this precisely because its order is not something a pom can state (it keeps the
+              first copy it meets, walking dependencies by groupId).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-repackaged-hive</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>io.trino.hive</groupId>
+                                    <artifactId>hive-apache</artifactId>
+                                    <version>${hive-apache.version}</version>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${merged.classes}</outputDirectory>
+                                    <!--
+                                      Everything BUT the source artifacts' maven coordinates. Unpacking
+                                      two jars over each other merges their META-INF/ as well, and
+                                      META-INF/maven/<g>/<a>/pom.properties is what an SBOM or CVE scanner
+                                      reads a jar's identity from - so this 34MB jar, which carries the
+                                      whole of hive 3.1.2-22, would be reported as whichever of the two
+                                      unpacked last. META-INF/services is deliberately kept: the
+                                      FileSystem service file is what redirects file:// to hive's
+                                      ProxyLocalFileSystem, which the hudi reader depends on.
+                                    -->
+                                    <excludes>META-INF/maven/**</excludes>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                    <!-- Hands the test the two jars it compares the merged tree against. -->
+                    <execution>
+                        <id>copy-source-artifacts</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${source.jars}</outputDirectory>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>io.trino.hive</groupId>
+                                    <artifactId>hive-apache</artifactId>
+                                    <version>${hive-apache.version}</version>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.apache.hive</groupId>
+                                    <artifactId>hive-storage-api</artifactId>
+                                    <version>${hive-storage-api.version}</version>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>unpack-standalone-storage-api</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.apache.hive</groupId>
+                                    <artifactId>hive-storage-api</artifactId>
+                                    <version>${hive-storage-api.version}</version>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${merged.classes}</outputDirectory>
+                                    <!-- See the note on the first unpack. -->
+                                    <excludes>META-INF/maven/**</excludes>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <merged.classes>${merged.classes}</merged.classes>
+                        <source.jars>${source.jars}</source.jars>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <!--
+              The merged tree is what this module packages; it has no sources of its own. Both
+              jars' signatures are dropped with them - a repackaged jar is not the signed one.
+            -->
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>META-INF/*.SF</exclude>
+                        <exclude>META-INF/*.DSA</exclude>
+                        <exclude>META-INF/*.RSA</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

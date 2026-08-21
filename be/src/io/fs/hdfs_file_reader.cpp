@@ -84,7 +84,6 @@ HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
     if (_profile != nullptr && is_hdfs(_fs_name)) {
-#ifdef USE_HADOOP_HDFS
         const char* hdfs_profile_name = "HdfsIO";
         _total_read_time =
                 ADD_CHILD_TIMER(_profile, hdfs_profile_name,
@@ -104,7 +103,6 @@ HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::
                 _profile, "HedgedReadInCurThread", TUnit::UNIT, hdfs_profile_name);
         _hdfs_profile.hedged_read_wins =
                 ADD_CHILD_COUNTER(_profile, "HedgedReadWins", TUnit::UNIT, hdfs_profile_name);
-#endif
     }
 }
 
@@ -131,7 +129,6 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     return st;
 }
 
-#ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                        const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
@@ -191,72 +188,8 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
     return Status::OK();
 }
 
-#else
-// The hedged read only support hdfsPread().
-// TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
-Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                       const IOContext* /*io_ctx*/) {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
-    }
-
-    if (offset > _handle->file_size()) {
-        return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
-                               offset, _handle->file_size(), _path.native());
-    }
-
-    int res = hdfsSeek(_handle->fs(), _handle->file(), offset);
-    if (res != 0) {
-        // invoker maybe just skip Status.NotFound and continue
-        // so we need distinguish between it and other kinds of errors
-        std::string _err_msg = hdfs_error();
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
-            return Status::NotFound(_err_msg);
-        }
-        return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
-                                     BackendOptions::get_localhost(), offset, _err_msg);
-    }
-
-    size_t bytes_req = result.size;
-    char* to = result.data;
-    bytes_req = std::min(bytes_req, (size_t)(_handle->file_size() - offset));
-    *bytes_read = 0;
-    if (UNLIKELY(bytes_req == 0)) {
-        return Status::OK();
-    }
-
-    LIMIT_REMOTE_SCAN_IO(bytes_read);
-
-    size_t has_read = 0;
-    while (has_read < bytes_req) {
-        int64_t loop_read = hdfsRead(_handle->fs(), _handle->file(), to + has_read,
-                                     static_cast<int32_t>(bytes_req - has_read));
-        if (loop_read < 0) {
-            // invoker maybe just skip Status.NotFound and continue
-            // so we need distinguish between it and other kinds of errors
-            std::string _err_msg = hdfs_error();
-            if (_err_msg.find("No such file or directory") != std::string::npos) {
-                return Status::NotFound(_err_msg);
-            }
-            return Status::InternalError(
-                    "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _fs_name, _path.string(), _err_msg);
-        }
-        if (loop_read == 0) {
-            break;
-        }
-        has_read += loop_read;
-    }
-    *bytes_read = has_read;
-    hdfs_bytes_read_total << *bytes_read;
-    hdfs_bytes_per_read << *bytes_read;
-    return Status::OK();
-}
-#endif
-
 void HdfsFileReader::_collect_profile_before_close() {
     if (_profile != nullptr && is_hdfs(_fs_name)) {
-#ifdef USE_HADOOP_HDFS
         if (_handle == nullptr) [[unlikely]] {
             return;
         }
@@ -292,7 +225,6 @@ void HdfsFileReader::_collect_profile_before_close() {
 
         hdfsFreeHedgedReadMetrics(hdfs_hedged_read_statistics);
         hdfsFileClearReadStatistics(_handle->file());
-#endif
     }
 }
 

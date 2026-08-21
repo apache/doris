@@ -17,16 +17,15 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -46,19 +45,21 @@ import java.util.Map;
  * <p>Parameters:
  * <ul>
  *   <li>jdbc_url, jdbc_user, jdbc_password, jdbc_driver_class, jdbc_driver_url</li>
+ *   <li>jdbc_driver_checksum — MD5 of the driver JAR; verified once per jar, skipped when empty</li>
  *   <li>query_sql — the test query to run</li>
  *   <li>catalog_id, connection_pool_min_size, connection_pool_max_size, etc.</li>
  *   <li>clean_datasource — if "true", close the datasource pool on close()</li>
  * </ul>
  */
 public class JdbcConnectionTester extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(JdbcConnectionTester.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcConnectionTester.class);
 
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
     private final String jdbcDriverClass;
     private final String jdbcDriverUrl;
+    private final String jdbcDriverChecksum;
     private final String querySql;
     private final long catalogId;
     private final int connectionPoolMinSize;
@@ -80,6 +81,7 @@ public class JdbcConnectionTester extends JniScanner {
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
         this.jdbcDriverClass = params.getOrDefault("jdbc_driver_class", "");
         this.jdbcDriverUrl = params.getOrDefault("jdbc_driver_url", "");
+        this.jdbcDriverChecksum = params.getOrDefault("jdbc_driver_checksum", "");
         this.querySql = params.getOrDefault("query_sql", "SELECT 1");
         this.catalogId = Long.parseLong(params.getOrDefault("catalog_id", "0"));
         this.connectionPoolMinSize = Integer.parseInt(
@@ -108,12 +110,16 @@ public class JdbcConnectionTester extends JniScanner {
      * Open the connection and execute the test query to verify connectivity.
      */
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
-            URL[] urls = {new URL(jdbcDriverUrl)};
-            ClassLoader parent = getClass().getClassLoader();
-            this.classLoader = URLClassLoader.newInstance(urls, parent);
+            // Same as JdbcJniScanner: set before the driver classes load, since this is a
+            // connection through the same driver and pool.
+            typeHandler.setSystemProperties();
+            // Same verification as the scanner, so that validating a catalog fails on a driver jar
+            // that does not match its checksum rather than reporting the catalog as usable.
+            this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader(),
+                    JdbcDriverUtils.checksumVerifier(jdbcDriverChecksum));
             Thread.currentThread().setContextClassLoader(classLoader);
 
             String cacheKey = createCacheKey();
@@ -124,7 +130,7 @@ public class JdbcConnectionTester extends JniScanner {
                     if (hikariDataSource == null) {
                         HikariDataSource ds = new HikariDataSource();
                         ds.setDriverClassName(jdbcDriverClass);
-                        ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
+                        ds.setJdbcUrl(jdbcUrl);
                         ds.setUsername(jdbcUser);
                         ds.setPassword(jdbcPassword);
                         ds.setMinimumIdle(connectionPoolMinSize);
@@ -169,7 +175,7 @@ public class JdbcConnectionTester extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             if (stmt != null && !stmt.isClosed()) {
                 stmt.close();
@@ -191,7 +197,7 @@ public class JdbcConnectionTester extends JniScanner {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         return Collections.emptyMap();
     }
 

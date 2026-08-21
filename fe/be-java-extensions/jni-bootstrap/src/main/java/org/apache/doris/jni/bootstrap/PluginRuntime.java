@@ -1,0 +1,657 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.jni.bootstrap;
+
+import org.apache.doris.jni.spi.DorisPlugin;
+import org.apache.doris.jni.spi.JniScannerFactory;
+import org.apache.doris.jni.spi.JniWriterFactory;
+import org.apache.doris.jni.spi.SpiVersion;
+import org.apache.doris.jni.spi.ThreadContextClassLoader;
+import org.apache.doris.jni.spi.UdfExecutorFactory;
+import org.apache.doris.jni.spi.utils.JniUtil;
+
+import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.ServiceLoader;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Loads plugins from a directory and hands BE the objects it asks for.
+ *
+ * <p>Loading is lazy and happens at most once per plugin: the first request for a plugin builds its
+ * classloader, runs {@link ServiceLoader} and indexes the factories, and every later request reads
+ * the cached {@link PluginHandle} - including a cached failure. Nothing is eagerly resolved beyond
+ * the plugin object and its factories, so a class missing from a plugin's jars is reported when
+ * something touches it, with the name of the class, instead of taking the process down at startup.
+ *
+ * <p>All plugin code runs with the plugin's classloader installed as the thread context
+ * classloader. BE's threads have no meaningful one, and ServiceLoader and most plugin libraries
+ * consult it.
+ */
+final class PluginRuntime {
+
+    private static final Logger LOG = Logger.getLogger(PluginRuntime.class.getName());
+
+    private final Path pluginDir;
+    private final ClassLoader spiClassLoader;
+    private final ClassLoader hadoopConfResources;
+    private final Path fsDir;
+    private final ConcurrentHashMap<String, PluginHandle> plugins = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Object> loadLocks = new ConcurrentHashMap<>();
+
+    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader) {
+        this(pluginDir, spiClassLoader, null, null);
+    }
+
+    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader, Path hadoopConfDir) {
+        this(pluginDir, spiClassLoader, hadoopConfDir, null);
+    }
+
+    /**
+     * @param hadoopConfDir directory whose files every plugin can read as classpath resources, so
+     *                      that a hadoop {@code Configuration} built inside a plugin finds
+     *                      {@code core-site.xml} and friends. Null when there is none.
+     * @param fsDir         directory of third-party hadoop {@code FileSystem} jars every plugin
+     *                      may need; see {@link #sharedFilesystemJars()}. Null when there is none.
+     */
+    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader, Path hadoopConfDir, Path fsDir) {
+        this.pluginDir = Objects.requireNonNull(pluginDir, "pluginDir");
+        this.spiClassLoader = Objects.requireNonNull(spiClassLoader, "spiClassLoader");
+        this.hadoopConfResources = hadoopConfLoader(hadoopConfDir);
+        this.fsDir = fsDir;
+    }
+
+    /**
+     * Jars appended to EVERY plugin's classpath, after that plugin's own.
+     *
+     * <p>What lives here: third-party hadoop {@code FileSystem} implementations that no plugin
+     * declares as a dependency because none of them is written against it - JindoFS serves
+     * {@code oss://} and {@code oss-hdfs://}, JuiceFS serves {@code jfs://}, and hadoop reaches
+     * both by class name out of a {@code Configuration}. Both are opt-in build flags
+     * ({@code DISABLE_BUILD_JINDOFS=OFF}, {@code DISABLE_BUILD_JUICEFS=OFF}), so on a default
+     * build this directory is absent and this method returns nothing.
+     *
+     * <p>Why shared rather than bundled per plugin. Before the plugins were isolated these jars
+     * sat on the system classpath, which every scanner could reach, so any table format could read
+     * a table on any of those filesystems. A plugin classloader cannot reach that classpath by
+     * design, and the alternative - copying the jars into each plugin directory - does not scale:
+     * the JuiceFS Hadoop SDK is a 180 MB fat jar that carries jersey, checkerframework and
+     * javax.ws.rs, which collide with about 1500 classes already in a lake-format plugin. One
+     * directory read by every plugin costs one copy on disk and produces no collisions to
+     * adjudicate.
+     *
+     * <p>APPENDED, never prepended: these fat jars carry stray copies of third-party classes,
+     * hadoop's included, and a plugin's own hadoop must win. Counted on the jars this build
+     * packages: jindo-sdk carries 19 hadoop classes (11 in {@code org.apache.hadoop.fs}, 5 in
+     * {@code fs.impl}, 3 in {@code util}) and juicefs-hadoop carries 4, all in
+     * {@code org.apache.hadoop.security}. That is the same rule {@code bin/start_be.sh} applies
+     * when it puts them after {@code lib/hadoop_hdfs} on the system classpath for libhdfs.
+     *
+     * <p>ISOLATION IS PRESERVED: each plugin loads its own copy of these classes in its own
+     * classloader, exactly as it does for hadoop-common. Nothing is shared but the files.
+     *
+     * <p>CAVEAT, unchanged from when build.sh copied the JindoFS jars into two plugin directories:
+     * jindo-core carries a native library, and a JVM binds one of those to exactly one
+     * classloader. A BE that reads {@code oss://} through two different plugins at once makes the
+     * second bind, which fails. This is inherent to plugin isolation rather than to this
+     * directory - a single shared loader for these jars is not possible, since they need the
+     * hadoop that lives inside each plugin.
+     */
+    private List<URL> sharedFilesystemJars() {
+        if (fsDir == null || !Files.isDirectory(fsDir)) {
+            // Logged, at the level hadoopConfLoader() uses for the same kind of absence: this is the
+            // normal state of a build that packaged no third-party filesystem, but it is also what
+            // an upgrade that moved the jars and missed this directory looks like - and the symptom
+            // there is "jfs:// stopped working", with nothing on the Java side saying why.
+            LOG.info(() -> "No shared filesystem jars: " + (fsDir == null ? "no directory configured"
+                    : fsDir + " does not exist") + ". Plugins can only open the schemes their own"
+                    + " jars implement; oss-hdfs:// and jfs:// need this directory populated.");
+            return List.of();
+        }
+        List<URL> jars = new ArrayList<>();
+        try (DirectoryStream<Path> entries = Files.newDirectoryStream(fsDir)) {
+            for (Path entry : entries) {
+                if (Files.isDirectory(entry)) {
+                    jars.addAll(jarsIn(entry));
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // Never fatal: a plugin without these jars loses the schemes they serve and keeps
+            // everything else, which is strictly better than failing to load at all.
+            LOG.log(Level.WARNING, "Cannot list the shared filesystem directory " + fsDir + ": " + e);
+            return List.of();
+        }
+        // One subdirectory per filesystem (jindofs, juicefs), so sort across all of them for the
+        // same reason jarsIn sorts within one: a duplicate class must resolve the same way on
+        // every node.
+        jars.sort(Comparator.comparing(URL::toString));
+        if (jars.isEmpty()) {
+            // The other half of the silence above: build.sh creates this directory and only
+            // populates it when the filesystems were built, so "exists but empty" is the shape a
+            // half-finished upgrade leaves behind, and it looks identical to a healthy build from
+            // in here.
+            LOG.info(() -> "The shared filesystem directory " + fsDir + " holds no jars; plugins"
+                    + " can only open the schemes their own jars implement.");
+        }
+        return jars;
+    }
+
+    /**
+     * A loader over the hadoop conf directory alone, used for resources and never for classes.
+     *
+     * <p>Its parent is null on purpose: it exists to answer {@code getResource("core-site.xml")}
+     * and must not become a second route from a plugin to BE's own classpath. A missing directory
+     * is the ordinary case and yields no loader at all.
+     */
+    private static ClassLoader hadoopConfLoader(Path hadoopConfDir) {
+        if (hadoopConfDir == null || !Files.isDirectory(hadoopConfDir)) {
+            return null;
+        }
+        try {
+            // The trailing separator is what makes a URLClassLoader treat this as a directory to
+            // search rather than as a jar file to open.
+            URL url = hadoopConfDir.toUri().toURL();
+            if (!url.toString().endsWith("/")) {
+                url = new URL(url + "/");
+            }
+            LOG.info("Java plugins read hadoop configuration files from " + hadoopConfDir);
+            return new URLClassLoader(new URL[] {url}, null);
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Cannot expose " + hadoopConfDir + " to Java plugins: " + e);
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // What BE calls.
+    // ------------------------------------------------------------------
+
+    /**
+     * Creates a scanner or a writer. Factory names are unique within a plugin, so one entry point
+     * serves both and BE needs a single method id.
+     */
+    Object createInstance(String pluginName, String factoryName, int batchSize, Map<String, String> params) {
+        PluginHandle handle = usable(pluginName);
+        JniScannerFactory scannerFactory = handle.scannerFactories().get(factoryName);
+        JniWriterFactory writerFactory = handle.writerFactories().get(factoryName);
+        if (scannerFactory == null && writerFactory == null) {
+            throw new IllegalArgumentException(unknownFactoryMessage(handle, factoryName));
+        }
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(handle.classLoader())) {
+            Object instance = scannerFactory != null
+                    ? scannerFactory.create(batchSize, params)
+                    : writerFactory.create(batchSize, params);
+            if (instance == null) {
+                throw new IllegalStateException("Java plugin '" + pluginName + "' factory '" + factoryName
+                        + "' returned null");
+            }
+            return instance;
+        }
+    }
+
+    /**
+     * Creates a UDF executor. The parameters stay a byte array all the way into the plugin: thrift
+     * is not on the SPI boundary, so only the plugin can decode them.
+     */
+    Object createUdfExecutor(String pluginName, String factoryName, byte[] thriftParams) throws Exception {
+        PluginHandle handle = usable(pluginName);
+        UdfExecutorFactory factory = handle.udfExecutorFactories().get(factoryName);
+        if (factory == null) {
+            throw new IllegalArgumentException(unknownFactoryMessage(handle, factoryName));
+        }
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(handle.classLoader())) {
+            Object executor = factory.create(thriftParams);
+            if (executor == null) {
+                throw new IllegalStateException("Java plugin '" + pluginName + "' UDF factory '" + factoryName
+                        + "' returned null");
+            }
+            return executor;
+        }
+    }
+
+    /**
+     * Forwards DROP FUNCTION to whichever plugin caches compiled user functions. Broadcast rather
+     * than addressed: BE drops a function without knowing which plugin executed it, and a plugin
+     * that never cached the function does nothing.
+     */
+    void cleanUdfCache(long functionId, String functionSignature) {
+        for (PluginHandle handle : plugins.values()) {
+            if (handle.state() != PluginHandle.State.READY) {
+                continue;
+            }
+            try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(handle.classLoader())) {
+                for (UdfExecutorFactory factory : handle.udfExecutorFactories().values()) {
+                    factory.invalidate(functionId, functionSignature);
+                }
+            } catch (Throwable t) {
+                // One plugin failing to drop its cache must not stop the others, and DROP FUNCTION
+                // has already been committed on the FE side by now.
+                LOG.log(Level.WARNING, "Java plugin '" + handle.name() + "' failed to invalidate '"
+                        + functionSignature + "' (id " + functionId + "): " + JniUtil.throwableToString(t));
+            }
+        }
+    }
+
+    /**
+     * Everything the registry knows, for BE to expose.
+     *
+     * <p>The per-plugin list only holds plugins something has touched, since a plugin loads on
+     * first use; {@code deployed} is read from disk, so the difference between the two is exactly
+     * "deployed but not loaded yet".
+     */
+    String statusJson() {
+        Map<String, PluginHandle> touched = new TreeMap<>(plugins);
+        int loaded = 0;
+        int failed = 0;
+        for (PluginHandle handle : touched.values()) {
+            if (handle.state() == PluginHandle.State.READY) {
+                loaded++;
+            } else if (handle.state() == PluginHandle.State.FAILED) {
+                failed++;
+            }
+        }
+
+        StringBuilder json = new StringBuilder(256).append("{\"pluginDir\":");
+        appendJsonString(json, pluginDir.toString());
+        json.append(",\"apiVersion\":");
+        appendJsonString(json, SpiVersion.version());
+        json.append(",\"loadedCount\":").append(loaded);
+        json.append(",\"failedCount\":").append(failed);
+        appendJsonNames(json, "deployed", deployedPluginNames());
+        json.append(",\"plugins\":[");
+        boolean first = true;
+        for (PluginHandle handle : touched.values()) {
+            if (!first) {
+                json.append(',');
+            }
+            first = false;
+            json.append("{\"name\":");
+            appendJsonString(json, handle.name());
+            json.append(",\"state\":\"").append(handle.state()).append('"');
+            if (handle.declaredApiVersion() != null) {
+                json.append(",\"declaredApiVersion\":");
+                appendJsonString(json, handle.declaredApiVersion());
+            }
+            if (handle.failure() != null) {
+                json.append(",\"error\":");
+                appendJsonString(json, handle.failure());
+            }
+            appendJsonNames(json, "scanners", handle.scannerFactories().keySet());
+            appendJsonNames(json, "writers", handle.writerFactories().keySet());
+            appendJsonNames(json, "udfExecutors", handle.udfExecutorFactories().keySet());
+            json.append('}');
+        }
+        return json.append("]}").toString();
+    }
+
+    /**
+     * Loads every deployed plugin, so that a broken deployment is reported at startup rather than
+     * by the first user query. Never throws.
+     *
+     * <p>Two different failures have to be contained for that to hold. A plugin that cannot be
+     * loaded is already contained in its handle. A directory whose NAME {@code plugin()} rejects
+     * is not: {@code deployedPluginNames()} is a raw directory listing and a backslash is a legal
+     * character in a POSIX file name, so {@code requirePluginName} throws before the handle
+     * exists. Unhandled, one such directory would abandon the warmup of every plugin after it -
+     * and since {@code '\\'} sorts below every lowercase letter, usually of all of them.
+     */
+    void warmup() {
+        for (String name : deployedPluginNames()) {
+            try {
+                plugin(name);
+            } catch (RuntimeException e) {
+                // Recorded rather than only logged, so the rejected directory shows up in the
+                // status JSON next to the plugins that did load - otherwise the only trace of it
+                // is this line, and the operator's question is "where did my plugin go".
+                LOG.log(Level.WARNING, "skipping '" + name + "' under " + pluginDir
+                        + " during warmup: " + e);
+                plugins.putIfAbsent(name, PluginHandle.failed(name, JniUtil.throwableToString(e)));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Loading.
+    // ------------------------------------------------------------------
+
+    PluginHandle plugin(String name) {
+        PluginHandle cached = plugins.get(name);
+        if (cached != null) {
+            return cached;
+        }
+        requirePluginName(name);
+        if (!Files.isDirectory(pluginDir.resolve(name))) {
+            // Answered without touching either map. A plugin name can be user text - the
+            // writer_class property carries one - and a statement per made-up name would
+            // otherwise add an entry to both maps, and a line to the status JSON, for the life
+            // of the process. Re-deciding this costs one stat.
+            LOG.fine(() -> "Java plugin '" + name + "' is not deployed at " + pluginDir.resolve(name));
+            return PluginHandle.notDeployed(name);
+        }
+        // Per-plugin lock: loading takes seconds, and one slow plugin must not delay the first
+        // query against an unrelated one. Loading outside computeIfAbsent on purpose - it does I/O
+        // and classloading, which must not run while a ConcurrentHashMap bin lock is held.
+        synchronized (loadLocks.computeIfAbsent(name, key -> new Object())) {
+            PluginHandle handle = plugins.get(name);
+            if (handle == null) {
+                handle = load(name);
+                plugins.put(name, handle);
+            }
+            return handle;
+        }
+    }
+
+    private PluginHandle usable(String name) {
+        PluginHandle handle = plugin(name);
+        switch (handle.state()) {
+            case READY:
+                return handle;
+            case NOT_DEPLOYED:
+                throw new IllegalStateException("Java plugin '" + name + "' is not deployed: no directory "
+                        + pluginDir.resolve(name) + ". Install it, or build BE without excluding it.");
+            case FAILED:
+            default:
+                throw new IllegalStateException("Java plugin '" + name + "' failed to load: " + handle.failure());
+        }
+    }
+
+    /**
+     * A plugin name is one directory name, never a path.
+     *
+     * <p>Checked because the name reaches here from SQL: {@code writer_class} is
+     * {@code <plugin>:<factory>} and both halves are passed through untranslated. A name holding a
+     * separator would resolve against {@code pluginDir} to somewhere else on the host, and loading
+     * jars from an arbitrary directory is not what "the plugin is not deployed" should mean.
+     */
+    private void requirePluginName(String name) {
+        if (name == null || name.isEmpty() || name.equals(".") || name.equals("..")
+                || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("'" + name + "' is not a Java plugin name. A plugin is"
+                    + " one directory under " + pluginDir + ", so its name is a single path segment.");
+        }
+    }
+
+    private PluginHandle load(String name) {
+        Path dir = pluginDir.resolve(name);
+        if (!Files.isDirectory(dir)) {
+            LOG.fine(() -> "Java plugin '" + name + "' is not deployed at " + dir);
+            return PluginHandle.notDeployed(name);
+        }
+        try {
+            return loadDeployed(name, dir);
+        } catch (Throwable t) {
+            // Deliberately Throwable: a plugin jar built against another JDK or missing a
+            // transitive dependency surfaces as a LinkageError, and containing that is the whole
+            // point of loading plugins one at a time.
+            String failure = JniUtil.throwableToString(t);
+            LOG.log(Level.WARNING, "Java plugin '" + name + "' failed to load from " + dir + ": "
+                    + JniUtil.throwableToStackTrace(t));
+            return PluginHandle.failed(name, failure);
+        }
+    }
+
+    private PluginHandle loadDeployed(String name, Path dir) throws IOException {
+        List<URL> jars = jarsIn(dir);
+        if (jars.isEmpty()) {
+            throw new IllegalStateException("no jars in " + dir);
+        }
+
+        // The version gate runs here, before a single plugin class is loaded. Going through the
+        // plugin object instead means ServiceLoader has already constructed it and the three
+        // factory getters below have already handed back SPI types - which is precisely what a
+        // mismatched SPI major breaks. The failure then arrives as a LinkageError out of the
+        // catch-all in load(), and the carefully worded message this gate exists to produce never
+        // appears. A jar that declares no service at all is left alone: soleProvider() says that
+        // far better than a version complaint would.
+        PluginApiVersions.Declared declared = PluginApiVersions.declaredByProviderJar(jars);
+        if (declared.providerJarFound()) {
+            checkApiVersion(declared.apiVersion());
+        }
+
+        // Appended only now, after the version gate: the shared filesystem jars are not part of
+        // this plugin's API contract, they declare no service, and declaredByProviderJar would
+        // read every one of them looking for a service entry they cannot have. A directory holding
+        // nothing but these is still "no jars in ..." above, because it is not a plugin.
+        List<URL> classpath = jars;
+        List<URL> sharedFs = sharedFilesystemJars();
+        if (!sharedFs.isEmpty()) {
+            classpath = new ArrayList<>(jars);
+            classpath.addAll(sharedFs);
+            LOG.fine(() -> "Java plugin '" + name + "' also reads " + sharedFs.size()
+                    + " shared filesystem jar(s) from " + fsDir);
+        }
+
+        DorisPluginClassLoader classLoader =
+                new DorisPluginClassLoader(name, classpath, spiClassLoader, hadoopConfResources);
+        if (classLoader.packagesSpiClasses()) {
+            throw new IllegalStateException("the plugin packages the SPI itself. jni-spi must be declared"
+                    + " with <scope>provided</scope>; a bundled copy produces classes BE cannot exchange"
+                    + " with, and every hand-off across the boundary would fail as a ClassCastException"
+                    + " between two identically named types");
+        }
+
+        DorisPlugin plugin;
+        List<JniScannerFactory> scannerFactories;
+        List<JniWriterFactory> writerFactories;
+        List<UdfExecutorFactory> udfExecutorFactories;
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            plugin = soleProvider(name, classLoader);
+            scannerFactories = copyOf(plugin.getScannerFactories());
+            writerFactories = copyOf(plugin.getWriterFactories());
+            udfExecutorFactories = copyOf(plugin.getUdfExecutorFactories());
+        }
+
+        // The plugin class's own jar, which is authoritative - the gate above went by whichever
+        // jar carries the service file. Identical in every built plugin; re-checked because the
+        // two can only differ in a hand-assembled directory, and that is exactly where a wrong
+        // answer would be worst.
+        String declaredApiVersion = PluginApiVersions.declaredBy(plugin.getClass());
+        checkApiVersion(declaredApiVersion);
+
+        Map<String, JniScannerFactory> scanners = new LinkedHashMap<>();
+        Map<String, JniWriterFactory> writers = new LinkedHashMap<>();
+        Map<String, UdfExecutorFactory> udfExecutors = new LinkedHashMap<>();
+        for (JniScannerFactory factory : scannerFactories) {
+            index(scanners, factory.getName(), factory, "scanner", writers.keySet(), udfExecutors.keySet());
+        }
+        for (JniWriterFactory factory : writerFactories) {
+            index(writers, factory.getName(), factory, "writer", scanners.keySet(), udfExecutors.keySet());
+        }
+        for (UdfExecutorFactory factory : udfExecutorFactories) {
+            index(udfExecutors, factory.getName(), factory, "UDF executor", scanners.keySet(), writers.keySet());
+        }
+
+        LOG.info("Java plugin '" + name + "' loaded from " + dir + " (api " + declaredApiVersion
+                + ", scanners=" + scanners.keySet() + ", writers=" + writers.keySet()
+                + ", udfExecutors=" + udfExecutors.keySet() + ")");
+        return PluginHandle.ready(name, declaredApiVersion, classLoader, scanners, writers, udfExecutors);
+    }
+
+    private DorisPlugin soleProvider(String name, DorisPluginClassLoader classLoader) {
+        Iterator<DorisPlugin> providers = ServiceLoader.load(DorisPlugin.class, classLoader).iterator();
+        if (!providers.hasNext()) {
+            throw new IllegalStateException("no META-INF/services/" + DorisPlugin.class.getName()
+                    + " entry in any of its jars, so nothing declares what this plugin provides");
+        }
+        DorisPlugin plugin = providers.next();
+        if (providers.hasNext()) {
+            throw new IllegalStateException("more than one " + DorisPlugin.class.getSimpleName()
+                    + " provider (" + plugin.getClass().getName() + ", " + providers.next().getClass().getName()
+                    + ", ...). A plugin directory addresses exactly one plugin; split them into separate"
+                    + " directories under " + pluginDir);
+        }
+        // The directory name is the plugin's identity, so nothing here has to agree with it.
+        LOG.fine(() -> "Java plugin '" + name + "' provided by " + plugin.getClass().getName());
+        return plugin;
+    }
+
+    private void checkApiVersion(String declaredApiVersion) {
+        if (declaredApiVersion == null) {
+            throw new IllegalStateException("its jar declares no " + SpiVersion.MANIFEST_ATTRIBUTE
+                    + " manifest attribute, so there is no way to tell which BE it was built for."
+                    + " Rebuild it with this Doris version's build");
+        }
+        int declaredMajor = SpiVersion.majorOf(declaredApiVersion);
+        if (declaredMajor != SpiVersion.major()) {
+            throw new IllegalStateException("it was built against plugin API " + declaredApiVersion
+                    + " but this BE serves " + SpiVersion.version()
+                    + ". Majors must match; deploy the plugin directory that ships with this BE");
+        }
+    }
+
+    private static <T> void index(Map<String, T> target, String factoryName, T factory, String kind,
+            Iterable<String> otherKindA, Iterable<String> otherKindB) {
+        if (factoryName == null || factoryName.trim().isEmpty()) {
+            throw new IllegalStateException(kind + " factory " + factory.getClass().getName()
+                    + " has a blank name; BE addresses factories by name");
+        }
+        // One namespace across all three kinds: BE sends a plugin name and a factory name, and a
+        // key that could mean two things would resolve by whichever kind is looked up first.
+        if (target.containsKey(factoryName) || contains(otherKindA, factoryName)
+                || contains(otherKindB, factoryName)) {
+            throw new IllegalStateException("two factories are both named '" + factoryName
+                    + "'; names must be unique within a plugin");
+        }
+        target.put(factoryName, factory);
+    }
+
+    private static boolean contains(Iterable<String> names, String name) {
+        for (String candidate : names) {
+            if (candidate.equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static <T> List<T> copyOf(Iterable<T> values) {
+        List<T> copy = new ArrayList<>();
+        if (values != null) {
+            for (T value : values) {
+                if (value != null) {
+                    copy.add(value);
+                }
+            }
+        }
+        return copy;
+    }
+
+    private List<String> deployedPluginNames() {
+        List<String> names = new ArrayList<>();
+        if (!Files.isDirectory(pluginDir)) {
+            LOG.info("No Java plugin directory at " + pluginDir + "; BE runs without Java plugins");
+            return names;
+        }
+        try (DirectoryStream<Path> entries = Files.newDirectoryStream(pluginDir)) {
+            for (Path entry : entries) {
+                if (Files.isDirectory(entry)) {
+                    names.add(entry.getFileName().toString());
+                }
+            }
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Cannot list Java plugin directory " + pluginDir + ": " + e);
+        }
+        names.sort(String::compareTo);
+        return names;
+    }
+
+    private static List<URL> jarsIn(Path dir) throws IOException {
+        List<Path> files = new ArrayList<>();
+        try (DirectoryStream<Path> entries = Files.newDirectoryStream(dir, "*.jar")) {
+            for (Path entry : entries) {
+                files.add(entry);
+            }
+        }
+        // Deterministic order so that a duplicate class resolves the same way on every node.
+        files.sort(Path::compareTo);
+        List<URL> urls = new ArrayList<>(files.size());
+        for (Path file : files) {
+            urls.add(file.toUri().toURL());
+        }
+        return urls;
+    }
+
+    private static String unknownFactoryMessage(PluginHandle handle, String factoryName) {
+        return "Java plugin '" + handle.name() + "' has no factory named '" + factoryName
+                + "'. It provides scanners " + handle.scannerFactories().keySet()
+                + ", writers " + handle.writerFactories().keySet()
+                + ", UDF executors " + handle.udfExecutorFactories().keySet();
+    }
+
+    private static void appendJsonNames(StringBuilder json, String field, Iterable<String> names) {
+        json.append(",\"").append(field).append("\":[");
+        boolean first = true;
+        for (String name : names) {
+            if (!first) {
+                json.append(',');
+            }
+            first = false;
+            appendJsonString(json, name);
+        }
+        json.append(']');
+    }
+
+    private static void appendJsonString(StringBuilder json, String value) {
+        json.append('"');
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"':
+                    json.append("\\\"");
+                    break;
+                case '\\':
+                    json.append("\\\\");
+                    break;
+                case '\n':
+                    json.append("\\n");
+                    break;
+                case '\r':
+                    json.append("\\r");
+                    break;
+                case '\t':
+                    json.append("\\t");
+                    break;
+                default:
+                    if (c < 0x20) {
+                        // Locale.ROOT: the default locale decides what digits %x renders with, and
+                        // a locale asking for non-ASCII digits would produce an escape no JSON
+                        // parser accepts.
+                        json.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
+                    } else {
+                        json.append(c);
+                    }
+            }
+        }
+        json.append('"');
+    }
+}

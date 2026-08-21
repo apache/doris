@@ -164,7 +164,7 @@ Status JniTableReader::_get_next_jni_block(size_t* rows, bool* eof) {
     {
         SCOPED_RAW_TIMER(&_java_scan_watcher);
         //getNextBatchMeta function, return the meta address
-        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_next_batch)
+        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _scanner_api->get_next_batch_meta)
                                 .call(&meta_address));
     }
     RETURN_ERROR_IF_EXC(env);
@@ -184,7 +184,7 @@ Status JniTableReader::_get_next_jni_block(size_t* rows, bool* eof) {
     // fill data from Java table meta to C++ block
     RETURN_IF_ERROR(_fill_jni_block(table_meta, *rows));
     // call releaseTable() method in JAVA side to release the Java table Heap free Memory
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
+    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->release_table).call());
     RETURN_ERROR_IF_EXC(env);
     *eof = false;
     return Status::OK();
@@ -203,7 +203,7 @@ Status JniTableReader::_fill_jni_block(JniDataBridge::TableMetaAddress& table_me
         RETURN_IF_ERROR(JniDataBridge::fill_column(table_meta, column_ptr,
                                                    read_column.transfer_type, num_rows));
         // call releaseColumn(int columnIndex) method in JAVA side to release the Java column Heap free Memory
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_column)
+        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->release_column)
                                 .with_arg(cast_set<int>(i))
                                 .call());
         RETURN_ERROR_IF_EXC(env);
@@ -239,7 +239,7 @@ Status JniTableReader::_get_statistics(JNIEnv* env, std::map<std::string, std::s
     result->clear();
     Jni::LocalObject metrics;
     RETURN_IF_ERROR(
-            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));
+            _jni_scanner_obj.call_object_method(env, _scanner_api->get_statistics).call(&metrics));
     RETURN_IF_ERROR(Jni::Util::convert_to_cpp_map(env, metrics, result));
     return Status::OK();
 }
@@ -354,11 +354,11 @@ void JniTableReader::_publish_split_profile(JNIEnv* env) {
 
     jlong append_data_time = 0;
     const auto append_time_status =
-            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+            _jni_scanner_obj.call_long_method(env, _scanner_api->get_append_data_time)
                     .call(&append_data_time);
     jlong create_vector_table_time = 0;
     const auto create_table_time_status =
-            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+            _jni_scanner_obj.call_long_method(env, _scanner_api->get_create_vector_table_time)
                     .call(&create_vector_table_time);
     if (!append_time_status.ok()) {
         LOG(WARNING) << "failed to collect JNI append-data time during close: "
@@ -418,8 +418,9 @@ Status JniTableReader::_close_jni_scanner() {
     // _fill_jni_block may fail before releasing the current Java table. JniScanner::releaseTable()
     // is idempotent, so closing the split always releases it. Java close must still run if that
     // release fails; otherwise connector resources such as JDBC connections can leak.
-    auto cleanup_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
-    auto java_close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_close).call();
+    auto cleanup_status =
+            _jni_scanner_obj.call_void_method(env, _scanner_api->release_table).call();
+    auto java_close_status = _jni_scanner_obj.call_void_method(env, _scanner_api->close).call();
     if (cleanup_status.ok() && !java_close_status.ok()) {
         cleanup_status = std::move(java_close_status);
     }
@@ -461,13 +462,12 @@ Status JniTableReader::_open_jni_scanner() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    RETURN_IF_ERROR(_register_jni_class_functions_once(env));
-    RETURN_IF_ERROR(_create_jni_scanner_object(env, cast_set<int>(_batch_size)));
+    RETURN_IF_ERROR(_create_jni_scanner(env, cast_set<int>(_batch_size)));
     // Once the Java object exists, close it even if open() fails partway through initialization.
     // Connector implementations may already own streams, off-heap tables, or JDBC connections.
     _scanner_opened = true;
     // call open() method in JAVA side.
-    const auto open_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_open).call();
+    const auto open_status = _jni_scanner_obj.call_void_method(env, _scanner_api->open).call();
     if (!open_status.ok()) {
         const auto close_status = _close_jni_scanner();
         if (!close_status.ok()) {
@@ -513,7 +513,7 @@ void JniTableReader::set_batch_size(size_t batch_size) {
 Status JniTableReader::_set_open_scanner_batch_size(size_t batch_size) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
-    return _jni_scanner_obj.call_void_method(env, _jni_scanner_set_batch_size)
+    return _jni_scanner_obj.call_void_method(env, _scanner_api->set_batch_size)
             .with_arg(cast_set<int>(batch_size))
             .call();
 }
@@ -563,45 +563,10 @@ void JniTableReader::_prepare_jni_scanner_schema() {
     }
 }
 
-Status JniTableReader::_register_jni_class_functions_once(JNIEnv* env) {
-    if (!_jni_scanner_cls.uninitialized()) {
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(
-            Jni::Util::get_jni_scanner_class(env, connector_class().c_str(), &_jni_scanner_cls));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "<init>", "(ILjava/util/Map;)V",
-                                                &_jni_scanner_constructor));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "open", "()V", &_jni_scanner_open));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getNextBatchMeta", "()J",
-                                                &_jni_scanner_get_next_batch));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getAppendDataTime", "()J",
-                                                &_jni_scanner_get_append_data_time));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getCreateVectorTableTime", "()J",
-                                                &_jni_scanner_get_create_vector_table_time));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "close", "()V", &_jni_scanner_close));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "releaseColumn", "(I)V",
-                                                &_jni_scanner_release_column));
-    RETURN_IF_ERROR(
-            _jni_scanner_cls.get_method(env, "releaseTable", "()V", &_jni_scanner_release_table));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
-                                                &_jni_scanner_get_statistics));
-    RETURN_IF_ERROR(
-            _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
-    return Status::OK();
-}
-
-Status JniTableReader::_create_jni_scanner_object(JNIEnv* env, int batch_size) {
-    DORIS_CHECK(!_jni_scanner_cls.uninitialized());
-    DORIS_CHECK(!_jni_scanner_constructor.uninitialized());
+Status JniTableReader::_create_jni_scanner(JNIEnv* env, int batch_size) {
     DORIS_CHECK(_jni_scanner_obj.uninitialized());
-    Jni::LocalObject hashmap_object;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, _scanner_params, &hashmap_object));
-    RETURN_IF_ERROR(_jni_scanner_cls.new_object(env, _jni_scanner_constructor)
-                            .with_arg(batch_size)
-                            .with_arg(hashmap_object)
-                            .call(&_jni_scanner_obj));
-    return Status::OK();
+    return Jni::PluginRegistry::create_scanner(env, plugin_ref(), batch_size, _scanner_params,
+                                               &_jni_scanner_obj, &_scanner_api);
 }
 
 void JniTableReader::_init_profile() {
@@ -625,8 +590,7 @@ void JniTableReader::_init_profile() {
 }
 
 std::string JniTableReader::_connector_name() const {
-    const auto parts = split(connector_class(), "/");
-    return parts.empty() ? connector_class() : parts.back();
+    return std::string(plugin_ref().plugin);
 }
 
 } // namespace doris::format

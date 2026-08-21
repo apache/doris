@@ -17,8 +17,8 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnType.Type;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnType.Type;
 
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;

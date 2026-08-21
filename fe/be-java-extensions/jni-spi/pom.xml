@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>be-java-extensions</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>jni-spi</artifactId>
+    <name>Doris BE JNI Plugin SPI</name>
+    <description>
+        The whole BE-to-Java plugin contract: what a plugin implements (DorisPlugin, the scanner /
+        writer / udf factories, the JniScanner and JniWriter base classes) and what BE hands it (the
+        off-heap data plane and the exception bridge).
+
+        This jar sits on BE's system classpath and is the ONLY Doris code a plugin classloader
+        delegates to, which is why it carries no third-party dependency at all: anything reachable
+        from here would be shared with every plugin, and removing that sharing is the point of the
+        architecture. The zero-dependency rule is enforced below rather than left to review.
+
+        Design rules for the surface are in this module's package-info; the byte-level protocol it
+        implies is in PROTOCOL.md.
+    </description>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!--
+          Nothing here may ever gain a non-test scope. See the enforcer rule below.
+        -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          The fe parent pom declares slf4j and three log4j artifacts as compile dependencies of
+          EVERY module. That inheritance is why org.apache.log4j.Logger could appear inside the
+          off-heap data-plane classes in the first place. A child cannot drop an inherited
+          dependency, but redeclaring it narrows its scope, and test scope is the narrowest that
+          keeps the reactor happy: these jars are then absent from the compile classpath, so an
+          `import org.apache.log4j...` in src/main/java fails to compile rather than quietly adding
+          a class every plugin would have to share with BE. Do not "fix" these to compile scope.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-jni-spi</finalName>
+        <resources>
+            <!-- Default resource root, restated because declaring <resources> replaces the default. -->
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              plugin API version file and can never rewrite another resource by accident.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <!--
+                      The SPI purity gate. A dependency added here does not just enlarge a jar: it
+                      becomes a class every plugin shares with BE and with every other plugin,
+                      re-creating the version conflicts this architecture removes. Banning
+                      everything (transitively) and re-admitting only test scope makes that
+                      impossible to do by accident - the build fails on the commit that adds it,
+                      not months later on a classpath somewhere.
+                    -->
+                    <execution>
+                        <id>enforce-jni-spi-has-no-dependencies</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>*</exclude>
+                                    </excludes>
+                                    <includes>
+                                        <include>*:*:*:*:test</include>
+                                    </includes>
+                                    <message>
+                                        jni-spi must have zero non-test dependencies. It is BE's
+                                        shared layer: every class reachable from it is visible to
+                                        every plugin. If a plugin needs the code you are about to
+                                        add, put it in plugin-toolkit (compiled into each plugin)
+                                        instead; if BE needs to exchange it, express it as
+                                        primitives, String, Map or byte[] the way the existing
+                                        surface does.
+                                    </message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

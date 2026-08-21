@@ -19,12 +19,9 @@ package org.apache.doris.udf;
 import java.math.BigDecimal;
 
 import org.apache.hadoop.hive.ql.exec.UDF;
-import org.apache.log4j.Logger;
 import java.util.*;
 
 public class MyMapDecimal extends UDF {
-    private static final Logger LOG = Logger.getLogger(MyMapDecimal.class);
-
     public Integer evaluate(HashMap<BigDecimal, BigDecimal> mp) {
         Integer scale = 0;
         for (Map.Entry<BigDecimal, BigDecimal> value : mp.entrySet()) {

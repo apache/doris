@@ -284,7 +284,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     private void listLatestPartitions(ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle handle, Map<String, PartitionItem> nameToPartitionItem,
             Map<String, Long> nameToLastModifiedMillis) {
-        List<Column> partitionColumns = getPartitionColumns();
+        listPartitions(metadata, session, handle, getPartitionColumns(),
+                nameToPartitionItem, nameToLastModifiedMillis);
+    }
+
+    /**
+     * The same listing, typed by the partition columns the CALLER names rather than by the table's current
+     * ones. A pinned read must pass the pinned schema's: the snapshot publishes it through
+     * {@code getPartitionColumns(snapshot)}, so building the items from the latest schema types a partition
+     * value one way and describes it another. A hudi or iceberg partition column widened since the pin is
+     * enough - the values are parsed into today's type while the pin says they are yesterday's, and nothing
+     * says so.
+     */
+    private void listPartitions(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle handle, List<Column> partitionColumns,
+            Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, Long> nameToLastModifiedMillis) {
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
         List<ConnectorPartitionInfo> parts = metadata.listPartitions(session, handle, Optional.empty());
         for (ConnectorPartitionInfo part : parts) {
@@ -311,6 +326,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
                         partitionColumns, partitionName, e);
             }
+        }
+        // One line for the listing, next to the per-partition ones above.
+        //
+        // A per-partition WARN is the right shape for the case this catch was written for - iceberg
+        // spec evolution, where SOME rows carry fewer values than the current spec has columns - but
+        // it is the wrong shape for the case where the two lists never agreed at all: every
+        // partition then fails for the same reason, and what the reader needs is the two counts and
+        // the fact that the whole table just went UNPARTITIONED, not N copies of one stack trace.
+        // That shape is what a pinned read produces when the at-snapshot schema declares partition
+        // columns the pinned listing does not match (see ConnectorMetadata.listsPartitionsAtSnapshot).
+        if (!parts.isEmpty() && nameToPartitionItem.isEmpty()) {
+            LOG.warn("every partition of {}.{} was skipped while building partition items, so the "
+                            + "table is reported UNPARTITIONED for this read: {} listed, 0 built, "
+                            + "typed by {} partition column(s) {}. The connector's partition columns "
+                            + "and the values it lists do not agree.",
+                    getDbName(), getName(), parts.size(), types.size(), partitionColumns);
         }
     }
 
@@ -476,12 +507,28 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenSchemaCacheValue pinnedSchema =
                 toSchemaCacheValue(metadata, session, dbName, tableName, atSchema);
 
-        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) does NOT list
-        // partitions (EMPTY partition maps) — parity with legacy PaimonPartitionInfo.EMPTY. The empty
-        // maps make isPartitionInvalid() == (0!=0) == false, so getPartitionColumns(snapshot) flows
-        // through super -> the schema-aware getSchemaCacheValue() below -> the pinned schema's partition
-        // columns. Partition pruning is deferred to the connector's predicate pushdown (the generic scan
-        // node's resolveRequiredPartitions treats this empty-universe pin as scan-all).
+        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) lists partitions only
+        // from a connector that can list them AT the pin. A listing at LATEST is the wrong universe in both
+        // directions — it hides a partition dropped since the pin (pruning it away would lose rows) and
+        // invents ones created after it — so a snapshot-blind connector keeps EMPTY maps, parity with legacy
+        // PaimonPartitionInfo.EMPTY: isPartitionInvalid() == (0!=0) == false, getPartitionColumns(snapshot)
+        // flows through super -> the schema-aware getSchemaCacheValue() -> the pinned schema's partition
+        // columns, and pruning is deferred to the connector's predicate pushdown (the generic scan node's
+        // resolveRequiredPartitions treats an empty universe as scan-all).
+        //
+        // The cost of that safe answer is a query that reads every partition and an EXPLAIN that reports
+        // `partition=0/0` for it — indistinguishable from "pruned to nothing". So a connector that DOES
+        // read the pin when listing (listsPartitionsAtSnapshot) gets the real set instead, listed on the
+        // snapshot-applied handle, and pruning and partition=N/M both become truthful.
+        if (metadata.listsPartitionsAtSnapshot(session, pinnedHandle)) {
+            Map<String, PartitionItem> pinnedPartitionItems = Maps.newHashMap();
+            Map<String, Long> pinnedLastModifiedMillis = Maps.newHashMap();
+            // Typed by the PINNED schema, which is the one this snapshot publishes: see listPartitions.
+            listPartitions(metadata, session, pinnedHandle, pinnedSchema.getPartitionColumns(),
+                    pinnedPartitionItems, pinnedLastModifiedMillis);
+            return new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedPartitionItems,
+                    pinnedLastModifiedMillis, pinnedSchema);
+        }
         return new PluginDrivenMvccSnapshot(connectorSnapshot,
                 Collections.emptyMap(), Collections.emptyMap(), pinnedSchema);
     }

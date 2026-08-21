@@ -43,6 +43,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -57,7 +58,6 @@
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
 #include "util/concurrency_stats.h"
-#include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
@@ -86,8 +86,10 @@
 #include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/string_util.h"
+#include "util/thread.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -107,12 +109,19 @@ void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         k_doris_exit = true;
     }
+    // SIGQUIT deliberately does nothing here; see init_signals().
 }
 
 int install_signal(int signo, void (*handler)(int)) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = handler;
+    // Restartable syscalls stay restartable. It matters most for SIGQUIT: unlike the two
+    // shutdown signals, that one is sent to a HEALTHY BE - `kill -3` is the operator's habit
+    // for asking a running process for a thread dump, and since the handler now produces
+    // nothing they send it again. Without SA_RESTART each of those turns whatever syscall the
+    // receiving thread happened to be in into EINTR, in the middle of normal serving.
+    sa.sa_flags = SA_RESTART;
     sigemptyset(&sa.sa_mask);
     auto ret = sigaction(signo, &sa, nullptr);
     if (ret != 0) {
@@ -129,6 +138,23 @@ void init_signals() {
         exit(-1);
     }
     ret = install_signal(SIGTERM, signal_handler);
+    if (ret < 0) {
+        exit(-1);
+    }
+    // SIGQUIT is taken over even though the BE does nothing with it, because its default
+    // action is not "nothing": it terminates the process and dumps core. `kill -3 <pid>` is
+    // what an operator reaches for to get a thread dump out of a process that looks stuck,
+    // and until the JVM started running with -Xrs it got one - the JVM installed a handler
+    // for this signal along with the shutdown ones. -Xrs stops it from doing that (see
+    // JvmLauncher::_build_options), which would leave SIGQUIT at SIG_DFL and turn that
+    // habitual command into a crash. Handling it and ignoring it is the pre-change
+    // behaviour minus the thread dump; jcmd and jstack, which attach rather than signal,
+    // are how to get one now.
+    //
+    // Installed with a handler rather than SIG_IGN so that the disposition is inheritable
+    // by nothing and visible to JvmLauncher's BeOwnedSignalGuard, which saves and restores
+    // it around any VM creation it does not control.
+    ret = install_signal(SIGQUIT, signal_handler);
     if (ret < 0) {
         exit(-1);
     }
@@ -512,16 +538,9 @@ int main(int argc, char** argv) {
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
-    if (doris::config::enable_java_support) {
-        // Init jni
-        status = doris::Jni::Util::Init();
-        if (!status.ok()) {
-            LOG(WARNING) << "Failed to initialize JNI: " << status;
-            exit(1);
-        } else {
-            LOG(INFO) << "Doris backend JNI is initialized.";
-        }
-    }
+    // No JVM is started here on purpose. It is created by the first Java feature that asks
+    // for it - a JNI table format, a Java UDF, an hdfs access - and a BE that uses none of
+    // them runs without one. See Jni::JvmLauncher.
 
     if (doris::config::enable_python_udf_support) {
         if (std::string python_udf_root_path =
@@ -587,8 +606,15 @@ int main(int argc, char** argv) {
         LOG(INFO) << doris::PythonVersionManager::instance().to_string();
     }
 
-    // Doris own signal handler must be register after jvm is init.
-    // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
+    // SIGINT and SIGTERM are how the BE is asked to shut down, and the handler installed
+    // here does nothing but raise the flag the loop at the end of main() waits on, so the
+    // shutdown stays orderly. SIGQUIT is claimed here as well, so that it does nothing at
+    // all rather than killing the BE with a core dump. A JVM would rather turn the first
+    // two into a Java Shutdown.exit() and answer the third with a thread dump, and it
+    // installs handlers of its own for all three when it starts. The JVM used to be created
+    // a few lines above this call, which is what left these handlers on top; now that it is
+    // created on demand, Jni::JvmLauncher::_bootstrap() is what puts them back once the JVM
+    // has had its way with them.
     // https://www.oracle.com/java/technologies/javase/signals.html
     doris::init_signals();
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
@@ -702,6 +728,41 @@ int main(int argc, char** argv) {
 
     doris::k_is_server_ready = true;
 
+    // 7. load the deployed Java plugins, once the BE is otherwise serving.
+    //
+    // On its own thread and non-fatal on purpose: the point is that a plugin broken by a bad
+    // deployment shows up in the log now instead of inside the first user query that needs
+    // it, and a plugin that cannot load must not hold up or take down everything else. When
+    // no plugin is deployed this starts no JVM and returns immediately.
+    //
+    // Joined on the way out rather than detached, so that a stop arriving while plugins are
+    // still loading waits for them instead of running the global destructors underneath a
+    // thread that is inside the JVM. Warming up is bounded - one JVM start plus one pass over
+    // the plugin directory - and the Java side of it is a single call, so there is nothing to
+    // interrupt halfway.
+    std::shared_ptr<doris::Thread> plugin_warmup_thread;
+    if (doris::config::enable_java_support && doris::config::java_plugin_warmup) {
+        EXIT_IF_ERROR(doris::Thread::create(
+                "Jni", "java_plugin_warmup",
+                []() {
+                    // Named background thread with a thread context of its own: everything it
+                    // allocates would otherwise be orphan memory, and the try/catch is what
+                    // keeps a directory that becomes unreadable mid-iteration from reaching
+                    // std::terminate (directory_iterator::operator++ throws).
+                    SCOPED_INIT_THREAD_CONTEXT();
+                    try {
+                        if (Status status = doris::Jni::PluginRegistry::warmup(); !status.ok()) {
+                            LOG(WARNING) << "failed to warm up Java plugins: " << status;
+                        }
+                    } catch (const std::exception& e) {
+                        LOG(WARNING) << "failed to warm up Java plugins: " << e.what();
+                    } catch (...) {
+                        LOG(WARNING) << "failed to warm up Java plugins: unknown exception";
+                    }
+                },
+                &plugin_warmup_thread));
+    }
+
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
@@ -724,6 +785,13 @@ int main(int argc, char** argv) {
         google::FlushLogFiles(google::GLOG_INFO);
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
         return 0;
+    }
+    // Before anything is torn down: the warmup thread may still be inside the JVM, and it
+    // reaches BE state that the destructors below free. The fast path above does not need
+    // this - _exit() runs no destructor at all.
+    if (plugin_warmup_thread != nullptr) {
+        plugin_warmup_thread->join();
+        LOG(INFO) << "Java plugin warmup stopped";
     }
     daemon.stop();
     flight_starter->stop();

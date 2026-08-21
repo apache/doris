@@ -17,8 +17,8 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericArray;

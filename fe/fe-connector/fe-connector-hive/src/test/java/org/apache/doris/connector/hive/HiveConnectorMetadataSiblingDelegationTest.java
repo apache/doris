@@ -50,19 +50,29 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Pins the HMS-cutover §4.4 S3 gateway metadata delegation: {@link HiveConnectorMetadata}'s per-handle methods
@@ -120,6 +130,107 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE).build();
     }
 
+    /**
+     * The completeness lock, in the direction the two {@code EXPECTED_*} lists cannot see.
+     *
+     * <p>Those lists fail when a delegation is DROPPED - the recorded call sequence changes. They say
+     * nothing when one is ADDED: a new sibling-forwarding method that no case here drives simply is not in
+     * the list and nothing notices, which is how {@code listsPartitionsAtSnapshot} - the path a hudi-on-HMS
+     * table actually takes for every time-travel query - reached this branch untested.
+     *
+     * <p>So the source is the input, not the test: every method of {@code HiveConnectorMetadata} that
+     * mentions a sibling resolver has to be classified, either as driven here or as driven somewhere named.
+     * Adding a delegation without doing one of the two fails this case with the method's name in the
+     * message.
+     *
+     * <p>Reads the file rather than reflecting on the class because what has to be classified is a method
+     * that FORWARDS, and forwarding is a property of the body, not of the signature.
+     */
+    @Test
+    public void everySiblingDelegationInTheSourceIsClassified() throws IOException {
+        Path source = metadataSource();
+        Assumptions.assumeTrue(source != null,
+                "HiveConnectorMetadata.java was not found from the working directory, so this cannot run");
+
+        Set<String> delegating = new TreeSet<>();
+        String current = null;
+        for (String line : Files.readAllLines(source, StandardCharsets.UTF_8)) {
+            Matcher declaration = METHOD_DECLARATION.matcher(line);
+            if (declaration.find() && !line.substring(0, line.indexOf('(')).contains("=")) {
+                current = declaration.group(1);
+            }
+            if (current != null && SIBLING_RESOLVER.matcher(line).find()) {
+                delegating.add(current);
+            }
+        }
+        Assertions.assertTrue(delegating.size() > 30,
+                "only " + delegating.size() + " delegating methods found in " + source + "; the scanner above "
+                        + "has gone stale and this lock is no longer locking anything");
+
+        Set<String> classified = new TreeSet<>(RecordingSiblingMetadata.EXPECTED_METHODS);
+        classified.addAll(RecordingSiblingMetadata.EXPECTED_WRITE_METHODS);
+        classified.addAll(DELEGATIONS_DRIVEN_ELSEWHERE.keySet());
+        // The recorder labels the two getTableSchema overloads apart; the source knows one name.
+        classified.add("getTableSchema");
+
+        Set<String> unclassified = new TreeSet<>(delegating);
+        unclassified.removeAll(classified);
+        Assertions.assertEquals(Collections.emptySet(), unclassified,
+                "HiveConnectorMetadata forwards these to a sibling and nothing says where that is covered: "
+                        + unclassified + ". Drive each one from everyPerHandleMethodForwardsAForeignHandleToTheSibling"
+                        + " (or its write sibling) and add it to the matching EXPECTED_* list, or add it to "
+                        + "DELEGATIONS_DRIVEN_ELSEWHERE naming the test that does. An unclassified delegation is "
+                        + "an untested one - it is how a foreign handle ends up answered by the gateway itself.");
+    }
+
+    /**
+     * {@code HiveConnectorMetadata.java}, found by walking up from wherever the tests are run - the module
+     * directory under surefire, the repository root under an IDE. Null when neither works.
+     */
+    private static Path metadataSource() {
+        Path relative = Paths.get("src", "main", "java", "org", "apache", "doris", "connector", "hive",
+                "HiveConnectorMetadata.java");
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
+            Path candidate = dir.resolve(relative);
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+            candidate = dir.resolve("fe").resolve("fe-connector").resolve("fe-connector-hive").resolve(relative);
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /** A method declaration at class-member indentation, whose name is what the body below belongs to. */
+    private static final Pattern METHOD_DECLARATION =
+            Pattern.compile("^    (?!@)(?!//)(?!\\*)[A-Za-z_].*?\\b(\\w+)\\s*\\(");
+    /** Any of the sibling resolvers of HiveConnectorMetadata. */
+    private static final Pattern SIBLING_RESOLVER = Pattern.compile(
+            "\\b(?:siblingMetadata|icebergSiblingMetadata|hudiSiblingMetadata|memoizedSiblingMetadata)\\s*\\(");
+
+    /**
+     * Sibling delegations this suite deliberately does not drive, and where each is covered instead.
+     * An entry here is a claim someone can check, which is the whole point of not simply skipping them.
+     */
+    private static final Map<String, String> DELEGATIONS_DRIVEN_ELSEWHERE;
+
+    static {
+        Map<String, String> elsewhere = new LinkedHashMap<>();
+        elsewhere.put("siblingMetadata", "the by-handle resolver itself, driven by every case here");
+        elsewhere.put("icebergSiblingMetadata", "the iceberg by-type resolver, driven by HiveConnectorSiblingTest");
+        elsewhere.put("hudiSiblingMetadata", "the hudi by-type resolver, the other half of the same pair");
+        elsewhere.put("memoizedSiblingMetadata", "the per-session memo behind the two resolvers above");
+        elsewhere.put("getTableHandle",
+                "the pivot that PRODUCES a foreign handle rather than consuming one, so it cannot be driven"
+                        + " with the foreignHandle these cases use; covered by HiveConnectorThreeWayRoutingTest");
+        elsewhere.put("beginTransaction",
+                "the two write plans downcast to different concrete transaction types, so the selection is"
+                        + " symmetric and needs both directions; covered by HiveConnectorTransactionTest");
+        DELEGATIONS_DRIVEN_ELSEWHERE = Collections.unmodifiableMap(elsewhere);
+    }
+
     @Test
     public void everyPerHandleMethodForwardsAForeignHandleToTheSibling() {
         HiveConnectorMetadata md = withSibling();
@@ -138,6 +249,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.getPartitionFreshnessMillis(session, foreignHandle, "p");
         md.dropTable(session, foreignHandle);
         md.truncateTable(session, foreignHandle, Collections.emptyList());
+        List<Long> fileSizes = md.listFileSizes(session, foreignHandle);
 
         // ---- set (b): methods hive does NOT override — the silent gaps that must be filled by forwarding ----
         md.getTableSchema(session, foreignHandle, null);
@@ -152,6 +264,10 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // "snapshots" (not "partitions"): hive's own logic returns false for it, so a true answer proves the
         // reply came from the sibling, not hive.
         boolean sysIsTvf = md.isPartitionValuesSysTable(session, foreignHandle, "snapshots");
+        // true from the sibling against hive's own hard-coded false, so this asserts the answer and not
+        // merely the call: hive has no time travel, and answering for a hudi-on-HMS table would report the
+        // gateway's snapshot-blindness and leave every FOR TIME AS OF query with partition=0/0.
+        boolean pinsPartitions = md.listsPartitionsAtSnapshot(session, foreignHandle);
 
         // Every per-handle method reached the sibling (proves the divert covers the whole surface).
         Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_METHODS, siblingMetadata.calls,
@@ -169,6 +285,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertTrue(sysIsTvf,
                 "isPartitionValuesSysTable must return the sibling's answer for a foreign handle, not hive's — "
                         + "dropping this delegation would misroute an iceberg-on-HMS t$partitions into the hive TVF");
+        Assertions.assertTrue(pinsPartitions,
+                "listsPartitionsAtSnapshot must return the sibling's answer, not hive's constant false — this is "
+                        + "the path a hudi-on-HMS table actually takes, and it decides whether fe-core pins the "
+                        + "real partition set for a time-travel query or an empty one");
+        Assertions.assertEquals(RecordingSiblingMetadata.SENTINEL_FILE_SIZES, fileSizes,
+                "listFileSizes must return the sibling's file sizes, not hive's empty list");
 
         // Handle-out methods must return the sibling's handle/result UNMODIFIED (a rewrap poisons a scan cast).
         Assertions.assertSame(siblingMetadata.filterResult, filter, "applyFilter must return the sibling result");
@@ -585,6 +707,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         static final ConnectorTransaction SIBLING_TXN = new NoOpConnectorTransaction(4243L, "ICEBERG");
         static final long SENTINEL_SIZE = 4242L;
         static final long SENTINEL_SNAPSHOT_ID = 99L;
+        static final List<Long> SENTINEL_FILE_SIZES = Collections.unmodifiableList(Arrays.asList(7L, 11L));
         static final List<ConnectorExpression> SIBLING_PREDICATES = Collections.singletonList(
                 new ConnectorColumnRef("sibling-pred", ConnectorType.of("STRING")));
 
@@ -595,10 +718,11 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "estimateDataSizeByListingFiles",
                 "applyFilter", "listPartitionNames", "listPartitions",
                 "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis", "dropTable",
-                "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
+                "truncateTable", "listFileSizes",
+                "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
                 "applySnapshot", "getSyntheticScanPredicates", "applyRewriteFileScope",
                 "applyTopnLazyMaterialization", "listSupportedSysTables", "getSysTableHandle",
-                "isPartitionValuesSysTable"));
+                "isPartitionValuesSysTable", "listsPartitionsAtSnapshot"));
 
         // The exact set + order of ALTER-DDL / validate methods the foreign-handle write test drives (Rule-9
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
@@ -774,6 +898,20 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorTableHandle baseTableHandle, String sysName) {
             calls.add("isPartitionValuesSysTable");
             // A distinctive true (hive's own logic would say false for "snapshots") proves the divert.
+            return true;
+        }
+
+        @Override
+        public List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
+            calls.add("listFileSizes");
+            // Distinctive: hive answers an empty list for a non-HIVE table type.
+            return SENTINEL_FILE_SIZES;
+        }
+
+        @Override
+        public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+            calls.add("listsPartitionsAtSnapshot");
+            // Distinctive: hive answers a hard-coded false, having no time travel of its own.
             return true;
         }
 

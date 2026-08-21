@@ -17,178 +17,72 @@
 
 #include "util/jni-util.h"
 
-#include <fmt/format.h>
 #include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
 
 #include <cstdlib>
-#include <filesystem>
-#include <iterator>
-#include <memory>
+#include <limits>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include "absl/strings/substitute.h"
-#include "common/cast_set.h"
 #include "common/config.h"
-#include "common/metrics/doris_metrics.h"
 #include "util/jni_native_method.h"
-// #include "util/libjvm_loader.h"
+#include "util/jvm_launcher.h"
 
 using std::string;
 
 namespace doris {
 namespace Jni {
-JavaVM* g_vm;
-[[maybe_unused]] std::once_flag g_vm_once;
-[[maybe_unused]] std::once_flag g_jvm_conf_once;
 __thread JNIEnv* Env::tls_env_ = nullptr;
 jclass Env::jni_util_cl_ = nullptr;
 jmethodID Env::throwable_to_string_id_ = nullptr;
 jmethodID Env::throwable_to_stack_trace_id_ = nullptr;
 
-const std::string GetDorisJNIDefaultClasspath() {
-    const auto* doris_home = getenv("DORIS_HOME");
-    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
-
-    std::ostringstream out;
-
-    auto add_jars_from_path = [&](const std::string& base_path) {
-        if (!std::filesystem::exists(base_path)) {
-            return;
-        }
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(base_path)) {
-            if (entry.path().extension() == ".jar") {
-                if (!out.str().empty()) {
-                    out << ":";
-                }
-                out << entry.path().string();
-            }
-        }
-    };
-
-    add_jars_from_path(std::string(doris_home) + "/lib");
-    add_jars_from_path(std::string(doris_home) + "/custom_lib");
-
-    // Check and add HADOOP_CONF_DIR if it's set
-    const auto* hadoop_conf_dir = getenv("HADOOP_CONF_DIR");
-    if (hadoop_conf_dir != nullptr && strlen(hadoop_conf_dir) > 0) {
-        if (!out.str().empty()) {
-            out << ":";
-        }
-        out << hadoop_conf_dir;
-    }
-
-    DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
-    return out.str();
-}
-
-const std::string GetDorisJNIClasspathOption() {
-    const auto* classpath = getenv("DORIS_CLASSPATH");
-    if (classpath) {
-        return classpath;
-    } else {
-        return "-Djava.class.path=" + GetDorisJNIDefaultClasspath();
-    }
-}
-
-const std::string GetKerb5ConfPath() {
-    return "-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path;
-}
-
-[[maybe_unused]] void SetEnvIfNecessary() {
-    std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
-    CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
-    libhdfs_opts += fmt::format(" {} ", GetKerb5ConfPath());
-    libhdfs_opts += fmt::format(" -Djdk.lang.processReaperUseDefaultStackSize={}",
-                                config::jdk_process_reaper_use_default_stack_size);
-    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
-    LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
-}
-
-// Only used on non-x86 platform
-[[maybe_unused]] void FindOrCreateJavaVM() {
-    int num_vms;
-    int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
-    if (rv == 0) {
-        std::vector<std::string> options;
-
-        char* java_opts = getenv("JAVA_OPTS");
-        if (java_opts == nullptr) {
-            options = {
-                    GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
-                    fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
-                    fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
-                    fmt::format("-Djdk.lang.processReaperUseDefaultStackSize={}",
-                                config::jdk_process_reaper_use_default_stack_size),
-#ifdef __APPLE__
-                    // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
-                    // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
-                    // and it can not pass the check performed by storage engine.
-                    // The newer JDK has fixed this issue.
-                    "-XX:-MaxFDLimit"
-#endif
-            };
-        } else {
-            std::istringstream stream(java_opts);
-            options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
-                                               std::istream_iterator<std::string>());
-            options.push_back(GetDorisJNIClasspathOption());
-        }
-        options.push_back(GetKerb5ConfPath());
-        std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
-        for (int i = 0; i < options.size(); ++i) {
-            // To convert a string to a char*, const_cast is used.
-            jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
-        }
-
-        JNIEnv* env = nullptr;
-        JavaVMInitArgs vm_args;
-        vm_args.version = JNI_VERSION_1_8;
-        vm_args.options = jvm_options.get();
-        vm_args.nOptions = cast_set<int>(options.size());
-        // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
-        vm_args.ignoreUnrecognized = JNI_FALSE;
-
-        jint res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
-        if (JNI_OK != res) {
-            DCHECK(false) << "Failed to create JVM, code= " << res;
-        }
-
-    } else {
-        CHECK_EQ(rv, 0) << "Could not find any created Java VM";
-        CHECK_EQ(num_vms, 1) << "No VMs returned";
-    }
-}
-
 Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
-#ifdef USE_LIBHDFS3
-    // libhdfs3 is a pure native HDFS client that does not manage any JVM lifecycle.
-    // However, Doris still relies on features such as Java UDFs, so it has to implement its own
-    // `FindOrCreateJavaVM()` logic. When encountering the `JNI_EDETACHED` error code, Doris is
-    // responsible for invoking `AttachCurrentThread()` on its own.
-    // This only used on MacOS, so even though there maybe memory leak (because we do not
-    // detach the thread), do not care about it.
-    std::call_once(g_vm_once, FindOrCreateJavaVM);
-    int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
-    if (rc == JNI_EDETACHED) {
-        rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
-    }
-    if (rc != 0 || tls_env_ == nullptr) {
-        return Status::JniError("Unable to get JVM: {}", rc);
-    }
-#else
-    // The `getJNIEnv()` function of Hadoop libhdfs creates a POSIX TLS `ThreadLocalState` for every
-    // native thread that invokes it, and registers a destructor with the TLS key.
-    // The pthread library automatically invokes this destructor upon thread exit.
-    std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
-    tls_env_ = getJNIEnv();
-#endif
+    // Three steps, in this order, and the order is the point.
+    //
+    // The JVM first, because the base is resolved inside its bootstrap - once per process, on the
+    // thread that brought the JVM up, with that thread's env primed so this function is not
+    // re-entered while ensure_jni_base()'s call_once is held. Asking for the base before there is
+    // a JVM would run that resolution HERE instead: Env::Init() calls Env::Get(), which lands back
+    // in this slow path and re-enters the same call_once on the same thread.
+    RETURN_IF_ERROR(JvmLauncher::ensure_jvm());
+
+    // Then the base, asked for rather than assumed, because the bootstrap no longer fails when it
+    // cannot resolve it: a JVM whose plugin SPI is missing still serves libhdfs, and taking HDFS
+    // down with a Java deployment problem is not this file's call to make. This is where that gate
+    // lives instead - every caller that is about to run Java code comes through here, and nothing
+    // on the libhdfs path does. By now it is the cached outcome of the attempt the bootstrap
+    // already made; it never re-runs the resolution.
+    //
+    // Before the attach, not after: attach_current_thread() both attaches the thread and registers
+    // the pthread-key hook that detaches it again, and neither is undone by clearing tls_env_. A
+    // rejected caller that had already attached would stay bound to the JVM - one JVM thread
+    // structure and one stack reservation each - for the rest of its life, on a deployment where
+    // it can never run a line of Java. With the base broken and load arriving, that is every
+    // scanner thread and every pipeline thread. Not the metrics daemons: the jvm_* metrics are
+    // published whenever a JVM exists, base or no base, so they take their env from
+    // JvmLauncher::ScopedVmEnv and never come through here.
+    //
+    // Never the call that RUNS the resolution, only the one that reads its answer: ensure_jvm()
+    // above returned OK, which means _bootstrap() ran to its end on some thread and its last step
+    // was ensure_jni_base(). That is what keeps this line from re-entering a call_once from an
+    // unattached thread, and it is the whole reason the order above is the order above - so it is
+    // asserted rather than left to be rediscovered.
+    DCHECK(Util::jni_base_outcome().has_value())
+            << "the JNI base has no outcome yet, so this call would run the resolution instead of "
+               "reading it - see the ordering note above";
+    RETURN_IF_ERROR(Util::ensure_jni_base());
+
+    // Finally the attach. On failure tls_env_ is left untouched, so the thread still looks
+    // unattached and the next call retries and reports the same error.
+    RETURN_IF_ERROR(JvmLauncher::attach_current_thread(&tls_env_));
     *env = tls_env_;
     return Status::OK();
 }
@@ -199,8 +93,31 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     if (exc == nullptr) {
         return Status::OK();
     }
+    // Not a DCHECK, and before the ExceptionClear() below so ExceptionDescribe() still has
+    // something to print: these two are set by Env::Init(), the first step of the JNI base, and
+    // since the base stopped being a precondition for having a JVM there is a reachable state
+    // where a JVM exists and they are still null. JvmStats::init() runs in exactly that state -
+    // the jvm_* metrics are published whenever a JVM exists, base or no base - so a JNI call of
+    // its own throwing would land here with no way to render the throwable, and a DCHECK is a
+    // no-op in a release build. Degrade to a plain message rather than dereference null: this
+    // function exists to turn a Java exception into a Status, and it can still do that much.
+    //
+    // All THREE, not just the two this function uses first: init_throw_exception() assigns them
+    // in order, so a failure at its last step leaves the class and toString set and
+    // toStackTrace null, and the log_stack branch below - log_stack defaults to true - would then
+    // call CallStaticObjectMethod with a null jmethodID, which is the very SIGSEGV this guard is
+    // here to prevent.
+    if (jni_util_cl_ == nullptr || throwable_to_string_id_ == nullptr ||
+        throwable_to_stack_trace_id_ == nullptr) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return Status::JniError(
+                "{}a Java exception was thrown before the Java plugin SPI was resolved, so it "
+                "cannot be rendered here and was written to stderr instead. That means "
+                "doris-jni-spi.jar is missing or unreadable - see the error logged at startup.",
+                prefix);
+    }
     env->ExceptionClear();
-    DCHECK(throwable_to_string_id_ != nullptr);
     const char* oom_msg_template =
             "$0 threw an unchecked exception. The JVM is likely out "
             "of memory (OOM).";
@@ -236,12 +153,7 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     return Status::JniError("{}{}", prefix, return_msg);
 }
 
-bool Util::jvm_inited_ = false;
-
 jlong Util::max_jvm_heap_memory_size_ = 0;
-GlobalObject Util::jni_scanner_loader_obj_;
-MethodId Util::jni_scanner_loader_method_;
-MethodId Util::_clean_udf_cache_method_id;
 GlobalClass Util::hashmap_class;
 MethodId Util::hashmap_constructor;
 MethodId Util::hashmap_put;
@@ -256,95 +168,93 @@ GlobalClass Util::iteratorClass;
 MethodId Util::iteratorHasNextMethod;
 MethodId Util::iteratorNextMethod;
 
-void Util::_parse_max_heap_memory_size_from_jvm() {
-    // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
-    std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
-    std::istringstream iss(java_opts);
+jlong Util::_parse_xmx(const std::string& options) {
+    jlong parsed = 0;
+    std::istringstream iss(options);
     std::string opt;
     while (iss >> opt) {
-        if (opt.find("-Xmx") == 0) {
-            std::string xmxValue = opt.substr(4);
-            LOG(INFO) << "The max heap vaule is " << xmxValue;
-            char unit = xmxValue.back();
-            xmxValue.pop_back();
-            long long value = std::stoll(xmxValue);
-            switch (unit) {
+        if (!opt.starts_with("-Xmx")) {
+            continue;
+        }
+        std::string value = opt.substr(4);
+        jlong multiplier = 1;
+        if (!value.empty()) {
+            switch (value.back()) {
             case 'g':
             case 'G':
-                max_jvm_heap_memory_size_ = value * 1024 * 1024 * 1024;
+                multiplier = 1024L * 1024 * 1024;
+                value.pop_back();
                 break;
             case 'm':
             case 'M':
-                max_jvm_heap_memory_size_ = value * 1024 * 1024;
+                multiplier = 1024L * 1024;
+                value.pop_back();
                 break;
             case 'k':
             case 'K':
-                max_jvm_heap_memory_size_ = value * 1024;
+                multiplier = 1024L;
+                value.pop_back();
                 break;
             default:
-                max_jvm_heap_memory_size_ = value;
                 break;
             }
         }
+        // Checked rather than handed to std::stoll, which throws on "-Xmxbig" and on a bare
+        // "-Xmx", and which would silently accept "-Xmx12big". The JVM was started with these
+        // options and ignored the malformed one, so neither may this: the value is only used to
+        // rate limit hdfs writes, and an exception here would come out of a user's write.
+        if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) {
+            LOG(WARNING) << "Ignoring the JVM option '" << opt << "': not a heap size";
+            continue;
+        }
+        try {
+            jlong digits = std::stoll(value);
+            // The multiply, too: "-Xmx99999999999g" survives stoll and overflows a signed 64-bit
+            // here, which is UB and which an ASAN build (-fsanitize=undefined) reports. Treated
+            // like the malformed case three lines up - the JVM would have rejected such an -Xmx,
+            // so this can only be a value nothing is running with.
+            if (digits > std::numeric_limits<jlong>::max() / multiplier) {
+                LOG(WARNING) << "Ignoring the JVM option '" << opt << "': heap size out of range";
+                continue;
+            }
+            // The last one wins, as it does for the JVM itself.
+            parsed = digits * multiplier;
+        } catch (const std::exception& e) {
+            LOG(WARNING) << "Ignoring the JVM option '" << opt << "': " << e.what();
+        }
     }
+    return parsed;
+}
+
+void Util::_parse_max_heap_memory_size_from_jvm() {
+    // The same options the JVM was created from, see JvmLauncher::_build_options().
+    std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    if (java_opts.empty()) {
+        java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
+    }
+    max_jvm_heap_memory_size_ = _parse_xmx(java_opts);
     if (0 == max_jvm_heap_memory_size_) {
-        LOG(FATAL) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+        // Used to be LOG(FATAL). This runs on whichever query first writes to hdfs - it did
+        // before this change too - and taking the BE down over a missing -Xmx is out of all
+        // proportion to what the value is for: rate limiting hdfs writes against the JVM heap.
+        // Fall back to the same 1g the JVM is created with when nothing else says otherwise.
+        max_jvm_heap_memory_size_ = 1024L * 1024 * 1024;
+        LOG(WARNING) << "No -Xmx in the JVM options, assuming a max heap of "
+                     << max_jvm_heap_memory_size_
+                     << " bytes when rate limiting hdfs writes. Set -Xmx in JAVA_OPTS to make "
+                        "this exact.";
     }
     LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
 }
 
 size_t Util::get_max_jni_heap_memory_size() {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+#ifdef BE_TEST
     return std::numeric_limits<size_t>::max();
 #else
     static std::once_flag _parse_max_heap_memory_size_from_jvm_flag;
     std::call_once(_parse_max_heap_memory_size_from_jvm_flag, _parse_max_heap_memory_size_from_jvm);
     return max_jvm_heap_memory_size_;
 #endif
-}
-
-Status Util::_init_jni_scanner_loader() {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    LocalClass jni_scanner_loader_cls;
-    std::string jni_scanner_loader_str = "org/apache/doris/common/classloader/ScannerLoader";
-    RETURN_IF_ERROR(find_class(env, jni_scanner_loader_str.c_str(), &jni_scanner_loader_cls));
-
-    MethodId jni_scanner_loader_constructor;
-    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(env, "<init>", "()V",
-                                                      &jni_scanner_loader_constructor));
-
-    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(env, "getLoadedClass",
-                                                      "(Ljava/lang/String;)Ljava/lang/Class;",
-                                                      &jni_scanner_loader_method_));
-
-    MethodId load_jni_scanner;
-    RETURN_IF_ERROR(
-            jni_scanner_loader_cls.get_method(env, "loadAllScannerJars", "()V", &load_jni_scanner));
-
-    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(
-            env, "cleanUdfClassLoader", "(Ljava/lang/String;)V", &_clean_udf_cache_method_id));
-
-    RETURN_IF_ERROR(jni_scanner_loader_cls.new_object(env, jni_scanner_loader_constructor)
-                            .call(&jni_scanner_loader_obj_));
-
-    RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, load_jni_scanner).call());
-    return Status::OK();
-}
-
-Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    LocalString function_signature_jstr;
-    RETURN_IF_ERROR(
-            LocalString::new_string(env, function_signature.c_str(), &function_signature_jstr));
-
-    RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, _clean_udf_cache_method_id)
-                            .with_arg(function_signature_jstr)
-                            .call());
-
-    return Status::OK();
 }
 
 Status Util::_init_collect_class() {
@@ -382,13 +292,40 @@ Status Util::_init_collect_class() {
     return Status::OK();
 }
 
-Status Util::Init() {
+// Driven by JvmLauncher::_bootstrap(), right after the JVM it describes exists, and re-asked by
+// Env::GetJNIEnvSlowPath() on every thread that is about to run Java code: the bootstrap does not
+// fail when this fails, so somebody has to keep Java callers out afterwards. Only the first call
+// resolves anything; the rest get its outcome.
+namespace {
+std::once_flag jni_base_once;
+Status jni_base_status;
+// Published after jni_base_status is written, and read before it, so that jni_base_outcome()
+// below never reads a Status another thread is still assigning. call_once alone does not order
+// that read: a thread that never calls ensure_jni_base() takes no part in its synchronization.
+std::atomic<bool> jni_base_resolved {false};
+} // namespace
+
+Status Util::ensure_jni_base() {
+    std::call_once(jni_base_once, []() {
+        jni_base_status = _init_jni_base();
+        jni_base_resolved.store(true, std::memory_order_release);
+    });
+    return jni_base_status;
+}
+
+std::optional<Status> Util::jni_base_outcome() {
+    if (!jni_base_resolved.load(std::memory_order_acquire)) {
+        return std::nullopt;
+    }
+    return jni_base_status;
+}
+
+Status Util::_init_jni_base() {
     RETURN_IF_ERROR(Env::Init());
+    // Before any Java code runs: it links against these natives, and hitting an
+    // unregistered one would surface as an UnsatisfiedLinkError deep inside a scanner.
     RETURN_IF_ERROR(_init_register_natives());
     RETURN_IF_ERROR(_init_collect_class());
-    RETURN_IF_ERROR(_init_jni_scanner_loader());
-    jvm_inited_ = true;
-    DorisMetrics::instance()->init_jvm_metrics();
     return Status::OK();
 }
 
@@ -397,12 +334,17 @@ Status Util::_init_register_natives() {
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     // Find JNINativeMethod class and create a global ref.
     jclass local_jni_native_exc_cl =
-            env->FindClass("org/apache/doris/common/jni/utils/JNINativeMethod");
+            env->FindClass("org/apache/doris/jni/spi/utils/JNINativeMethod");
     if (local_jni_native_exc_cl == nullptr) {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
-        return Status::JniError("Failed to find JNINativeMethod class.");
+        // Same deployment failure as the JniUtil lookup, and the same answer - see the note
+        // there.
+        return Status::JniError(
+                "Failed to find the JNINativeMethod class of the Java plugin SPI. It ships in "
+                "doris-jni-spi.jar under DORIS_HOME/lib/jni/spi, which bin/start_be.sh puts on "
+                "the class path.");
     }
 
     static char memory_alloc_name[] = "memoryTrackerMalloc";

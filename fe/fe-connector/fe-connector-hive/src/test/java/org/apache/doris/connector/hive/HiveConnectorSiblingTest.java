@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -234,6 +235,124 @@ public class HiveConnectorSiblingTest {
         Assertions.assertEquals(1, hudiSibling.closeCount, "close must forward to the hudi sibling once");
     }
 
+    // ---- close(): the gateway is the ONLY release of a sibling, so nothing may skip a stage ----------------
+
+    @Test
+    public void everyStageIsClosedEvenWhenAnEarlierOneThrows() throws Exception {
+        // The hudi stage is the only release of HudiConnector's shared FS_SCOPES reference count, and it runs
+        // LAST. A throwing iceberg close() - one dead REST/HTTP connection is enough - used to return before
+        // it, stranding the UGI and every FileSystem cached under it for the life of the FE, with no retry
+        // (PluginDrivenExternalCatalog.closeResources swallows the throw and nulls its connector field).
+        // MUTATION: close the stages sequentially without folding -> hudi.closeCount == 0 -> red.
+        IOException boom = new IOException("iceberg REST session teardown failed");
+        FakeSibling iceberg = new FakeSibling().failingOnClose(boom);
+        FakeSibling hudi = new FakeSibling();
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(),
+                siblingsByType(iceberg, hudi));
+        connector.getOrCreateIcebergSibling();
+        connector.getOrCreateHudiSibling();
+
+        IOException thrown = Assertions.assertThrows(IOException.class, connector::close);
+
+        Assertions.assertEquals(1, hudi.closeCount,
+                "a throwing iceberg stage must not cost the hudi stage - it is the only FS_SCOPES release");
+        Assertions.assertSame(boom, thrown.getCause(), "the original failure must survive as the cause");
+        Assertions.assertTrue(thrown.getMessage().contains("iceberg-on-HMS sibling connector"),
+                "the failure must name the stage that failed");
+        Assertions.assertTrue(thrown.getMessage().contains("test_catalog"),
+                "the failure must name the catalog it was closing");
+    }
+
+    @Test
+    public void laterStageFailuresAreSuppressedOntoTheFirst() throws Exception {
+        // Both stages fail: the first is thrown and the second rides along as suppressed. A nested
+        // try/finally would have dropped the primary instead (finally-throw wins), which is why the stages
+        // fold rather than nest.
+        IOException icebergBoom = new IOException("iceberg down");
+        IOException hudiBoom = new IOException("hudi down");
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(),
+                siblingsByType(new FakeSibling().failingOnClose(icebergBoom),
+                        new FakeSibling().failingOnClose(hudiBoom)));
+        connector.getOrCreateIcebergSibling();
+        connector.getOrCreateHudiSibling();
+
+        IOException thrown = Assertions.assertThrows(IOException.class, connector::close);
+
+        Assertions.assertSame(icebergBoom, thrown.getCause(), "the FIRST failure is the one thrown");
+        Assertions.assertEquals(1, thrown.getSuppressed().length, "the later failure must not be lost");
+        Assertions.assertSame(hudiBoom, thrown.getSuppressed()[0].getCause(),
+                "the later failure must ride along as suppressed, not replace the first");
+    }
+
+    @Test
+    public void stageThatThrewIsStillDetachedAndNotClosedTwice() throws Exception {
+        // The fields are nulled under the monitor BEFORE any close runs, so a failed teardown cannot be
+        // retried against an object the gateway no longer owns.
+        FakeSibling iceberg = new FakeSibling().failingOnClose(new IOException("iceberg down"));
+        FakeSibling hudi = new FakeSibling();
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(),
+                siblingsByType(iceberg, hudi));
+        connector.getOrCreateIcebergSibling();
+        connector.getOrCreateHudiSibling();
+        Assertions.assertThrows(IOException.class, connector::close);
+
+        connector.close();
+
+        Assertions.assertEquals(1, iceberg.closeCount, "a stage that threw must not be closed again");
+        Assertions.assertEquals(1, hudi.closeCount, "a stage that succeeded must not be closed again");
+    }
+
+    // ---- close() is terminal: a closed gateway must never build a sibling nothing can release --------------
+
+    @Test
+    public void closedGatewayRefusesToRebuildASibling() throws Exception {
+        // close() nulls the sibling fields, so without a `closed` flag a later access is neither a failure nor
+        // a no-op: it REBUILDS. The rebuilt hudi sibling takes a hold on the static FS_SCOPES entry that no
+        // later close() can reach (this gateway is already detached from the catalog), leaking the UGI, every
+        // FileSystem cached under it and their SDK executor threads for the life of the FE. It takes no error
+        // to get here - a statement that resolved this catalog before an ALTER CATALOG and touches a
+        // hudi-on-HMS table after it reaches the holder through its statement-cached metadata instance.
+        // MUTATION: drop throwIfClosed() from the holders -> buildCount becomes 4 -> red.
+        RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
+        connector.getOrCreateIcebergSibling();
+        connector.getOrCreateHudiSibling();
+        connector.close();
+
+        Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateHudiSibling,
+                "a closed gateway must not build a hudi sibling whose FS_SCOPES hold nothing can release");
+        Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateIcebergSibling,
+                "same for the iceberg sibling, which would leak its own Catalog / REST session");
+        Assertions.assertEquals(2, context.buildCount,
+                "the two builds before close() are the only ones - close() is terminal");
+    }
+
+    @Test
+    public void theClosedGatewayFailureNamesTheCatalogAndIsActionable() throws Exception {
+        // The only way to reach it is a statement that outlived the catalog definition it resolved against,
+        // so the message has to say which catalog went away and that re-running the statement fixes it.
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(),
+                new RecordingSiblingContext(new FakeSibling()));
+        connector.close();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                connector::getOrCreateHudiSibling);
+        Assertions.assertTrue(ex.getMessage().contains("test_catalog"),
+                "the failure must name the catalog that was closed");
+        Assertions.assertTrue(ex.getMessage().contains("retry"),
+                "the failure must tell the user the statement can simply be re-run");
+    }
+
+    /** A context handing out a distinct sibling per delegate type, so the two close arms stay separable. */
+    private static FakeConnectorContext siblingsByType(Connector iceberg, Connector hudi) {
+        return new FakeConnectorContext() {
+            @Override
+            public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+                return "hudi".equals(catalogType) ? hudi : iceberg;
+            }
+        };
+    }
+
     /** Records the {@code createSiblingConnector} call and returns a configurable (possibly null) sibling. */
     private static final class RecordingSiblingContext extends FakeConnectorContext {
         int buildCount;
@@ -341,6 +460,9 @@ public class HiveConnectorSiblingTest {
         int invalidateAllCount;
         String lastInvalidatedTable;
         String lastInvalidatedDb;
+        // Models the real iceberg sibling, whose close() tears down a live Catalog / REST session and is
+        // declared to throw: one dead HTTP connection is all it takes.
+        IOException closeFailure;
         private final Set<ConnectorCapability> capabilities;
 
         FakeSibling() {
@@ -349,6 +471,11 @@ public class HiveConnectorSiblingTest {
 
         FakeSibling(Set<ConnectorCapability> capabilities) {
             this.capabilities = capabilities;
+        }
+
+        FakeSibling failingOnClose(IOException failure) {
+            this.closeFailure = failure;
+            return this;
         }
 
         @Override
@@ -362,8 +489,11 @@ public class HiveConnectorSiblingTest {
         }
 
         @Override
-        public void close() {
+        public void close() throws IOException {
             closeCount++;
+            if (closeFailure != null) {
+                throw closeFailure;
+            }
         }
 
         @Override

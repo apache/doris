@@ -28,6 +28,12 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>jdbc-scanner</artifactId>
+    <name>Doris BE jdbc Plugin</name>
+    <description>
+        Reads from and writes to JDBC sources, and tests a catalog's connection. It deploys as the
+        "jdbc" plugin directory and carries everything it needs beside it, so the drivers a user
+        registers load into a classloader whose parent is this plugin and nothing wider.
+    </description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -37,18 +43,78 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
-        <!-- For JDBC Scanner PreLoad-->
+        <!--
+          Compile scope on purpose: plugin-toolkit is shared source, not a shared runtime, so its
+          classes are packaged into this plugin rather than resolved from anywhere else.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
         </dependency>
+        <!--
+          Both were reached transitively through fe-common until this module became a plugin, and
+          a plugin resolves nothing transitively from a shared layer: what it uses, it declares.
+          Guava for one thread factory and a few list helpers, gson for MySQL's JSON columns.
+        -->
         <dependency>
-            <groupId>org.semver4j</groupId>
-            <artifactId>semver4j</artifactId>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Logging: everything this plugin logs, its own classes and HikariCP alike, has to reach
+          the one file BE's plugin runtime configures - log/jni.log, written through
+          java.util.logging, the only backend every classloader resolves identically. So the
+          plugin speaks slf4j and deploys slf4j-jdk14, and that is the whole chain.
+
+          The three artifacts below are narrowed to test because the fe parent pom declares them
+          compile on EVERY module and each one breaks that chain: log4j-core is a second,
+          independently configured logging implementation writing wherever its own configuration
+          says - usually nowhere, since BE's log4j2 config file is not on a plugin's classpath;
+          log4j-slf4j2-impl would route slf4j back into it; and log4j-1.2-api is not the pure
+          facade its name suggests - its org.apache.log4j.Logger resolves log4j-core classes, so
+          keeping it would drag log4j-core back in through a NoClassDefFoundError at first use.
+          Maven cannot drop an inherited dependency, only narrow its scope.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -56,26 +122,25 @@ under the License.
         <finalName>jdbc-scanner</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

@@ -21,17 +21,17 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <modules>
+        <module>jni-spi</module>
+        <module>jni-bootstrap</module>
+        <module>plugin-toolkit</module>
         <module>iceberg-metadata-scanner</module>
         <module>hadoop-hudi-scanner</module>
-        <module>java-common</module>
         <module>hive-udf-shade</module>
+        <module>hive-apache-shade</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
         <module>max-compute-connector</module>
-        <!-- lakesoul-scanner module has been deprecated -->
-        <!-- <module>lakesoul-scanner</module> -->
-        <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
         <module>java-writer</module>
@@ -49,6 +49,81 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
+        <!--
+          The JNI plugin API version, declared exactly once. This single property is the only
+          number: it is filtered into jni-spi's META-INF/doris/jni-plugin-api-version.properties
+          (what BE expects) AND stamped into every plugin jar's MANIFEST below (what a plugin
+          declares). Both sides of the comparison therefore come from one value in one build; there
+          is no second number that could drift. See org.apache.doris.jni.spi.SpiVersion.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the jni-spi
+          surface - adding an interface or a method counts, not only removing or changing one. That
+          definition is what makes a differing minor safe to ignore.
+        -->
+        <jni.plugin.api.version>3.0</jni.plugin.api.version>
     </properties>
+
+    <build>
+        <plugins>
+            <!--
+              Stamps the declared JNI plugin API version into every jar built under this aggregator,
+              so a plugin carries the version it was compiled against without a per-module pom
+              change. The loader reads it back from the jar that defines the plugin's DorisPlugin.
+              Merges with (does not replace) the ASF parent's maven-jar-plugin <archive><manifest>
+              configuration.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Jni-Plugin-Api-Version>${jni.plugin.api.version}</Doris-Jni-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <!--
+              Every module here that deploys as a plugin fills target/lib with copy-dependencies,
+              and build.sh copies target/lib/*.jar into the plugin directory verbatim. copy-
+              dependencies only ever adds: it never removes a jar the pom has stopped declaring. So
+              a working copy built twice without `mvn clean` - the normal way to iterate - deploys
+              the union of both dependency sets, and the second build's plugin directory is not the
+              one CI would produce from the same pom.
+
+              That difference runs the wrong way round. A dependency dropped or narrowed to test
+              scope keeps working locally, out of a jar nothing declares any more, while the clean
+              build that finds out is somebody else's. Wiping the directory in the phase before
+              copy-dependencies refills it makes an incremental build's plugin directory equal to a
+              clean one's.
+
+              A cache-restored module skips both executions and keeps the target/lib its own last
+              real build wrote, which is consistent for the same reason.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>wipe-plugin-lib</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Only this directory. The default set is target/ as a whole, which
+                                 at prepare-package would delete the classes about to be jarred. -->
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${project.build.directory}/lib</directory>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

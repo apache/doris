@@ -368,11 +368,23 @@ find_juicefs_hadoop_jar() {
     local -a jar_globs=(
         "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
+        # Where this build deploys it: BE reads plugins/jni_fs both from bin/start_be.sh (system
+        # class path, native libhdfs) and from PluginRuntime (every Java plugin's classpath).
+        "${DORIS_ROOT}/output/be/plugins/jni_fs/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        # BE used to deploy juicefs under lib/juicefs/ and, before that, under
+        # lib/java_extensions/. Clusters already deployed on CI machines still have those layouts
+        # and are not rebuilt by this repo, so the old globs stay alongside the new one - first
+        # match wins and a miss costs nothing.
+        "${DORIS_ROOT}/output/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/plugins/jni_fs/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/plugins/jni_fs/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
     )
     juicefs_find_hadoop_jar_by_globs "${jar_globs[@]}"

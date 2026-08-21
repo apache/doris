@@ -666,10 +666,14 @@ else
 fi
 export DISABLE_BUILD_JINDOFS
 
-if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
-    BUILD_JUICEFS='OFF'
-else
+# Same polarity as BUILD_JINDOFS above and as post-build.sh, which is what actually installs the
+# jars: unset means OFF, matching the --help text. They used to disagree - this said ON when the
+# variable was unset - and the wipe below then ran on a build that did not repackage, deleting
+# lib/juicefs and not putting it back.
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
     BUILD_JUICEFS='ON'
+else
+    BUILD_JUICEFS='OFF'
 fi
 export DISABLE_BUILD_JUICEFS
 
@@ -844,26 +848,86 @@ if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("hive-udf")
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
+    # This list is the complete enumeration of be-java-extensions modules that get built, not just
+    # the ones -am cannot reach. Keep it that way: reading it should answer "does my module get
+    # built" without also having to work out who depends on whom.
+    #
+    # The plugins. Each one deploys as its own directory under plugins/jni; see the deploy
+    # list far below, which maps module name -> plugin directory name.
     modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
-    modules+=("be-java-extensions/java-common")
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
-    # lakesoul-scanner has been deprecated
-    # modules+=("be-java-extensions/lakesoul-scanner")
-    modules+=("be-java-extensions/preload-extensions")
-    modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
     modules+=("be-java-extensions/java-writer")
+    # The hadoop drop C++ libhdfs loads. Not a plugin: it deploys whole into lib/hadoop_hdfs and BE
+    # resolves it off the system classpath, so no plugin ever sees it and it has no plugin name.
+    modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
+    # The shared layer, deployed to lib/jni/spi. jni-spi is declared by every plugin, so -am would
+    # reach it; jni-bootstrap is the loader and nothing depends on it, so this line is the only
+    # thing that builds it. Both are named for the same reason as the rest of this list.
+    modules+=("be-java-extensions/jni-spi")
+    modules+=("be-java-extensions/jni-bootstrap")
+    # Not deployed on their own; they are dependencies of the plugins above and land inside the
+    # plugin directories. -am would reach them, but they are named here so this list stays a
+    # complete enumeration.
+    modules+=("be-java-extensions/plugin-toolkit")
+    modules+=("be-java-extensions/hive-udf-shade")
+    modules+=("be-java-extensions/hive-apache-shade")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+        # The values this accepts, spelled out. Every entry is a MODULE name, which is not always the
+        # name the plugin deploys under (paimon-scanner deploys as "paimon"), and the deploy map far
+        # below names the plugin directories - so "paimon" or "hudi" is the natural thing to try and
+        # neither is a module. Rejecting the rest is the point: the removal below used to be bash's
+        # substring replacement, so BE_EXTENSION_IGNORE=paimon rewrote the entry to the literal
+        # "-scanner" and maven then failed with "Could not find the selected project in the reactor",
+        # while BE_EXTENSION_IGNORE=hudi matched nothing at all and the module was built and deployed
+        # anyway, silently.
+        ignorable_modules=(
+            "iceberg-metadata-scanner" "hadoop-hudi-scanner" "java-udf" "jdbc-scanner"
+            "paimon-scanner" "trino-connector-scanner" "max-compute-connector" "java-writer"
+            "${HADOOP_DEPS_NAME}"
+        )
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
         for module in "${ignore_modules[@]}"; do
-            modules=("${modules[@]/be-java-extensions\/${module}/}")
+            module="${module// /}"
+            [[ -z "${module}" ]] && continue
+            # jni-spi and jni-bootstrap are not extensions to leave out, they are the shared layer
+            # every extension is loaded through. Dropping one produces a BE that reports success
+            # and then fails every Java feature at runtime with a FindClass error, and nobody
+            # connects that to a build argument given days earlier.
+            if [[ "${module}" == 'jni-spi' || "${module}" == 'jni-bootstrap' ]]; then
+                echo "Error: BE_EXTENSION_IGNORE cannot exclude ${module}: it is the plugin SPI and"
+                echo "       loader that every Java extension is loaded through, not an extension."
+                exit 1
+            fi
+            known=0
+            for ignorable in "${ignorable_modules[@]}"; do
+                if [[ "${module}" == "${ignorable}" ]]; then
+                    known=1
+                    break
+                fi
+            done
+            if [[ "${known}" -eq 0 ]]; then
+                echo "Error: BE_EXTENSION_IGNORE cannot exclude '${module}': it is not a be-java-extensions"
+                echo "       module. These are the module names it accepts (note that a plugin's directory"
+                echo "       name is not always its module name):"
+                printf '           %s\n' "${ignorable_modules[@]}"
+                exit 1
+            fi
+            kept_modules=()
+            for entry in "${modules[@]}"; do
+                if [[ "${entry}" != "be-java-extensions/${module}" ]]; then
+                    kept_modules+=("${entry}")
+                fi
+            done
+            modules=("${kept_modules[@]}")
         done
+        unset ignorable_modules ignorable known kept_modules entry
     fi
 fi
 FE_MODULES="$(
@@ -1143,7 +1207,20 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/fe.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
-    rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    # Everything EXCEPT jindofs/ and juicefs/, which post-build.sh installs below and only when
+    # DISABLE_BUILD_JINDOFS/JUICEFS=OFF asks it to. Wiping them here regardless would mean a plain
+    # --fe rebuild deletes the jars an earlier build installed and does not put them back, leaving
+    # a FE that resolved oss-hdfs:// and jfs:// yesterday unable to today. Same rule as the BE side
+    # far below: a third-party filesystem directory is only cleared behind the switch that
+    # repopulates it.
+    find "${DORIS_OUTPUT}/fe/lib" -mindepth 1 -maxdepth 1 \
+        ! -name jindofs ! -name juicefs -exec rm -rf {} +
+    if [[ "${BUILD_JUICEFS}" == 'ON' ]]; then
+        rm -rf "${DORIS_OUTPUT}/fe/lib/juicefs"
+    fi
+    if [[ "${BUILD_JINDOFS}" == 'ON' ]]; then
+        rm -rf "${DORIS_OUTPUT}/fe/lib/jindofs"
+    fi
     unzip -q -o "${DORIS_HOME}/fe/fe-core/target/doris-fe-lib.zip" -d "${DORIS_OUTPUT}/fe/lib"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -1259,7 +1336,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
     # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
     # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
-    # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
+    # Naturally gated: a no-op unless jindofs was packaged (DISABLE_BUILD_JINDOFS=OFF, or
+    # post-build.sh --jindofs; build.sh itself takes no such flag).
     # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
     # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
     # fe/lib/jindofs in the same FE process.
@@ -1280,8 +1358,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
-    # need remove old version hadoop jars if $DORIS_OUTPUT been used multiple times, otherwise will cause jar conflict
-    rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
@@ -1350,57 +1426,132 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/task_executor_simulator" "${DORIS_OUTPUT}/be/lib/"/
     fi
 
-    extensions_modules=("java-udf")
-    extensions_modules+=("jdbc-scanner")
-    extensions_modules+=("hadoop-hudi-scanner")
-    extensions_modules+=("paimon-scanner")
-    extensions_modules+=("trino-connector-scanner")
-    extensions_modules+=("max-compute-connector")
-    # lakesoul-scanner has been deprecated
-    # extensions_modules+=("lakesoul-scanner")
-    extensions_modules+=("preload-extensions")
-    extensions_modules+=("iceberg-metadata-scanner")
-    extensions_modules+=("${HADOOP_DEPS_NAME}")
-    extensions_modules+=("java-writer")
+    # Everything from here to the end of this block deploys what the Java extension build
+    # produced, so it only runs when there was one. DISABLE_BE_JAVA_EXTENSIONS=ON (and the
+    # Darwin fallback that sets the same flag when JAVA_HOME has no usable libjvm) leaves every
+    # target/ below empty, and the plugin loop is a hard failure when a jar is missing - which
+    # is how a BE-only build, .github/workflows/be-ut-mac.yml included, died here.
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
 
-    if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
-        IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
-        new_modules=()
-        for module in "${extensions_modules[@]}"; do
-            module=${module// /}
-            if [[ -n "${module}" ]]; then
+        # Every be-java-extensions module that BE addresses by name is a plugin now. The one exception
+        # is the hadoop drop below, which is not a plugin and never was, so there is no list of
+        # "extensions modules" left to iterate - only that one flag.
+        deploy_hadoop_deps=1
+        if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+            IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
+            for ignore_module in "${ignore_modules[@]}"; do
+                if [[ "${ignore_module// /}" == "${HADOOP_DEPS_NAME}" ]]; then
+                    deploy_hadoop_deps=0
+                    break
+                fi
+            done
+        fi
+
+        # The shared layer: the SPI a plugin compiles against and the loader that reads the plugin
+        # directory. These are the only Doris classes that live on both sides of the boundary, which
+        # is why they are the only ones deployed where the system classpath can see them.
+        BE_JAVA_SPI_DIR="${DORIS_OUTPUT}/be/lib/jni/spi"
+        rm -rf "${DORIS_OUTPUT}/be/lib/jni"
+        mkdir -p "${BE_JAVA_SPI_DIR}"
+        for spi_module in jni-spi jni-bootstrap; do
+            spi_jar="${DORIS_HOME}/fe/be-java-extensions/${spi_module}/target/doris-${spi_module}.jar"
+            # Louder than the plugin loop below, not quieter: without these two jars there is no
+            # loader at all, so every Java feature fails at runtime with a FindClass error that
+            # names none of this. They are also not affected by BE_EXTENSION_IGNORE - see the
+            # module list far above.
+            if [[ ! -f "${spi_jar}" ]]; then
+                echo "Error: ${spi_module} produced no ${spi_jar}. It carries the plugin SPI and the"
+                echo "       loader that reads plugins/jni, so a BE without it can load no Java"
+                echo "       plugin at all."
+                exit 1
+            fi
+            echo "Copy Be shared layer ${spi_module} jar to ${BE_JAVA_SPI_DIR}"
+            cp "${spi_jar}" "${BE_JAVA_SPI_DIR}"
+        done
+
+        # Plugins, one directory each: the module jar plus the runtime closure copy-dependencies put
+        # beside it. The directory name is what BE addresses the plugin by and is deliberately not
+        # required to equal the module name - paimon-scanner will deploy as "paimon" - so the mapping
+        # is spelled out rather than derived.
+        #
+        # ATTN: a module named here must also be in the maven module list far above; adding it in one
+        # place only means deploying whatever the last build happened to leave in target/, which looks
+        # like a successful build of the wrong thing.
+        BE_JAVA_PLUGINS_DIR="${DORIS_OUTPUT}/be/plugins/jni"
+        # ATTN: this rm reaches into plugins/, which is otherwise the operator's tree - the drivers,
+        # configs and UDF jars they dropped there. It must name plugins/jni and nothing above it;
+        # widening it by one path element wipes a running deployment's drop points.
+        rm -rf "${BE_JAVA_PLUGINS_DIR}"
+        mkdir -p "${BE_JAVA_PLUGINS_DIR}"
+        plugin_modules=("java-writer:java-writer")
+        plugin_modules+=("jdbc-scanner:jdbc")
+        plugin_modules+=("iceberg-metadata-scanner:iceberg")
+        plugin_modules+=("max-compute-connector:max-compute")
+        plugin_modules+=("paimon-scanner:paimon")
+        plugin_modules+=("hadoop-hudi-scanner:hudi")
+        plugin_modules+=("trino-connector-scanner:trino-connector")
+        plugin_modules+=("java-udf:java-udf")
+
+        if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+            IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
+            kept_plugins=()
+            for plugin_entry in "${plugin_modules[@]}"; do
                 ignore=0
                 for ignore_module in "${ignore_modules[@]}"; do
-                    if [[ "${module}" == "${ignore_module}" ]]; then
+                    if [[ "${plugin_entry%%:*}" == "${ignore_module// /}" ]]; then
                         ignore=1
                         break
                     fi
                 done
                 if [[ "${ignore}" -eq 0 ]]; then
-                    new_modules+=("${module}")
+                    kept_plugins+=("${plugin_entry}")
                 fi
+            done
+            plugin_modules=("${kept_plugins[@]}")
+        fi
+
+        for plugin_entry in "${plugin_modules[@]}"; do
+            plugin_module="${plugin_entry%%:*}"
+            plugin_name="${plugin_entry##*:}"
+            plugin_target="${DORIS_HOME}/fe/be-java-extensions/${plugin_module}/target"
+            plugin_jar="${plugin_target}/${plugin_module}.jar"
+            if [[ ! -f "${plugin_jar}" ]]; then
+                echo "Error: ${plugin_module} produced no ${plugin_module}.jar. A plugin jar is named"
+                echo "       after its module; deploying an empty plugin directory would surface much"
+                echo "       later as 'Java plugin ${plugin_name} failed to load'."
+                exit 1
+            fi
+            echo "Copy Be plugin ${plugin_module} to ${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+            mkdir -p "${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+            cp "${plugin_jar}" "${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+            # Tested on the jars, not on the directory: target/lib is emptied before
+            # copy-dependencies refills it, so an existing but empty directory is reachable and the
+            # glob below would then expand to nothing and fail the whole build under set -e.
+            if compgen -G "${plugin_target}/lib/*.jar" > /dev/null; then
+                cp "${plugin_target}/lib"/*.jar "${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
             fi
         done
-        extensions_modules=("${new_modules[@]}")
-    fi
 
-    BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
-    rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
-    mkdir "${BE_JAVA_EXTENSIONS_DIR}"
-    for extensions_module in "${extensions_modules[@]}"; do
-        module_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
-        module_proj_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-project.jar"
-        mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        echo "Copy Be Extensions ${extensions_module} jar to ${BE_JAVA_EXTENSIONS_DIR}/${extensions_module}"
-     if [[ "${extensions_module}" == "${HADOOP_DEPS_NAME}" ]]; then
-          
+        # The hadoop drop C++ libhdfs loads, and the JindoFS/JuiceFS drops the same libhdfs resolves
+        # oss-hdfs:// and jfs:// through: none of the three is a plugin, so libhdfs finds each by a
+        # fixed directory name on the system classpath rather than through a plugin loader. Each is
+        # therefore wiped and deployed whole every build rather than merged with whatever a previous
+        # build using the same output directory left behind - unwiped, a version bump would leave two
+        # jar versions of the same filesystem side by side, and start_be.sh's *.jar glob would put
+        # both of them on the classpath.
+        if [[ "${deploy_hadoop_deps}" -eq 1 ]]; then
             BE_HADOOP_HDFS_DIR="${DORIS_OUTPUT}/be/lib/hadoop_hdfs/"
             echo "Copy Be Extensions hadoop deps jars to ${BE_HADOOP_HDFS_DIR}"
+            # Wiped HERE, inside the branch that refills it, and not earlier: a machine that built once
+            # with Java extensions and then again with DISABLE_BE_JAVA_EXTENSIONS=ON into the same
+            # output/ used to lose this directory for good, and with libhdfs3 gone that BE has no HDFS
+            # path left at all. Wiped rather than merged so that a version bump cannot leave two jar
+            # versions of the same dependency side by side for start_be.sh's *.jar glob to find.
             rm -rf "${BE_HADOOP_HDFS_DIR}"
             mkdir "${BE_HADOOP_HDFS_DIR}"
             HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
             echo "HADOOP_DEPS_JAR_DIR: ${HADOOP_DEPS_JAR_DIR}"
-            if  [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && ! -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+            if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && ! -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
                 echo "WARN: lib directory missing (likely due to Maven cache). Regenerating..."
                 pushd "${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}"
                 "${MVN_CMD}" dependency:copy-dependencies -DskipTests -Dcheckstyle.skip=true
@@ -1414,52 +1565,98 @@ EOF
             if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
                 cp -r "${HADOOP_DEPS_JAR_DIR}/lib" "${BE_HADOOP_HDFS_DIR}/"
             fi
-        else
-            if [[ -f "${module_jar}" ]]; then
-                cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-            fi
-            if [[ -f "${module_proj_jar}" ]]; then
-                cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-            fi
-            if [[ -d "${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/lib" ]]; then
-                cp -r "${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/lib" "${BE_JAVA_EXTENSIONS_DIR}/${extensions_module}/"
-            fi
         fi
-    done        
 
-    # Guard the Paimon FileIO SPI classloader boundary on the built artifacts. The FileIOLoader
-    # interface (paimon-common) and every provider implementing it must sit in the same jar:
-    # JniScannerClassLoader delegates parent-first, so a provider left on the shared
-    # preload-extensions (JVM app) classpath cannot resolve the child-only interface and
-    # ServiceLoader discovery aborts at runtime with "NoClassDefFoundError: FileIOLoader". Unit
-    # tests all run in one classloader and cannot reproduce that, so assert it on the packages.
-    PAIMON_SCANNER_JAR="${BE_JAVA_EXTENSIONS_DIR}/paimon-scanner/paimon-scanner-jar-with-dependencies.jar"
-    PRELOAD_JAR="${BE_JAVA_EXTENSIONS_DIR}/preload-extensions/preload-extensions-jar-with-dependencies.jar"
-    if [[ -f "${PAIMON_SCANNER_JAR}" ]]; then
-        # Tolerate a missing entry (unzip exits 11) so the message below is what the build prints.
-        FILE_IO_SERVICES="$(unzip -p "${PAIMON_SCANNER_JAR}" \
-            META-INF/services/org.apache.paimon.fs.FileIOLoader 2>/dev/null || true)"
-        for loader in org.apache.paimon.s3.S3Loader org.apache.paimon.jindo.JindoLoader; do
-            if ! echo "${FILE_IO_SERVICES}" | grep -q -x "${loader}"; then
-                echo "ERROR: ${loader} is missing from META-INF/services/org.apache.paimon.fs.FileIOLoader"
-                echo "       in ${PAIMON_SCANNER_JAR}. Paimon object-store reads on BE would fail;"
-                echo "       keep the FileIO plugins bundled in paimon-scanner."
-                exit 1
-            fi
-        done
+        # The layout before plugins: one big jar per extension under lib/java_extensions. Nothing
+        # deploys there any more, so an output directory reused across the change keeps serving the
+        # previous version's jars - JvmLauncher::scan_class_path() still walks lib/ for a BE that was
+        # not started by start_be.sh.
+        #
+        # Everything EXCEPT jindofs/ and juicefs/, which are not extensions and were never deployed
+        # by the loop above: start_be.sh reads them from here as its WARN fallback, so that an
+        # existing deployment keeps resolving oss-hdfs:// and jfs:// across the upgrade. Wiping them
+        # is what the comment right here used to promise not to do.
+        if [[ -d "${DORIS_OUTPUT}/be/lib/java_extensions" ]]; then
+            find "${DORIS_OUTPUT}/be/lib/java_extensions" -mindepth 1 -maxdepth 1 \
+                ! -name jindofs ! -name juicefs -exec rm -rf {} +
+        fi
+
+    fi # BUILD_BE_JAVA_EXTENSIONS
+
+    # Wiped before post-build.sh repopulates them below, for the same reason as lib/hadoop_hdfs
+    # above - and behind the same switch that repopulates them, so that a rebuild without
+    # DISABLE_BUILD_JUICEFS/JINDOFS=OFF leaves the jars an earlier build installed alone instead of
+    # deleting them and not putting them back.
+    #
+    # plugins/jni_fs/<name> is where these now go, because two things read them: the native libhdfs
+    # reader through start_be.sh's system class path, and every Java plugin through PluginRegistry,
+    # which appends them to the plugin's own classpath. The older lib/<name> is left alone on
+    # purpose - start_be.sh still reads it as a fallback so an in-place upgrade keeps resolving
+    # oss-hdfs:// and jfs:// for the native reader until the new tree is laid down.
+    if [[ "${BUILD_JUICEFS}" == 'ON' ]]; then
+        rm -rf "${DORIS_OUTPUT}/be/plugins/jni_fs/juicefs"
     fi
-    # No "grep -q" here: it exits on the first match and SIGPIPEs unzip halfway through this jar's
-    # 120k-entry listing, which under "set -o pipefail" makes the pipeline 141 and silently skips
-    # the error below - exactly when a provider did leak in. Let grep consume the whole listing.
-    if [[ -f "${PRELOAD_JAR}" ]] &&
-        unzip -l "${PRELOAD_JAR}" | grep -E 'org/apache/paimon/(s3|jindo)/' >/dev/null; then
-        echo "ERROR: ${PRELOAD_JAR} bundles a Paimon FileIOLoader provider. It would be defined by"
-        echo "       the JVM app classloader, which carries no FileIOLoader interface."
-        exit 1
+    if [[ "${BUILD_JINDOFS}" == 'ON' ]]; then
+        rm -rf "${DORIS_OUTPUT}/be/plugins/jni_fs/jindofs"
     fi
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
+
+    # plugins/jni_fs/{jindofs,juicefs} serves two readers, and nothing is copied anywhere.
+    #
+    # start_be.sh puts it on the system classpath, where the hadoop drop that C++ libhdfs loads
+    # lives - resolving oss-hdfs:// and jfs:// for that reader is what these jars were originally
+    # packaged for. PluginRegistry ALSO appends them to each Java plugin's own classpath (BE config
+    # jni_plugin_fs_dir), because a plugin classloader cannot see the system classpath: without
+    # them paimon-scanner's paimon-jindo adapter and iceberg-metadata-scanner's fs.oss.impl resolve
+    # to nothing, and no plugin at all can open a jfs:// path. This build used to copy the JindoFS
+    # jars into the iceberg and paimon plugin directories for that reason; appending one shared
+    # directory covers every plugin instead, costs no disk, and adds no duplicate classes for the
+    # check below to adjudicate - which matters because the JuiceFS SDK is a 180 MB fat jar that
+    # collides with about 1500 classes in a lake-format plugin.
+    #
+    # CAVEAT, unchanged by that: jindo-core carries a native library, and a JVM binds one of those
+    # to exactly one classloader. A process that reaches jindo from two plugins at once, or from a
+    # plugin AND through libhdfs, makes the second bind and it fails. That is inherent to plugin
+    # isolation - a single shared loader for these jars is impossible, since they need the hadoop
+    # that lives inside each plugin.
+
+    # The layout the isolation rests on, checked on the tree that was just deployed: the SPI jars
+    # carry nothing but the SPI, no plugin ships a copy of them, no plugin directory holds the same
+    # class twice, no class reachable from a plugin's Doris code - or from a filesystem or
+    # credential provider Doris names by string - is missing, and the jar declaring the service
+    # carries the API version this build serves. Four of the five have caught a real regression,
+    # and none of them is visible in a compiler error - a dependency that turns into
+    # <scope>provided</scope> by accident builds fine and fails in a user's query.
+    #
+    # What the check does NOT see, so that nobody reads more into a green run than is there:
+    #   - plugins/jni_fs, which PluginRuntime appends to every plugin classloader. Those jars are
+    #     not in a plugin directory, so neither the duplicate scan nor the closure walk covers
+    #     them - and they do collide with a lake-format plugin on ~1500 class names, resolved
+    #     deterministically by the plugin's own jars coming first in the URL list.
+    #   - anything reached only by ServiceLoader or by a reflective lookup that Doris does not
+    #     make itself. See the header of check_plugin_layout.py.
+    #
+    # Here rather than in a GitHub workflow because it needs a built output tree, which only a full
+    # BE build produces. python3 is not a build requirement, so its absence is a warning.
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]] && command -v python3 > /dev/null; then
+        # jdeps does the closure check and ships with the JDK, but is not necessarily on PATH.
+        layout_check_status=0
+        PATH="${JAVA_HOME:+${JAVA_HOME}/bin:}${PATH}" python3 \
+            "${DORIS_HOME}/tools/be-java-plugins/check_plugin_layout.py" \
+            "${BE_JAVA_SPI_DIR}" "${BE_JAVA_PLUGINS_DIR}" || layout_check_status="${?}"
+        if [[ "${layout_check_status}" -eq 1 ]]; then
+            echo "Error: the plugin tree just deployed breaks the isolation rules; see above."
+            exit 1
+        elif [[ "${layout_check_status}" -ne 0 ]]; then
+            # 2 is "could not run" - no jdeps, nothing deployed - which is not a verdict on
+            # the tree and must not fail a build that is otherwise complete.
+            echo "WARN: the Java plugin layout check did not run (exit ${layout_check_status})"
+        fi
+    elif [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
+        echo "WARN: python3 not found, skipping the Java plugin layout check"
+    fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"

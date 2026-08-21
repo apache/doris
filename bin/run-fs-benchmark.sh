@@ -46,33 +46,31 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
     exit 1
 fi
 
-# add java libs
-preload_jars=("preload-extensions")
-preload_jars+=("java-udf")
-
-for preload_jar_dir in "${preload_jars[@]}"; do
-    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+# The shared layer, the same one start_be.sh puts in front of BE: the plugin SPI and the loader
+# that reads plugins/jni. What used to be here were two fat jars that no longer deploy -
+# every Java scanner and the UDF executors are plugins now, each with its own directory.
+if [[ -d "${DORIS_HOME}/lib/jni/spi" ]]; then
+    for f in "${DORIS_HOME}/lib/jni/spi"/*.jar; do
         if [[ -z "${DORIS_CLASSPATH}" ]]; then
             export DORIS_CLASSPATH="${f}"
         else
             export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         fi
     done
-done
+fi
 
+# The hadoop drop C++ libhdfs reads, globbed exactly the way start_be.sh globs it and the way
+# build.sh deploys it: jars directly in lib/hadoop_hdfs plus its lib/ subdirectory. The
+# common/ and hdfs/ subdirectories this used to look in have never been produced by any build,
+# which cost nothing while the removed preload-extensions fat jar carried hadoop-common - and
+# leaves the hdfs benchmark suite without a single hadoop class now that it is gone.
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
-    done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
-    done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
 
@@ -232,11 +230,6 @@ set_tcmalloc_heap_limit() {
 
 # set_tcmalloc_heap_limit || exit 1
 
-## set hdfs3 conf
-if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
-    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
-fi
-
 # check java version and choose correct JAVA_OPTS
 java_version="$(
     set -e
@@ -269,6 +262,19 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
 
     if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
         JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
+    fi
+fi
+
+# The same hadoop logging configuration bin/start_be.sh installs, for the same reason: nothing
+# else configures Log4j2 for the hadoop classes libhdfs loads onto the system class path, so
+# without this Log4j2 falls back to its DefaultConfiguration - ERROR only, to the console - and
+# hadoop's INFO and WARN vanish. This tool exists to measure and debug filesystem access, which
+# is exactly when those lines are wanted. Only when the file is actually there, so a deployment
+# without it keeps Log4j2's own default rather than a startup error about a missing file.
+if [[ -f "${DORIS_HOME}/conf/hadoop_log4j2.properties" ]]; then
+    if ! echo "${final_java_opt}" | grep -q -- "-Dlog4j2.configurationFile="; then
+        final_java_opt="${final_java_opt} -Ddoris.log.dir=${DORIS_HOME}/log"
+        final_java_opt="${final_java_opt} -Dlog4j2.configurationFile=file:${DORIS_HOME}/conf/hadoop_log4j2.properties"
     fi
 fi
 

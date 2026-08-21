@@ -28,6 +28,12 @@ under the License.
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <artifactId>iceberg-metadata-scanner</artifactId>
+    <name>Doris BE iceberg Plugin</name>
+    <description>
+        Reads Iceberg metadata tables ($snapshots, $files, $manifests, ...). FE plans the scan and
+        Java-serializes each iceberg FileScanTask to this plugin, which deserializes it and
+        materializes its rows - so the plugin carries a full iceberg runtime, not just an API.
+    </description>
 
     <properties>
         <doris.home>${basedir}/../../</doris.home>
@@ -37,15 +43,18 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
-                </exclusion>
-            </exclusions>
+        </dependency>
+        <!--
+          The kerberos machinery FE and BE share: a scan carries the catalog's hadoop.* options and
+          runs under the same UGI doAs wrapper FE used to plan it.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <dependency>
@@ -58,37 +67,252 @@ under the License.
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
+        <!--
+          iceberg-aws declares no AWS SDK dependency of its own (they are compileOnly upstream), so
+          every client a deserialized FileIO reaches has to be named here.
+
+          This is the FileIO half of the SDK, not the whole of it: BE deserializes a scan task and
+          the FileIO inside it, and never builds a catalog - the catalog clients the shared preload
+          layer also carried (glue, dynamodb, s3tables) belong to FE. Verified by loading
+          S3FileIO.initialize() + S3FileIOAwsClientFactories against this closure with glue and
+          dynamodb removed. kms cannot be dropped the same way even though nothing here encrypts:
+          AwsClientFactories' static initializer resolves kms.model.EncryptionAlgorithmSpec, so
+          without it the S3 path dies in <clinit>. auth is named for the same reason it is named
+          nowhere else - iceberg-aws reads the catalog's credentials through it, and nothing in
+          iceberg-aws's own pom says so.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>kms</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sdk-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>auth</artifactId>
-            <scope>provided</scope>
+        </dependency>
+        <!--
+          Hadoop: a task's FileIO is whatever the table was created with, and for every non-S3
+          catalog that is HadoopFileIO (directly or behind ResolvingFileIO). It used to be provided
+          because the scanner could see lib/hadoop_hdfs on BE's system classpath; a plugin sees no
+          system classpath at all, so it brings its own.
+
+          reload4j is excluded because it is a logging implementation - see the logging note below.
+          Nothing here calls log4j 1.x: the only two hadoop-common classes that mention
+          org.apache.log4j are LogLevel$Servlet and StringUtils$1 (the daemon startup/shutdown
+          banner), neither of which a scan reaches. Dropping it also lets commons-logging - which
+          httpclient does use on the S3 path - fall through its discovery order to Jdk14Logger, so
+          it too ends up in jni.log with no bridge artifact involved.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--
+          The filesystem implementations themselves. hadoop-common registers only file, har, http
+          and viewfs; every other scheme's FileSystem lives in its own artifact, and until this
+          module became a plugin those artifacts arrived from BE's system classpath - lib/hadoop_hdfs
+          (hdfs, obs, azure) and the shared preload jar (s3a). A plugin sees no system classpath at
+          all, so without them a scan of a table on HDFS fails with "No FileSystem for scheme: hdfs".
+          Which class serves which scheme is FE's decision and is asserted in IcebergPluginTest.
+
+          One absence is deliberate: hadoop-cos is on that shared classpath today but nothing reaches
+          it - FE points fs.cosn.impl at S3AFileSystem, and no code in the tree names
+          org.apache.hadoop.fs.CosFileSystem. oss:// is served by JindoFS, which is not a maven
+          artifact - build.sh copies it into this plugin directory after post-build.sh has packaged
+          them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF, or the
+          jindofs flag of post-build.sh; build.sh itself takes no such flag), with the
+          native-library caveat recorded there.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <!-- Keep the plugin's single hadoop-common (declared above): two copies would put
+                 FileSystem in one and DistributedFileSystem's superclass in the other. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
+          For hadoop-aws, not for iceberg: S3AFileSystem's own methods reference
+          software.amazon.awssdk.transfer.s3, so loading the class fails without this even though
+          nothing here uses the transfer manager. It is the only piece of the AWS SDK named for a
+          reason other than iceberg's FileIO - which is why it sits here rather than up there with
+          s3/sts/kms.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Huawei OBS: hadoop-huaweicloud lives in the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
+
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Logging: this plugin and the libraries inside it must reach the one file BE's plugin
+          runtime configures - log/jni.log, written through java.util.logging. So the plugin speaks
+          slf4j and deploys slf4j-jdk14.
+
+          The three log4j artifacts are narrowed to test because the fe parent pom declares them
+          compile on EVERY module: log4j-core is a second logging implementation writing wherever
+          its own configuration says (nowhere, since BE's log4j2 config is not on a plugin's
+          classpath), log4j-slf4j2-impl would route slf4j into it, and log4j-1.2-api is not the pure
+          facade its name suggests - its org.apache.log4j.Logger resolves log4j-core classes.
+          Maven cannot drop an inherited dependency, only narrow its scope.
+
+          log4j-to-slf4j is the bridge for the one log4j2 caller in this closure: fe-kerberos, whose
+          UGI login and ticket-renewal messages are the ones an operator goes looking for. Without
+          it log4j-api finds no provider and falls back to writing on stderr.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>${log4j2.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!--
+      Huawei OBS support. Active by default; disabled by -Ddisable.obs=true (build.sh
+      exclude-obs-dependencies flag), which drops the hadoop-huaweicloud dependency and the Huawei
+      Maven repository so nothing from com.huaweicloud is resolved or bundled into this plugin.
+      Without it the plugin simply has no obs:// filesystem, which is what the flag asks for.
+
+      The repository has to be declared here rather than inherited: com.huaweicloud:hadoop-huaweicloud
+      is not on Maven Central, and a module does not inherit repositories from its parent in this
+      tree. hadoop-deps and the two FE modules that use the same artifact each declare it the same way.
+
+      The artifact is a fat jar - it self-contains the esdk-obs SDK, so OBS needs nothing else.
+    -->
+    <profiles>
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>hadoop-huaweicloud</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+                <!-- commons-lang 2.x, NOT lang3: seven classes of the fat jar above call
+                     org.apache.commons.lang.StringUtils - OBSFileSystem, OBSCommonUtils,
+                     OBSLoginHelper, DefaultOBSClientFactory, OBSInputStream,
+                     OBSObjectBucketUtils - and it carries no copy of its own. It used to reach
+                     them from preload-extensions' runtime classpath, the shared parent of every
+                     JNI scanner; that module is gone and a plugin classloader cannot see the
+                     system classpath, so without this the FIRST obs:// path a scanner opens dies
+                     linking OBSFileSystem.initialize() with NoClassDefFoundError. Inside this
+                     profile, so -Ddisable.obs=true drops it along with the filesystem that needs
+                     it. This IS caught statically now: check_plugin_layout.py walks every jar
+                     holding a class Doris names by string into a hadoop Configuration, and
+                     fs.obs.impl names OBSFileSystem - so dropping this dependency fails the build
+                     rather than the first obs:// scan. It did not, when the hole shipped. -->
+                <dependency>
+                    <groupId>commons-lang</groupId>
+                    <artifactId>commons-lang</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 
     <build>
         <finalName>iceberg-metadata-scanner</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

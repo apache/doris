@@ -35,14 +35,29 @@ import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * Hudi connector implementation. Manages the lifecycle of an
@@ -67,6 +82,9 @@ public class HudiConnector implements Connector {
     // here is a peek at it, not this connector interpreting a property of its own.
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 
+    // fs.s3a.impl.disable.cache and its per-scheme siblings, as the FE emits them.
+    private static final Pattern FS_DISABLE_CACHE = Pattern.compile("fs\\..+\\.impl\\.disable\\.cache");
+
     private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
@@ -81,6 +99,96 @@ public class HudiConnector implements Connector {
     // gateway's hive-loader authenticator would split the UGI copy across loaders).
     private volatile HadoopAuthenticator pluginAuth;
     private volatile boolean pluginAuthComputed;
+
+    // One UGI per distinct catalog configuration, which is what keys Hadoop's FileSystem cache to the
+    // credentials that opened it. See fileSystemScope().
+    //
+    // Static because a scope belongs to a CONFIGURATION and not to a connector object: two catalogs
+    // whose properties are byte-identical may share a filesystem, so they share the UGI that keys it -
+    // which is exactly the contract fileSystemScopeKey() states. It also means a connector rebuilt on
+    // the same properties lands on the same scope rather than stranding the filesystems cached under
+    // the old one.
+    //
+    // Reference-counted by the connectors holding an entry, and released in close(). Every path that
+    // ends this connector's life goes through it: ALTER CATALOG and CREATE-time re-registration reach
+    // ExternalCatalog.resetToUninitialized -> closeResources -> close(), DROP CATALOG reaches
+    // closeResources directly, and PluginDrivenExternalCatalog.initLocalObjectsImpl closes the
+    // throwaway connector CatalogFactory built for checkWhenCreating. REFRESH CATALOG does NOT - it
+    // goes through RefreshManager -> onRefreshCache, which rebuilds no connector - so a refresh keeps
+    // the scope it had, with no eviction and no re-listing. The last holder of a scope hands the
+    // filesystems Hadoop cached under its UGI to FS_SCOPE_CLOSER below, each of which holds an SDK
+    // client whose scheduled executor keeps its own worker threads alive. Those threads are exactly
+    // the resource this feature's own javadoc blames for "OutOfMemoryError: unable to create native
+    // thread", so leaving them to the FE's lifetime is not an option - and neither is dropping the map
+    // entry without closing them, because Hadoop's FileSystem.CACHE is a static strong reference and
+    // nothing else will ever let go.
+    //
+    // Releasing in close() rather than from a newer connector is what makes "whose scope is this" a
+    // question with an answer: a connector only ever releases the entry IT acquired. The alternative -
+    // a new connector deciding which older entries are superseded - has no ordering to appeal to, and
+    // an old connector computing its scope late would then tear down the live one.
+    //
+    // The window this does NOT close is the same one close() has always had, and the reason
+    // hmsClient.close() sits three lines below the scope release: a statement that is still running
+    // when its connector is closed loses the resources of that connector. For the HMS client that has
+    // been true since this class existed; for the filesystems it is true now, and the failure looks
+    // like "IOException: Filesystem closed" rather than a dead thrift socket. Fixing that properly
+    // means the FE not closing a connector a statement still holds, which is above this class.
+    private static final Map<String, ScopeEntry> FS_SCOPES = new HashMap<>();
+
+    // Where the last release's filesystem teardown runs. NEVER on the caller's thread: close() is reached
+    // from the FE's journal replay thread, and on the ALTER CATALOG path it arrives holding two coarse locks
+    // - CatalogMgr.writeLock(), one process-wide lock covering EVERY catalog, and the
+    // ExternalCatalog.resetToUninitialized synchronized(this) that is the very monitor
+    // makeSureInitialized() takes. DROP CATALOG holds neither (cleanupRemovedCatalog runs after
+    // writeUnlock()), but it is still the replay thread, which a follower must never let fall behind.
+    // The work is unbounded: FileSystem.closeAll(UGI) holds the process-wide FileSystem.CACHE monitor for
+    // its whole duration, and one S3AFileSystem.close() shuts three thread pools down through
+    // HadoopExecutors.shutdown - await, shutdownNow, await again, 30s apiece - so roughly 180s per
+    // filesystem, with a still-flying S3 transfer being enough to spend it.
+    //
+    // Handing it off is sound rather than merely convenient: the reference count has already established
+    // that no connector holds this UGI, so nothing about the close is ordered against the caller. It cannot
+    // race a later acquire of the same key either - UserGroupInformation.equals is Subject IDENTITY, and a
+    // later acquire builds a fresh createRemoteUser UGI, so the entries closed here are never the entries
+    // that acquire will cache under.
+    //
+    // One thread, unbounded queue (releases are catalog-lifecycle events - ALTER, DROP, CREATE validation -
+    // not query traffic, and they contend on the single FileSystem.CACHE monitor anyway), daemon, and
+    // allowCoreThreadTimeOut so an FE that never drops a hudi catalog never has this thread at all. Its
+    // TCCL is pinned to the hudi plugin loader: a worker thread created inside a child-first plugin would
+    // otherwise inherit whatever loader the replay thread happened to carry, which is the split-brain
+    // failure the fe-connector TCCL invariant exists to prevent.
+    private static final ExecutorService FS_SCOPE_CLOSER = newFileSystemScopeCloser();
+
+    private volatile UserGroupInformation fsScope;
+    private volatile boolean fsScopeComputed;
+    // The key this connector acquired, so that close() releases its OWN entry. Guarded by `this`,
+    // and null both before the scope is built and after it is released.
+    private String fsScopeKey;
+
+    /** One {@link #FS_SCOPES} entry: a UGI and the number of connectors holding it. Guarded by FS_SCOPES. */
+    private static final class ScopeEntry {
+        private final UserGroupInformation ugi;
+        private int owners;
+
+        private ScopeEntry(UserGroupInformation ugi) {
+            this.ugi = ugi;
+        }
+    }
+
+    /** Builds {@link #FS_SCOPE_CLOSER}; see that field for why it is shaped this way. */
+    private static ExecutorService newFileSystemScopeCloser() {
+        ThreadPoolExecutor closer = new ThreadPoolExecutor(1, 1, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(), runnable -> {
+                    Thread thread = new Thread(runnable, "hudi-fs-scope-closer");
+                    thread.setDaemon(true);
+                    thread.setContextClassLoader(HudiConnector.class.getClassLoader());
+                    return thread;
+                });
+        closer.allowCoreThreadTimeOut(true);
+        return closer;
+    }
 
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
         this.props = HudiCatalogProperties.of(properties);
@@ -115,6 +223,10 @@ public class HudiConnector implements Connector {
                     HadoopAuthenticator auth = pluginAuthenticator();
                     if (auth != null) {
                         return auth.doAs(action::call);
+                    }
+                    UserGroupInformation scope = fileSystemScope();
+                    if (scope != null) {
+                        return scope.doAs((PrivilegedExceptionAction<T>) action::call);
                     }
                     return context.executeAuthenticated(action);
                 } catch (Exception e) {
@@ -259,6 +371,196 @@ public class HudiConnector implements Connector {
      * so the FE-injected auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in
      * {@code getUGI()} on the first {@code doAs}. Mirrors {@code HiveConnector.pluginAuthenticator}.
      */
+    /**
+     * The {@link UserGroupInformation} this catalog's metadata reads run under, so that Hadoop's
+     * {@code FileSystem} cache can stay ON without letting two catalogs share one filesystem.
+     *
+     * <p>The problem this exists for: Hadoop's cache is keyed on (scheme, authority, ugi) and ignores
+     * credentials, and every non-Kerberos catalog arrives under the SAME ugi,
+     * {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)}. Two catalogs on one
+     * bucket would otherwise read through whichever S3AFileSystem was built first. Turning the cache off
+     * per scheme is the FE's historical answer and is still what the HDFS family gets
+     * ({@code fs.hdfs.impl.disable.cache=true} and its siblings; asserted by
+     * {@code HdfsConfigBuilderTest}) - the S3 side has since moved to the credential fingerprint below
+     * ({@code FsCacheKeys}) and no longer emits it.
+     *
+     * <p>Disabling the cache does stop that, and leaks instead. Every {@code FileSystem.get()} behind a
+     * {@code HoodieTableMetaClient} then builds a new S3AFileSystem and a new AWS SDK client that nobody
+     * closes; the filesystems are collected but each SDK client's scheduled executor is kept alive by its
+     * own worker threads. Measured at about 62 threads per query, until the FE cannot start a thread:
+     * {@code OutOfMemoryError: unable to create native thread}, and every session dies with it.
+     *
+     * <p>So the cache goes back on ({@code buildHadoopConf} clears the flag) and the separation it was
+     * disabled for moves into the cache key: one UGI per catalog configuration. The UGI carries the name
+     * the simple authenticator would have used - a second Subject for one user, not another user - so an
+     * {@code hdfs://} warehouse still sees the identity it always saw. A Kerberos catalog never reaches
+     * here: its own authenticator runs the doAs above with credentials this cannot reproduce, and that
+     * UGI already partitions the cache per principal.
+     *
+     * <p>Null after {@link #close()}, so a statement that outlives its connector falls back to the
+     * FE-injected authenticator rather than acquiring a scope nothing will ever release.
+     *
+     * <p>Package-private rather than private so that the acquire/release lifecycle can be driven from
+     * a test without a metastore behind it; nothing outside this class calls it.
+     */
+    UserGroupInformation fileSystemScope() {
+        if (!fsScopeComputed) {
+            synchronized (this) {
+                if (!fsScopeComputed) {
+                    fsScope = buildFileSystemScope();
+                    fsScopeComputed = true;
+                }
+            }
+        }
+        return fsScope;
+    }
+
+    // Called under `this` from fileSystemScope(), so fsScopeKey is written under the same monitor
+    // releaseFileSystemScope() reads it under. The FS_SCOPES monitor is taken inside `this`, never
+    // the other way round - releaseFileSystemScope() takes them in that same order.
+    private UserGroupInformation buildFileSystemScope() {
+        try {
+            String userName = UserGroupInformation.getCurrentUser().getUserName();
+            String key = fileSystemScopeKey(properties);
+            synchronized (FS_SCOPES) {
+                ScopeEntry entry = FS_SCOPES.computeIfAbsent(key,
+                        absent -> new ScopeEntry(UserGroupInformation.createRemoteUser(userName)));
+                entry.owners++;
+                fsScopeKey = key;
+                return entry.ugi;
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to derive a FileSystem scope for catalog '{}', keeping the shared one",
+                    context.getCatalogName(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Gives up this connector's hold on its scope, and - when it was the last holder - hands the
+     * filesystems Hadoop cached under that UGI to {@link #FS_SCOPE_CLOSER} to be closed.
+     *
+     * <p>Returns as soon as the count is settled: the teardown itself can take minutes and this runs on
+     * the FE's journal replay thread, on ALTER CATALOG under the CatalogMgr write lock. See
+     * {@link #FS_SCOPE_CLOSER} for why detaching it is sound.
+     *
+     * <p>Only ever the entry this connector acquired: the count is what decides, so a catalog sharing
+     * a configuration with another one keeps its filesystems until both are gone, and a connector
+     * that never computed a scope releases nothing.
+     *
+     * <p>Idempotent. {@code close()} is called once by the FE, but a second call - or a close racing
+     * a first use - must not decrement twice, so the key is cleared under {@code this} before the
+     * count is touched. Clearing {@code fsScope} and marking it computed in the same block is what
+     * stops a statement still holding this connector from acquiring a fresh scope afterwards: it
+     * falls back to the FE-injected authenticator, which is where a non-Kerberos catalog started.
+     *
+     * <p>Failures are logged and swallowed - a leak is better than a failed DROP CATALOG.
+     */
+    private void releaseFileSystemScope() {
+        String key;
+        synchronized (this) {
+            key = fsScopeKey;
+            fsScopeKey = null;
+            fsScope = null;
+            fsScopeComputed = true;
+        }
+        if (key == null) {
+            return;
+        }
+        UserGroupInformation orphaned = null;
+        synchronized (FS_SCOPES) {
+            ScopeEntry entry = FS_SCOPES.get(key);
+            if (entry != null && --entry.owners <= 0) {
+                FS_SCOPES.remove(key);
+                orphaned = entry.ugi;
+            }
+        }
+        if (orphaned == null) {
+            return;
+        }
+        // Both read on the calling thread: the task must not reach back into a connector this close() is
+        // dismantling, and the name is only ever used to say which catalog a failure came from.
+        final UserGroupInformation toClose = orphaned;
+        final String catalogName = context.getCatalogName();
+        FS_SCOPE_CLOSER.execute(() -> {
+            try {
+                FileSystem.closeAllForUGI(toClose);
+            } catch (Exception | LinkageError e) {
+                LOG.warn("failed to close the filesystems of the FileSystem scope of catalog '{}'",
+                        catalogName, e);
+            }
+        });
+    }
+
+    /** How many connectors hold a scope, or 0 when the key has none. For tests. */
+    static int scopeOwners(String key) {
+        synchronized (FS_SCOPES) {
+            ScopeEntry entry = FS_SCOPES.get(key);
+            return entry == null ? 0 : entry.owners;
+        }
+    }
+
+    /**
+     * Turns Hadoop's {@code FileSystem} cache back on for a configuration that arrives with it off.
+     * Without this every {@code FileSystem.get()} behind a metaClient returns a filesystem nobody closes;
+     * with it, this catalog holds one per distinct cache key.
+     *
+     * <p>The flag can still arrive from an operator's {@code core-site.xml} or from a catalog property
+     * passed straight through, and this overrides it. That is deliberate - it is the whole point - but it
+     * is a silent override, and an operator who set {@code fs.s3a.impl.disable.cache=true} on purpose
+     * will not see it take effect on this path. The FE itself no longer emits the flag for S3: the S3
+     * side moved to the credential fingerprint ({@code FsCacheKeys}), and only the HDFS family still
+     * carries {@code fs.hdfs.impl.disable.cache=true} and its siblings.
+     *
+     * <p>What separates the catalogs instead is the cache key, and which UGI supplies it depends on the
+     * caller. The two call sites are NOT the same:
+     * <ul>
+     *   <li>the metadata path ({@code HudiConnectorMetadata}) runs inside {@code metaClientExecutor()},
+     *       so its filesystems are cached under {@link #fileSystemScope()} for a non-Kerberos catalog or
+     *       under the connector's own authenticator for a Kerberos one, and {@link #close()} releases
+     *       them;</li>
+     *   <li>the scan-planning path ({@code HudiScanPlanProvider.buildHadoopConf}) runs with NO
+     *       {@code doAs} at all, so its filesystems are cached under the FE's login user. Those are NOT
+     *       covered by the release in {@link #close()} - they are shared with whatever else runs under
+     *       that user, so closing them on a DROP CATALOG would close filesystems that belong to another
+     *       catalog. They are bounded the way they always were, by the number of distinct cache keys.</li>
+     * </ul>
+     */
+    static void enableFileSystemCache(Configuration conf) {
+        List<String> disabled = new ArrayList<>();
+        for (Map.Entry<String, String> entry : conf) {
+            if (FS_DISABLE_CACHE.matcher(entry.getKey()).matches()) {
+                disabled.add(entry.getKey());
+            }
+        }
+        // Collected first: Configuration's iterator walks a live view, and set() during the walk trips it.
+        disabled.forEach(key -> conf.set(key, "false"));
+    }
+
+    /**
+     * Identifies a catalog configuration so {@link #FS_SCOPES} hands the same UGI to two connectors exactly
+     * when they may share a filesystem. Digested rather than used directly because the properties hold
+     * credentials and a map key is easy to print by accident.
+     *
+     * <p>The configuration and nothing else. No catalog id: two catalogs defined on byte-identical
+     * properties may share a filesystem, and giving each its own UGI would double the filesystems, the
+     * SDK clients and the threads this feature exists to bound. Which catalog an entry belongs to is not
+     * a question anything has to answer - {@link #releaseFileSystemScope()} releases the entry this
+     * connector acquired, by key, and the reference count decides when it is the last one.
+     */
+    static String fileSystemScopeKey(Map<String, String> properties)
+            throws NoSuchAlgorithmException {
+        StringBuilder canonical = new StringBuilder();
+        new TreeMap<>(properties).forEach((k, v) -> canonical.append(k).append('=').append(v).append('\n'));
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte b : digest) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
     private HadoopAuthenticator pluginAuthenticator() {
         if (!pluginAuthComputed) {
             synchronized (this) {
@@ -316,8 +618,17 @@ public class HudiConnector implements Connector {
         return conf;
     }
 
+    /**
+     * Releases everything this connector owns. The FE calls it when it replaces this connector
+     * (ALTER CATALOG) and when the catalog is dropped, and those are the only two moments at which
+     * a scope can be given up - see the note on {@link #FS_SCOPES}.
+     *
+     * <p>The scope goes first and the HMS client second, so that a throwing {@code HmsClient.close()}
+     * cannot strand a filesystem scope for the life of the FE. Neither step depends on the other.
+     */
     @Override
     public void close() throws IOException {
+        releaseFileSystemScope();
         HmsClient c = hmsClient;
         if (c != null) {
             c.close();
