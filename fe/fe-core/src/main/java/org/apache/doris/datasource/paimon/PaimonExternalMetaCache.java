@@ -293,7 +293,12 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
             return loadSchemaCacheValue(key);
         }
         dorisTable.setUpdateTime(System.currentTimeMillis());
-        return ((PaimonExternalTable) dorisTable).loadSchemaForCache(retainedTable, key.getSchemaId());
+        SchemaCacheValue value =
+                ((PaimonExternalTable) dorisTable).loadSchemaForCache(retainedTable, key.getSchemaId());
+        // Contextual miss loaders bypass the default-loader schema validator; ambiguous
+        // case-insensitive column names must be rejected on this path too.
+        value.validateSchema();
+        return value;
     }
 
     private PaimonSnapshotCacheValue loadLatestSnapshotFence(NameMapping nameMapping, Table retainedTable) {

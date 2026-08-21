@@ -451,6 +451,41 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testContextualSchemaLoadsRejectAmbiguousColumnNames() {
+        // The contextual miss loader and the generation-zero direct load both bypass the
+        // default-loader validator; a schema with case-insensitively duplicated names must
+        // still be rejected before it can reach getFullSchema().
+        MockedPaimonCatalog mocked = new MockedPaimonCatalog();
+        Column upper = new Column("A", Type.INT);
+        Column lower = new Column("a", Type.INT);
+        Mockito.doReturn(new PaimonSchemaCacheValue(
+                java.util.Arrays.asList(upper, lower), Collections.emptyList(), null))
+                .when(mocked.externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            FileStoreTable retainedTable = Mockito.mock(FileStoreTable.class);
+            // Cached generation-keyed path (the cache wraps loader failures).
+            RuntimeException cached = Assert.assertThrows(RuntimeException.class, () ->
+                    cache.getPaimonSchemaCacheValue(mocked.mapping, 3L, 42L, retainedTable));
+            Assert.assertTrue(String.valueOf(cached),
+                    cached instanceof IllegalArgumentException
+                            || cached.getCause() instanceof IllegalArgumentException);
+            // Uncached generation-zero path (runs under executeAuthenticated, which wraps).
+            RuntimeException uncached = Assert.assertThrows(RuntimeException.class, () ->
+                    cache.getPaimonSchemaCacheValue(mocked.mapping, 3L, 0L, retainedTable));
+            Assert.assertTrue(String.valueOf(uncached),
+                    uncached instanceof IllegalArgumentException
+                            || uncached.getCause() instanceof IllegalArgumentException);
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testGenerationZeroFenceResolvesSchemaFromRetainedTable() {
         // Latest-fence loads and pinned historical projections leave the generation at zero but
         // retain the exact physical table. A same-name recreation may reuse schema ids, so the

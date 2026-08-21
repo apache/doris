@@ -366,11 +366,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         dorisTable.setUpdateTime(System.currentTimeMillis());
         boolean isView = dorisTable instanceof IcebergExternalTable
                 && ((IcebergExternalTable) dorisTable).isView();
-        return IcebergUtils.loadSchemaCacheValue(
+        SchemaCacheValue value = IcebergUtils.loadSchemaCacheValue(
                 dorisTable, key.getSchemaId(), isView, retainedTable).orElseThrow(() ->
                 new CacheException("failed to load iceberg schema cache value for: %s.%s.%s, schemaId: %s",
                         null, key.getNameMapping().getCtlId(), key.getNameMapping().getLocalDbName(),
                         key.getNameMapping().getLocalTblName(), key.getSchemaId()));
+        // Contextual miss loaders bypass the default-loader schema validator; ambiguous
+        // case-insensitive column names must be rejected on this path too.
+        value.validateSchema();
+        return value;
     }
 
     private void retireTableGeneration(NameMapping nameMapping,
