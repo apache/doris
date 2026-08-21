@@ -99,6 +99,12 @@ public:
     // until every other segment has been written. V1/V2 keep their directory: its
     // files ARE the index output, and begin_close() is what removes them.
     void discard_ann_staging_directory(const TabletIndex* index_meta);
+    // SNII only: drops the staging of EVERY index on this writer because the
+    // segment they belong to is being abandoned. Layered above the per-index
+    // discard, not a duplicate of it: that one fires the instant one ANN
+    // serialization fails, while this one covers a segment that failed AFTER its
+    // indexes staged successfully, when nothing else will ever seal them.
+    void abandon_snii_staging();
     // Write-path facts for one SNII index flush.
     struct SniiAddIndexOptions {
         // This flush serves a stream/broker load (DataWriteType::TYPE_DIRECT):

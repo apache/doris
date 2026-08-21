@@ -740,6 +740,41 @@ TEST_F(SniiAnnContainerTest, SealingDrainsStagedFilesWhileProducersAreStillAlive
     }
 }
 
+// A segment that fails AFTER its ANN indexes have staged must not leave them
+// behind. This is the state such a failure leaves: every index staged fine, the
+// producers are still alive because clear() has not run, and nobody will ever
+// call begin_close() -- so the seal that normally consumes the staging never
+// happens. Distinct from AFailedSaveUnlinksItsStagingFile, where serialization
+// itself failed and the per-index discard fires immediately.
+TEST_F(SniiAnnContainerTest, AbandoningASegmentDropsEveryStagedAnnFile) {
+    const std::set<std::string> before = staged_ann_files();
+    const std::string prefix = std::string(kTestDir) + "/abandoned_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_abandoned_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9913);
+
+    std::vector<std::unique_ptr<AnnIndexColumnWriter>> producers;
+    for (const TabletIndex* meta : {&_meta, &_ivf_on_disk_meta}) {
+        auto producer = std::make_unique<AnnIndexColumnWriter>(&writer, meta);
+        assert_ok(producer->init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(producer.get()); });
+        assert_ok(finish_status);
+        producers.push_back(std::move(producer));
+    }
+    ASSERT_EQ(staged_ann_files().size(), before.size() + 3);
+
+    writer.abandon_snii_staging();
+    // The producers are still alive, as they are in a segment writer whose
+    // finalize failed before clear().
+    EXPECT_EQ(staged_ann_files(), before)
+            << "abandoning the segment left its staged ANN files on the temp filesystem";
+}
+
 // The same handover inside ONE container: _indices_dirs holds every staging
 // directory for the whole of finish(), so the per-blob release in
 // SniiCompoundWriter::finish() can only free a sub-file that the directory has

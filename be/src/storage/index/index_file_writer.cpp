@@ -199,6 +199,24 @@ void IndexFileWriter::discard_ann_staging_directory(const TabletIndex* index_met
     _snii_blob_dir_metas.erase(key);
 }
 
+void IndexFileWriter::abandon_snii_staging() {
+    if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
+        return;
+    }
+    // Empty each directory before dropping the map. Releasing only this writer's
+    // reference would free nothing while a producer is still alive holding the
+    // same directory through its own _dir -- which is exactly the state a segment
+    // that failed before clear() is in. Emptying makes the abort independent of
+    // who else is still holding on.
+    for (const auto& [key, dir] : _indices_dirs) {
+        if (std::strcmp(dir->getObjectName(),
+                        snii_doris::SniiBlobStagingDirectory::getClassName()) == 0) {
+            static_cast<snii_doris::SniiBlobStagingDirectory*>(dir.get())->discard_staged_files();
+        }
+    }
+    _release_snii_blob_directories();
+}
+
 Status IndexFileWriter::_seal_snii_blob_directories() {
     DORIS_CHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     for (const auto& [key, dir] : _indices_dirs) {

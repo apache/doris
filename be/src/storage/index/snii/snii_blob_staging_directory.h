@@ -88,6 +88,12 @@ public:
     // rowset has been closed -- so one rowset's staging would pile up at once.
     std::vector<snii::writer::BlobFileSource> take_blob_sources();
 
+    // Drops every staged file NOW, whoever else still holds this directory. The
+    // abort path needs that: an ANN producer keeps the directory alive through
+    // its own _dir, so releasing only the index file writer's reference would
+    // free nothing.
+    void discard_staged_files();
+
     // Logical bytes across every staged sub-file. Zero once take_blob_sources()
     // has handed them over.
     uint64_t staged_bytes() const;

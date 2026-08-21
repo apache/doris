@@ -219,6 +219,13 @@ std::vector<snii::writer::BlobFileSource> SniiBlobStagingDirectory::take_blob_so
     return sources;
 }
 
+void SniiBlobStagingDirectory::discard_staged_files() {
+    // Same swap-with-empty as take_blob_sources(): clear() would leave the map's
+    // nodes, and it is the shared_ptr elements themselves that unlink the files.
+    std::map<std::string, std::shared_ptr<snii::bkd::StagedBlobFile>> dropped;
+    dropped.swap(_files);
+}
+
 uint64_t SniiBlobStagingDirectory::staged_bytes() const {
     uint64_t total = 0;
     for (const auto& [name, file] : _files) {
