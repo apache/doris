@@ -361,8 +361,8 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
     }
     // A NULL row never passes a comparison, and a hidden Parquet NaN would not either, so both
     // stop the zone from matching completely.
-    const bool can_match_all =
-            !zone_map.has_null && !ctx.floating_nan_count_unknown(slot_literal->slot_index);
+    const bool can_match_all = !zone_map.has_null && !zone_map.has_cut_string_bounds() &&
+                               !ctx.floating_nan_count_unknown(slot_literal->slot_index);
     if (can_match_all && every_row_matches) {
         return ZoneMapFilterResult::kAllMatch;
     }

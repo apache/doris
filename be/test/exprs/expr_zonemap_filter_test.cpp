@@ -1870,17 +1870,18 @@ TEST(ExprZonemapFilterTest, CompoundPredicateEvaluatesChildrenForZonemap) {
     or_pred.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kMayMatch));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch, or_pred.evaluate_zonemap_filter(ctx));
 
-    // A branch that cannot be read only blocks kNoMatch, so the group is still worth asking.
+    // One branch we cannot read stops the group from proving anything. Answering kAllMatch off a
+    // readable sibling would drop the whole conjunct, including a branch that is there to raise.
     VCompoundPred or_with_unsupported(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
     or_with_unsupported.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
     or_with_unsupported.add_child(std::make_shared<UnsupportedSingleSlotExpr>(slot));
-    EXPECT_TRUE(or_with_unsupported.can_evaluate_zonemap_filter());
-    EXPECT_EQ(ZoneMapFilterResult::kMayMatch, or_with_unsupported.evaluate_zonemap_filter(ctx));
+    EXPECT_FALSE(or_with_unsupported.can_evaluate_zonemap_filter());
 
-    // One branch matching every row settles the group, whatever the other branch is.
+    // With every branch readable, one that matches every row settles the group.
     VCompoundPred or_all_match(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
     or_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kAllMatch));
-    or_all_match.add_child(std::make_shared<UnsupportedSingleSlotExpr>(slot));
+    or_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
+    EXPECT_TRUE(or_all_match.can_evaluate_zonemap_filter());
     EXPECT_EQ(ZoneMapFilterResult::kAllMatch, or_all_match.evaluate_zonemap_filter(ctx));
 
     // AND matches every row only when every branch does.
