@@ -69,6 +69,16 @@ MutableColumnPtr nullable_strings(const std::vector<StringRef>& values,
     return ColumnNullable::create(std::move(data), std::move(null_map));
 }
 
+Status extract_object_key(const ColumnVariantV2& source, const ColumnNullable& nullable,
+                          StringRef key, ColumnPtr* result) {
+    const std::array segments {VariantElementV2PathSegment::object_key(key)};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    RETURN_IF_ERROR(resolve_variant_element_v2_path(segments, &path));
+    const auto& null_map = nullable.get_null_map_data();
+    return extract_variant_element_v2(
+            source, *path, std::span<const uint8_t>(null_map.data(), null_map.size()), result);
+}
+
 std::string single_key_metadata_bytes(std::string_view key) {
     EXPECT_LE(key.size(), std::numeric_limits<uint8_t>::max());
     std::string metadata;
@@ -583,6 +593,644 @@ TEST(VariantColumnReaderTest, UnshreddedRowsPreserveSqlNullAndVariantNull) {
     EXPECT_TRUE(variants.is_shredded());
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
     EXPECT_TRUE(variants.get_value_ref(2).is_null());
+}
+
+TEST(VariantColumnReaderTest, UnshreddedElementChainSeeksWithoutRootReconstruction) {
+    VariantBatchBuilder builder;
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("commit"));
+        auto commit = row.start_object();
+        commit.add_key(StringRef("collection"));
+        row.add_string(StringRef("app.bsky.feed.post"));
+        commit.add_key(StringRef("operation"));
+        row.add_string(StringRef("create"));
+        commit.finish();
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("commit"));
+        auto commit = row.start_object();
+        commit.add_key(StringRef("collection"));
+        row.add_null();
+        commit.add_key(StringRef("operation"));
+        row.add_string(StringRef("create"));
+        commit.finish();
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("commit"));
+        auto commit = row.start_object();
+        commit.finish();
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("other"));
+        row.add_int(1);
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_int(7);
+        row.finish();
+    }
+    VariantBatchBuilder batch = builder.finish_batch();
+    std::vector<StringRef> metadata;
+    std::vector<StringRef> values;
+    for (size_t row = 0; row < batch.num_rows(); ++row) {
+        const VariantRef value = batch.value_at(row);
+        metadata.emplace_back(value.metadata.data, value.metadata.size);
+        values.push_back(value.value);
+    }
+
+    MutableColumns fields;
+    fields.push_back(nullable_strings(metadata, std::vector<uint8_t>(batch.num_rows(), 0)));
+    fields.push_back(nullable_strings(values, std::vector<uint8_t>(batch.num_rows(), 0)));
+    auto physical = root_wrapper(std::move(fields), {0, 0, 0, 0, 1});
+
+    RuntimeProfile runtime_profile("unshredded-direct-path");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const Status materialize_status = materialize_variant_rows(
+            unshredded_schema(), *physical, output, parquet_profile.column_reader_profile());
+    ASSERT_TRUE(materialize_status.ok()) << materialize_status;
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+
+    auto extract_key = [](const ColumnVariantV2& source, const ColumnNullable& nullable,
+                          StringRef key) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        const auto& null_map = nullable.get_null_map_data();
+        const Status status = extract_variant_element_v2(
+                source, *path, std::span<const uint8_t>(null_map.data(), null_map.size()), &result);
+        EXPECT_TRUE(status.ok()) << status;
+        return result;
+    };
+
+    ColumnPtr commit_result = extract_key(root_variants, root_nullable, StringRef("commit"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 5);
+    const auto& commit_nullable = assert_cast<const ColumnNullable&>(*commit_result);
+    const auto& commit_variants =
+            assert_cast<const ColumnVariantV2&>(commit_nullable.get_nested_column());
+    EXPECT_TRUE(commit_variants.is_shredded());
+    ColumnPtr collection_result =
+            extract_key(commit_variants, commit_nullable, StringRef("collection"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 10);
+    const auto& collection_nullable = assert_cast<const ColumnNullable&>(*collection_result);
+    const auto& collection_variants =
+            assert_cast<const ColumnVariantV2&>(collection_nullable.get_nested_column());
+
+    EXPECT_EQ(collection_nullable.get_null_map_data(), (NullMap {0, 0, 1, 1, 1}));
+    ASSERT_TRUE(collection_variants.is_typed());
+    EXPECT_TRUE(collection_variants.typed_type()->equals(DataTypeString()));
+    const auto& typed_collection =
+            assert_cast<const ColumnNullable&>(collection_variants.typed_column());
+    EXPECT_EQ(typed_collection.get_null_map_data(), (NullMap {0, 1, 1, 1, 1}));
+    const auto& collection_strings =
+            assert_cast<const ColumnString&>(typed_collection.get_nested_column());
+    EXPECT_EQ(collection_strings.get_data_at(0), StringRef("app.bsky.feed.post"));
+
+    ColumnPtr repeated_commit_result =
+            extract_key(root_variants, root_nullable, StringRef("commit"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 15);
+    const auto& repeated_commit_nullable =
+            assert_cast<const ColumnNullable&>(*repeated_commit_result);
+    const auto& repeated_commit_variants =
+            assert_cast<const ColumnVariantV2&>(repeated_commit_nullable.get_nested_column());
+    ColumnPtr repeated_collection_result = extract_key(
+            repeated_commit_variants, repeated_commit_nullable, StringRef("collection"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 20);
+    const auto& repeated_collection_nullable =
+            assert_cast<const ColumnNullable&>(*repeated_collection_result);
+    const auto& repeated_collection_variants =
+            assert_cast<const ColumnVariantV2&>(repeated_collection_nullable.get_nested_column());
+    const auto& repeated_typed_collection =
+            assert_cast<const ColumnNullable&>(repeated_collection_variants.typed_column());
+    const auto& repeated_collection_strings =
+            assert_cast<const ColumnString&>(repeated_typed_collection.get_nested_column());
+    EXPECT_EQ(repeated_collection_nullable.get_null_map_data(), (NullMap {0, 0, 1, 1, 1}));
+    EXPECT_EQ(repeated_typed_collection.get_null_map_data(), (NullMap {0, 1, 1, 1, 1}));
+    EXPECT_EQ(repeated_collection_strings.get_data_at(0), StringRef("app.bsky.feed.post"));
+
+    ASSERT_NE(runtime_profile.get_counter("VariantReconstructedRows"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedDirectImportRows"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
+    ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 20);
+    ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedDirectSeekBytes"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekBytes")->value(), 36);
+    ASSERT_NE(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows")->value(), 10);
+    ASSERT_NE(runtime_profile.get_counter("VariantDirectLeafRows"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectLeafRows")->value(), 10);
+    ASSERT_NE(runtime_profile.get_counter("VariantDirectSubtreeRows"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectSubtreeRows")->value(), 10);
+
+    IColumn::Filter keep_first_two {1, 1, 0, 0, 0};
+    ColumnPtr filtered_root = root_nullable.filter(keep_first_two, 2);
+    const auto& filtered_nullable = assert_cast<const ColumnNullable&>(*filtered_root);
+    const auto& filtered_variants =
+            assert_cast<const ColumnVariantV2&>(filtered_nullable.get_nested_column());
+    ColumnPtr filtered_commit_result =
+            extract_key(filtered_variants, filtered_nullable, StringRef("commit"));
+    const auto& filtered_commit_nullable =
+            assert_cast<const ColumnNullable&>(*filtered_commit_result);
+    const auto& filtered_commit_variants =
+            assert_cast<const ColumnVariantV2&>(filtered_commit_nullable.get_nested_column());
+    ColumnPtr filtered_collection_result = extract_key(
+            filtered_commit_variants, filtered_commit_nullable, StringRef("collection"));
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*filtered_collection_result).get_null_map_data(),
+              (NullMap {0, 0}));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 24);
+
+    ColumnPtr filtered_operation_result =
+            extract_key(filtered_commit_variants, filtered_commit_nullable, StringRef("operation"));
+    const auto& filtered_operation_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*filtered_operation_result).get_nested_column());
+    const auto& filtered_operation_strings = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(filtered_operation_variants.typed_column())
+                    .get_nested_column());
+    EXPECT_EQ(filtered_operation_strings.get_data_at(0), StringRef("create"));
+    EXPECT_EQ(filtered_operation_strings.get_data_at(1), StringRef("create"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 26);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedPrefixReuseRows")->value(), 14);
+
+    ColumnPtr ranged_root = root_nullable.cut(0, 2);
+    const auto& ranged_nullable = assert_cast<const ColumnNullable&>(*ranged_root);
+    const auto& ranged_variants =
+            assert_cast<const ColumnVariantV2&>(ranged_nullable.get_nested_column());
+    ColumnPtr ranged_commit_result =
+            extract_key(ranged_variants, ranged_nullable, StringRef("commit"));
+    const auto& ranged_commit_nullable = assert_cast<const ColumnNullable&>(*ranged_commit_result);
+    const auto& ranged_commit_variants =
+            assert_cast<const ColumnVariantV2&>(ranged_commit_nullable.get_nested_column());
+    (void)extract_key(ranged_commit_variants, ranged_commit_nullable, StringRef("collection"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 30);
+
+    auto gathered_root = root_nullable.clone_empty();
+    const std::array<uint32_t, 2> reversed_rows {1, 0};
+    gathered_root->insert_indices_from(root_nullable, reversed_rows.begin(), reversed_rows.end());
+    const auto& gathered_nullable = assert_cast<const ColumnNullable&>(*gathered_root);
+    const auto& gathered_variants =
+            assert_cast<const ColumnVariantV2&>(gathered_nullable.get_nested_column());
+    ColumnPtr gathered_commit_result =
+            extract_key(gathered_variants, gathered_nullable, StringRef("commit"));
+    const auto& gathered_commit_nullable =
+            assert_cast<const ColumnNullable&>(*gathered_commit_result);
+    const auto& gathered_commit_variants =
+            assert_cast<const ColumnVariantV2&>(gathered_commit_nullable.get_nested_column());
+    (void)extract_key(gathered_commit_variants, gathered_commit_nullable, StringRef("collection"));
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekRows")->value(), 34);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedIntegerLeafSeeksAsTypedBigInt) {
+    VariantBatchBuilder builder;
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("time_us"));
+        row.add_null();
+        root.finish();
+        row.finish();
+    }
+    for (const int64_t value :
+         {int64_t {7}, int64_t {1} << 8, int64_t {1} << 20, int64_t {1} << 40}) {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("time_us"));
+        row.add_int(value);
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("other"));
+        row.add_int(1);
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("time_us"));
+        row.add_int(9);
+        root.finish();
+        row.finish();
+    }
+    VariantBatchBuilder batch = builder.finish_batch();
+    std::vector<StringRef> metadata;
+    std::vector<StringRef> values;
+    for (size_t row = 0; row < batch.num_rows(); ++row) {
+        const VariantRef value = batch.value_at(row);
+        metadata.emplace_back(value.metadata.data, value.metadata.size);
+        values.push_back(value.value);
+    }
+
+    MutableColumns fields;
+    fields.push_back(nullable_strings(metadata, std::vector<uint8_t>(batch.num_rows(), 0)));
+    fields.push_back(nullable_strings(values, std::vector<uint8_t>(batch.num_rows(), 0)));
+    auto physical = root_wrapper(std::move(fields), {0, 0, 0, 0, 0, 0, 1});
+
+    RuntimeProfile runtime_profile("unshredded-integer-direct-path");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("time_us"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    const Status extract_status = extract_variant_element_v2(
+            root_variants, *path,
+            std::span<const uint8_t>(root_nullable.get_null_map_data().data(),
+                                     root_nullable.get_null_map_data().size()),
+            &result);
+    ASSERT_TRUE(extract_status.ok()) << extract_status;
+
+    const auto& result_nullable = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_EQ(result_nullable.get_null_map_data(), (NullMap {0, 0, 0, 0, 0, 1, 1}));
+    const auto& result_variants =
+            assert_cast<const ColumnVariantV2&>(result_nullable.get_nested_column());
+    ASSERT_TRUE(result_variants.is_typed());
+    EXPECT_TRUE(result_variants.typed_type()->equals(DataTypeInt64()));
+    const auto& typed = assert_cast<const ColumnNullable&>(result_variants.typed_column());
+    EXPECT_EQ(typed.get_null_map_data(), (NullMap {1, 0, 0, 0, 0, 1, 1}));
+    const auto& integers = assert_cast<const ColumnInt64&>(typed.get_nested_column());
+    EXPECT_EQ(integers.get_data()[1], 7);
+    EXPECT_EQ(integers.get_data()[2], int64_t {1} << 8);
+    EXPECT_EQ(integers.get_data()[3], int64_t {1} << 20);
+    EXPECT_EQ(integers.get_data()[4], int64_t {1} << 40);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectLeafRows")->value(), 7);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectSubtreeRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectSeekBytes")->value(), 32);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedExplicitIntegerWidthStaysEncoded) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto root = row.start_object();
+    root.add_key(StringRef("value"));
+    row.add_scalar(VariantScalarRef::integer(7, 8));
+    root.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef encoded = batch.value_at(0);
+
+    MutableColumns fields;
+    fields.push_back(
+            nullable_strings({StringRef(encoded.metadata.data, encoded.metadata.size)}, {0}));
+    fields.push_back(nullable_strings({encoded.value}, {0}));
+    auto physical = root_wrapper(std::move(fields));
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("value"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    ASSERT_TRUE(extract_variant_element_v2(
+                        root_variants, *path,
+                        std::span<const uint8_t>(root_nullable.get_null_map_data().data(),
+                                                 root_nullable.get_null_map_data().size()),
+                        &result)
+                        .ok());
+
+    const auto& result_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    ASSERT_TRUE(result_variants.is_shredded());
+    EXPECT_EQ(result_variants.get_value_ref(0).primitive_id(), VariantPrimitiveId::INT64);
+    EXPECT_EQ(result_variants.get_value_ref(0).get_int(), 7);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedDirectPathsSeparateMetadataDictionaries) {
+    VariantBatchBuilder first_builder;
+    auto first_row = first_builder.begin_row();
+    auto first_root = first_row.start_object();
+    first_root.add_key(StringRef("a"));
+    first_row.add_int(1);
+    first_root.add_key(StringRef("target"));
+    first_row.add_int(11);
+    first_root.finish();
+    first_row.finish();
+    VariantBatchBuilder first_batch = first_builder.finish_batch();
+
+    VariantBatchBuilder second_builder;
+    auto second_row = second_builder.begin_row();
+    auto second_root = second_row.start_object();
+    second_root.add_key(StringRef("target"));
+    second_row.add_int(22);
+    second_root.add_key(StringRef("z"));
+    second_row.add_int(2);
+    second_root.finish();
+    second_row.finish();
+    VariantBatchBuilder second_batch = second_builder.finish_batch();
+
+    VariantBatchBuilder missing_builder;
+    auto missing_row = missing_builder.begin_row();
+    auto missing_root = missing_row.start_object();
+    missing_root.add_key(StringRef("other"));
+    missing_row.add_int(3);
+    missing_root.finish();
+    missing_row.finish();
+    VariantBatchBuilder missing_batch = missing_builder.finish_batch();
+
+    const VariantRef first = first_batch.value_at(0);
+    const VariantRef second = second_batch.value_at(0);
+    const VariantRef missing = missing_batch.value_at(0);
+    const std::vector<VariantRef> rows {first, second, first, missing, second};
+    std::vector<StringRef> metadata;
+    std::vector<StringRef> values;
+    for (const VariantRef value : rows) {
+        metadata.emplace_back(value.metadata.data, value.metadata.size);
+        values.push_back(value.value);
+    }
+    MutableColumns fields;
+    fields.push_back(nullable_strings(metadata, std::vector<uint8_t>(rows.size(), 0)));
+    fields.push_back(nullable_strings(values, std::vector<uint8_t>(rows.size(), 0)));
+    auto physical = root_wrapper(std::move(fields), NullMap(rows.size(), 0));
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+
+    ColumnPtr target_result;
+    ASSERT_TRUE(
+            extract_object_key(root_variants, root_nullable, StringRef("target"), &target_result)
+                    .ok());
+    const auto& target_nullable = assert_cast<const ColumnNullable&>(*target_result);
+    EXPECT_EQ(target_nullable.get_null_map_data(), (NullMap {0, 0, 0, 1, 0}));
+    const auto& target_variants =
+            assert_cast<const ColumnVariantV2&>(target_nullable.get_nested_column());
+    ASSERT_TRUE(target_variants.is_typed());
+    const auto& target_values = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(target_variants.typed_column()).get_nested_column());
+    EXPECT_EQ(target_values.get_data()[0], 11);
+    EXPECT_EQ(target_values.get_data()[1], 22);
+    EXPECT_EQ(target_values.get_data()[2], 11);
+    EXPECT_EQ(target_values.get_data()[4], 22);
+
+    ColumnPtr a_result;
+    ASSERT_TRUE(extract_object_key(root_variants, root_nullable, StringRef("a"), &a_result).ok());
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*a_result).get_null_map_data(),
+              (NullMap {0, 1, 0, 1, 1}));
+}
+
+TEST(VariantColumnReaderTest, UnshreddedCachedMissingStillValidatesEveryObject) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto root = row.start_object();
+    root.add_key(StringRef("other"));
+    row.add_int(1);
+    root.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef valid = batch.value_at(0);
+    std::string truncated(valid.value.data, valid.value.size - 1);
+
+    MutableColumns fields;
+    fields.push_back(nullable_strings({StringRef(valid.metadata.data, valid.metadata.size),
+                                       StringRef(valid.metadata.data, valid.metadata.size)},
+                                      {0, 0}));
+    fields.push_back(nullable_strings({valid.value, StringRef(truncated)}, {0, 0}));
+    auto physical = root_wrapper(std::move(fields), {0, 0});
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+
+    ColumnPtr result;
+    const Status status =
+            extract_object_key(root_variants, root_nullable, StringRef("missing"), &result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.to_string().find("Truncated Variant value"), std::string::npos);
+    EXPECT_FALSE(result);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedIntegerLeafKeepsCorruptMetadataOnFallback) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto root = row.start_object();
+    root.add_key(StringRef("time_us"));
+    row.add_int(7);
+    root.add_key(StringRef("zz_unused"));
+    row.add_int(1);
+    root.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef encoded = batch.value_at(0);
+
+    std::string invalid_metadata(encoded.metadata.data, encoded.metadata.size);
+    const size_t invalid_key = invalid_metadata.find("zz_unused");
+    ASSERT_NE(invalid_key, std::string::npos);
+    invalid_metadata[invalid_key] = static_cast<char>(0xff);
+
+    MutableColumns fields;
+    fields.push_back(nullable_strings({StringRef(invalid_metadata)}, {0}));
+    fields.push_back(nullable_strings({encoded.value}, {0}));
+    auto physical = root_wrapper(std::move(fields));
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("time_us"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    ASSERT_TRUE(extract_variant_element_v2(
+                        root_variants, *path,
+                        std::span<const uint8_t>(root_nullable.get_null_map_data().data(),
+                                                 root_nullable.get_null_map_data().size()),
+                        &result)
+                        .ok());
+
+    const auto& result_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    ASSERT_TRUE(result_variants.is_shredded());
+    EXPECT_THROW((void)result_variants.get_value_ref(0), Exception);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedIntegerLeafValidatesLeadingJsonNull) {
+    VariantBatchBuilder invalid_builder;
+    auto invalid_row = invalid_builder.begin_row();
+    auto invalid_root = invalid_row.start_object();
+    invalid_root.add_key(StringRef("time_us"));
+    invalid_row.add_null();
+    invalid_root.add_key(StringRef("zz_unused"));
+    invalid_row.add_int(1);
+    invalid_root.finish();
+    invalid_row.finish();
+    VariantBatchBuilder invalid_batch = invalid_builder.finish_batch();
+    const VariantRef invalid = invalid_batch.value_at(0);
+
+    VariantBatchBuilder valid_builder;
+    auto valid_row = valid_builder.begin_row();
+    auto valid_root = valid_row.start_object();
+    valid_root.add_key(StringRef("time_us"));
+    valid_row.add_int(7);
+    valid_root.finish();
+    valid_row.finish();
+    VariantBatchBuilder valid_batch = valid_builder.finish_batch();
+    const VariantRef valid = valid_batch.value_at(0);
+
+    std::string invalid_metadata(invalid.metadata.data, invalid.metadata.size);
+    const size_t invalid_key = invalid_metadata.find("zz_unused");
+    ASSERT_NE(invalid_key, std::string::npos);
+    invalid_metadata[invalid_key] = static_cast<char>(0xff);
+
+    MutableColumns fields;
+    fields.push_back(nullable_strings(
+            {StringRef(invalid_metadata), StringRef(valid.metadata.data, valid.metadata.size)},
+            {0, 0}));
+    fields.push_back(nullable_strings({invalid.value, valid.value}, {0, 0}));
+    auto physical = root_wrapper(std::move(fields), {0, 0});
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("time_us"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    ASSERT_TRUE(extract_variant_element_v2(
+                        root_variants, *path,
+                        std::span<const uint8_t>(root_nullable.get_null_map_data().data(),
+                                                 root_nullable.get_null_map_data().size()),
+                        &result)
+                        .ok());
+
+    const auto& result_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    ASSERT_TRUE(result_variants.is_shredded());
+    EXPECT_THROW((void)result_variants.get_value_ref(0), Exception);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedIntegerLeafReportsCorruptPayloadOnFallback) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto root = row.start_object();
+    root.add_key(StringRef("time_us"));
+    row.add_int(7);
+    root.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef encoded = batch.value_at(0);
+    VariantRef encoded_integer;
+    ASSERT_TRUE(encoded.object_find(StringRef("time_us"), &encoded_integer));
+
+    std::string invalid_value(encoded.value.data, encoded.value.size);
+    const size_t integer_offset = encoded_integer.value.data - encoded.value.data;
+    ASSERT_LT(integer_offset, invalid_value.size());
+    invalid_value[integer_offset] = static_cast<char>(
+            static_cast<uint8_t>(VariantPrimitiveId::INT64) << VARIANT_VALUE_HEADER_SHIFT);
+
+    MutableColumns fields;
+    fields.push_back(
+            nullable_strings({StringRef(encoded.metadata.data, encoded.metadata.size)}, {0}));
+    fields.push_back(nullable_strings({StringRef(invalid_value)}, {0}));
+    auto physical = root_wrapper(std::move(fields));
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("time_us"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    const Status extract_status = extract_variant_element_v2(
+            root_variants, *path,
+            std::span<const uint8_t>(root_nullable.get_null_map_data().data(),
+                                     root_nullable.get_null_map_data().size()),
+            &result);
+    EXPECT_FALSE(extract_status.ok());
+    EXPECT_EQ(extract_status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_NE(extract_status.to_string().find("Truncated Variant value"), std::string::npos);
+    EXPECT_FALSE(result);
+}
+
+TEST(VariantColumnReaderTest, UnshreddedMixedScalarLeafFallsBackToSubtree) {
+    VariantBatchBuilder builder;
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("value"));
+        row.add_int(7);
+        root.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto root = row.start_object();
+        root.add_key(StringRef("value"));
+        row.add_string(StringRef("seven"));
+        root.finish();
+        row.finish();
+    }
+    VariantBatchBuilder batch = builder.finish_batch();
+    std::vector<StringRef> metadata;
+    std::vector<StringRef> values;
+    for (size_t row = 0; row < batch.num_rows(); ++row) {
+        const VariantRef value = batch.value_at(row);
+        metadata.emplace_back(value.metadata.data, value.metadata.size);
+        values.push_back(value.value);
+    }
+
+    MutableColumns fields;
+    fields.push_back(nullable_strings(metadata, {0, 0}));
+    fields.push_back(nullable_strings(values, {0, 0}));
+    auto physical = root_wrapper(std::move(fields), {0, 0});
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), *physical, output).ok());
+    const auto& root_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& root_variants =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("value"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    ASSERT_TRUE(extract_variant_element_v2(
+                        root_variants, *path,
+                        std::span<const uint8_t>(root_nullable.get_null_map_data().data(),
+                                                 root_nullable.get_null_map_data().size()),
+                        &result)
+                        .ok());
+
+    const auto& result_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    ASSERT_TRUE(result_variants.is_shredded());
+    EXPECT_EQ(result_variants.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(result_variants.get_value_ref(1).get_string(), StringRef("seven"));
 }
 
 TEST(VariantColumnReaderTest, UnshreddedDirectImportPreservesEncodedBytes) {
