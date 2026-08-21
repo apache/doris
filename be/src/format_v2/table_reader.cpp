@@ -22,6 +22,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <set>
@@ -57,6 +58,103 @@
 
 namespace doris::format {
 namespace {
+
+std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
+    // Adaptive state must remain independent of the optional Condition Cache seed. A zero result
+    // means an expression cannot provide a stable semantic digest, so sharing is disabled.
+    uint64_t digest = 0xcbf29ce484222325ULL;
+    for (const auto& conjunct : conjuncts) {
+        digest = conjunct->get_digest(digest);
+        if (digest == 0) {
+            return std::nullopt;
+        }
+    }
+    return digest;
+}
+
+void extend_format_split_id_range(PhysicalFileSplit* destination, const PhysicalFileSplit& source) {
+    DORIS_CHECK(destination != nullptr);
+    DORIS_CHECK(destination->format_split_id >= 0 && source.format_split_id >= 0);
+    const int64_t destination_end = destination->format_split_id_end >= 0
+                                            ? destination->format_split_id_end
+                                            : destination->format_split_id;
+    const int64_t source_end =
+            source.format_split_id_end >= 0 ? source.format_split_id_end : source.format_split_id;
+    DORIS_CHECK(destination_end < std::numeric_limits<int64_t>::max());
+    DORIS_CHECK(source.format_split_id == destination_end + 1);
+    destination->format_split_id_end = source_end;
+}
+
+std::vector<PhysicalFileSplit> coalesce_physical_splits(std::vector<PhysicalFileSplit> splits,
+                                                        int64_t target_split_size) {
+    if (target_split_size <= 0 || splits.size() < 2) {
+        return splits;
+    }
+
+    const uint64_t target_size = static_cast<uint64_t>(target_split_size);
+    std::vector<PhysicalFileSplit> merged;
+    merged.reserve(splits.size());
+    auto current = std::move(splits.front());
+    for (size_t index = 1; index < splits.size(); ++index) {
+        auto& next = splits[index];
+        const bool valid_ranges = current.start_offset >= 0 && current.size >= 0 &&
+                                  next.start_offset >= 0 && next.size >= 0;
+        const uint64_t current_start =
+                valid_ranges ? static_cast<uint64_t>(current.start_offset) : 0;
+        const uint64_t current_end = valid_ranges ? current_start + current.size : 0;
+        const uint64_t next_start = valid_ranges ? static_cast<uint64_t>(next.start_offset) : 0;
+        const uint64_t next_end = valid_ranges ? next_start + next.size : 0;
+        const int64_t current_id_end = current.format_split_id_end >= 0
+                                               ? current.format_split_id_end
+                                               : current.format_split_id;
+        const bool consecutive_ids = current_id_end >= 0 &&
+                                     current_id_end < std::numeric_limits<int64_t>::max() &&
+                                     next.format_split_id == current_id_end + 1;
+        // Coalescing changes only scheduling granularity. Exact format ids remain attached so byte
+        // padding or skipped physical granules cannot change which rows a child owns.
+        const bool fits_target = valid_ranges && current.file_context == next.file_context &&
+                                 consecutive_ids && next_start >= current_start &&
+                                 next_end >= current_end && next_end - current_start <= target_size;
+        if (fits_target) {
+            current.size = cast_set<int64_t>(next_end - current_start);
+            extend_format_split_id_range(&current, next);
+        } else {
+            merged.push_back(std::move(current));
+            current = std::move(next);
+        }
+    }
+    merged.push_back(std::move(current));
+
+    if (merged.size() > 1) {
+        auto& previous = merged[merged.size() - 2];
+        auto& tail = merged.back();
+        const bool valid_ranges = previous.start_offset >= 0 && previous.size >= 0 &&
+                                  tail.start_offset >= 0 && tail.size >= 0;
+        const uint64_t previous_start =
+                valid_ranges ? static_cast<uint64_t>(previous.start_offset) : 0;
+        const uint64_t previous_end = valid_ranges ? previous_start + previous.size : 0;
+        const uint64_t tail_start = valid_ranges ? static_cast<uint64_t>(tail.start_offset) : 0;
+        const uint64_t tail_end = valid_ranges ? tail_start + tail.size : 0;
+        const uint64_t combined_size = valid_ranges ? tail_end - previous_start : 0;
+        const int64_t previous_id_end = previous.format_split_id_end >= 0
+                                                ? previous.format_split_id_end
+                                                : previous.format_split_id;
+        const bool consecutive_ids = previous_id_end >= 0 &&
+                                     previous_id_end < std::numeric_limits<int64_t>::max() &&
+                                     tail.format_split_id == previous_id_end + 1;
+        // Avoid a tiny final task only when the ownership envelopes touch. A pruned gap must not
+        // inflate its predecessor far beyond the FE target.
+        if (valid_ranges && previous.file_context == tail.file_context && consecutive_ids &&
+            previous.size <= target_split_size && tail.size <= (target_split_size - 1) / 2 &&
+            tail_start <= previous_end && tail_end >= previous_end &&
+            combined_size <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            previous.size = static_cast<int64_t>(combined_size);
+            extend_format_split_id_range(&previous, tail);
+            merged.pop_back();
+        }
+    }
+    return merged;
+}
 
 template <typename T, typename Formatter>
 std::string join_table_reader_debug_strings(const std::vector<T>& values, Formatter formatter) {
@@ -780,6 +878,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
+    _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
     return Status::OK();
 }
 
@@ -883,10 +982,27 @@ bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest
 
 } // namespace
 
-Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
+                                      std::optional<uint64_t> condition_cache_digest,
+                                      bool all_runtime_filters_applied) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.refresh_conjuncts_timer);
     _conjuncts = std::move(conjuncts);
+    _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
+    // A prepared footer result belongs to the prior immutable predicate snapshot. Discard it
+    // before a refresh can make the planning reader resume ordinary row production.
+    _metadata_aggregate_result.reset();
+    if (all_runtime_filters_applied) {
+        // A refresh can prove the last pending RF has arrived, but a later partial refresh must
+        // never make the same split incomplete again.
+        _all_runtime_filters_applied_for_split = true;
+    }
+    if (condition_cache_digest.has_value()) {
+        // A runtime filter can arrive after a physical child is prepared but before its reader is
+        // created. Keep that child's cache key tied to the same refreshed predicate snapshot.
+        _condition_cache_digest = *condition_cache_digest;
+        _condition_cache_digest_covers_current_split = true;
+    }
     if (_data_reader.reader == nullptr) {
         // The split is prepared but its physical reader has not opened yet. open_reader() will use
         // this newest snapshot directly, so no pending request is needed.
@@ -908,12 +1024,15 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+    refreshed_request->predicate_snapshot_digest = _predicate_snapshot_digest;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
         _push_down_count_columns->empty() && _all_runtime_filters_applied_for_split) {
         for (const auto& column : refreshed_request->non_predicate_columns) {
-            refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
+            if (!refreshed_request->is_residual_predicate_column(column.column_id())) {
+                refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
+            }
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
@@ -929,6 +1048,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     if (_condition_cache_ctx != nullptr && !_condition_cache_ctx->is_hit) {
         // Rows before and after a late RF were evaluated by different predicate snapshots. Such a
         // partial MISS bitmap must never be published under either snapshot's cache key.
+        _condition_cache_split_invalid = _condition_cache_split_participating;
         _condition_cache = nullptr;
         _condition_cache_ctx = nullptr;
         _data_reader.reader->set_condition_cache_context(nullptr);
@@ -984,18 +1104,26 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
     if (!_should_enable_condition_cache(file_request)) {
+        _condition_cache_split_invalid = _condition_cache_split_participating;
         return Status::OK();
     }
 
     auto* cache = segment_v2::ConditionCache::instance();
     if (cache == nullptr) {
+        _condition_cache_split_invalid = _condition_cache_split_participating;
         return Status::OK();
     }
     const auto& file = *_current_file_description;
+    const auto cache_start = _condition_cache_source_range.has_value()
+                                     ? _condition_cache_source_range->first
+                                     : file.range_start_offset;
+    const auto cache_size = _condition_cache_source_range.has_value()
+                                    ? _condition_cache_source_range->second
+                                    : file.range_size;
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
-            file.range_size,
+            file.path, file.mtime, file.file_size, _condition_cache_digest, cache_start, cache_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    _condition_cache_initialized = true;
 
     segment_v2::ConditionCacheHandle handle;
     const bool condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
@@ -1029,6 +1157,91 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
 }
 
 void TableReader::_finalize_reader_condition_cache() {
+    if (_condition_cache_split_participating) {
+        DORIS_CHECK(_condition_cache_split_context != nullptr);
+        const bool cache_hit = _condition_cache_ctx != nullptr && _condition_cache_ctx->is_hit;
+        const bool complete_miss = _condition_cache_initialized &&
+                                   !_condition_cache_split_invalid && _current_reader_reached_eof;
+        std::shared_ptr<std::vector<bool>> published_filter;
+        int64_t published_base_granule = 0;
+        {
+            std::lock_guard lock(_condition_cache_split_context->lock);
+            auto& split_context = *_condition_cache_split_context;
+            if (!_condition_cache_initialized) {
+                split_context.valid = false;
+            } else {
+                const auto encoded_key = _condition_cache_key.encode();
+                if (!split_context.encoded_key.has_value()) {
+                    split_context.encoded_key = encoded_key;
+                } else if (*split_context.encoded_key != encoded_key) {
+                    // Children can observe different late-RF snapshots. Never combine their
+                    // partial bitmaps under either digest's source-level cache key.
+                    split_context.valid = false;
+                }
+            }
+            if (cache_hit) {
+                split_context.cache_hit_seen = true;
+            } else if (!complete_miss) {
+                split_context.valid = false;
+            } else if (_condition_cache_ctx != nullptr && _condition_cache != nullptr) {
+                DORIS_CHECK(_condition_cache_ctx->num_granules <= _condition_cache->size());
+                const int64_t local_base = _condition_cache_ctx->base_granule;
+                const size_t local_size = _condition_cache_ctx->num_granules;
+                if (split_context.merged_filter_result.empty()) {
+                    split_context.base_granule = local_base;
+                    split_context.merged_filter_result.assign(local_size, false);
+                } else {
+                    const int64_t merged_end =
+                            split_context.base_granule +
+                            cast_set<int64_t>(split_context.merged_filter_result.size());
+                    const int64_t local_end = local_base + cast_set<int64_t>(local_size);
+                    const int64_t combined_base = std::min(split_context.base_granule, local_base);
+                    const int64_t combined_end = std::max(merged_end, local_end);
+                    if (combined_base != split_context.base_granule || combined_end != merged_end) {
+                        std::vector<bool> combined(cast_set<size_t>(combined_end - combined_base),
+                                                   false);
+                        for (size_t index = 0; index < split_context.merged_filter_result.size();
+                             ++index) {
+                            combined[cast_set<size_t>(split_context.base_granule - combined_base) +
+                                     index] = split_context.merged_filter_result[index];
+                        }
+                        split_context.base_granule = combined_base;
+                        split_context.merged_filter_result = std::move(combined);
+                    }
+                }
+                for (size_t index = 0; index < local_size; ++index) {
+                    const auto merged_index =
+                            cast_set<size_t>(local_base - split_context.base_granule) + index;
+                    split_context.merged_filter_result[merged_index] =
+                            split_context.merged_filter_result[merged_index] ||
+                            (*_condition_cache)[index];
+                }
+            }
+
+            DORIS_CHECK(split_context.remaining_children > 0);
+            --split_context.remaining_children;
+            if (split_context.remaining_children == 0 && split_context.valid &&
+                !split_context.cache_hit_seen && !split_context.merged_filter_result.empty()) {
+                // A source-level entry is visible only after every physical child reaches EOF;
+                // publishing an earlier partial MISS would let a sibling HIT skip valid rows.
+                published_base_granule = split_context.base_granule;
+                published_filter = std::make_shared<std::vector<bool>>(
+                        std::move(split_context.merged_filter_result));
+            }
+        }
+        if (published_filter != nullptr) {
+            if (auto* cache = segment_v2::ConditionCache::instance(); cache != nullptr) {
+                cache->insert(_condition_cache_key, std::move(published_filter),
+                              published_base_granule);
+            }
+        }
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        _condition_cache_split_context.reset();
+        _condition_cache_split_participating = false;
+        _condition_cache_initialized = false;
+        return;
+    }
     if (_condition_cache_ctx == nullptr || _condition_cache_ctx->is_hit) {
         _condition_cache = nullptr;
         _condition_cache_ctx = nullptr;
@@ -1108,13 +1321,15 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         // match the table type.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                _current_task->file_context, _current_task->format_split_id,
+                _current_task->format_split_id_end);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, _current_task->file_context);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {
@@ -1183,6 +1398,11 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
+    _condition_cache_source_range = options.condition_cache_source_range;
+    _condition_cache_split_context = options.condition_cache_split_context;
+    _condition_cache_split_participating = _condition_cache_split_context != nullptr;
+    _condition_cache_split_invalid = false;
+    _condition_cache_initialized = false;
     _condition_cache_digest_covers_current_split = options.condition_cache_digest.has_value();
     if (options.condition_cache_digest.has_value()) {
         // The split snapshot may include RFs that arrived after TableReader::init(). Use the digest
@@ -1196,6 +1416,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     }
     if (options.conjuncts.has_value()) {
         _conjuncts = *options.conjuncts;
+        _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
     }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
@@ -1213,6 +1434,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
+    _metadata_aggregate_result.reset();
     _remaining_table_level_count = -1;
     _remaining_file_level_count = -1;
     _current_split_uses_metadata_count = false;
@@ -1225,6 +1447,9 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     }
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
+    _current_task->file_context = options.file_context;
+    _current_task->format_split_id = options.format_split_id;
+    _current_task->format_split_id_end = options.format_split_id_end;
     _current_file_description = *_current_task->data_file;
     // A table-level row count is only equivalent to scanning the split when no row predicate is
     // active and no predicate can arrive later. The metadata path can return several batches for
@@ -1247,6 +1472,137 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
         return Status::OK();
     }
     return _parse_delete_predicates(options);
+}
+
+Status TableReader::build_physical_splits(const FileScanSplit& source_split,
+                                          std::vector<FileScanSplit>* splits, bool* was_split) {
+    SCOPED_TIMER(_profile.total_timer);
+    DORIS_CHECK(splits != nullptr);
+    DORIS_CHECK(was_split != nullptr);
+    splits->clear();
+    *was_split = false;
+    if ((_format != FileFormat::PARQUET && _format != FileFormat::ORC) || _current_split_pruned ||
+        _current_split_uses_metadata_count || _current_task == nullptr) {
+        return Status::OK();
+    }
+    SCOPED_TIMER(_profile.create_reader_timer);
+
+    std::unique_ptr<FileReader> reader;
+    RETURN_IF_ERROR(create_file_reader(&reader));
+    DORIS_CHECK(reader != nullptr);
+    auto close_planning_reader = [&]() {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_close_timer);
+        return reader->close();
+    };
+    Status init_status;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_init_timer);
+        init_status = reader->init(_runtime_state);
+    }
+    if (!init_status.ok()) {
+        // A failed init may still own partially opened resources. Close it through the same
+        // lifecycle path while preserving the initialization error returned to the scanner.
+        static_cast<void>(close_planning_reader());
+        return init_status;
+    }
+
+    _data_reader.reader = std::move(reader);
+    if (_batch_size > 0) {
+        _data_reader.reader->set_batch_size(_batch_size);
+    }
+    const auto open_status = open_reader();
+    if (!open_status.ok()) {
+        if (_data_reader.reader != nullptr) {
+            static_cast<void>(close_current_reader());
+        }
+        return open_status;
+    }
+    if (_data_reader.reader == nullptr) {
+        // Constant pruning can close the eagerly opened planning reader. Publish an empty refined
+        // source so scanners do not recreate and reopen the same already-rejected file.
+        *was_split = true;
+        return Status::OK();
+    }
+
+    if (_supports_aggregate_pushdown(_push_down_agg_type)) {
+        FileAggregateRequest aggregate_request;
+        const auto request_status =
+                _build_file_aggregate_request(_push_down_agg_type, &aggregate_request);
+        if (!request_status.ok()) {
+            static_cast<void>(close_current_reader());
+            return request_status;
+        }
+        FileAggregateResult aggregate_result;
+        Status aggregate_status;
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_aggregate_timer);
+            aggregate_status = _data_reader.reader->get_metadata_aggregate_result(
+                    aggregate_request, &aggregate_result);
+        }
+        if (aggregate_status.ok()) {
+            // The planning reader already owns the exact pruned physical-granule set. Retaining it
+            // avoids replacing one metadata-only aggregate with N children that repeat the
+            // reduction.
+            _metadata_aggregate_result = std::move(aggregate_result);
+            return Status::OK();
+        }
+        if (!aggregate_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            static_cast<void>(close_current_reader());
+            return aggregate_status;
+        }
+    }
+
+    std::vector<PhysicalFileSplit> physical_splits;
+    Status status;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        status = _data_reader.reader->build_physical_splits(&physical_splits, was_split);
+    }
+    if (!status.ok()) {
+        static_cast<void>(close_current_reader());
+        return status;
+    }
+    const auto& source_range = source_split.source_identity_range();
+    if (source_range.__isset.target_split_size && source_range.target_split_size > 0) {
+        physical_splits = coalesce_physical_splits(std::move(physical_splits),
+                                                   source_range.target_split_size);
+    }
+    if (!*was_split || physical_splits.size() == 1) {
+        // Reuse the fully planned reader when refinement is unnecessary. Besides avoiding another
+        // footer parse, this preserves the request snapshot whose metadata pruning selected the
+        // single surviving physical granule.
+        splits->clear();
+        *was_split = false;
+        return Status::OK();
+    }
+    // FileReader descriptors deliberately carry no scanner/table policy. Attach the FE source
+    // identity and shared child coordination here so format readers cannot accidentally own range
+    // progress, table metadata semantics, or Condition Cache publication.
+    const auto shared_source_range = std::make_shared<TFileRangeDesc>(source_split.range);
+    std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
+    if (physical_splits.size() > 1) {
+        condition_cache_split_context =
+                std::make_shared<ConditionCacheSplitContext>(physical_splits.size());
+    }
+    splits->reserve(physical_splits.size());
+    for (auto& physical_split : physical_splits) {
+        FileScanSplit child;
+        child.source_range = shared_source_range;
+        child.start_offset = physical_split.start_offset;
+        child.size = physical_split.size;
+        // A source-level count is not valid for one generated physical child. Child readers can
+        // still derive an exact count from shared format metadata when pushdown is eligible.
+        child.clear_table_level_row_count = true;
+        child.file_context = std::move(physical_split.file_context);
+        child.condition_cache_split_context = condition_cache_split_context;
+        child.format_split_id = physical_split.format_split_id;
+        child.format_split_id_end = physical_split.format_split_id_end;
+        splits->push_back(std::move(child));
+    }
+    return close_current_reader();
 }
 
 Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,

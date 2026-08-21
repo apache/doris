@@ -44,11 +44,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
-import org.apache.doris.thrift.TLanceVectorSearchOptions;
 import org.apache.doris.thrift.TSearchFilter;
 import org.apache.doris.thrift.TSearchFilterFormat;
 import org.apache.doris.thrift.TSearchVector;
 import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -60,10 +60,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
-/** Relation TVF for a whole-snapshot Lance vector search. */
+/** Relation TVF for a fixed-snapshot Lance vector search. */
 public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
     public static final String NAME = "vector_search";
     public static final String DISTANCE_COLUMN = "_distance";
@@ -89,6 +91,7 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
     private final TableName sourceTableName;
     private final LanceExternalTable sourceTable;
     private final LanceTableMetadata metadata;
+    private final int vectorFieldId;
     private final List<Column> columns;
     private final TExternalSearchRequest searchRequest;
 
@@ -97,8 +100,11 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         Map<String, String> params = normalizeProperties(properties);
         sourceTableName = parseTableName(required(params, TABLE));
         sourceTable = findLanceExternalTable(sourceTableName);
+        boolean useIndex = !params.containsKey(USE_INDEX)
+                || parseBoolean(params.get(USE_INDEX), USE_INDEX);
         try {
-            metadata = sourceTable.loadMetadata();
+            metadata = useIndex
+                    ? sourceTable.loadMetadataForVectorSearch() : sourceTable.loadMetadata();
         } catch (RuntimeException e) {
             throw new AnalysisException("Failed to load Lance metadata for vector search on "
                     + sourceTableName + ": " + e.getMessage(), e);
@@ -109,6 +115,7 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
 
         Field vectorField = LanceVectorQuery.findVectorColumnField(
                 metadata.getSchema(), required(params, COLUMN));
+        vectorFieldId = useIndex ? requireLanceFieldId(metadata, vectorField) : -1;
         TSearchVector queryVector = LanceVectorQuery.parseAndEncodeQueryVector(
                 vectorField, required(params, QUERY_VECTOR));
         long topK = parseLong(params.getOrDefault(TOP_K, "10"), TOP_K, 1, Long.MAX_VALUE);
@@ -128,38 +135,34 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
 
         searchRequest = new TExternalSearchRequest()
                 .setSchemaVersion(1)
-                .setQuery(TExternalSearchQuery.vector(vectorParams));
+                .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
         if (params.containsKey(FILTER)) {
-            String filter = params.get(FILTER);
-            if (filter == null || filter.trim().isEmpty()) {
-                throw new AnalysisException("'filter' must not be empty");
-            }
-            searchRequest.setFilter(new TSearchFilter()
+            searchRequest.setSearchFilter(new TSearchFilter()
                     .setFormat(TSearchFilterFormat.SQL)
-                    .setPayload(filter.getBytes(StandardCharsets.UTF_8)));
+                    .setPayload(validateAndEncodeSqlFilter(params.get(FILTER))));
         }
 
-        TLanceVectorSearchOptions lanceOptions = new TLanceVectorSearchOptions();
-        boolean hasLanceOptions = false;
+        TVectorSearchOptions vectorSearchOptions = new TVectorSearchOptions();
+        boolean hasVectorSearchOptions = false;
         if (params.containsKey(NPROBES)) {
-            lanceOptions.setNprobes(parsePositiveInt(params.get(NPROBES), NPROBES));
-            hasLanceOptions = true;
+            vectorSearchOptions.setNprobes(parsePositiveInt(params.get(NPROBES), NPROBES));
+            hasVectorSearchOptions = true;
         }
         if (params.containsKey(REFINE_FACTOR)) {
-            lanceOptions.setRefineFactor(
+            vectorSearchOptions.setRefineFactor(
                     parsePositiveInt(params.get(REFINE_FACTOR), REFINE_FACTOR));
-            hasLanceOptions = true;
+            hasVectorSearchOptions = true;
         }
         if (params.containsKey(EF)) {
-            lanceOptions.setEf(parsePositiveInt(params.get(EF), EF));
-            hasLanceOptions = true;
+            vectorSearchOptions.setEf(parsePositiveInt(params.get(EF), EF));
+            hasVectorSearchOptions = true;
         }
         if (params.containsKey(USE_INDEX)) {
-            lanceOptions.setUseIndex(parseBoolean(params.get(USE_INDEX), USE_INDEX));
-            hasLanceOptions = true;
+            vectorSearchOptions.setUseIndex(useIndex);
+            hasVectorSearchOptions = true;
         }
-        if (hasLanceOptions) {
-            searchRequest.setLanceOptions(lanceOptions);
+        if (hasVectorSearchOptions) {
+            searchRequest.setVectorSearchOptions(vectorSearchOptions);
         }
         columns = buildOutputColumns(metadata);
     }
@@ -176,6 +179,14 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         return searchRequest.deepCopy();
     }
 
+    public long getTopK() {
+        return searchRequest.getSearchQuery().getVectorSearch().getTopK();
+    }
+
+    public long getOffset() {
+        return searchRequest.getSearchQuery().getVectorSearch().getOffset();
+    }
+
     @Override
     public String getTableName() {
         return "VectorSearchTableValuedFunction<" + sourceTableName + ">";
@@ -188,8 +199,8 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new LanceScanNode(id, desc, sourceTable, metadata,
-                searchRequest, sv);
+        return LanceScanNode.forVectorSearch(id, desc, sourceTable, metadata,
+                vectorFieldId, searchRequest, sv);
     }
 
     private static Map<String, String> normalizeProperties(Map<String, String> properties)
@@ -257,11 +268,22 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         return (LanceExternalTable) table;
     }
 
-    private static List<Column> buildOutputColumns(LanceTableMetadata metadata)
+    @VisibleForTesting
+    static List<Column> buildOutputColumns(LanceTableMetadata metadata)
             throws AnalysisException {
         List<Column> result = new ArrayList<>(metadata.getSchema().getFields().size() + 1);
+        Set<String> fieldNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         int position = 0;
         for (Field field : metadata.getSchema().getFields()) {
+            if (!fieldNames.add(field.getName())) {
+                throw new AnalysisException("Duplicate Lance schema column under "
+                        + "case-insensitive matching: '" + field.getName() + "'");
+            }
+            if (field.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+                throw new AnalysisException("Lance table contains column '" + field.getName()
+                        + "' using reserved Doris internal column prefix '"
+                        + Column.GLOBAL_ROWID_COL + "'");
+            }
             if (field.getName().equalsIgnoreCase(DISTANCE_COLUMN)) {
                 throw new AnalysisException("Lance table already contains reserved vector search "
                         + "column '" + DISTANCE_COLUMN + "'");
@@ -281,6 +303,28 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         result.add(new Column(DISTANCE_COLUMN, Type.FLOAT, false, null,
                 true, null, true, position));
         return result;
+    }
+
+    @VisibleForTesting
+    static int requireLanceFieldId(LanceTableMetadata metadata, Field field)
+            throws AnalysisException {
+        OptionalInt fieldId = metadata.getLanceFieldId(field.getName());
+        if (!fieldId.isPresent()) {
+            throw new AnalysisException("Lance vector column '" + field.getName()
+                    + "' has no field ID in the Lance schema");
+        }
+        return fieldId.getAsInt();
+    }
+
+    @VisibleForTesting
+    static byte[] validateAndEncodeSqlFilter(String filter) throws AnalysisException {
+        if (filter == null || filter.trim().isEmpty()) {
+            throw new AnalysisException("'filter' must not be empty");
+        }
+        if (filter.indexOf('\0') >= 0) {
+            throw new AnalysisException("'filter' must not contain an embedded NUL byte");
+        }
+        return filter.getBytes(StandardCharsets.UTF_8);
     }
 
     private static long parseLong(String value, String property, long min, long max)

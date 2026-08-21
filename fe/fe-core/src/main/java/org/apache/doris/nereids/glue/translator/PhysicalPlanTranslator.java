@@ -635,7 +635,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         paimonTableSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        PaimonTableSink sink = new PaimonTableSink(paimonTableSink.getWriteTarget());
+        PaimonTableSink sink = new PaimonTableSink(
+                paimonTableSink.getWriteTarget(), paimonTableSink.getDmlCommandType());
         sink.setCols(paimonTableSink.getCols());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);

@@ -724,6 +724,7 @@ struct OrcReaderScanState {
     };
 
     std::unique_ptr<::orc::Reader> reader;
+    std::shared_ptr<const OrcSharedFileContext> file_context;
     const ::orc::Type* root_type = nullptr;
     ::orc::ReaderMetrics reader_metrics;
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
@@ -762,10 +763,12 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      std::optional<format::GlobalRowIdContext> global_rowid_context,
-                     bool enable_mapping_timestamp_tz)
+                     bool enable_mapping_timestamp_tz,
+                     std::shared_ptr<const FileContext> file_context)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(std::move(global_rowid_context)),
-          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
+          _file_context(std::move(file_context)) {}
 
 OrcReader::~OrcReader() = default;
 
@@ -895,10 +898,6 @@ Status OrcReader::init(RuntimeState* state) {
         }
     }
 
-    ::orc::ReaderOptions options;
-    options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
-    options.setReaderMetrics(&_state->reader_metrics);
-
     OrcFileInputStreamOptions input_stream_options;
     const auto natural_read_size_mb = config::orc_natural_read_size_mb;
     if (natural_read_size_mb <= 0 || natural_read_size_mb > 1024) {
@@ -912,18 +911,96 @@ Status OrcReader::init(RuntimeState* state) {
         input_stream_options.max_merge_distance_bytes =
                 state->query_options().orc_max_merge_distance_bytes;
     }
-    auto input_stream = std::make_unique<OrcFileInputStream>(
-            _file_description->path, _file_reader, _io_ctx.get(), _profile, input_stream_options);
-    try {
-        _state->reader = ::orc::createReader(std::move(input_stream), options);
-        _state->root_type = &_state->reader->getType();
-    } catch (const std::exception& e) {
-        if (is_orc_stop(_io_ctx.get(), e)) {
-            return Status::EndOfFile("stop");
+    auto create_reader = [&](const std::string* serialized_file_tail,
+                             std::unique_ptr<::orc::Reader>* reader) -> Status {
+        DORIS_CHECK(reader != nullptr);
+        ::orc::ReaderOptions options;
+        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
+        options.setReaderMetrics(&_state->reader_metrics);
+        if (serialized_file_tail != nullptr) {
+            options.setSerializedFileTail(*serialized_file_tail);
         }
-        return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
-                                     e.what());
+        auto input_stream =
+                std::make_unique<OrcFileInputStream>(_file_description->path, _file_reader,
+                                                     _io_ctx.get(), _profile, input_stream_options);
+        try {
+            *reader = ::orc::createReader(std::move(input_stream), options);
+        } catch (const std::exception& e) {
+            if (is_orc_stop(_io_ctx.get(), e)) {
+                return Status::EndOfFile("stop");
+            }
+            return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
+                                         e.what());
+        }
+        return Status::OK();
+    };
+
+    const int64_t resolved_mtime =
+            _file_description->mtime != 0 ? _file_description->mtime : _file_reader->mtime();
+    const int64_t resolved_file_size = _file_description->file_size >= 0
+                                               ? _file_description->file_size
+                                               : cast_set<int64_t>(_file_reader->size());
+    const bool has_stable_identity = resolved_mtime != 0 || _file_description->is_immutable;
+    const auto reader_path = _file_reader->path().native();
+    const std::string file_identity = fmt::format(
+            "orc::fs[{}]={}::path[{}]={}::mtime={}::size={}::immutable={}",
+            _file_description->fs_name.size(), _file_description->fs_name, reader_path.size(),
+            reader_path, resolved_mtime, resolved_file_size, _file_description->is_immutable);
+    auto build_context = [&](const ::orc::Reader& reader,
+                             std::shared_ptr<const FileContext>* result) -> Status {
+        DORIS_CHECK(result != nullptr);
+        auto context = std::make_shared<OrcSharedFileContext>();
+        context->file_identity = file_identity;
+        context->has_stable_identity = has_stable_identity;
+        try {
+            if (has_stable_identity) {
+                // Mutable files cannot publish children, so avoid serializing a tail that no other
+                // reader may safely consume.
+                context->serialized_file_tail = reader.getSerializedFileTail();
+            }
+            const auto stripe_count = reader.getNumberOfStripes();
+            context->stripes.reserve(stripe_count);
+            for (uint64_t stripe_id = 0; stripe_id < stripe_count; ++stripe_id) {
+                const auto stripe = reader.getStripe(stripe_id);
+                DORIS_CHECK(stripe != nullptr);
+                context->stripes.push_back({.offset = stripe->getOffset(),
+                                            .length = stripe->getLength(),
+                                            .rows = stripe->getNumberOfRows()});
+            }
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to cache ORC file context for {}: {}",
+                                         _file_description->path, e.what());
+        }
+        *result = std::move(context);
+        return Status::OK();
+    };
+
+    std::shared_ptr<const FileContext> resolved_context = std::move(_file_context);
+    std::unique_ptr<::orc::Reader> loaded_reader;
+    if (resolved_context == nullptr) {
+        RETURN_IF_ERROR(create_reader(nullptr, &loaded_reader));
+        RETURN_IF_ERROR(build_context(*loaded_reader, &resolved_context));
     }
+
+    if (resolved_context != nullptr) {
+        _state->file_context =
+                std::dynamic_pointer_cast<const OrcSharedFileContext>(resolved_context);
+        if (_state->file_context == nullptr) {
+            return Status::InvalidArgument("ORC split has an incompatible file context");
+        }
+        if (_state->file_context->file_identity != file_identity) {
+            return Status::InvalidArgument("ORC split file context does not match file identity");
+        }
+        if (loaded_reader != nullptr) {
+            // The parent keeps the reader that produced the context. Generated children rebuild
+            // independent readers from the shared serialized tail.
+            _state->reader = std::move(loaded_reader);
+        } else {
+            RETURN_IF_ERROR(
+                    create_reader(&_state->file_context->serialized_file_tail, &_state->reader));
+        }
+    }
+    _state->root_type = &_state->reader->getType();
     return Status::OK();
 }
 
@@ -1440,7 +1517,8 @@ void OrcReader::_split_byte_window(uint64_t* start, uint64_t* end) const {
 Status OrcReader::_collect_split_stripes(std::vector<uint64_t>* stripe_indices) const {
     DORIS_CHECK(stripe_indices != nullptr);
     stripe_indices->clear();
-    const auto stripe_count = _state->reader->getNumberOfStripes();
+    DORIS_CHECK(_state->file_context != nullptr);
+    const auto stripe_count = _state->file_context->stripes.size();
     stripe_indices->reserve(stripe_count);
 
     uint64_t split_start = 0;
@@ -1448,18 +1526,78 @@ Status OrcReader::_collect_split_stripes(std::vector<uint64_t>* stripe_indices) 
     _split_byte_window(&split_start, &split_end);
 
     for (uint64_t stripe_index = 0; stripe_index < stripe_count; ++stripe_index) {
-        std::unique_ptr<::orc::StripeInformation> stripe_information;
-        try {
-            stripe_information = _state->reader->getStripe(stripe_index);
-        } catch (const std::exception& e) {
-            return Status::InternalError("Failed to read ORC stripe info: {}", e.what());
-        }
-        DORIS_CHECK(stripe_information != nullptr);
-        const auto stripe_offset = stripe_information->getOffset();
+        const auto stripe_offset = _state->file_context->stripes[stripe_index].offset;
         if (stripe_offset >= split_start && stripe_offset < split_end) {
             stripe_indices->push_back(stripe_index);
         }
     }
+    return Status::OK();
+}
+
+Status OrcReader::_collect_selected_stripes(std::vector<uint64_t>* stripe_indices) const {
+    DORIS_CHECK(stripe_indices != nullptr);
+    stripe_indices->clear();
+    if (!_state->stripe_pruning_applied) {
+        return _collect_split_stripes(stripe_indices);
+    }
+    const auto stripe_count = _state->reader->getNumberOfStripes();
+    for (const auto& stripe_range : _state->selected_stripe_ranges) {
+        if (stripe_range.last_stripe < stripe_range.first_stripe ||
+            stripe_range.last_stripe > stripe_count) {
+            return Status::InternalError("Invalid ORC stripe range {}-{}",
+                                         stripe_range.first_stripe, stripe_range.last_stripe);
+        }
+        for (uint64_t stripe_id = stripe_range.first_stripe; stripe_id < stripe_range.last_stripe;
+             ++stripe_id) {
+            stripe_indices->push_back(stripe_id);
+        }
+    }
+    return Status::OK();
+}
+
+Status OrcReader::build_physical_splits(std::vector<PhysicalFileSplit>* splits,
+                                        bool* was_split) const {
+    DORIS_CHECK(splits != nullptr);
+    DORIS_CHECK(was_split != nullptr);
+    splits->clear();
+    *was_split = false;
+    if (_state == nullptr || _state->reader == nullptr || _state->file_context == nullptr) {
+        return Status::Uninitialized("OrcReader is not open");
+    }
+    if (!_state->file_context->has_stable_identity) {
+        // Generated readers outlive the planning reader. Without a versioned identity, sharing a
+        // serialized tail could pair stale stripe metadata with bytes from an overwritten object.
+        return Status::OK();
+    }
+
+    std::vector<uint64_t> selected_stripes;
+    RETURN_IF_ERROR(_collect_selected_stripes(&selected_stripes));
+    splits->reserve(selected_stripes.size());
+    for (const auto stripe_id : selected_stripes) {
+        if (stripe_id >= _state->file_context->stripes.size()) {
+            return Status::InternalError("Invalid ORC physical stripe {}", stripe_id);
+        }
+        const auto& stripe = _state->file_context->stripes[stripe_id];
+        if (stripe_id > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            stripe.length == 0 ||
+            stripe.offset > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            stripe.length > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            stripe.offset + stripe.length < stripe.offset ||
+            stripe.offset + stripe.length >
+                    static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            // A malformed envelope must stay on the initialized reader, whose ORC validation is
+            // authoritative and cannot accidentally publish an overlapping child range.
+            splits->clear();
+            return Status::OK();
+        }
+        PhysicalFileSplit split;
+        split.start_offset = static_cast<int64_t>(stripe.offset);
+        split.size = static_cast<int64_t>(stripe.length);
+        split.file_context = _state->file_context;
+        split.format_split_id = static_cast<int64_t>(stripe_id);
+        splits->push_back(std::move(split));
+    }
+    *was_split = true;
     return Status::OK();
 }
 
@@ -2035,21 +2173,7 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
     }
 
     std::vector<uint64_t> selected_stripes;
-    if (_state->stripe_pruning_applied) {
-        for (const auto& stripe_range : _state->selected_stripe_ranges) {
-            if (stripe_range.last_stripe < stripe_range.first_stripe ||
-                stripe_range.last_stripe > _state->reader->getNumberOfStripes()) {
-                return Status::InternalError("Invalid ORC stripe range {}-{}",
-                                             stripe_range.first_stripe, stripe_range.last_stripe);
-            }
-            for (uint64_t stripe_index = stripe_range.first_stripe;
-                 stripe_index < stripe_range.last_stripe; ++stripe_index) {
-                selected_stripes.push_back(stripe_index);
-            }
-        }
-    } else {
-        RETURN_IF_ERROR(_collect_split_stripes(&selected_stripes));
-    }
+    RETURN_IF_ERROR(_collect_selected_stripes(&selected_stripes));
 
     for (const auto stripe_index : selected_stripes) {
         std::unique_ptr<::orc::StripeInformation> stripe_information;

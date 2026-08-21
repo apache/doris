@@ -139,32 +139,21 @@ Status get_paimon_arrow_schema_from_block(const Block& block,
 } // namespace
 
 // ────────────────────────────────────────────────────────────
-// JNI helpers — JVM attachment and class loading
+// JNI helpers — class loading
 // ────────────────────────────────────────────────────────────
 
 static constexpr const char* PAIMON_JNI_WRITER_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
 static constexpr const char* SCANNER_LOADER_CLASS =
         "org/apache/doris/common/classloader/ScannerLoader";
 
-/// Attach the current native thread to the JVM if not already attached,
-/// and return a valid JNIEnv pointer.
-static Status _get_jni_env(JNIEnv** env) {
-    JavaVM* jvm = nullptr;
-    jsize n_vms = 0;
-    jint result = JNI_GetCreatedJavaVMs(&jvm, 1, &n_vms);
-    if (result != JNI_OK || n_vms == 0) {
-        return Status::InternalError("Failed to get created JavaVM");
-    }
-    result = jvm->GetEnv(reinterpret_cast<void**>(env), JNI_VERSION_1_8);
-    if (result == JNI_EDETACHED) {
-        result = jvm->AttachCurrentThread(reinterpret_cast<void**>(env), nullptr);
-        if (result != JNI_OK) {
-            return Status::InternalError("Failed to attach current thread to JVM");
-        }
-    } else if (result != JNI_OK) {
-        return Status::InternalError("Failed to get JNIEnv");
-    }
-    return Status::OK();
+const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
+        "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
+        "String;Ljava/lang/String;JJ)V";
+
+PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
+        TPaimonWriteMode::type write_mode) {
+    return {static_cast<jboolean>(write_mode == TPaimonWriteMode::OVERWRITE),
+            static_cast<jboolean>(write_mode == TPaimonWriteMode::CHANGELOG)};
 }
 
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
@@ -182,7 +171,7 @@ Status JniPaimonWriteBackend::close() {
     }
 
     JNIEnv* env = nullptr;
-    Status env_status = _get_jni_env(&env);
+    Status env_status = Jni::Env::Get(&env);
     if (!env_status.ok()) {
         bool java_users_may_exist = _jni_writer_obj != nullptr;
         // JNI global references cannot be released without an environment.
@@ -308,7 +297,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);
 
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(_get_jni_env(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
 
     // Step 1: Load PaimonJniWriter class through ScannerLoader (Paimon jars are
     // not on the default application classpath, so FindClass won't work).
@@ -319,10 +308,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, _jni_writer_cls));
 
     // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
-    jmethodID open_id = env->GetMethodID(
-            _jni_writer_cls, "open",
-            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZLjava/lang/"
-            "String;Ljava/lang/String;JJ)V");
+    jmethodID open_id = env->GetMethodID(_jni_writer_cls, "open", PAIMON_JNI_WRITER_OPEN_SIGNATURE);
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -360,10 +346,10 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
         env->DeleteLocalRef(str);
     }
 
+    PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(_jni_writer_obj, open_id, j_serialized_table, j_hadoop_config, j_cols,
-                        static_cast<jlong>(sink.transaction_id), j_commit_user,
-                        static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::OVERWRITE),
-                        j_time_zone, j_spill_directories,
+                        static_cast<jlong>(sink.transaction_id), j_commit_user, open_mode.overwrite,
+                        open_mode.changelog, j_time_zone, j_spill_directories,
                         static_cast<jlong>(_memory_manager->memory_limit()),
                         reinterpret_cast<jlong>(_memory_manager.get()));
     Status st = _check_jni_exception(env, "open");
@@ -467,7 +453,7 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
     // call PaimonJniWriter.write(ByteBuffer). Java side reads the Arrow IPC
     // stream via ArrowStreamReader.
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(_get_jni_env(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
 
     jobject direct_buffer =
             env->NewDirectByteBuffer(buffer->mutable_data(), static_cast<jlong>(buffer->size()));
@@ -487,7 +473,7 @@ Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
 
 Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messages) {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(_get_jni_env(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
 
     // Call PaimonJniWriter.prepareCommit() which returns byte[][] —
     // each element is a DPCM-framed serialized CommitMessage chunk produced
@@ -539,7 +525,7 @@ Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messag
 
 Status JniPaimonWriter::abort() {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(_get_jni_env(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     env->CallVoidMethod(_jni_writer_obj, _abort_id);
     return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception in abort: ");
 }

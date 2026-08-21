@@ -139,6 +139,7 @@ public class PaimonJniWriter {
      * @param transactionId  Doris external transaction identifier
      * @param commitUser     Paimon commit user shared with the FE committer
      * @param overwrite      whether this is an overwrite write
+     * @param changelogWrite whether the first input column contains a row change operation
      * @param timeZone       normalized Doris session timezone used for Paimon LTZ values
      * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
      * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
@@ -146,7 +147,7 @@ public class PaimonJniWriter {
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
-                     boolean overwrite, String timeZone, String spillDirectories,
+                     boolean overwrite, boolean changelogWrite, String timeZone, String spillDirectories,
                      long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (memoryPoolLimitBytes <= 0) {
@@ -170,8 +171,10 @@ public class PaimonJniWriter {
                     this.bucketMode = table.bucketMode();
 
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
-                    this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames);
-                    validateWriteColumnsForMergeEngine(columnNames.length, coreOptions);
+                    this.writeSchema = PaimonWriteSchema.create(
+                            table.rowType(), columnNames, changelogWrite);
+                    validateWriteColumnsForMergeEngine(
+                            columnNames.length - (changelogWrite ? 1 : 0), coreOptions);
                     this.fullCompactionChangelog =
                             !coreOptions.writeOnly()
                                     && coreOptions.changelogProducer()

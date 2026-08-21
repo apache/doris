@@ -19,10 +19,12 @@ package org.apache.doris.datasource.lance;
 
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /** Immutable metadata resolved from one already-fixed Lance dataset version. */
 public class LanceTableMetadata {
@@ -30,14 +32,34 @@ public class LanceTableMetadata {
     private final long version;
     private final Schema schema;
     private final List<LanceFragmentInfo> fragments;
+    private final Map<String, Integer> lanceFieldIds;
+    private final List<LanceIndexSegmentInfo> indexSegments;
     private final Map<String, String> backendStorageOptions;
 
-    public LanceTableMetadata(String datasetUri, long version, Schema schema,
-            List<LanceFragmentInfo> fragments, Map<String, String> backendStorageOptions) {
+    public static LanceTableMetadata withoutIndexSegments(String datasetUri, long version,
+            Schema schema, List<LanceFragmentInfo> fragments,
+            Map<String, String> backendStorageOptions) {
+        return new LanceTableMetadata(datasetUri, version, schema, fragments,
+                Collections.emptyMap(), Collections.emptyList(), backendStorageOptions);
+    }
+
+    public static LanceTableMetadata withIndexSegments(String datasetUri, long version,
+            Schema schema, List<LanceFragmentInfo> fragments,
+            Map<String, Integer> lanceFieldIds, List<LanceIndexSegmentInfo> indexSegments,
+            Map<String, String> backendStorageOptions) {
+        return new LanceTableMetadata(datasetUri, version, schema, fragments,
+                lanceFieldIds, indexSegments, backendStorageOptions);
+    }
+
+    private LanceTableMetadata(String datasetUri, long version, Schema schema,
+            List<LanceFragmentInfo> fragments, Map<String, Integer> lanceFieldIds,
+            List<LanceIndexSegmentInfo> indexSegments, Map<String, String> backendStorageOptions) {
         this.datasetUri = datasetUri;
         this.version = version;
         this.schema = schema;
-        this.fragments = Collections.unmodifiableList(fragments);
+        this.fragments = Collections.unmodifiableList(new ArrayList<>(fragments));
+        this.lanceFieldIds = Collections.unmodifiableMap(new HashMap<>(lanceFieldIds));
+        this.indexSegments = Collections.unmodifiableList(new ArrayList<>(indexSegments));
         this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
     }
 
@@ -57,41 +79,20 @@ public class LanceTableMetadata {
         return fragments;
     }
 
+    public List<LanceIndexSegmentInfo> getIndexSegments() {
+        return indexSegments;
+    }
+
+    public OptionalInt getLanceFieldId(String fieldName) {
+        Integer fieldId = lanceFieldIds.get(fieldName);
+        return fieldId == null ? OptionalInt.empty() : OptionalInt.of(fieldId);
+    }
+
     public Map<String, String> getBackendStorageOptions() {
         return backendStorageOptions;
     }
 
     public long getRowCount() {
         return fragments.stream().mapToLong(LanceFragmentInfo::getRowCount).sum();
-    }
-
-    public static class LanceFragmentInfo {
-        private final long id;
-        private final long rowCount;
-        private final long physicalRows;
-
-        public LanceFragmentInfo(long id, long rowCount, long physicalRows) {
-            this.id = id;
-            this.rowCount = rowCount;
-            this.physicalRows = physicalRows;
-        }
-
-        public long getId() {
-            return id;
-        }
-
-        /** Logical rows after deletions, used for row-count statistics. */
-        public long getRowCount() {
-            return rowCount;
-        }
-
-        /**
-         * Physical rows on disk before deletions. The pinned BE legacy reader reads and merges
-         * physical batches before applying the deletion vector, so scan work scales with this
-         * value rather than the post-deletion row count. Used for split scheduling weight.
-         */
-        public long getPhysicalRows() {
-            return physicalRows;
-        }
     }
 }

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.Statistics;
@@ -57,15 +58,17 @@ import java.util.TreeMap;
 public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final PaimonWriteTarget writeTarget;
+    private final DMLCommandType dmlCommandType;
 
     public PhysicalPaimonTableSink(PaimonExternalDatabase database,
                                     PaimonWriteTarget writeTarget,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
+                                    DMLCommandType dmlCommandType,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, writeTarget, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, writeTarget, cols, outputExprs, dmlCommandType, groupExpression, logicalProperties,
                 PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED, null, child);
     }
 
@@ -73,6 +76,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                                     PaimonWriteTarget writeTarget,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
+                                    DMLCommandType dmlCommandType,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     PhysicalProperties physicalProperties,
@@ -81,36 +85,37 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         super(PlanType.PHYSICAL_PAIMON_TABLE_SINK, database, writeTarget.getDorisTable(), cols, outputExprs,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.writeTarget = writeTarget;
+        this.dmlCommandType = dmlCommandType;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics, children.get(0));
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public PhysicalPaimonTableSink<Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics stats) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, stats, child());
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
+                groupExpression, getLogicalProperties(), physicalProperties, stats, child());
     }
 
     @Override
@@ -139,11 +144,12 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         }
 
         List<Slot> outputSlots = child().getOutput();
-        Preconditions.checkState(cols.size() == outputSlots.size(),
+        int columnOffset = isChangelogWrite() ? 1 : 0;
+        Preconditions.checkState(cols.size() + columnOffset == outputSlots.size(),
                 "Paimon sink columns must match child output");
         Map<String, ExprId> columnExprIds = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (int i = 0; i < cols.size(); i++) {
-            columnExprIds.put(cols.get(i).getName(), outputSlots.get(i).getExprId());
+            columnExprIds.put(cols.get(i).getName(), outputSlots.get(i + columnOffset).getExprId());
         }
 
         List<ExprId> primaryKeyExprIds = new ArrayList<>(primaryKeys.size());
@@ -297,6 +303,16 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
     public PaimonWriteTarget getWriteTarget() {
         return writeTarget;
+    }
+
+    public DMLCommandType getDmlCommandType() {
+        return dmlCommandType;
+    }
+
+    public boolean isChangelogWrite() {
+        return dmlCommandType == DMLCommandType.UPDATE
+                || dmlCommandType == DMLCommandType.DELETE
+                || dmlCommandType == DMLCommandType.MERGE;
     }
 
     @Override

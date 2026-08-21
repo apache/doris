@@ -117,6 +117,16 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantUnshreddedDirectImportRows", TUnit::UNIT, parquet_profile);
     variant_unshredded_direct_import_bytes = add_persistent_counter(
             profile, "VariantUnshreddedDirectImportBytes", TUnit::BYTES, parquet_profile);
+    variant_unshredded_direct_seek_time = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekTime", TUnit::TIME_NS, parquet_profile);
+    variant_unshredded_direct_seek_rows = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekRows", TUnit::UNIT, parquet_profile);
+    variant_unshredded_direct_seek_bytes = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekBytes", TUnit::BYTES, parquet_profile);
+    variant_unshredded_prefix_reuse_rows = add_persistent_counter(
+            profile, "VariantUnshreddedPrefixReuseRows", TUnit::UNIT, parquet_profile);
+    variant_direct_subtree_rows = add_persistent_counter(profile, "VariantDirectSubtreeRows",
+                                                         TUnit::UNIT, parquet_profile);
     variant_direct_leaf_rows =
             add_persistent_counter(profile, "VariantDirectLeafRows", TUnit::UNIT, parquet_profile);
     variant_direct_leaf_path_misses = add_persistent_counter(profile, "VariantDirectLeafPathMisses",
@@ -358,6 +368,11 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .variant_unshredded_direct_import_time = variant_unshredded_direct_import_time,
             .variant_unshredded_direct_import_rows = variant_unshredded_direct_import_rows,
             .variant_unshredded_direct_import_bytes = variant_unshredded_direct_import_bytes,
+            .variant_unshredded_direct_seek_time = variant_unshredded_direct_seek_time,
+            .variant_unshredded_direct_seek_rows = variant_unshredded_direct_seek_rows,
+            .variant_unshredded_direct_seek_bytes = variant_unshredded_direct_seek_bytes,
+            .variant_unshredded_prefix_reuse_rows = variant_unshredded_prefix_reuse_rows,
+            .variant_direct_subtree_rows = variant_direct_subtree_rows,
             .variant_direct_leaf_rows = variant_direct_leaf_rows,
             .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,
             .variant_direct_leaf_residual_fallbacks = variant_direct_leaf_residual_fallbacks,

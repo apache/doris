@@ -38,6 +38,7 @@ public class LogicalPaimonTableSinkToPhysicalPaimonTableSink extends OneImplemen
                     sink.getWriteTarget(),
                     sink.getCols(),
                     sink.getOutputExprs(),
+                    sink.getDmlCommandType(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,

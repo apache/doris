@@ -18,6 +18,7 @@
 #include "format_v2/parquet/parquet_reader.h"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -41,6 +42,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/count_column_reader.h"
+#include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
@@ -478,11 +480,16 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
-                             bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary)
+                             bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
+                             std::shared_ptr<const FileContext> file_context,
+                             int64_t format_split_id, int64_t format_split_id_end)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
-          _enable_mapping_varbinary(enable_mapping_varbinary) {}
+          _enable_mapping_varbinary(enable_mapping_varbinary),
+          _file_context(std::move(file_context)),
+          _format_split_id(format_split_id),
+          _format_split_id_end(format_split_id_end) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -519,18 +526,22 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->scheduler.set_batch_size(_batch_size);
     // Opening the file parses the footer before any row group can be scheduled. Keep this timer
     // around the whole operation so footer/cache latency cannot disappear from a slow profile.
+    Status file_context_status;
     {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
-        RETURN_IF_ERROR(_state->file_context.open(
+        file_context_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary));
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context);
     }
+    // Publish physical-footer outcomes even when opening the file fails so a failing footer path
+    // remains visible in the profile that must diagnose it.
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
                        _state->file_context.native_footer_read_calls);
         COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                        _state->file_context.native_footer_cache_hits);
     }
+    RETURN_IF_ERROR(file_context_status);
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     {
@@ -548,6 +559,97 @@ Status ParquetReader::init(RuntimeState* state) {
             }
         }
     }
+    return Status::OK();
+}
+
+Status ParquetReader::build_physical_splits(std::vector<PhysicalFileSplit>* splits,
+                                            bool* was_split) const {
+    DORIS_CHECK(splits != nullptr);
+    DORIS_CHECK(was_split != nullptr);
+    splits->clear();
+    *was_split = false;
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr ||
+        _state->file_context.shared_file_context == nullptr) {
+        return Status::Uninitialized("ParquetReader is not open");
+    }
+    if (!_state->file_context.shared_file_context->has_stable_identity) {
+        // A path and size do not identify a mutable remote object. Keep the initialized parent
+        // reader instead of publishing children whose shared footer could become stale.
+        return Status::OK();
+    }
+    if (!_state->file_context.can_refine_physical_splits()) {
+        return Status::OK();
+    }
+
+    ParquetScanRange scan_range {
+            .start_offset = _file_description->range_start_offset,
+            .size = _file_description->range_size,
+            .file_size = _file_description->file_size,
+    };
+    std::vector<int> selected_row_groups;
+    if (_state->scan_plan != nullptr) {
+        selected_row_groups.reserve(_state->scan_plan->row_groups.size());
+        for (const auto& row_group_plan : _state->scan_plan->row_groups) {
+            selected_row_groups.push_back(row_group_plan.row_group_id);
+        }
+    } else {
+        RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
+                _state->file_context.native_metadata->to_thrift(), scan_range,
+                _state->file_context.native_metadata->row_group_first_rows(),
+                &selected_row_groups));
+    }
+    const auto& metadata = _state->file_context.native_metadata->to_thrift();
+    const auto compat = native::parquet_reader_compat(
+            metadata.__isset.created_by ? metadata.created_by : std::string {});
+    const size_t file_size = _state->file_context.native_file->size();
+    splits->reserve(selected_row_groups.size());
+    for (const int row_group_id : selected_row_groups) {
+        const auto& row_group = metadata.row_groups[row_group_id];
+        if (row_group.num_rows == 0) {
+            // Empty row groups are valid and the ordinary scan planner ignores them. Refinement
+            // must preserve that behavior before inspecting their potentially empty chunks.
+            continue;
+        }
+        if (row_group.columns.empty()) {
+            // A root-only schema can still carry rows for metadata COUNT(*), but it has no byte
+            // envelope that can identify a child. Keep the initialized source reader so those
+            // rows are not turned into a corruption error or discarded after tentative children.
+            splits->clear();
+            return Status::OK();
+        }
+        size_t group_start = std::numeric_limits<size_t>::max();
+        size_t group_end = 0;
+        for (size_t column_id = 0; column_id < row_group.columns.size(); ++column_id) {
+            const auto& chunk = row_group.columns[column_id];
+            if (!chunk.__isset.meta_data) {
+                // Scheduling envelopes span every chunk, including columns the current request
+                // does not read. If an unused chunk cannot prove a safe envelope, retain the
+                // initialized source reader so projected-column validation remains authoritative.
+                splits->clear();
+                return Status::OK();
+            }
+            native::ColumnChunkRange chunk_range;
+            const auto range_status = native::compute_column_chunk_range(
+                    chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range);
+            if (!range_status.ok()) {
+                splits->clear();
+                return Status::OK();
+            }
+            group_start = std::min(group_start, chunk_range.offset);
+            group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
+        }
+        if (group_end <= group_start) {
+            splits->clear();
+            return Status::OK();
+        }
+        PhysicalFileSplit child;
+        child.start_offset = cast_set<int64_t>(group_start);
+        child.size = cast_set<int64_t>(group_end - group_start);
+        child.file_context = _state->file_context.shared_file_context;
+        child.format_split_id = row_group_id;
+        splits->push_back(std::move(child));
+    }
+    *was_split = true;
     return Status::OK();
 }
 
@@ -668,6 +770,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     scan_range.start_offset = _file_description->range_start_offset;
     scan_range.size = _file_description->range_size;
     scan_range.file_size = _file_description->file_size;
+    scan_range.row_group_id = _format_split_id;
+    scan_range.row_group_id_end = _format_split_id_end;
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.native_metadata, _state->file_schema, *request_snapshot,
@@ -686,6 +790,9 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
     _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
+    DORIS_CHECK(_state->file_context.shared_file_context != nullptr);
+    _state->scheduler.set_adaptive_context(
+            _state->file_context.shared_file_context->adaptive_scan_context);
     _state->scheduler.set_plan(std::move(row_group_plan));
     _state->scheduler.set_scan_request(request_snapshot);
     _eof = _state->scheduler.empty();
@@ -972,6 +1079,25 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         }
     }
     return Status::OK();
+}
+
+Status ParquetReader::get_metadata_aggregate_result(const format::FileAggregateRequest& request,
+                                                    format::FileAggregateResult* result) {
+    if (request.agg_type == TPushAggOp::type::COUNT && !request.columns.empty()) {
+        if (request.columns.size() != 1 || _state == nullptr ||
+            _state->file_context.native_metadata == nullptr) {
+            return Status::NotSupported("Parquet COUNT requires row data");
+        }
+        const auto& projection = request.columns.front().projection;
+        const auto& root_schema = projected_root_schema(_state->file_schema, projection);
+        if (root_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+            root_schema.max_definition_level != 0) {
+            // Nullable and nested COUNT semantics come from definition/repetition levels. Do not
+            // suppress row-group children unless the already-open reader can stay footer-only.
+            return Status::NotSupported("Parquet COUNT requires definition levels");
+        }
+    }
+    return get_aggregate_result(request, result);
 }
 
 Status ParquetReader::close() {

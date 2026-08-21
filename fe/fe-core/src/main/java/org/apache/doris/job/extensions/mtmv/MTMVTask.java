@@ -63,6 +63,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
@@ -96,6 +97,8 @@ import java.util.Set;
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
     public static final int DEFAULT_REFRESH_PARTITION_NUM = 1;
+
+    private static final Gson GSON = new Gson();
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createStringType()),
@@ -188,7 +191,7 @@ public class MTMVTask extends AbstractTask {
             LOG.debug("mtmv task run, taskId: {}", super.getTaskId());
         }
         mtmvSchemaChangeVersion = mtmv.getSchemaChangeVersion();
-        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        ConnectContext ctx = createTaskContext();
         try {
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
@@ -202,6 +205,7 @@ public class MTMVTask extends AbstractTask {
             Pair<Set<TableIf>, Set<TableIf>> tablesInPlan = MTMVPlanUtil.getBaseTableFromQuery(mtmv.getQuerySql(), ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(tablesInPlan.first, tablesInPlan.second);
             beforeMTMVRefresh();
+            installTaskSnapshots(ctx.getStatementContext());
             List<TableIf> tableIfs = Lists.newArrayList(tablesInPlan.first);
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
@@ -265,7 +269,7 @@ public class MTMVTask extends AbstractTask {
                         .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
                                 execPartitionNames);
                 try {
-                    executeWithRetry(execPartitionNames, tableWithPartKey);
+                    executeWithRetry(execPartitionNames, tableWithPartKey, ctx);
                 } catch (Exception e) {
                     LOG.error("Execution failed after retries: {}", e.getMessage());
                     throw new JobException(e.getMessage(), e);
@@ -286,7 +290,8 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private void executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey)
+    private void executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey,
+            ConnectContext taskContext)
             throws Exception {
         int retryCount = 0;
         int retryTime = Config.max_query_retry_time;
@@ -294,7 +299,7 @@ public class MTMVTask extends AbstractTask {
         Exception lastException = null;
         while (retryCount < retryTime) {
             try {
-                exec(execPartitionNames, tableWithPartKey);
+                exec(execPartitionNames, tableWithPartKey, taskContext);
                 break; // Exit loop if execution is successful
             } catch (Exception e) {
                 if (!(Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage()))) {
@@ -324,23 +329,22 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void exec(Set<String> refreshPartitionNames,
-            Map<TableIf, String> tableWithPartKey)
+            Map<TableIf, String> tableWithPartKey, ConnectContext taskContext)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        setComputeGroup(ctx);
-        recordComputeGroup(ctx);
         StatementContext statementContext = new StatementContext();
-        for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
-            statementContext.setSnapshot(entry.getKey(), entry.getValue());
-        }
         ctx.setStatementContext(statementContext);
-        TUniqueId queryId = generateQueryId();
-        lastQueryId = DebugUtil.printId(queryId);
-        // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
-        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
+        executor = null;
         try {
+            setComputeGroup(ctx);
+            recordComputeGroup(ctx);
+            installTaskSnapshots(statementContext);
+            TUniqueId queryId = generateQueryId();
+            lastQueryId = DebugUtil.printId(queryId);
+            // if SELF_MANAGE mv, only have default partition, will not have partitionItem, so we give empty set
+            UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
+                    .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
+                            ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
             ctx.setExecutor(executor);
             ctx.setQueryId(queryId);
@@ -354,10 +358,49 @@ public class MTMVTask extends AbstractTask {
                 throw new JobException(ctx.getState().getErrorMessage());
             }
         } finally {
-            if (executor != null) {
-                AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
-                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            try {
+                if (executor != null) {
+                    AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
+                            executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+                }
+            } finally {
+                closeExecutionContext(ctx, taskContext);
             }
+        }
+    }
+
+    private static void closeExecutionContext(ConnectContext ctx) {
+        closeExecutionContext(ctx, null);
+    }
+
+    private ConnectContext createTaskContext() {
+        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
+                mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        ctx.setStatementContext(new StatementContext());
+        return ctx;
+    }
+
+    private static void closeExecutionContext(ConnectContext ctx, ConnectContext taskContext) {
+        try {
+            if (ctx.queryId() != null) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+            }
+        } finally {
+            try {
+                ctx.getStatementContext().close();
+            } finally {
+                if (taskContext == null) {
+                    ConnectContext.remove();
+                } else {
+                    taskContext.setThreadLocalInfo();
+                }
+            }
+        }
+    }
+
+    private void installTaskSnapshots(StatementContext statementContext) {
+        for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }
     }
 
@@ -544,16 +587,16 @@ public class MTMVTask extends AbstractTask {
                 (super.getFinishTimeMs() == null || super.getFinishTimeMs() == 0) ? FeConstants.null_string
                         : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell()
-                .setStringVal(taskContext == null ? FeConstants.null_string : new Gson().toJson(taskContext)));
+                .setStringVal(taskContext == null ? FeConstants.null_string : GSON.toJson(taskContext)));
         trow.addToColumnValue(
                 new TCell().setStringVal(refreshMode == null ? FeConstants.null_string : refreshMode.toString()));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        needRefreshPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        needRefreshPartitions == null ? FeConstants.null_string : GSON.toJson(
                                 needRefreshPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        completedPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        completedPartitions == null ? FeConstants.null_string : GSON.toJson(
                                 completedPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(getProgress()));

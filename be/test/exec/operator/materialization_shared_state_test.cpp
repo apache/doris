@@ -17,6 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <limits>
+
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -29,7 +32,7 @@ namespace doris {
 
 namespace {
 
-void add_request_row(PRequestBlockDesc* request_block_desc, uint32_t row_id, uint32_t file_id) {
+void add_request_row(PRequestBlockDesc* request_block_desc, uint64_t row_id, uint32_t file_id) {
     request_block_desc->add_row_id(row_id);
     request_block_desc->add_file_id(file_id);
 }
@@ -125,6 +128,73 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
     // Verify block_order_results
     EXPECT_EQ(_shared_state->block_order_results.size(), columns.size());
     EXPECT_EQ(_shared_state->eos, true);
+    const auto& backend1_request =
+            _shared_state->rpc_struct_map[_backend_id1].request.request_block_descs(0);
+    ASSERT_EQ(backend1_request.row_id_size(), 1);
+    EXPECT_EQ(backend1_request.row_id(0), 1);
+    const auto& backend2_request =
+            _shared_state->rpc_struct_map[_backend_id2].request.request_block_descs(0);
+    ASSERT_EQ(backend2_request.row_id_size(), 1);
+    EXPECT_EQ(backend2_request.row_id(0), 2);
+}
+
+TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResultWithUint64RowId) {
+    Columns columns;
+    auto rowid_col = _string_type->create_column();
+    auto* col_data = reinterpret_cast<ColumnString*>(rowid_col.get());
+
+    constexpr uint64_t large_row_id =
+            static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 17;
+    GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, _backend_id1, 7, large_row_id);
+    col_data->insert_data(reinterpret_cast<const char*>(&location), sizeof(location));
+    columns.push_back(std::move(rowid_col));
+
+    ASSERT_TRUE(_shared_state->create_muiltget_result(columns, false, false).ok());
+
+    const auto& request = _shared_state->rpc_struct_map[_backend_id1].request;
+    ASSERT_EQ(request.request_block_descs_size(), 1);
+    const auto& request_block = request.request_block_descs(0);
+    ASSERT_EQ(request_block.row_id_size(), 1);
+    EXPECT_EQ(request_block.row_id(0), large_row_id);
+    ASSERT_EQ(request_block.file_id_size(), 1);
+    EXPECT_EQ(request_block.file_id(0), 7);
+    EXPECT_EQ(request_block.row_location_version(),
+              static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID));
+    EXPECT_EQ(_shared_state->block_order_results[0][0], _backend_id1);
+}
+
+TEST_F(MaterializationSharedStateTest, TestRejectUnknownRowLocationVersionWithFutureSize) {
+    Columns columns;
+    auto rowid_col = _string_type->create_column();
+    auto* col_data = reinterpret_cast<ColumnString*>(rowid_col.get());
+
+    std::array<char, sizeof(GlobalRowLoacationV2) + 8> future_location {};
+    future_location[0] = 99;
+    col_data->insert_data(future_location.data(), future_location.size());
+    columns.push_back(std::move(rowid_col));
+
+    const Status st = _shared_state->create_muiltget_result(columns, false, false);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("unsupported global row location version: 99"),
+              std::string::npos);
+    EXPECT_NE(st.to_string().find("encoded_size=32"), std::string::npos);
+}
+
+TEST_F(MaterializationSharedStateTest, TestRejectKnownRowLocationVersionWithInvalidSize) {
+    Columns columns;
+    auto rowid_col = _string_type->create_column();
+    auto* col_data = reinterpret_cast<ColumnString*>(rowid_col.get());
+
+    std::array<char, sizeof(GlobalRowLoacationV2) + 1> invalid_location {};
+    invalid_location[0] = static_cast<char>(ROW_VERSION::LANCE_DATASET_ROW_ID);
+    col_data->insert_data(invalid_location.data(), invalid_location.size());
+    columns.push_back(std::move(rowid_col));
+
+    const Status st = _shared_state->create_muiltget_result(columns, false, false);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("invalid global row location size for version 1"),
+              std::string::npos);
+    EXPECT_NE(st.to_string().find("actual=25, expected=24"), std::string::npos);
 }
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
