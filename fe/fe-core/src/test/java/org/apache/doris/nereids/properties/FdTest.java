@@ -380,7 +380,7 @@ class FdTest extends TestWithFeService {
                 table.getBaseIndexId(), false, PreAggStatus.unset(), ImmutableList.of(), ImmutableList.of(),
                 Maps.newHashMap(), Optional.of(partialOutput), Optional.empty(), false, Maps.newHashMap(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty(), "");
+                Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty());
 
         List<Slot> output = scan.getOutput();
         Assertions.assertEquals(2, output.size(), "scan output: " + output);
