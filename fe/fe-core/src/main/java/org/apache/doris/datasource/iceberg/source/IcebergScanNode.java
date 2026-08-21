@@ -284,6 +284,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                     icebergTable
             );
+            storagePropertiesMap = IcebergUtils.selectEffectiveStorageProperties(storagePropertiesMap);
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         } finally {
             if (getSummaryProfile() != null) {

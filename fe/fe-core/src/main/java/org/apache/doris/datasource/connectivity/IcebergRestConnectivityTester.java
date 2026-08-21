@@ -18,11 +18,12 @@
 package org.apache.doris.datasource.connectivity;
 
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.rest.RESTCatalog;
 
+import java.util.List;
 import java.util.Map;
 
 public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTester {
@@ -30,9 +31,12 @@ public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTe
     private static final String DEFAULT_BASE_LOCATION = "default-base-location";
 
     private String warehouseLocation;
+    private final List<StorageProperties> storagePropertiesList;
 
-    public IcebergRestConnectivityTester(AbstractIcebergProperties properties) {
+    public IcebergRestConnectivityTester(AbstractIcebergProperties properties,
+            List<StorageProperties> storagePropertiesList) {
         super(properties);
+        this.storagePropertiesList = storagePropertiesList;
     }
 
     @Override
@@ -48,10 +52,8 @@ public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTe
 
     @Override
     public void testConnection() throws Exception {
-        Map<String, String> restProps = ((IcebergRestProperties) properties).getIcebergRestCatalogProperties();
-
-        try (RESTCatalog catalog = new RESTCatalog()) {
-            catalog.initialize("connectivity-test", restProps);
+        try (RESTCatalog catalog = (RESTCatalog) properties.initializeCatalog(
+                "connectivity-test", storagePropertiesList)) {
 
             // Validate connection by listing namespaces.
             // This verifies authentication and warehouse configuration.
