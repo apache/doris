@@ -1,9 +1,0 @@
-{
-  "msg": "success",
-  "code": 0,
-  "data": {
-    "column_names": ["CurrentConnected", "Id", "User", "Host", "LoginTime", "Catalog", "Db", "Command", "Time", "State", "QueryId", "TraceId", "Info", "FE", "CloudCluster"],
-    "rows": []
-  },
-  "count": 0
-}
