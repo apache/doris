@@ -36,6 +36,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     public static final String PROP_READ_JSON_BY_LINE = "read_json_by_line";
     public static final String PROP_NUM_AS_STRING = "num_as_string";
     public static final String PROP_FUZZY_PARSE = "fuzzy_parse";
+    public static final String PROP_FILL_MISSING_COLUMNS = "fill_missing_columns";
 
     // from ExternalFileTableValuedFunction:
     private String jsonRoot = "";
@@ -44,6 +45,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     private boolean readJsonByLine;
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
+    private boolean fillMissingColumns = false;
     private String lineDelimiter = CsvFileFormatProperties.DEFAULT_LINE_DELIMITER;
 
 
@@ -77,6 +79,14 @@ public class JsonFileFormatProperties extends FileFormatProperties {
             fuzzyParse = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_FUZZY_PARSE,
                             "", isRemoveOriginProperty)).booleanValue();
+            String fillMissingColumnsStr = getOrDefault(formatProperties, PROP_FILL_MISSING_COLUMNS,
+                    "false", isRemoveOriginProperty);
+            if (!"true".equalsIgnoreCase(fillMissingColumnsStr)
+                    && !"false".equalsIgnoreCase(fillMissingColumnsStr)) {
+                throw new AnalysisException(PROP_FILL_MISSING_COLUMNS
+                        + " must be 'true' or 'false', but found: " + fillMissingColumnsStr);
+            }
+            fillMissingColumns = Boolean.valueOf(fillMissingColumnsStr).booleanValue();
             lineDelimiter = getOrDefault(formatProperties, CsvFileFormatProperties.PROP_LINE_DELIMITER,
                     CsvFileFormatProperties.DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(lineDelimiter)) {
@@ -134,6 +144,10 @@ public class JsonFileFormatProperties extends FileFormatProperties {
 
     public boolean isFuzzyParse() {
         return fuzzyParse;
+    }
+
+    public boolean isFillMissingColumns() {
+        return fillMissingColumns;
     }
 
     public String getLineDelimiter() {

@@ -429,6 +429,8 @@ public abstract class RoutineLoadJob
                     String.valueOf(jsonFileFormatProperties.isNumAsString()));
             jobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE,
                     String.valueOf(jsonFileFormatProperties.isFuzzyParse()));
+            jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS,
+                    String.valueOf(jsonFileFormatProperties.isFillMissingColumns()));
         } else {
             throw new UserException("Invalid format type.");
         }
@@ -710,6 +712,10 @@ public abstract class RoutineLoadJob
     @Override
     public boolean isFuzzyParse() {
         return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FUZZY_PARSE));
+    }
+
+    public boolean isFillMissingColumns() {
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
     }
 
     @Override
@@ -1820,6 +1826,12 @@ public abstract class RoutineLoadJob
         appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
+        // fill_missing_columns is a JSON-only property. Emitting it for CSV/default jobs would make
+        // the generated statement non-round-trippable, since the create path rejects it unless the
+        // format is JSON.
+        if (getFormat().equalsIgnoreCase("json")) {
+            appendProperties(sb, JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, isFillMissingColumns(), false);
+        }
         appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
         appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
