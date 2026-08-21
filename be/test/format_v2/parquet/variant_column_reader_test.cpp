@@ -3753,6 +3753,8 @@ TEST(VariantColumnReaderTest, CompleteShreddedRootResidualObjectStillResolvesPat
         auto object = row.start_object();
         object.add_key(StringRef("a"));
         row.add_int(5);
+        object.add_key(StringRef("b"));
+        row.add_int(6);
         object.finish();
         row.finish();
     }
@@ -3779,6 +3781,7 @@ TEST(VariantColumnReaderTest, CompleteShreddedRootResidualObjectStillResolvesPat
     ASSERT_TRUE(materialize_variant_rows(shredded_object_schema(), *physical, output).ok());
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
 
+    detail::reset_variant_shredded_validation_counts();
     const auto extracted = extract_object_key(nullable, {StringRef("a")});
     const auto& extracted_nullable = assert_cast<const ColumnNullable&>(*extracted);
     const auto& extracted_variant =
@@ -3786,6 +3789,18 @@ TEST(VariantColumnReaderTest, CompleteShreddedRootResidualObjectStillResolvesPat
     EXPECT_EQ(extracted_nullable.get_null_map_data(), (NullMap {0, 0}));
     EXPECT_EQ(extracted_variant.get_value_ref(0).get_int(), 11);
     EXPECT_EQ(extracted_variant.get_value_ref(1).get_int(), 5);
+    const size_t validations = detail::variant_shredded_residual_validation_count();
+    EXPECT_EQ(validations, 1);
+
+    // Q10 evaluates many distinct paths that share one physical root carrier. Validation is keyed
+    // by that carrier rather than by path, so a second key must reuse the first successful scan.
+    const auto extracted_again = extract_object_key(nullable, {StringRef("b")});
+    const auto& extracted_again_nullable = assert_cast<const ColumnNullable&>(*extracted_again);
+    const auto& extracted_again_variant =
+            assert_cast<const ColumnVariantV2&>(extracted_again_nullable.get_nested_column());
+    EXPECT_EQ(extracted_again_nullable.get_null_map_data(), (NullMap {1, 0}));
+    EXPECT_EQ(extracted_again_variant.get_value_ref(1).get_int(), 6);
+    EXPECT_EQ(detail::variant_shredded_residual_validation_count(), validations);
 }
 
 TEST(VariantColumnReaderTest, AnnotatedStringLeafIsHandedOverWithoutCopying) {
@@ -4161,7 +4176,7 @@ TEST(VariantColumnReaderTest, ScalarIntermediateResolvesFromItsOwnResidual) {
               5);
 }
 
-TEST(VariantColumnReaderTest, DirectStringLeafRejectsInvalidUtf8) {
+TEST(VariantColumnReaderTest, DirectStringLeafDefersUtf8Validation) {
     auto schema = shredded_binary_object_schema();
     schema.children.back()->children[0]->children[0]->type_descriptor.is_string_annotation = true;
 
@@ -4183,14 +4198,22 @@ TEST(VariantColumnReaderTest, DirectStringLeafRejectsInvalidUtf8) {
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     ASSERT_TRUE(materialize_variant_rows(schema, *physical, output).ok());
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
     ColumnPtr extracted;
     const Status status = extract_object_path(nullable, {StringRef("a")}, &extracted);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("not valid UTF-8"), std::string::npos) << status;
-    EXPECT_FALSE(extracted);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& extracted_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    ASSERT_TRUE(extracted_variants.is_typed());
+    const auto& typed = assert_cast<const ColumnNullable&>(extracted_variants.typed_column());
+    EXPECT_EQ(assert_cast<const ColumnString&>(typed.get_nested_column()).get_data_at(0),
+              StringRef(invalid_utf8.data(), invalid_utf8.size()));
+
+    // Complete Variant materialization still enforces Variant's UTF-8 requirement.
+    EXPECT_THROW(static_cast<void>(variants.get_value_ref(0)), Exception);
 }
 
-TEST(VariantColumnReaderTest, DirectLeafValidatesRootMetadata) {
+TEST(VariantColumnReaderTest, DirectLeafDefersUnusedRootMetadataValidation) {
     MutableColumns wrapper_fields;
     wrapper_fields.push_back(nullable_int64({7}, {0}));
     MutableColumns object_fields;
@@ -4205,6 +4228,46 @@ TEST(VariantColumnReaderTest, DirectLeafValidatesRootMetadata) {
 
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     ASSERT_TRUE(materialize_variant_rows(shredded_object_schema(), *physical, output).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ColumnPtr extracted;
+    const Status status = extract_object_path(nullable, {StringRef("a")}, &extracted);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& extracted_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    ASSERT_TRUE(extracted_variants.is_typed());
+    const auto& typed = assert_cast<const ColumnNullable&>(extracted_variants.typed_column());
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(typed.get_nested_column()).get_data()[0], 7);
+
+    // Whole-Variant access still consumes the dictionary and therefore retains strict validation.
+    EXPECT_THROW(static_cast<void>(variants.get_value_ref(0)), Exception);
+}
+
+TEST(VariantColumnReaderTest, ResidualLeafValidatesRootMetadataOnDemand) {
+    VariantBatchBuilder residual_builder;
+    auto residual_row = residual_builder.begin_row();
+    residual_row.add_int(5);
+    residual_row.finish();
+    const VariantBatchBuilder residual_batch = residual_builder.finish_batch();
+    const VariantRef residual = residual_batch.value_at(0);
+
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(nullable_strings({residual.value}, {0}));
+    wrapper_fields.push_back(nullable_int64({0}, {1}));
+    MutableColumns object_fields;
+    object_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(wrapper_fields)),
+                                                   ColumnUInt8::create(1, 0)));
+    MutableColumns root_fields;
+    root_fields.push_back(nullable_strings({StringRef("bad")}, {0}));
+    root_fields.push_back(nullable_strings({empty_bytes()}, {1}));
+    root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                 ColumnUInt8::create(1, 0)));
+    auto physical = root_wrapper(std::move(root_fields));
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(shredded_object_schema_with_field_residual(), *physical,
+                                         output)
+                        .ok());
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
     ColumnPtr extracted;
     const Status status = extract_object_path(nullable, {StringRef("a")}, &extracted);
@@ -4291,7 +4354,7 @@ TEST(VariantColumnReaderTest, DirectLeafRejectsNonObjectAncestorCarrier) {
     EXPECT_FALSE(extracted);
 }
 
-TEST(VariantColumnReaderTest, ResidualSeekRejectsCorruptSiblingPayload) {
+TEST(VariantColumnReaderTest, ResidualSeekDefersUnrelatedSiblingValidation) {
     VariantBatchBuilder residual_builder;
     auto residual_row = residual_builder.begin_row();
     auto residual_object = residual_row.start_object();
@@ -4326,11 +4389,16 @@ TEST(VariantColumnReaderTest, ResidualSeekRejectsCorruptSiblingPayload) {
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     ASSERT_TRUE(materialize_variant_rows(shredded_object_schema(), *physical, output).ok());
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
     ColumnPtr extracted;
     const Status status = extract_object_path(nullable, {StringRef("b")}, &extracted);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Variant"), std::string::npos) << status;
-    EXPECT_FALSE(extracted);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& extracted_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    EXPECT_EQ(extracted_variants.get_value_ref(0).get_int(), 5);
+
+    // Whole-Variant materialization still validates the complete residual, including siblings.
+    EXPECT_THROW(static_cast<void>(variants.get_value_ref(0)), Exception);
 }
 
 TEST(VariantColumnReaderTest, ResidualSeekRejectsNonterminalPrimitiveCarrierConflict) {

@@ -72,9 +72,9 @@ const ParquetColumnSchema* schema_child_by_name(const ParquetColumnSchema& schem
     return child_it == schema.children.end() ? nullptr : child_it->get();
 }
 
-bool collect_variant_residual_leaf_ids(const ParquetColumnSchema& schema,
-                                       const format::LocalColumnIndex& projection,
-                                       std::vector<int>* residual_leaf_ids) {
+bool collect_variant_terminal_fallback_leaf_ids(const ParquetColumnSchema& schema,
+                                                const format::LocalColumnIndex& projection,
+                                                std::vector<int>* residual_leaf_ids) {
     DORIS_CHECK(residual_leaf_ids != nullptr);
     const auto* value = schema_child_by_name(schema, "value");
     const auto* typed_value = schema_child_by_name(schema, "typed_value");
@@ -90,17 +90,19 @@ bool collect_variant_residual_leaf_ids(const ParquetColumnSchema& schema,
         if (typed_projection_it == projection.children.end()) {
             return false;
         }
-        // Ancestor residuals cannot supply a shredded descendant, but they are still carriers that
-        // must be read and validated unless row-group statistics prove every entry is NULL.
+        if (typed_value->kind != ParquetColumnSchemaKind::PRIMITIVE) {
+            return collect_variant_terminal_fallback_leaf_ids(*typed_value, *typed_projection_it,
+                                                              residual_leaf_ids);
+        }
+        // Object residual keys are disjoint from shredded keys. Only the fallback paired with the
+        // terminal typed leaf can supply that projected path; ancestor values contain other keys.
         residual_leaf_ids->push_back(value->leaf_column_id);
-        return typed_value->kind == ParquetColumnSchemaKind::PRIMITIVE ||
-               collect_variant_residual_leaf_ids(*typed_value, *typed_projection_it,
-                                                 residual_leaf_ids);
+        return true;
     }
     for (const auto& child_projection : projection.children) {
         const auto* child = projected_schema_child(schema, child_projection.local_id());
-        if (child == nullptr ||
-            !collect_variant_residual_leaf_ids(*child, child_projection, residual_leaf_ids)) {
+        if (child == nullptr || !collect_variant_terminal_fallback_leaf_ids(
+                                        *child, child_projection, residual_leaf_ids)) {
             return false;
         }
     }
@@ -117,7 +119,7 @@ bool variant_residual_columns_are_prunable_impl(const tparquet::RowGroup& row_gr
         return false;
     }
     std::vector<int> residual_leaf_ids;
-    if (!collect_variant_residual_leaf_ids(schema, projection, &residual_leaf_ids) ||
+    if (!collect_variant_terminal_fallback_leaf_ids(schema, projection, &residual_leaf_ids) ||
         residual_leaf_ids.empty()) {
         return false;
     }
@@ -157,16 +159,19 @@ void prune_variant_residual_columns_impl(const ParquetColumnSchema& schema,
                                          format::LocalColumnIndex* projection) {
     const auto* value = schema_child_by_name(schema, "value");
     const auto* typed_value = schema_child_by_name(schema, "typed_value");
-    if (value != nullptr && typed_value != nullptr) {
-        // Statistics proved every carrier on the requested path is entirely NULL for this row
-        // group, so none of the residual columns is needed for value or corruption semantics.
+    if (value != nullptr && typed_value != nullptr &&
+        typed_value->kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        // Terminal wrapper: statistics proved its residual is entirely NULL for this row group,
+        // so the shredded leaf alone answers every row.
         remove_child_projection(projection, value->local_id);
-        if (typed_value->kind == ParquetColumnSchemaKind::PRIMITIVE) {
-            return;
+        return;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        // The root dictionary is only needed to decode a residual.
+        if (const auto* metadata = schema_child_by_name(schema, "metadata"); metadata != nullptr) {
+            remove_child_projection(projection, metadata->local_id);
         }
     }
-    // Root metadata remains projected even when residuals are all NULL. Direct and normalized leaf
-    // handoff must validate the required dictionary just like complete materialization does.
     for (auto& child_projection : projection->children) {
         const auto* child = projected_schema_child(schema, child_projection.local_id());
         if (child != nullptr) {
@@ -199,8 +204,8 @@ bool variant_projection_carries_residuals_impl(const ParquetColumnSchema& schema
         });
     };
     if (value != nullptr && typed_value != nullptr) {
-        if (!projects(value->local_id)) {
-            return false;
+        if (typed_value->kind == ParquetColumnSchemaKind::PRIMITIVE) {
+            return projects(value->local_id);
         }
         if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
             const auto* metadata = schema_child_by_name(schema, "metadata");
@@ -287,8 +292,8 @@ size_t count_variant_leaf_projection_candidates(const ParquetColumnSchema& schem
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
         std::vector<int> residual_leaf_ids;
         return schema.max_repetition_level == 0 &&
-                               collect_variant_residual_leaf_ids(schema, projection,
-                                                                 &residual_leaf_ids) &&
+                               collect_variant_terminal_fallback_leaf_ids(schema, projection,
+                                                                          &residual_leaf_ids) &&
                                !residual_leaf_ids.empty()
                        ? 1
                        : 0;

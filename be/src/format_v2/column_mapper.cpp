@@ -1907,20 +1907,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
-    // The root dictionary validates every direct result and decodes any retained residual. Keep the
-    // root residual as well: when typed_value is present it must still be an object, and omitting the
-    // carrier would let the leaf path hide malformed input that complete materialization rejects.
+    // Decoding a residual needs the root key dictionary. The root `value` itself stays unprojected:
+    // it holds every unshredded field, so reading it would give back all the pruned I/O. Shredding
+    // keeps a present typed object's residual keys disjoint from its shredded fields, and a null
+    // typed object means the value is not an object, so the requested path is absent either way.
     const auto* root_metadata = find_file_child_by_name(mapping.original_file_children, "metadata");
     if (root_metadata == nullptr) {
         return false;
     }
     root_projection->children.push_back(LocalColumnIndex::local(root_metadata->file_local_id()));
-    if (const auto* root_residual =
-                find_file_child_by_name(mapping.original_file_children, "value");
-        root_residual != nullptr) {
-        root_projection->children.push_back(
-                LocalColumnIndex::local(root_residual->file_local_id()));
-    }
     const auto* root_typed = find_file_child_by_name(mapping.original_file_children, "typed_value");
     if (root_typed == nullptr || root_typed->children.empty() || root_typed->type == nullptr ||
         remove_nullable(root_typed->type)->get_primitive_type() != TYPE_STRUCT) {
@@ -1938,14 +1933,6 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         current_projection->children.push_back(
                 LocalColumnIndex::partial_local(wrapper->file_local_id()));
         current_projection = &current_projection->children.back();
-        // Every wrapper carrier participates in corruption validation, including object ancestors.
-        // Row-group finalization can still prune these residual columns when their null statistics
-        // prove that no row carries one.
-        if (const auto* residual = find_file_child_by_name(wrapper->children, "value");
-            residual != nullptr) {
-            current_projection->children.push_back(
-                    LocalColumnIndex::local(residual->file_local_id()));
-        }
         const auto* typed = find_file_child_by_name(wrapper->children, "typed_value");
         if (typed == nullptr) {
             return false;
@@ -1957,6 +1944,13 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
             // values still need their wrapper shape and therefore keep the full Variant fallback.
             if (!variant_leaf_is_projectable_scalar(*typed)) {
                 return false;
+            }
+            // The residual beside the leaf carries the rows whose value did not match the shredded
+            // type. Reading it lets the reader merge those rows instead of rejecting the batch.
+            if (const auto* residual = find_file_child_by_name(wrapper->children, "value");
+                residual != nullptr) {
+                current_projection->children.push_back(
+                        LocalColumnIndex::local(residual->file_local_id()));
             }
             typed_projection.project_all_children = true;
         } else if (typed->type == nullptr ||

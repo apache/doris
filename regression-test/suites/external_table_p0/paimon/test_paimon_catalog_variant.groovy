@@ -305,9 +305,9 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         assertTrue(counterSum(deepProjectionProfile,
                         "VariantLeafProjectionRowGroupColumns") > 0,
                 "Paimon Native did not project the deeply shredded Variant object leaves")
-        assertTrue(counterSum(deepProjectionProfile,
-                        "VariantResidualProjectionRowGroupColumns") > 0,
-                "Paimon Native did not retain the root residual beside deeply shredded leaves")
+        assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantResidualProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly read unrelated ancestor residual columns")
         assertEquals(0L, counterSum(deepProjectionProfile,
                         "VariantFullProjectionRowGroupColumns"),
                 "Paimon Native unexpectedly fell back to complete Variant row-group projection")
