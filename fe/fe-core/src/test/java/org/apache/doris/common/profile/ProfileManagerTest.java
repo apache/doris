@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
+import org.apache.doris.common.profile.ProfileManager.ProfileLoadStatus;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TCounter;
@@ -80,7 +81,7 @@ class ProfileManagerTest {
         originalPath = ProfileManager.PROFILE_STORAGE_PATH;
         ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
         profileManager.cleanProfile();
-        profileManager.isProfileLoaded = false;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.UNLOADED);
         originMaxProfiles = Config.max_query_profile_num;
     }
 
@@ -521,7 +522,7 @@ class ProfileManagerTest {
 
     @Test
     void testLoadProfile() throws IOException {
-        profileManager.isProfileLoaded = false;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.UNLOADED);
 
         try {
             // Create some test profile files
@@ -532,7 +533,7 @@ class ProfileManagerTest {
             }
 
             profileManager.loadProfilesFromStorageIfFirstTime(true);
-            Assertions.assertTrue(profileManager.isProfileLoaded);
+            Assertions.assertEquals(ProfileLoadStatus.LOADED, profileManager.profileLoadStatus.get());
             Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
             Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
         } catch (InterruptedException e) {
@@ -685,7 +686,7 @@ class ProfileManagerTest {
             }
 
             // Execute deletion
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify correct profiles were deleted
@@ -767,7 +768,7 @@ class ProfileManagerTest {
         }
 
         // Delete broken profiles
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteBrokenProfiles();
 
         // Verify normal files still exist
@@ -857,10 +858,10 @@ class ProfileManagerTest {
         };
 
         manager.loadProfilesFromStorageIfFirstTime(true);
-        Assertions.assertFalse(manager.isProfileLoaded);
+        Assertions.assertEquals(ProfileLoadStatus.UNLOADED, manager.profileLoadStatus.get());
 
         manager.loadProfilesFromStorageIfFirstTime(true);
-        Assertions.assertTrue(manager.isProfileLoaded);
+        Assertions.assertEquals(ProfileLoadStatus.LOADED, manager.profileLoadStatus.get());
         Assertions.assertEquals(2, scanCount.get());
     }
 
@@ -884,7 +885,7 @@ class ProfileManagerTest {
         }
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteOutdatedProfilesFromStorage();
 
         // Verify number of profiles is within limits
@@ -909,7 +910,7 @@ class ProfileManagerTest {
         brokenFile.createNewFile();
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteBrokenProfiles();
 
         // Verify broken profile is removed but valid one remains
@@ -1083,7 +1084,7 @@ class ProfileManagerTest {
             }
 
             // Trigger cleanup - should move old profiles to pending and possibly archive
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify storage directory only has max allowed profiles
@@ -1151,7 +1152,7 @@ class ProfileManagerTest {
             }
 
             // Trigger cleanup - should directly delete old profiles
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify delete invocations
@@ -1208,7 +1209,7 @@ class ProfileManagerTest {
 
             // Simulate periodic cleanup via runAfterCatalogReady
             // Note: The first call will trigger cleanup since lastArchiveCleanupTime is 0
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.runAfterCatalogReady();
 
             // Verify that the old archive was deleted by runAfterCatalogReady

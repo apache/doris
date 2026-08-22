@@ -56,7 +56,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -123,11 +123,14 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    // this variable is assigned to true the first time the profile is loaded from storage
-    // no further write operation, so no data race
-    private final ReentrantReadWriteLock isProfileLoadedLock = new ReentrantReadWriteLock();
-    volatile boolean isProfileLoaded = false;
-    private final AtomicBoolean isProfileLoading = new AtomicBoolean(false);
+    enum ProfileLoadStatus {
+        UNLOADED,
+        LOADING,
+        LOADED
+    }
+
+    final AtomicReference<ProfileLoadStatus> profileLoadStatus =
+            new AtomicReference<>(ProfileLoadStatus.UNLOADED);
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
@@ -601,13 +604,7 @@ public class ProfileManager extends MasterDaemon {
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
     protected void loadProfilesFromStorageIfFirstTime(boolean sync) {
-        if (checkIfProfileLoaded() || !isProfileLoading.compareAndSet(false, true)) {
-            return;
-        }
-
-        // The previous loader may finish between the first loaded check and updating isProfileLoading.
-        if (checkIfProfileLoaded()) {
-            isProfileLoading.set(false);
+        if (!profileLoadStatus.compareAndSet(ProfileLoadStatus.UNLOADED, ProfileLoadStatus.LOADING)) {
             return;
         }
 
@@ -661,17 +658,11 @@ public class ProfileManager extends MasterDaemon {
 
                 LOG.info("Load profiles into memory finished, costs {}ms", System.currentTimeMillis() - startTime);
 
-                // Set isProfileLoaded to true with write lock
-                isProfileLoadedLock.writeLock().lock();
-                try {
-                    this.isProfileLoaded = true;
-                } finally {
-                    isProfileLoadedLock.writeLock().unlock();
-                }
+                profileLoadStatus.set(ProfileLoadStatus.LOADED);
             } catch (Exception e) {
                 LOG.error("Failed to load query profile from storage", e);
             } finally {
-                isProfileLoading.set(false);
+                profileLoadStatus.compareAndSet(ProfileLoadStatus.LOADING, ProfileLoadStatus.UNLOADED);
             }
         });
 
@@ -1129,12 +1120,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private boolean checkIfProfileLoaded() {
-        isProfileLoadedLock.readLock().lock();
-        try {
-            return isProfileLoaded;
-        } finally {
-            isProfileLoadedLock.readLock().unlock();
-        }
+        return profileLoadStatus.get() == ProfileLoadStatus.LOADED;
     }
 
     public void removeProfile(String profileId) {
