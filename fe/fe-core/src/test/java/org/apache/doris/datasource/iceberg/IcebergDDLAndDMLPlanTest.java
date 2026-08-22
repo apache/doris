@@ -233,6 +233,9 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                 });
         icebergUtilsMock.when(() -> IcebergUtils.getWritableIcebergTable(
                 ArgumentMatchers.any(ExternalTable.class))).thenReturn(mockedIcebergTable);
+        icebergUtilsMock.when(() -> IcebergUtils.getWritableIcebergTable(
+                ArgumentMatchers.any(ExternalTable.class), ArgumentMatchers.any()))
+                .thenReturn(mockedIcebergTable);
     }
 
     @Override

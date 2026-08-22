@@ -96,6 +96,8 @@ public class IcebergExternalTableBranchAndTagTest {
         mockedIcebergUtils = Mockito.mockStatic(IcebergUtils.class);
         mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.any()))
                 .thenReturn(icebergTable);
+        mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.any(), Mockito.any()))
+                .thenReturn(icebergTable);
 
         // mock Env.getCurrentEnv().getEditLog().logBranchOrTag(info) to do nothing
         Env mockEnv = Mockito.mock(Env.class);
