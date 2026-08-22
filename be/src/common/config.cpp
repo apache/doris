@@ -1416,6 +1416,8 @@ DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// The kuromoji (Japanese) analyzer
+DEFINE_mBool(enable_kuromoji_analyzer, "false");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
