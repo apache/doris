@@ -104,6 +104,8 @@ public:
     void get_stream_load_record(TStreamLoadRecordResult& result,
                                 int64_t last_stream_record_time) override;
 
+    void get_stream_load_record_desc(TStreamLoadRecordResult& result, int64_t count) override;
+
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
     void make_snapshot(TAgentResult& return_value,
@@ -157,6 +159,9 @@ protected:
     void get_stream_load_record(TStreamLoadRecordResult& result, int64_t last_stream_record_time,
                                 std::shared_ptr<StreamLoadRecorder> stream_load_recorder);
 
+    void get_stream_load_record_desc(TStreamLoadRecordResult& result, int64_t count,
+                                     std::shared_ptr<StreamLoadRecorder> stream_load_recorder);
+
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;
     std::unique_ptr<ThreadPool> _ingest_binlog_workers;
@@ -177,6 +182,8 @@ public:
 
     void get_stream_load_record(TStreamLoadRecordResult& result,
                                 int64_t last_stream_record_time) override;
+
+    void get_stream_load_record_desc(TStreamLoadRecordResult& result, int64_t count) override;
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
