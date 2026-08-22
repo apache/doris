@@ -118,6 +118,13 @@ final class IcebergCacheSizeEstimator {
     // The frozen operations also retain the handle's EncryptionManager; scans effectively meet
     // the shared plaintext singleton, so a small fixed allowance covers the object graph.
     private static final long ENCRYPTION_MANAGER_WEIGHT = 1024L;
+    /**
+     * Flat allowance for the execution context a published value retains (authenticator,
+     * Hadoop authentication state, credential collections). The graph is shared by every value
+     * of the catalog generation; each retaining value carries the rounded-up allowance so a
+     * retired generation kept alive only by old cached values is never entirely unaccounted.
+     */
+    private static final long AUTHENTICATION_CONTEXT_WEIGHT = 16L * 1024L;
     private static final long MANIFEST_ENTRY_BASE_WEIGHT = 512L;
     private static final long DATA_FILE_WEIGHT = 1024L;
     private static final long DELETE_FILE_WEIGHT = 1024L;
@@ -146,6 +153,9 @@ final class IcebergCacheSizeEstimator {
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes, value.getRetainedTablePayloadBytes());
         bytes = MetaCacheWeightUtils.saturatedAdd(
                 bytes, value.getRetainedCurrentSnapshotPayloadBytes());
+        if (value.getAuthenticator() != null) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, AUTHENTICATION_CONTEXT_WEIGHT);
+        }
         return MetaCacheSizeEstimate.complete(bytes);
     }
 
@@ -186,6 +196,9 @@ final class IcebergCacheSizeEstimator {
                     bytes, value.getRetainedTablePayloadBytes());
             bytes = MetaCacheWeightUtils.saturatedAdd(
                     bytes, value.getRetainedCurrentSnapshotPayloadBytes());
+        }
+        if (value.getCapturedAuthenticator() != null) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, AUTHENTICATION_CONTEXT_WEIGHT);
         }
         return MetaCacheSizeEstimate.complete(bytes);
     }

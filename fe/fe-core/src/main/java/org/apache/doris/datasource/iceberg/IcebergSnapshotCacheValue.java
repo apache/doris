@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class IcebergSnapshotCacheValue {
 
@@ -54,6 +56,13 @@ public class IcebergSnapshotCacheValue {
     private boolean queryIsolationPrepared;
     private long retainedTablePayloadBytes;
     private MetaCacheSizeEstimate sizeEstimate;
+    /**
+     * Execution context captured from the table generation this projection retains. Planning and
+     * scanning the retained frozen table must run under this context; it is not part of the
+     * per-value counted payload beyond the flat retained-context allowance the estimator adds.
+     */
+    @Nullable
+    private transient volatile ExecutionAuthenticator capturedAuthenticator;
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
         this(partitionInfo, snapshot, Optional.empty(), Optional.empty(), null, false);
@@ -120,6 +129,32 @@ public class IcebergSnapshotCacheValue {
 
     public IcebergSnapshot getSnapshot() {
         return snapshot;
+    }
+
+    public IcebergSnapshotCacheValue bindCapturedAuthenticator(@Nullable ExecutionAuthenticator authenticator) {
+        this.capturedAuthenticator = authenticator;
+        return this;
+    }
+
+    @Nullable
+    public ExecutionAuthenticator getCapturedAuthenticator() {
+        return capturedAuthenticator;
+    }
+
+    /**
+     * A relation pinned to this projection plans and scans the retained frozen table. That work
+     * must run on the execution context captured with the projection's table generation: after a
+     * credential/storage ALTER has installed a new catalog context, planning would otherwise run
+     * the old generation's frozen operations and FileIO under the new authenticator, storage
+     * state and pre-authenticated executor. Fail before planning instead; the retried statement
+     * binds a coherent current generation.
+     */
+    public void ensurePlannableUnder(@Nullable ExecutionAuthenticator currentAuthenticator, String tableName) {
+        ExecutionAuthenticator captured = capturedAuthenticator;
+        if (captured != null && currentAuthenticator != null && captured != currentAuthenticator) {
+            throw new IllegalStateException("Catalog execution context changed since this statement pinned"
+                    + " its snapshot of " + tableName + ", please retry the query.");
+        }
     }
 
     public Optional<Map<Integer, List<String>>> getNameMapping() {

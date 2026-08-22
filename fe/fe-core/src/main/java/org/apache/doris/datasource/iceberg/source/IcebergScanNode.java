@@ -792,6 +792,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
             IcebergSnapshotCacheValue cacheValue =
                     ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+            // Planning the frozen generation (regular relations and snapshot-selectable system
+            // tables alike) uses the catalog's current authenticator, storage state and
+            // pre-authenticated executor. Those are only coherent with the retained frozen
+            // operations/FileIO while the catalog still serves the generation this statement
+            // pinned; after a credential/storage ALTER the statement must fail and be retried.
+            cacheValue.ensurePlannableUnder(
+                    source.getCatalog().getExecutionAuthenticator(),
+                    source.getTargetTable().getName());
             Optional<Table> frozenTable = cacheValue.getIcebergTable();
             if (frozenTable.isPresent()) {
                 Table frozenBaseTable = frozenTable.get();

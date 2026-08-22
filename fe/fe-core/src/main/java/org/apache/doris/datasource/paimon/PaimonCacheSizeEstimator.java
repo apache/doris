@@ -77,6 +77,8 @@ final class PaimonCacheSizeEstimator {
     // rotation replaces the retained token rather than growing it, and typical token/config
     // payloads stay far below this bound.
     private static final long FILE_IO_WEIGHT = 16L * 1024L;
+    /** See the Iceberg estimator: flat allowance for the retained execution context. */
+    private static final long AUTHENTICATION_CONTEXT_WEIGHT = 16L * 1024L;
     private static final long PARTITION_WEIGHT = 320L;
     private static final long PARTITION_ITEM_WEIGHT = 768L;
 
@@ -97,6 +99,9 @@ final class PaimonCacheSizeEstimator {
                 KEY_BASE_WEIGHT, MetaCacheWeightUtils.estimatedNameMappingBytes(key));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes, TABLE_VALUE_BASE_WEIGHT);
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes, value.getRetainedTablePayloadBytes());
+        if (value.getAuthenticator() != null) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, AUTHENTICATION_CONTEXT_WEIGHT);
+        }
         return MetaCacheSizeEstimate.complete(
                 MetaCacheWeightUtils.saturatedAdd(bytes, estimateTable(value.getPaimonTable())));
     }
@@ -117,6 +122,9 @@ final class PaimonCacheSizeEstimator {
         bytes = MetaCacheWeightUtils.saturatedAdd(
                 bytes, value.getPartitionInfo().getRetainedPayloadBytes());
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes, value.getRetainedTablePayloadBytes());
+        if (value.getCapturedAuthenticator() != null) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, AUTHENTICATION_CONTEXT_WEIGHT);
+        }
         return MetaCacheSizeEstimate.complete(
                 MetaCacheWeightUtils.saturatedAdd(bytes, estimateTable(table)));
     }

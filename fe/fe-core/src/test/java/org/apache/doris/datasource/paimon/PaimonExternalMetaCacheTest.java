@@ -1062,6 +1062,33 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 
+    @Test
+    public void testRetainedExecutionContextAllowanceIsCharged() {
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        FileStoreTable table = newTableWithPayloadType("auth_allowance", new IntType());
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonTableCacheValue unbound = new PaimonTableCacheValue(table);
+        PaimonTableCacheValue bound = new PaimonTableCacheValue(table, authenticator);
+        Assert.assertEquals("bound values carry the retained-context allowance", 16L * 1024L,
+                PaimonCacheSizeEstimator.estimateTableEntry(mapping, bound).getBytes()
+                        - PaimonCacheSizeEstimator.estimateTableEntry(mapping, unbound).getBytes());
+
+        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(mapping, 1L, table.schema().id(), 1L);
+        PaimonSnapshotCacheValue plain = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, table.schema().id(), table));
+        PaimonSnapshotCacheValue bound2 = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, table.schema().id(), table))
+                .bindCapturedAuthenticator(authenticator);
+        Assert.assertEquals(16L * 1024L,
+                PaimonCacheSizeEstimator.estimateSnapshotEntry(key, bound2).getBytes()
+                        - PaimonCacheSizeEstimator.estimateSnapshotEntry(key, plain).getBytes());
+    }
+
     private static boolean exceptionChainContains(Throwable throwable, String fragment) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current.getMessage() != null && current.getMessage().contains(fragment)) {

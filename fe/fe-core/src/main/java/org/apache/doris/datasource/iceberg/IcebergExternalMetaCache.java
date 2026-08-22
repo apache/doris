@@ -206,7 +206,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             isolateForQueries ? tableValue.newQueryScopedTable()
                                     : tableValue.getIcebergTable(),
                             tableValue.getRetainedIcebergTable(),
-                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries));
+                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries))
+                    .bindCapturedAuthenticator(tableValue.getAuthenticator());
         }
         IcebergSnapshotEntryKey key = optionalKey.get();
         MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> entry =
@@ -220,7 +221,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     IcebergSnapshotCacheValue value = loadSnapshotProjection(
                             dorisTable, projectionTable,
                             tableValue.getRetainedIcebergTable(),
-                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries);
+                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries)
+                            .bindCapturedAuthenticator(tableValue.getAuthenticator());
                     if (entry.isWeightAccounting()) {
                         value.prepareForCachePublication(key);
                     }

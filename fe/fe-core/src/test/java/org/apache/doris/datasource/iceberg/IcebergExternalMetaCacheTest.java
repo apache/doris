@@ -466,6 +466,10 @@ public class IcebergExternalMetaCacheTest {
             // execution context, exactly as the load used to trigger implicitly.
             IcebergTableCacheValue published = tables.get(mapping);
             Assert.assertSame(authenticator, published.getAuthenticator());
+            // Projections built from the published generation carry its execution context for
+            // later planning-time validation.
+            Assert.assertSame(authenticator,
+                    cache.getSnapshotCache(dorisTable).getCapturedAuthenticator());
 
             initialized.set(false);
             Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable));
@@ -484,6 +488,53 @@ public class IcebergExternalMetaCacheTest {
         } finally {
             cache.close();
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRetainedExecutionContextAllowanceAndPlanningFence() {
+        ExecutionAuthenticator captured = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        ExecutionAuthenticator replaced = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        NameMapping mapping = NameMapping.createForTest(1L, "db", "tbl");
+        Table tableA = tableWithMetadataLocation("/metadata/auth-allowance-v1.json");
+        Table tableB = tableWithMetadataLocation("/metadata/auth-allowance-v1.json");
+        IcebergTableCacheValue unbound = new IcebergTableCacheValue(tableA);
+        IcebergTableCacheValue bound = new IcebergTableCacheValue(tableB);
+        bound.bindAuthenticator(captured);
+        Assert.assertEquals("bound values carry the retained-context allowance", 16L * 1024L,
+                IcebergCacheSizeEstimator.estimateTableEntry(mapping, bound).getBytes()
+                        - IcebergCacheSizeEstimator.estimateTableEntry(mapping, unbound).getBytes());
+
+        IcebergSnapshotEntryKey key = IcebergSnapshotEntryKey.tryCreate(mapping, tableA).get();
+        IcebergSnapshotCacheValue plain = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L), Optional.empty(), tableA);
+        IcebergSnapshotCacheValue boundSnapshot = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L), Optional.empty(), tableA)
+                .bindCapturedAuthenticator(captured);
+        Assert.assertEquals(16L * 1024L,
+                IcebergCacheSizeEstimator.estimateSnapshotEntry(key, boundSnapshot).getBytes()
+                        - IcebergCacheSizeEstimator.estimateSnapshotEntry(key, plain).getBytes());
+
+        // The pinned generation is plannable only under its captured execution context.
+        boundSnapshot.ensurePlannableUnder(captured, "tbl");
+        boundSnapshot.ensurePlannableUnder(null, "tbl");
+        plain.ensurePlannableUnder(replaced, "tbl");
+        try {
+            boundSnapshot.ensurePlannableUnder(replaced, "tbl");
+            Assert.fail("planning a pinned generation under a replaced catalog context must fail");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(String.valueOf(e.getMessage()),
+                    e.getMessage().contains("please retry"));
         }
     }
 
