@@ -147,6 +147,36 @@ TEST_F(FunctionTimezoneHourMinuteTest, const_input) {
     check_result("timezone_minute", block, {0, 0, 0});
 }
 
+TEST_F(FunctionTimezoneHourMinuteTest, const_input_returns_const_column) {
+    // With the framework constant path disabled, a constant argument is
+    // evaluated once per execution and the result keeps the block-local const
+    // shape instead of being expanded to input_rows_count rows.
+    set_session_timezone(cctz::fixed_time_zone(std::chrono::hours(8)));
+
+    auto inner = ColumnTimeStampTz::create();
+    inner->insert_value(make_timestamptz(2024, 1, 15, 12, 0, 0, 0));
+    auto const_col = ColumnConst::create(std::move(inner), 3);
+    Block block;
+    block.insert({std::move(const_col), std::make_shared<DataTypeTimeStampTz>(), "arg"});
+
+    auto return_type = std::make_shared<DataTypeInt64>();
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "timezone_hour", block.get_columns_with_type_and_name(), return_type);
+    ASSERT_NE(func, nullptr);
+    Block input_block = block;
+    input_block.insert({nullptr, return_type, "result"});
+    auto st = func->execute(&context, input_block, arguments, result, input_block.rows());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& result_col = input_block.get_by_position(result).column;
+    ASSERT_TRUE(is_column_const(*result_col)) << "result must keep the const shape";
+    ASSERT_EQ(result_col->size(), 3);
+    const auto& const_result = assert_cast<const ColumnConst&>(*result_col);
+    const auto& data = assert_cast<const ColumnInt64&>(*const_result.get_data_column_ptr());
+    ASSERT_EQ(data.size(), 1) << "the const value must be computed once";
+    EXPECT_EQ(data.get_element(0), 8);
+}
+
 TEST_F(FunctionTimezoneHourMinuteTest, session_zone_wins_over_input_zone) {
     // The input instant is noon in UTC-04:30, i.e. 16:30 UTC. Trino would
     // return -4/-30 from the input zone; Doris stores only the UTC instant

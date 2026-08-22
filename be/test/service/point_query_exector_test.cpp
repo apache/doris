@@ -17,19 +17,28 @@
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -400,6 +409,81 @@ TEST_F(LookupConnectionCacheTest, PQTestDuplicateAdd) {
     auto entry = cache.get(123);
     ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry.get(), reusable2.get()) << "Last write should win in key collision";
+}
+
+// Regression for timezone-dependent functions on the point-query
+// short-circuit path: Reusable::init() must install the request's session
+// timezone before opening the output expressions. A constant descendant
+// (here the const CAST above least) is evaluated in VExpr::open() with the
+// runtime state's timezone; opening under the default +08:00 would cache
+// 2024-03-09 19:30 UTC and timezone_hour would return -5, while parsing the
+// value in America/New_York yields 2024-03-10 07:30 UTC and must return -4.
+TEST(ReusableTimezoneTest, ConstantDescendantUsesRequestTimezone) {
+    TimezoneUtils::load_timezones_to_cache();
+
+    auto str_literal = [](const char* value) {
+        return create_texpr_node_from(Field::create_field<TYPE_STRING>(std::string(value)),
+                                      TYPE_STRING, 0, 0);
+    };
+
+    TExprNode least_node;
+    least_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    least_node.__set_type(create_type_desc(TYPE_STRING));
+    TFunction least_fn;
+    least_fn.name.__set_function_name("least");
+    least_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    least_node.__set_fn(least_fn);
+    least_node.__set_num_children(2);
+
+    TExprNode cast_node;
+    cast_node.__set_node_type(TExprNodeType::CAST_EXPR);
+    cast_node.__set_type(create_type_desc(TYPE_TIMESTAMPTZ, 0, 6));
+    cast_node.__set_num_children(1);
+
+    TExprNode fn_node;
+    fn_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    fn_node.__set_type(create_type_desc(TYPE_BIGINT));
+    TFunction fn;
+    fn.name.__set_function_name("timezone_hour");
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn_node.__set_fn(fn);
+    fn_node.__set_num_children(1);
+
+    // timezone_hour(CAST(least('2024-03-10 03:30:00','2024-03-11 03:30:00')
+    // AS TIMESTAMPTZ))
+    TExpr texpr;
+    texpr.nodes.push_back(fn_node);
+    texpr.nodes.push_back(cast_node);
+    texpr.nodes.push_back(least_node);
+    texpr.nodes.push_back(str_literal("2024-03-10 03:30:00"));
+    texpr.nodes.push_back(str_literal("2024-03-11 03:30:00"));
+
+    auto reusable = std::make_shared<Reusable>();
+    TQueryOptions query_options;
+    Status st = reusable->init(ReusableTestHelper::create_descriptor_tablet(), {texpr},
+                               query_options, *ReusableTestHelper::tablet_schema, 2,
+                               "America/New_York");
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    // The expression tree is constant-only, so execute it over a block whose
+    // row count is carried by a dummy column (the pooled Reusable blocks are
+    // created empty).
+    auto dummy = ColumnUInt8::create();
+    dummy->insert_many_defaults(2);
+    Block block;
+    block.insert({std::move(dummy), std::make_shared<DataTypeUInt8>(), "dummy"});
+    int result_column_id = -1;
+    st = reusable->output_exprs()[0]->execute(&block, &result_column_id);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto result_col =
+            block.get_by_position(result_column_id).column->convert_to_full_column_if_const();
+    // The non-strict CAST above is nullable-typed, so the function result is
+    // wrapped in a ColumnNullable; unwrap it before inspecting elements.
+    result_col = remove_nullable(result_col);
+    const auto& col = assert_cast<const ColumnInt64&>(*result_col);
+    ASSERT_GE(col.size(), 1);
+    EXPECT_EQ(col.get_element(0), -4);
 }
 
 // Test reference counting mechanism

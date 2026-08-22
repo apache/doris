@@ -54,6 +54,26 @@ Status execute_timezone_offset_part(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, uint32_t result,
                                     size_t input_rows_count, bool extract_hour) {
     ColumnPtr col = block.get_by_position(arguments[0]).column;
+    // Fast path: the framework constant path is disabled
+    // (use_default_implementation_for_constants() == false) so a constant
+    // argument must not be expanded to input_rows_count rows and re-evaluated
+    // per row. Compute the single value once and keep the block-local const
+    // shape. The result type must be non-nullable here: the framework's
+    // default null handling wraps the result into a ColumnNullable, which a
+    // ColumnConst cannot be nested in.
+    if (is_column_const(*col) && !block.get_by_position(result).type->is_nullable()) {
+        const auto& const_col = assert_cast<const ColumnConst&>(*col);
+        const auto& tz_column =
+                assert_cast<const ColumnTimeStampTz&>(*const_col.get_data_column_ptr());
+        int64_t offset = tz_column.get_data()[0].utc_offset(context->state()->timezone_obj());
+        int64_t value = extract_hour ? offset / SECONDS_PER_HOUR
+                                     : (offset % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE;
+        auto nested = ColumnInt64::create();
+        nested->insert_value(value);
+        block.get_by_position(result).column =
+                ColumnConst::create(std::move(nested), input_rows_count);
+        return Status::OK();
+    }
     // Unwrap nullable and const wrappers in any nesting order so that
     // ColumnNullable(ColumnConst(...)) and ColumnConst(ColumnNullable(...))
     // inputs both reach the plain ColumnTimeStampTz data below.
