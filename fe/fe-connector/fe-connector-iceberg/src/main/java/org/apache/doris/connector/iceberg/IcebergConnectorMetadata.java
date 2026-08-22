@@ -2099,7 +2099,34 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private IcebergLatestSnapshotCache.CachedSnapshot loadLatestSnapshotPin(
             ConnectorSession session, IcebergTableHandle iceHandle) {
-        Table table = loadTable(session, iceHandle);
+        try {
+            return executeAuthenticated(() -> {
+                if (tableCache != null) {
+                    return IcebergStatementScope.withBorrowedTable(
+                            session, iceHandle.getDbName(), iceHandle.getTableName(),
+                            () -> tableCache.borrow(
+                                    TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()),
+                                    () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName())),
+                            () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName()),
+                            this::latestSnapshotPin);
+                }
+                if (resourceTracker != null) {
+                    return IcebergStatementScope.withTrackedTable(
+                            session, iceHandle.getDbName(), iceHandle.getTableName(), resourceTracker,
+                            () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName()),
+                            table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()),
+                            this::latestSnapshotPin);
+                }
+                return latestSnapshotPin(catalogOps.loadTable(
+                        iceHandle.getDbName(), iceHandle.getTableName()));
+            });
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    iceHandle, e, "Failed to load table, error message is:");
+        }
+    }
+
+    private IcebergLatestSnapshotCache.CachedSnapshot latestSnapshotPin(Table table) {
         Snapshot current = table.currentSnapshot();
         ConnectorMvccPartitionView.Style emptyPartitionStyle = IcebergPartitionUtils.isValidRelatedTable(table)
                 ? ConnectorMvccPartitionView.Style.RANGE

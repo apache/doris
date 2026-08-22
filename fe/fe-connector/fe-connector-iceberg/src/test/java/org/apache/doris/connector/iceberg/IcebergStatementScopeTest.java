@@ -252,6 +252,22 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void unscopedMetadataOperationReleasesExactGenerationBeforeReturning() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        AtomicInteger tableCloses = new AtomicInteger();
+        AtomicInteger catalogCloses = new AtomicInteger();
+
+        String name = IcebergStatementScope.withTrackedTable(
+                new ScopeSession(7L, "background", ConnectorStatementScope.NONE), "db1", "t", tracker,
+                () -> table("t"), ignored -> tableCloses::incrementAndGet, Table::name);
+        tracker.close(catalogCloses::incrementAndGet);
+
+        Assertions.assertEquals("t", name);
+        Assertions.assertEquals(1, tableCloses.get());
+        Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
     public void writableTableTransfersItsExactGenerationToTransactionOwner() {
         IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
         TestStatementScope scope = new TestStatementScope();

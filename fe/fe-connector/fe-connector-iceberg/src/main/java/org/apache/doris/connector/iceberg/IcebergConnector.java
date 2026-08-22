@@ -78,6 +78,7 @@ import software.amazon.s3tables.iceberg.S3TablesProperties;
 import software.amazon.s3tables.iceberg.imports.HttpClientProperties;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
@@ -907,10 +908,14 @@ public class IcebergConnector implements Connector {
      * flavors are left untouched because they may share a catalog-level FileIO.
      */
     private Runnable cachedTableCleanup(Table table) {
-        return cachedTableCleanup(table, catalogProps.getFlavor());
+        return cachedTableCleanup(table, catalogProps.getFlavor(), restSessionCatalog);
     }
 
     static Runnable cachedTableCleanup(Table table, String flavor) {
+        return cachedTableCleanup(table, flavor, null);
+    }
+
+    private static Runnable cachedTableCleanup(Table table, String flavor, Object catalog) {
         if (table == null) {
             return () -> { };
         }
@@ -919,9 +924,12 @@ public class IcebergConnector implements Connector {
             if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
                     || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
                 tableOwned = true;
-            } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)
-                    && table.io() instanceof SupportsStorageCredentials) {
-                tableOwned = !((SupportsStorageCredentials) table.io()).credentials().isEmpty();
+            } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)) {
+                FileIO catalogFileIO = restCatalogFileIO(catalog);
+                tableOwned = catalogFileIO != null
+                        ? shouldCloseTableFileIO(flavor, table.io(), catalogFileIO)
+                        : table.io() instanceof SupportsStorageCredentials
+                                && !((SupportsStorageCredentials) table.io()).credentials().isEmpty();
             }
         } catch (Exception e) {
             LOG.warn("Failed to determine Iceberg table FileIO ownership", e);
@@ -937,6 +945,37 @@ public class IcebergConnector implements Connector {
                 LOG.warn("Failed to close Iceberg table FileIO", e);
             }
         };
+    }
+
+    static boolean shouldCloseTableFileIO(String flavor, FileIO tableFileIO, FileIO catalogFileIO) {
+        if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
+                || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
+            return true;
+        }
+        return IcebergCatalogProperties.TYPE_REST.equals(flavor)
+                && catalogFileIO != null && tableFileIO != catalogFileIO;
+    }
+
+    private static FileIO restCatalogFileIO(Object catalog) {
+        Object current = catalog;
+        try {
+            if (current instanceof ReauthenticatingRestSessionCatalog) {
+                current = ((ReauthenticatingRestSessionCatalog) current).currentDelegate();
+            }
+            if (current instanceof RESTCatalog) {
+                Field sessionCatalogField = RESTCatalog.class.getDeclaredField("sessionCatalog");
+                sessionCatalogField.setAccessible(true);
+                current = sessionCatalogField.get(current);
+            }
+            if (current instanceof RESTSessionCatalog) {
+                Field ioField = RESTSessionCatalog.class.getDeclaredField("io");
+                ioField.setAccessible(true);
+                return (FileIO) ioField.get(current);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to identify REST catalog FileIO; skip per-table close to protect shared IO", e);
+        }
+        return null;
     }
 
     private synchronized Catalog getOrCreateCatalog() {

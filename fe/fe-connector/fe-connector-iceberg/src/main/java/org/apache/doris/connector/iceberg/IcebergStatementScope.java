@@ -104,6 +104,18 @@ final class IcebergStatementScope {
         return borrowed.table;
     }
 
+    /** Runs a metadata-only load under a bounded lease when no statement scope exists. */
+    static <T> T withBorrowedTable(ConnectorSession session, String dbName, String tableName,
+            Supplier<IcebergTableCache.TableLease> loader, Supplier<Table> unscopedLoader,
+            Function<Table, T> action) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            try (IcebergTableCache.TableLease lease = loader.get()) {
+                return action.apply(snapshotReadTable(lease.table()));
+            }
+        }
+        return action.apply(sharedBorrowedTable(session, dbName, tableName, loader, unscopedLoader));
+    }
+
     /** Statement-owned direct table for credential-dependent catalogs where cross-query caching is disabled. */
     static Table sharedTrackedTable(ConnectorSession session, String dbName, String tableName,
             IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
@@ -115,6 +127,19 @@ final class IcebergStatementScope {
                 session, TABLE_NAMESPACE, dbName, tableName,
                 () -> trackedTable(resourceTracker, loader, cleanupFactory, true));
         return tracked.table();
+    }
+
+    /** Runs a metadata-only direct load under a bounded generation owner outside a statement. */
+    static <T> T withTrackedTable(ConnectorSession session, String dbName, String tableName,
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
+            Function<Table, Runnable> cleanupFactory, Function<Table, T> action) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            try (TrackedTable tracked = trackedTable(resourceTracker, loader, cleanupFactory, false)) {
+                return action.apply(snapshotReadTable(tracked.table()));
+            }
+        }
+        return action.apply(sharedTrackedTable(
+                session, dbName, tableName, resourceTracker, loader, cleanupFactory));
     }
 
     private static final class ScopedBorrow implements AutoCloseable {

@@ -317,6 +317,17 @@ public class IcebergConnectorCacheTest {
         Assertions.assertEquals(1, tableFileIO.closeCalls);
     }
 
+    @Test
+    public void restConfigOnlyTableFileIOIsOwnedByTable() {
+        RecordingFileIO catalogFileIO = new RecordingFileIO();
+        RecordingFileIO configOnlyTableFileIO = new RecordingFileIO();
+
+        Assertions.assertFalse(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, catalogFileIO, catalogFileIO));
+        Assertions.assertTrue(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, configOnlyTableFileIO, catalogFileIO));
+    }
+
     private static final class RecordingFileIO implements FileIO {
         private int closeCalls;
 

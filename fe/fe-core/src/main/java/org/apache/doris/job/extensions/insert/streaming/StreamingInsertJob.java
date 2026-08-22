@@ -818,7 +818,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             log.info("clear running streaming insert task for job {}, task {}, status {} ",
                     getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getStatus());
             runningStreamTask.cancel(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
-            runningStreamTask.closeOrReleaseResources();
         }
     }
 
