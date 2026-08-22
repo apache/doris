@@ -61,6 +61,11 @@ public:
     virtual ~LineFieldSplitterIf() = default;
 
     virtual void split_line(const Slice& line, std::vector<Slice>* splitted_values) = 0;
+
+    void set_split_limit(size_t limit) { _split_limit = limit; }
+
+protected:
+    size_t _split_limit = 0;
 };
 
 template <typename Splitter>

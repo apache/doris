@@ -313,6 +313,10 @@ Status CsvReader::init_reader(bool is_load) {
             }
             idx++;
         }
+        if (_fields_splitter != nullptr && !_col_idxs.empty()) {
+            int max_col_idx = *std::max_element(_col_idxs.begin(), _col_idxs.end());
+            _fields_splitter->set_split_limit(static_cast<size_t>(max_col_idx) + 1);
+        }
     } else {
         // For load task, the column order is same as file column order
         int i = 0;
@@ -384,6 +388,10 @@ Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
                 _file_slot_idx_map.push_back(idx);
             }
             idx++;
+        }
+        if (_fields_splitter != nullptr && !_col_idxs.empty()) {
+            int max_col_idx = *std::max_element(_col_idxs.begin(), _col_idxs.end());
+            _fields_splitter->set_split_limit(static_cast<size_t>(max_col_idx) + 1);
         }
     } else {
         int i = 0;
