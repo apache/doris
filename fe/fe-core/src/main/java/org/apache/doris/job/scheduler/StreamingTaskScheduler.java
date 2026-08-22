@@ -140,6 +140,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
                     task.getTaskId(), task.getJobId(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.error("Failed to execute task, task id: {}, job id: {}", task.getTaskId(), task.getJobId(), e);
+        } finally {
+            Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
         }
     }
 
