@@ -13,7 +13,8 @@ fi
 EOF
 ############################# run.sh content ########################################
 # shellcheck source=/dev/null
-# _monitor_regression_log, print_running_pipeline_tasks
+# _monitor_regression_log, print_running_pipeline_tasks, start_system_resource_monitor,
+# start_meta_service_memory_monitor, stop_meta_service_memory_monitor
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # create_an_issue_comment
@@ -50,7 +51,8 @@ need_collect_log=false
 # monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
 start_system_resource_monitor
-trap 'stop_system_resource_monitor' EXIT
+start_meta_service_memory_monitor
+trap 'stop_meta_service_memory_monitor; stop_system_resource_monitor' EXIT
 
 # shellcheck disable=SC2329
 run() {
@@ -116,7 +118,14 @@ timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-18
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 if print_running_pipeline_tasks; then :; fi
+stop_meta_service_memory_monitor
 stop_system_resource_monitor
+if [[ -f "${DORIS_HOME}/ms/log/meta_service_memory_diagnostics.triggered" ]]; then
+    echo "INFO: meta-service memory diagnostics triggered, preserve Doris logs for analysis"
+    (cd "${teamcity_build_checkoutDir}" && bash \
+        "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
+        'set' "export need_collect_log=true")
+fi
 # shellcheck source=/dev/null
 source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if get_jstack_and_jmap_of_fe; then echo "INFO: get_jstack_and_jmap_of_fe done."; fi
