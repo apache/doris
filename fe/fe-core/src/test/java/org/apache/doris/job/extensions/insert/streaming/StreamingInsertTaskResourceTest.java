@@ -163,6 +163,7 @@ class StreamingInsertTaskResourceTest {
     void cleanupFailureIsHandledByTaskFailureStateMachine() throws Exception {
         AtomicBoolean failed = new AtomicBoolean();
         AtomicBoolean successCalled = new AtomicBoolean();
+        AtomicInteger runCalls = new AtomicInteger();
         AbstractStreamingTask task = new AbstractStreamingTask(1L, 2L, null) {
             @Override
             public void before() {
@@ -172,6 +173,7 @@ class StreamingInsertTaskResourceTest {
 
             @Override
             public void run() {
+                runCalls.incrementAndGet();
             }
 
             @Override
@@ -196,5 +198,43 @@ class StreamingInsertTaskResourceTest {
 
         Assertions.assertTrue(failed.get());
         Assertions.assertFalse(successCalled.get());
+        Assertions.assertEquals(1, runCalls.get());
+    }
+
+    @Test
+    void successCallbackFailureDoesNotReplayCompletedInsert() throws Exception {
+        AtomicInteger runCalls = new AtomicInteger();
+        AtomicBoolean failed = new AtomicBoolean();
+        AbstractStreamingTask task = new AbstractStreamingTask(1L, 2L, null) {
+            @Override
+            public void before() {
+                setStatus(org.apache.doris.job.common.TaskStatus.RUNNING);
+            }
+
+            @Override
+            public void run() {
+                runCalls.incrementAndGet();
+            }
+
+            @Override
+            public boolean onSuccess() {
+                throw new IllegalStateException("success publication failed");
+            }
+
+            @Override
+            public void closeOrReleaseResources() {
+            }
+
+            @Override
+            protected void onFail(String errMsg) {
+                Assertions.assertEquals("success publication failed", errMsg);
+                failed.set(true);
+            }
+        };
+
+        task.execute();
+
+        Assertions.assertEquals(1, runCalls.get());
+        Assertions.assertTrue(failed.get());
     }
 }
