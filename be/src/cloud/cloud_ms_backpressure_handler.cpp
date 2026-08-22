@@ -28,6 +28,7 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "util/thread.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
@@ -88,12 +89,15 @@ StrictQpsLimiter::Clock::time_point StrictQpsLimiter::reserve() {
     return result;
 }
 
-void StrictQpsLimiter::update_qps(double new_qps) {
+void StrictQpsLimiter::update_qps(double new_qps, bool reset_reservation) {
     if (new_qps <= 0) {
         new_qps = 1.0;
     }
     std::lock_guard lock(_mtx);
     _interval_ns = static_cast<int64_t>(1e9 / new_qps);
+    if (reset_reservation) {
+        _next_allowed_time = Clock::now();
+    }
 }
 
 double StrictQpsLimiter::get_qps() const {
@@ -235,6 +239,10 @@ void TableRpcQpsRegistry::cleanup_inactive_tables() {
 // ============== TableRpcThrottler ==============
 
 TableRpcThrottler::TableRpcThrottler() {
+    for (auto& next_log_time_us : _next_log_time_us) {
+        next_log_time_us.store(0, std::memory_order_relaxed);
+    }
+
     // Initialize bvar for throttled table counts
     for (size_t i = 0; i < static_cast<size_t>(LoadRelatedRpc::COUNT); ++i) {
         std::string bvar_name = fmt::format("ms_rpc_backpressure_throttled_tables_{}",
@@ -245,15 +253,35 @@ TableRpcThrottler::TableRpcThrottler() {
 
 std::chrono::steady_clock::time_point TableRpcThrottler::throttle(LoadRelatedRpc rpc_type,
                                                                   int64_t table_id) {
+    return throttle(rpc_type, table_id, false).wait_until;
+}
+
+TableRpcThrottleDecision TableRpcThrottler::throttle(LoadRelatedRpc rpc_type, int64_t table_id,
+                                                     bool dry_run) {
     std::shared_lock lock(_mutex);
     auto it = _limiters.find({rpc_type, table_id});
     if (it == _limiters.end()) {
-        return std::chrono::steady_clock::now();
+        return {.wait_until = std::chrono::steady_clock::now(), .dry_run = dry_run};
     }
-    return it->second->reserve();
+    return {
+            .wait_until = it->second->reserve(),
+            .qps_limit = it->second->get_qps(),
+            .dry_run = dry_run,
+    };
 }
 
-void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit) {
+bool TableRpcThrottler::should_log(LoadRelatedRpc rpc_type, int64_t now_us) {
+    size_t idx = static_cast<size_t>(rpc_type);
+    DCHECK_LT(idx, static_cast<size_t>(LoadRelatedRpc::COUNT));
+    auto& next_log_time_us = _next_log_time_us[idx];
+    int64_t expected = next_log_time_us.load(std::memory_order_relaxed);
+    return now_us >= expected &&
+           next_log_time_us.compare_exchange_strong(expected, now_us + MICROS_PER_SEC,
+                                                    std::memory_order_relaxed);
+}
+
+void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit,
+                                      bool reset_reservation) {
     if (qps_limit <= 0) {
         return;
     }
@@ -262,7 +290,7 @@ void TableRpcThrottler::set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id,
     auto key = std::make_pair(rpc_type, table_id);
     auto it = _limiters.find(key);
     if (it != _limiters.end()) {
-        it->second->update_qps(qps_limit);
+        it->second->update_qps(qps_limit, reset_reservation);
     } else {
         _limiters[key] = std::make_unique<StrictQpsLimiter>(qps_limit);
         // Update bvar count
@@ -384,14 +412,15 @@ MSBackpressureHandler::~MSBackpressureHandler() {
 
 void MSBackpressureHandler::_tick_thread_callback() {
     // Fixed tick interval: 1 second. Since 1 tick = 1 ms, advance by 1000 ticks each iteration.
-    constexpr int kTickIntervalMs = 1000;
+    constexpr int64_t kTickIntervalMs = 1000;
     while (!_stop_latch.wait_for(std::chrono::milliseconds(kTickIntervalMs))) {
         _advance_time(kTickIntervalMs);
     }
 }
 
-void MSBackpressureHandler::_advance_time(int ticks) {
-    if (!config::enable_ms_backpressure_handling) {
+void MSBackpressureHandler::_advance_time(int64_t ticks) {
+    if (!config::enable_ms_backpressure_handling &&
+        !config::enable_ms_backpressure_handling_dry_run) {
         return;
     }
 
@@ -413,7 +442,8 @@ void MSBackpressureHandler::_advance_time(int ticks) {
 bool MSBackpressureHandler::on_ms_busy() {
     g_ms_busy_count << 1;
 
-    if (!config::enable_ms_backpressure_handling) {
+    if (!config::enable_ms_backpressure_handling &&
+        !config::enable_ms_backpressure_handling_dry_run) {
         return false;
     }
 
@@ -440,17 +470,27 @@ bool MSBackpressureHandler::on_ms_busy() {
     return true;
 }
 
-std::chrono::steady_clock::time_point MSBackpressureHandler::before_rpc(LoadRelatedRpc rpc_type,
-                                                                        int64_t table_id) {
-    if (!config::enable_ms_backpressure_handling) {
-        return std::chrono::steady_clock::now();
+TableRpcThrottleDecision MSBackpressureHandler::before_rpc(LoadRelatedRpc rpc_type,
+                                                           int64_t table_id) {
+    const bool dry_run = config::enable_ms_backpressure_handling_dry_run;
+    if (!config::enable_ms_backpressure_handling && !dry_run) {
+        return {.wait_until = std::chrono::steady_clock::now()};
     }
 
-    return _throttler->throttle(rpc_type, table_id);
+    auto decision = _throttler->throttle(rpc_type, table_id, dry_run);
+    if (decision.qps_limit > 0) {
+        decision.current_qps = _qps_registry->get_qps(rpc_type, table_id);
+    }
+    return decision;
+}
+
+bool MSBackpressureHandler::should_log_throttle(LoadRelatedRpc rpc_type, int64_t now_us) {
+    return _throttler->should_log(rpc_type, now_us);
 }
 
 void MSBackpressureHandler::after_rpc(LoadRelatedRpc rpc_type, int64_t table_id) {
-    if (!config::enable_ms_backpressure_handling) {
+    if (!config::enable_ms_backpressure_handling &&
+        !config::enable_ms_backpressure_handling_dry_run) {
         return;
     }
 
@@ -479,11 +519,11 @@ size_t MSBackpressureHandler::upgrade_level() const {
     return _state_machine->upgrade_level();
 }
 
-int MSBackpressureHandler::ticks_since_last_ms_busy() const {
+int64_t MSBackpressureHandler::ticks_since_last_ms_busy() const {
     return _coordinator->ticks_since_last_ms_busy();
 }
 
-int MSBackpressureHandler::ticks_since_last_upgrade() const {
+int64_t MSBackpressureHandler::ticks_since_last_upgrade() const {
     return _coordinator->ticks_since_last_upgrade();
 }
 
@@ -491,7 +531,8 @@ void MSBackpressureHandler::_apply_actions(const std::vector<RpcThrottleAction>&
     for (const auto& action : actions) {
         switch (action.type) {
         case RpcThrottleAction::Type::SET_LIMIT:
-            _throttler->set_qps_limit(action.rpc_type, action.table_id, action.qps_limit);
+            _throttler->set_qps_limit(action.rpc_type, action.table_id, action.qps_limit,
+                                      action.reset_reservation);
             break;
         case RpcThrottleAction::Type::REMOVE_LIMIT:
             _throttler->remove_qps_limit(action.rpc_type, action.table_id);

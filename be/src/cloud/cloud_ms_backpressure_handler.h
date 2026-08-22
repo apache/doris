@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -48,8 +49,8 @@ public:
     // Caller should sleep until this time point
     Clock::time_point reserve();
 
-    // Dynamically update the QPS limit
-    void update_qps(double new_qps);
+    // Dynamically update the QPS limit, optionally discarding queued reservations.
+    void update_qps(double new_qps, bool reset_reservation = false);
 
     // Get current QPS limit
     double get_qps() const;
@@ -114,6 +115,13 @@ private:
             _counters;
 };
 
+struct TableRpcThrottleDecision {
+    std::chrono::steady_clock::time_point wait_until;
+    double qps_limit {0};
+    double current_qps {0};
+    bool dry_run {false};
+};
+
 // Table-level throttler managing StrictQpsLimiter for each (RPC type, table) pair
 class TableRpcThrottler {
 public:
@@ -123,9 +131,14 @@ public:
     // Called before RPC execution, returns the time point when execution is allowed
     // Returns now if no limit is set
     std::chrono::steady_clock::time_point throttle(LoadRelatedRpc rpc_type, int64_t table_id);
+    TableRpcThrottleDecision throttle(LoadRelatedRpc rpc_type, int64_t table_id, bool dry_run);
+
+    // Log suppression is independent for every RPC type.
+    bool should_log(LoadRelatedRpc rpc_type, int64_t now_us);
 
     // Set or update the QPS limit for a table
-    void set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit);
+    void set_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id, double qps_limit,
+                       bool reset_reservation = false);
 
     // Remove the QPS limit for a table
     void remove_qps_limit(LoadRelatedRpc rpc_type, int64_t table_id);
@@ -149,8 +162,9 @@ public:
 
 private:
     mutable std::shared_mutex _mutex;
-    // (rpc_type, table_id) -> StrictQpsLimiter
     std::map<std::pair<LoadRelatedRpc, int64_t>, std::unique_ptr<StrictQpsLimiter>> _limiters;
+
+    std::array<std::atomic<int64_t>, static_cast<size_t>(LoadRelatedRpc::COUNT)> _next_log_time_us;
 
     // bvar: current throttled table count per RPC type
     std::array<std::unique_ptr<bvar::Status<size_t>>, static_cast<size_t>(LoadRelatedRpc::COUNT)>
@@ -168,9 +182,10 @@ public:
     // Returns true if throttle upgrade was triggered
     bool on_ms_busy();
 
-    // Called before RPC execution, performs throttle wait
-    // Returns the time point to wait until
-    std::chrono::steady_clock::time_point before_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
+    // Called before RPC execution and returns the actual or dry-run throttle decision.
+    TableRpcThrottleDecision before_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
+
+    bool should_log_throttle(LoadRelatedRpc rpc_type, int64_t now_us);
 
     // Called after RPC execution, records QPS statistics
     void after_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
@@ -184,15 +199,15 @@ public:
 
     // Query current state
     size_t upgrade_level() const;
-    int ticks_since_last_ms_busy() const;
-    int ticks_since_last_upgrade() const;
+    int64_t ticks_since_last_ms_busy() const;
+    int64_t ticks_since_last_upgrade() const;
 
 private:
     // Background thread that periodically advances time
     void _tick_thread_callback();
 
     // Advance time by specified ticks, handle any triggered events (e.g., downgrade)
-    void _advance_time(int ticks);
+    void _advance_time(int64_t ticks);
 
     // Apply actions to the throttler
     void _apply_actions(const std::vector<RpcThrottleAction>& actions);
