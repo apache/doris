@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -36,6 +37,8 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -48,6 +51,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -276,7 +280,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public synchronized IcebergTableLoadContext beginIcebergTableLoad() {
         makeSureInitialized();
         IcebergMetadataOps ops = getIcebergMetadataOps();
-        return new IcebergTableLoadContext(ops, threadPoolWithPreAuth, icebergResourceTracker.beginLoad());
+        return new IcebergTableLoadContext(ops, threadPoolWithPreAuth, executionAuthenticator,
+                catalogProperty.getMetastoreProperties(),
+                new HashMap<>(catalogProperty.getStoragePropertiesMap()), icebergResourceTracker.beginLoad());
     }
 
     @Override
@@ -296,12 +302,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public final class IcebergTableLoadContext implements AutoCloseable {
         private final IcebergMetadataOps ops;
         private final ThreadPoolExecutor executor;
+        private final ExecutionAuthenticator authenticator;
+        private final MetastoreProperties metastoreProperties;
+        private final Map<StorageProperties.Type, StorageProperties> storageProperties;
         private final IcebergCatalogResourceTracker.LoadGuard guard;
 
         private IcebergTableLoadContext(IcebergMetadataOps ops, ThreadPoolExecutor executor,
+                ExecutionAuthenticator authenticator, MetastoreProperties metastoreProperties,
+                Map<StorageProperties.Type, StorageProperties> storageProperties,
                 IcebergCatalogResourceTracker.LoadGuard guard) {
             this.ops = ops;
             this.executor = executor;
+            this.authenticator = authenticator;
+            this.metastoreProperties = metastoreProperties;
+            this.storageProperties = storageProperties;
             this.guard = guard;
         }
 
@@ -313,8 +327,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return executor;
         }
 
+        public ExecutionAuthenticator getAuthenticator() {
+            return authenticator;
+        }
+
+        public MetastoreProperties getMetastoreProperties() {
+            return metastoreProperties;
+        }
+
+        public Map<StorageProperties.Type, StorageProperties> getStorageProperties() {
+            return storageProperties;
+        }
+
         public Table loadTable(String dbName, String tableName) throws Exception {
-            return executionAuthenticator.execute(() -> ops.loadTable(dbName, tableName));
+            return authenticator.execute(() -> ops.loadTable(dbName, tableName));
         }
 
         public IcebergCatalogResourceTracker.ResourceLease promote() {
