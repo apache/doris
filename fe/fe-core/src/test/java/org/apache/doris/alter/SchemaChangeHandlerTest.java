@@ -870,6 +870,44 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testReaddDroppedValueColumnUsesNewUniqueId() throws Exception {
+        String tableName = "sc_dup_readd_value_column";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "event_time DATETIME NOT NULL,\n"
+                + "user_id BIGINT NOT NULL,\n"
+                + "item_id INT NOT NULL,\n"
+                + "amount DECIMAL(10, 2) NOT NULL,\n"
+                + "city VARCHAR(64) NOT NULL\n"
+                + ") DUPLICATE KEY(event_time, user_id)\n"
+                + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+        int oldCityUniqueId = tbl.getColumn("city").getUniqueId();
+
+        tbl.writeLock();
+        try {
+            // Simulate legacy metadata whose maxColUniqueId was not initialized.
+            indexMeta.setMaxColUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+        } finally {
+            tbl.writeUnlock();
+        }
+
+        alterTable("ALTER TABLE test." + tableName + " DROP COLUMN city", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        Assertions.assertTrue(indexMeta.getMaxColUniqueId() >= oldCityUniqueId);
+
+        alterTable("ALTER TABLE test." + tableName + " ADD COLUMN city VARCHAR(64)", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        Assertions.assertTrue(tbl.getColumn("city").getUniqueId() > oldCityUniqueId);
+    }
+
+    @Test
     public void testAddValueColumnOnAggMV() {
         OlapTable olapTable = Mockito.mock(OlapTable.class);
         Column newColumn = Mockito.mock(Column.class);
