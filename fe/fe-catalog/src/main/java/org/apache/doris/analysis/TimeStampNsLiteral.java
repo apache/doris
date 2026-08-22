@@ -63,6 +63,8 @@ public final class TimeStampNsLiteral extends LiteralExpr {
     private long second;
     @SerializedName("ns")
     private long nanosecond;
+    @SerializedName("inf")
+    private Boolean isMinInfinity;
 
     public TimeStampNsLiteral() {
         type = Type.TIMESTAMP_NS;
@@ -71,6 +73,7 @@ public final class TimeStampNsLiteral extends LiteralExpr {
 
     public TimeStampNsLiteral(boolean isMax) {
         this(isMax ? MAX_VALUE : MIN_VALUE);
+        isMinInfinity = !isMax;
     }
 
     public TimeStampNsLiteral(long year, long month, long day, long hour, long minute, long second,
@@ -83,6 +86,7 @@ public final class TimeStampNsLiteral extends LiteralExpr {
         this.minute = minute;
         this.second = second;
         this.nanosecond = nanosecond;
+        this.isMinInfinity = false;
     }
 
     public TimeStampNsLiteral(LocalDateTime value) {
@@ -99,6 +103,7 @@ public final class TimeStampNsLiteral extends LiteralExpr {
         minute = other.minute;
         second = other.second;
         nanosecond = other.nanosecond;
+        isMinInfinity = other.isMinInfinity;
         type = Type.TIMESTAMP_NS;
     }
 
@@ -113,7 +118,9 @@ public final class TimeStampNsLiteral extends LiteralExpr {
 
     @Override
     public boolean isMinValue() {
-        return compareBoundary(MIN_VALUE) == 0;
+        // Metadata written before the explicit infinity marker represented MINVALUE with the
+        // same fields as the legal TIMESTAMP_NS minimum. Preserve that legacy interpretation.
+        return isMinInfinity == null ? compareBoundary(MIN_VALUE) == 0 : isMinInfinity;
     }
 
     @Override
@@ -149,6 +156,9 @@ public final class TimeStampNsLiteral extends LiteralExpr {
             return compareDateTime((TimeStampNsLiteral) expr);
         }
         if (expr instanceof DateLiteral) {
+            if (isMinValue()) {
+                return -1;
+            }
             DateLiteral other = (DateLiteral) expr;
             int result = compareDateTime(other.getYear(), other.getMonth(), other.getDay(),
                     other.getHour(), other.getMinute(), other.getSecond(), other.getMicrosecond() * 1000);
@@ -163,6 +173,9 @@ public final class TimeStampNsLiteral extends LiteralExpr {
     }
 
     private int compareDateTime(TimeStampNsLiteral other) {
+        if (isMinValue() != other.isMinValue()) {
+            return isMinValue() ? -1 : 1;
+        }
         return compareDateTime(other.year, other.month, other.day, other.hour, other.minute,
                 other.second, other.nanosecond);
     }
@@ -308,6 +321,7 @@ public final class TimeStampNsLiteral extends LiteralExpr {
         minute = minimum.minute;
         second = minimum.second;
         nanosecond = minimum.nanosecond;
+        isMinInfinity = true;
     }
 
     public long getYear() {
@@ -360,9 +374,10 @@ public final class TimeStampNsLiteral extends LiteralExpr {
     public int hashCode() {
         int legacyHash = Long.hashCode(getLongValue());
         if (nanosecond % 1000 == 0) {
-            return legacyHash;
+            return isMinValue() ? 31 * legacyHash + 1 : legacyHash;
         }
-        return 31 * legacyHash + Long.hashCode(nanosecond);
+        int hash = 31 * legacyHash + Long.hashCode(nanosecond);
+        return isMinValue() ? 31 * hash + 1 : hash;
     }
 
     @Override

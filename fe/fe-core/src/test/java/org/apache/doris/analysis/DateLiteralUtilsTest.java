@@ -327,6 +327,7 @@ public class DateLiteralUtilsTest {
 
         TimeStampNsLiteral lowerBoundary = createTimeStampNsLiteral("1677-09-21 00:12:43.145224192");
         Assertions.assertEquals(Long.MIN_VALUE, lowerBoundary.getRealValue());
+        Assertions.assertFalse(lowerBoundary.isMinValue());
 
         TimeStampNsLiteral upperBoundary = createTimeStampNsLiteral("2262-04-11 23:47:16.854775807");
         Assertions.assertEquals(Long.MAX_VALUE, upperBoundary.getRealValue());

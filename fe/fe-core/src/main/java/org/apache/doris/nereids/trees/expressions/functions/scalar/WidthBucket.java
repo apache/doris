@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
@@ -40,6 +41,8 @@ import java.util.List;
  */
 public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TimeStampNsType.INSTANCE,
+                    TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
                     DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,

@@ -372,8 +372,12 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             case TIMESTAMP_NS:
                 org.apache.doris.analysis.TimeStampNsLiteral timestampNsLiteral
                         = (org.apache.doris.analysis.TimeStampNsLiteral) literal;
-                successor.pushColumn(new org.apache.doris.analysis.TimeStampNsLiteral(
-                        timestampNsLiteral.toLocalDateTime().plusNanos(1)), type);
+                if ((long) timestampNsLiteral.getRealValue() == Long.MAX_VALUE) {
+                    successor.pushColumn(MaxLiteral.MAX_VALUE, type);
+                } else {
+                    successor.pushColumn(new org.apache.doris.analysis.TimeStampNsLiteral(
+                            timestampNsLiteral.toLocalDateTime().plusNanos(1)), type);
+                }
                 return successor;
             default:
                 throw new AnalysisException("Unsupported type: " + type);

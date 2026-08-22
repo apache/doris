@@ -19,10 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -316,6 +320,20 @@ public class PartitionKeyTest {
     }
 
     @Test
+    public void testTimeStampNsMaximumSuccessor() throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("2262-04-11 23:47:16.854775807")),
+                Arrays.asList(column));
+
+        PartitionKey successor = key.successor();
+
+        Assert.assertTrue(successor.isMaxValue());
+        Assert.assertEquals("(MAXVALUE)", successor.toSql());
+        Assert.assertTrue(successor.toString().contains("MAXVALUE"));
+    }
+
+    @Test
     public void testTimeStampNsSerialization() throws Exception {
         Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
         PartitionKey key = PartitionKey.createPartitionKey(
@@ -332,6 +350,20 @@ public class PartitionKeyTest {
                 instanceof org.apache.doris.analysis.TimeStampNsLiteral);
         Assert.assertEquals("1970-01-01 00:00:00.123456789",
                 restored.getKeys().get(0).getStringValue());
+
+        PartitionKey infinityMin = PartitionKey.createInfinityPartitionKey(Arrays.asList(column), false);
+        ByteArrayOutputStream infinityBytes = new ByteArrayOutputStream();
+        infinityMin.write(new DataOutputStream(infinityBytes));
+        PartitionKey restoredInfinity = PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(infinityBytes.toByteArray())));
+        Assert.assertTrue(restoredInfinity.isMinValue());
+        Assert.assertEquals(infinityMin, restoredInfinity);
+
+        TimeStampNsLiteral infinityLiteral = TimeStampNsLiteral.createMinValue();
+        JsonObject legacyJson = JsonParser.parseString(GsonUtils.GSON.toJson(infinityLiteral)).getAsJsonObject();
+        legacyJson.remove("inf");
+        TimeStampNsLiteral restoredLegacy = GsonUtils.GSON.fromJson(legacyJson, TimeStampNsLiteral.class);
+        Assert.assertTrue(restoredLegacy.isMinValue());
     }
 
     private void assertTimeStampNsMinValue(String minValue, String nextValue) throws Exception {
@@ -343,9 +375,11 @@ public class PartitionKeyTest {
                 Arrays.asList(new PartitionValue(nextValue)), Arrays.asList(column));
 
         Assert.assertTrue(infinityMin.isMinValue());
-        Assert.assertTrue(literalMin.isMinValue());
-        Assert.assertEquals(infinityMin, literalMin);
+        Assert.assertFalse(literalMin.isMinValue());
+        Assert.assertNotEquals(infinityMin, literalMin);
+        Assert.assertTrue(infinityMin.compareTo(literalMin) < 0);
         Assert.assertFalse(literalNext.isMinValue());
+        Assert.assertEquals(literalNext, literalMin.successor());
     }
 
     @Test

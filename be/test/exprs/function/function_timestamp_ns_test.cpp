@@ -303,6 +303,29 @@ TEST(TimestampNsFunctionTest, differences_keep_submicrosecond_ordering) {
                      .ok()));
 }
 
+TEST(TimestampNsFunctionTest, width_bucket_preserves_nanoseconds_and_avoids_overflow) {
+    const InputTypeSet arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
+                                    {PrimitiveType::TYPE_TIMESTAMP_NS},
+                                    {PrimitiveType::TYPE_TIMESTAMP_NS},
+                                    PrimitiveType::TYPE_TINYINT};
+
+    EXPECT_TRUE((check_function<DataTypeInt64, true>(
+                         "width_bucket", arguments,
+                         {{{std::string("1970-01-01 00:00:00.000000005"),
+                            std::string("1970-01-01 00:00:00.000000000"),
+                            std::string("1970-01-01 00:00:00.000000010"), int8_t(2)},
+                           int64_t(2)},
+                          {{std::string("1677-09-21 00:12:43.145224192"),
+                            std::string("1677-09-21 00:12:43.145224192"),
+                            std::string("2262-04-11 23:47:16.854775807"), int8_t(2)},
+                           int64_t(1)},
+                          {{std::string("2262-04-11 23:47:16.854775806"),
+                            std::string("1677-09-21 00:12:43.145224192"),
+                            std::string("2262-04-11 23:47:16.854775807"), int8_t(2)},
+                           int64_t(2)}})
+                         .ok()));
+}
+
 TEST(TimestampNsFunctionTest, convert_tz_preserves_nanoseconds) {
     TimezoneUtils::clear_timezone_caches();
     TimezoneUtils::load_timezones_to_cache();

@@ -77,16 +77,18 @@ class TimestampNsFunctionSignatureTest {
     }
 
     @Test
-    void testWidthBucketMatchesDateTimeV2Signature() {
+    void testWidthBucketUsesNativeTimestampNsSignature() {
         Expression dateTimeV2 = SlotReference.of("datetimev2", DateTimeV2Type.MAX);
         assertSignature(new WidthBucket(timestampNs, timestampNs, timestampNs,
                         new IntegerLiteral(1)),
-                BigIntType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE,
-                DoubleType.INSTANCE, TinyIntType.INSTANCE);
+                BigIntType.INSTANCE, TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE,
+                TimeStampNsType.INSTANCE, TinyIntType.INSTANCE);
         assertSignature(new WidthBucket(dateTimeV2, dateTimeV2, dateTimeV2,
                         new IntegerLiteral(1)),
                 BigIntType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE,
                 DoubleType.INSTANCE, TinyIntType.INSTANCE);
+        Assertions.assertFalse(TypeCoercionUtils.implicitCast(
+                TimeStampNsType.INSTANCE, DoubleType.INSTANCE).isPresent());
     }
 
     @Test
