@@ -19,6 +19,8 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <algorithm>
+
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "util/debug_points.h"
@@ -26,6 +28,28 @@
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris::io {
+
+std::unordered_set<int64_t> StreamSinkFileWriter::_get_fault_injection_failed_dst_ids() const {
+    size_t failed_replica_num = 0;
+    DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica",
+                    { failed_replica_num = 1; });
+    DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica",
+                    { failed_replica_num = 2; });
+    DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
+                    { failed_replica_num = _streams.size(); });
+    if (failed_replica_num == 0) {
+        return {};
+    }
+
+    std::vector<int64_t> dst_ids;
+    dst_ids.reserve(_streams.size());
+    for (const auto& stream : _streams) {
+        dst_ids.push_back(stream->dst_id());
+    }
+    std::sort(dst_ids.begin(), dst_ids.end());
+    dst_ids.resize(std::min(failed_replica_num, dst_ids.size()));
+    return std::unordered_set<int64_t>(dst_ids.begin(), dst_ids.end());
+}
 
 void StreamSinkFileWriter::init(PUniqueId load_id, int64_t partition_id, int64_t index_id,
                                 int64_t tablet_id, int32_t segment_id, FileType file_type) {
@@ -52,24 +76,16 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
                << ", data_length: " << bytes_req << "file_type" << _file_type;
 
     std::span<const Slice> slices {data, data_cnt};
-    size_t fault_injection_skipped_streams = 0;
+    auto fault_injection_failed_dst_ids = _get_fault_injection_failed_dst_ids();
     bool ok = false;
     Status st;
     for (auto& stream : _streams) {
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
-            if (fault_injection_skipped_streams < 1) {
-                fault_injection_skipped_streams++;
-                continue;
-            }
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
-            if (fault_injection_skipped_streams < 2) {
-                fault_injection_skipped_streams++;
-                continue;
-            }
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
-                        { continue; });
+        if (fault_injection_failed_dst_ids.contains(stream->dst_id())) {
+            LOG(INFO) << "fault injection skips segment data to backend " << stream->dst_id()
+                      << ", load_id: " << print_id(_load_id) << ", index_id: " << _index_id
+                      << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
+            continue;
+        }
         st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, _bytes_appended,
                                  slices, false, _file_type);
         ok = ok || st.ok();
@@ -123,23 +139,15 @@ Status StreamSinkFileWriter::_finalize() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
-    size_t fault_injection_skipped_streams = 0;
+    auto fault_injection_failed_dst_ids = _get_fault_injection_failed_dst_ids();
     bool ok = false;
     for (auto& stream : _streams) {
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
-            if (fault_injection_skipped_streams < 1) {
-                fault_injection_skipped_streams++;
-                continue;
-            }
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
-            if (fault_injection_skipped_streams < 2) {
-                fault_injection_skipped_streams++;
-                continue;
-            }
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
-                        { continue; });
+        if (fault_injection_failed_dst_ids.contains(stream->dst_id())) {
+            LOG(INFO) << "fault injection skips segment eos to backend " << stream->dst_id()
+                      << ", load_id: " << print_id(_load_id) << ", index_id: " << _index_id
+                      << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
+            continue;
+        }
         auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
                                       _bytes_appended, {}, true, _file_type);
         ok = ok || st.ok();
