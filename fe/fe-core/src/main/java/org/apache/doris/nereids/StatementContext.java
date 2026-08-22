@@ -276,6 +276,10 @@ public class StatementContext implements Closeable {
     // for high speed/concurrency point queries
     private boolean isShortCircuitQuery;
 
+    // max_visible_partition() is data-dependent, so such a query must not be cached/reused
+    // as a prepared short-circuit point plan.
+    private boolean hasMaxVisiblePartition;
+
     private ShortCircuitQueryContext shortCircuitQueryContext;
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
@@ -603,6 +607,14 @@ public class StatementContext implements Closeable {
 
     public void setShortCircuitQuery(boolean shortCircuitQuery) {
         isShortCircuitQuery = shortCircuitQuery;
+    }
+
+    public boolean hasMaxVisiblePartition() {
+        return hasMaxVisiblePartition;
+    }
+
+    public void setHasMaxVisiblePartition(boolean hasMaxVisiblePartition) {
+        this.hasMaxVisiblePartition = hasMaxVisiblePartition;
     }
 
     public ShortCircuitQueryContext getShortCircuitQueryContext() {

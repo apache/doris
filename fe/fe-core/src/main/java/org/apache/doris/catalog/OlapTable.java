@@ -1491,6 +1491,67 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      *
      */
 
+    @Override
+    public Partition getMaxVisiblePartition() {
+        PartitionInfo partitionInfo = getPartitionInfo();
+        PartitionType type = partitionInfo.getType();
+        // Cloud mode: prefetch all visible versions in one batch RPC so the loop below hits
+        // cache instead of firing N sequential meta-service RPCs under metadata locks.
+        if (Config.isCloudMode()) {
+            try {
+                getVersionInBatchForCloudMode(nameToPartition.values().stream()
+                        .map(Partition::getId).collect(Collectors.toList()));
+            } catch (RpcException e) {
+                LOG.warn("batch prefetch visible version failed, fallback to per-partition lookup", e);
+            }
+        }
+        if (type == PartitionType.UNPARTITIONED) {
+            for (Partition partition : nameToPartition.values()) {
+                if (partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                    return partition;
+                }
+            }
+            return null;
+        }
+        // RANGE/LIST: pick the visible partition with the greatest key (RANGE by upper bound,
+        // LIST by max discrete key). A LIST default partition is only a last-resort fallback.
+        Partition result = null;
+        PartitionKey maxKey = null;
+        Partition defaultFallback = null;
+        for (Partition partition : nameToPartition.values()) {
+            if (partition.getVisibleVersion() <= Partition.PARTITION_INIT_VERSION) {
+                continue;
+            }
+            PartitionItem item = partitionInfo.getItem(partition.getId());
+            // LIST default partition's key is a synthetic MIN placeholder, not real data;
+            // keep it only as a fallback so a keyed partition with data always wins.
+            if (item instanceof ListPartitionItem && ((ListPartitionItem) item).isDefaultPartition()) {
+                defaultFallback = partition;
+                continue;
+            }
+            PartitionKey key = maxPartitionKey(item);
+            if (maxKey == null || key.compareTo(maxKey) > 0) {
+                maxKey = key;
+                result = partition;
+            }
+        }
+        return result != null ? result : defaultFallback;
+    }
+
+    // Greatest partition key of an item: RANGE upper bound, or LIST max discrete key.
+    private PartitionKey maxPartitionKey(PartitionItem item) {
+        if (item instanceof RangePartitionItem) {
+            return ((RangePartitionItem) item).getItems().upperEndpoint();
+        }
+        PartitionKey max = null;
+        for (PartitionKey key : ((ListPartitionItem) item).getItems()) {
+            if (max == null || key.compareTo(max) > 0) {
+                max = key;
+            }
+        }
+        return max;
+    }
+
     // Priority is given to querying from the partition. If not found, query from the tempPartition
     @Override
     public Partition getPartition(String partitionName) {

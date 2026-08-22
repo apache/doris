@@ -64,6 +64,9 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
             return false;
         }
+        if (ConnectContext.get().getStatementContext().hasMaxVisiblePartition()) {
+            return false;
+        }
         OlapTable olapTable = olapScan.getTable();
         if (olapTable.hasVariantColumns()) {
             return false;
