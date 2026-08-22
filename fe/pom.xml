@@ -342,7 +342,7 @@ under the License.
         <jaxws-api.version>2.3.0</jaxws-api.version>
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
         <hudi-spark.version>hudi-spark3.4.x</hudi-spark.version>
-        <hive.version>3.1.3</hive.version>
+        <hive.version>4.0.1</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
         <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
