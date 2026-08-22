@@ -150,9 +150,12 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (lease != null) {
             return lease.getLatestSnapshotCacheValue();
         }
-        Table table = loadTable(nameMapping);
-        ExternalTable tableForProjection = findExternalTable(nameMapping, ENGINE);
-        return loadSnapshotProjection(tableForProjection, table, getIcebergTableExecutor(dorisTable));
+        // Background callers have no statement teardown. Retain one exact cache/catalog generation only while
+        // building the projection, then return metadata detached from its Table, FileIO and executor owners.
+        try (IcebergTableCacheValue.Lease operationLease = borrow(nameMapping)) {
+            IcebergSnapshotCacheValue value = operationLease.getLatestSnapshotCacheValue();
+            return value.metadataOnlyCopy();
+        }
     }
 
     public List<Snapshot> getSnapshotList(ExternalTable dorisTable) {

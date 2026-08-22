@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -27,6 +28,10 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class StreamingInsertTaskResourceTest {
 
@@ -40,6 +45,8 @@ class StreamingInsertTaskResourceTest {
         StreamingInsertTask task = new StreamingInsertTask(
                 1L, 2L, "", null, "", null, Collections.emptyMap(), null, null);
         ConnectContext taskContext = new ConnectContext();
+        TUniqueId queryId = new TUniqueId(10L, 20L);
+        taskContext.setQueryId(queryId);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         taskContext.setStatementContext(statementContext);
         taskContext.setThreadLocalInfo();
@@ -53,5 +60,55 @@ class StreamingInsertTaskResourceTest {
         Mockito.verify(statementContext).close();
         Assertions.assertNull(task.getCtx());
         Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
+    void cancellationLeavesAttemptCleanupToExecutionOwner() throws Exception {
+        CountDownLatch planningStarted = new CountDownLatch(1);
+        CountDownLatch finishPlanning = new CountDownLatch(1);
+        AtomicInteger closeCalls = new AtomicInteger();
+        AtomicBoolean cleanupRanOnWorker = new AtomicBoolean();
+        Thread[] workerRef = new Thread[1];
+        AbstractStreamingTask task = new AbstractStreamingTask(1L, 2L, null) {
+            @Override
+            public void before() throws Exception {
+                planningStarted.countDown();
+                finishPlanning.await(10, TimeUnit.SECONDS);
+            }
+
+            @Override
+            public void run() {
+            }
+
+            @Override
+            public boolean onSuccess() {
+                return false;
+            }
+
+            @Override
+            public void closeOrReleaseResources() {
+                closeCalls.incrementAndGet();
+                cleanupRanOnWorker.set(Thread.currentThread() == workerRef[0]);
+            }
+        };
+        Thread worker = new Thread(() -> {
+            workerRef[0] = Thread.currentThread();
+            try {
+                task.execute();
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+        worker.start();
+        Assertions.assertTrue(planningStarted.await(10, TimeUnit.SECONDS));
+
+        task.cancel(false);
+        Assertions.assertEquals(0, closeCalls.get());
+        finishPlanning.countDown();
+        worker.join(TimeUnit.SECONDS.toMillis(10));
+
+        Assertions.assertFalse(worker.isAlive());
+        Assertions.assertEquals(1, closeCalls.get());
+        Assertions.assertTrue(cleanupRanOnWorker.get());
     }
 }

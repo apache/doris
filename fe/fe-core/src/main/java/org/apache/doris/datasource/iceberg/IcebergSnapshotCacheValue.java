@@ -98,6 +98,11 @@ public class IcebergSnapshotCacheValue {
         return icebergTable;
     }
 
+    /** Copy safe to return after the Table/FileIO/executor generation lease has been released. */
+    IcebergSnapshotCacheValue metadataOnlyCopy() {
+        return new IcebergSnapshotCacheValue(partitionInfo, snapshot, nameMapping);
+    }
+
     public ThreadPoolExecutor getPlanningExecutor() {
         return planningExecutor;
     }
