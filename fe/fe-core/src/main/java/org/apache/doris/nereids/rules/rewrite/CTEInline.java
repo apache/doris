@@ -26,12 +26,16 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
@@ -94,6 +98,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 ConnectContext connectContext = ConnectContext.get();
                 LogicalCTEProducer<?> cteProducer = (LogicalCTEProducer<?>) cteAnchor.left();
                 if (connectContext.getSessionVariable().enableCTEMaterialize
+                        && !isConstantOneRowProducer(cteProducer)
                         && (consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold
                                 || containsNondeterministicFunction(cteProducer))) {
                     // not inline
@@ -134,5 +139,49 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         producer.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return !nondeterministicFunctions.isEmpty();
+    }
+
+    /**
+     * Return true if the CTE producer is provably a single-row constant relation.
+     */
+    private static boolean isConstantOneRowProducer(Plan producerRoot) {
+        if (!(producerRoot instanceof LogicalCTEProducer)) {
+            return false;
+        }
+        return isConstantOneRowSubtree(((LogicalCTEProducer<?>) producerRoot).child());
+    }
+
+    private static boolean isConstantOneRowSubtree(Plan node) {
+        if (node instanceof LogicalOneRowRelation) {
+            return isSafeToInline(((LogicalOneRowRelation) node).getProjects());
+        }
+        if (node instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) node;
+            if (project.arity() != 1) {
+                return false;
+            }
+            if (!isSafeToInline(project.getProjects())) {
+                return false;
+            }
+            return isConstantOneRowSubtree(project.child(0));
+        }
+        if (node instanceof LogicalSubQueryAlias) {
+            if (node.arity() != 1) {
+                return false;
+            }
+            return isConstantOneRowSubtree(node.child(0));
+        }
+        return false;
+    }
+
+    private static boolean isSafeToInline(List<? extends NamedExpression> exprs) {
+        for (NamedExpression e : exprs) {
+            if (e.containsVolatileExpression()
+                    || e.anyMatch(SubqueryExpr.class::isInstance)
+                    || e.anyMatch(Sleep.class::isInstance)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
