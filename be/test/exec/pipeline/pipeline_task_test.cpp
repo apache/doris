@@ -1992,4 +1992,21 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE_RACE_FIX) {
     config::enable_debug_points = false;
 }
 
+TEST_F(PipelineTaskTest, TEST_SPILL_CONTEXT_REQUIRES_FULL_ACCOUNTING) {
+    // Contract behind QueryTaskController::revoke_memory's error path: the completion
+    // callback (which resumes the paused query via set_memory_sufficient(true)) fires only
+    // after on_task_finished() has been called once per counted task. A submit error means
+    // the failed task and the unsubmitted remainder never reach do_revoke_memory, so the
+    // caller must account for them itself or the query blocks forever.
+    bool fired = false;
+    auto ctx =
+            std::make_shared<SpillContext>(3, TUniqueId {}, [&](SpillContext*) { fired = true; });
+    ctx->on_task_finished(); // one task finished normally
+    EXPECT_FALSE(fired);
+    // two tasks failed to submit: the caller accounts for them
+    ctx->on_task_finished();
+    ctx->on_task_finished();
+    EXPECT_TRUE(fired);
+}
+
 } // namespace doris
