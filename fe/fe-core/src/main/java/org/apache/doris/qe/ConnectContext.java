@@ -1017,14 +1017,17 @@ public class ConnectContext {
         }
     }
 
-    public void endFlightSqlResultPublication() {
+    public boolean endFlightSqlResultPublication() {
         List<StmtExecutor> toClose = null;
+        boolean published;
         synchronized (flightSqlDeferredExecutors) {
+            published = !flightSqlDeferredExecutorsSealed;
             if (--flightSqlResultPublishers == 0 && flightSqlDeferredExecutorsSealed) {
                 toClose = drainFlightSqlDeferredExecutors();
             }
         }
         finalizeFlightSqlDeferredExecutors(toClose);
+        return published;
     }
 
     public void closeFlightSqlDeferredExecutors() {
