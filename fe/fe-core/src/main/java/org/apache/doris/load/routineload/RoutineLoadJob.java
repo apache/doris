@@ -129,6 +129,7 @@ public abstract class RoutineLoadJob
     protected static final String STAR_STRING = "*";
 
     public static final String WORKLOAD_GROUP = "workload_group";
+    public static final String COMPUTE_GROUP = "compute_group";
 
     @Getter
     @Setter
@@ -434,6 +435,13 @@ public abstract class RoutineLoadJob
         if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
             jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
         }
+
+        // Only write the key when the user declared it. An absent key means "not declared" and
+        // keeps the existing implicit resolution, which is also what later versions rely on to
+        // tell a pinned group apart from an inherited one.
+        if (!StringUtils.isEmpty(info.getComputeGroupName())) {
+            jobProperties.put(COMPUTE_GROUP, info.getComputeGroupName());
+        }
     }
 
     protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -546,6 +554,11 @@ public abstract class RoutineLoadJob
 
     public String getWorkloadGroup() {
         return jobProperties.get(WORKLOAD_GROUP);
+    }
+
+    // The compute group explicitly declared on the job, or null when the user did not declare one.
+    public String getDeclaredComputeGroup() {
+        return jobProperties.get(COMPUTE_GROUP);
     }
 
     public JobState getState() {
@@ -795,7 +808,12 @@ public abstract class RoutineLoadJob
     }
 
     public String getCloudCluster() {
-        return cloudCluster;
+        // An explicitly declared compute group wins over the cluster snapshotted from the session
+        // at create time. Keeping this in the getter (instead of writing both places) means every
+        // caller follows the declaration, and ALTER only has to update jobProperties, which is
+        // already covered by the existing edit log.
+        String declared = getDeclaredComputeGroup();
+        return StringUtils.isEmpty(declared) ? cloudCluster : declared;
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1056,13 +1074,16 @@ public abstract class RoutineLoadJob
         table.readLock();
         try {
             if (Config.isCloudMode()) {
+                // Use the effective cluster, not the raw snapshot field: this context is what
+                // OlapTableSink uses to pick the backends the load writes to.
+                String effectiveCluster = getCloudCluster();
                 if (ConnectContext.get() == null) {
                     ConnectContext ctx = new ConnectContext();
                     ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(cloudCluster);
+                    ctx.setCloudCluster(effectiveCluster);
                     needCleanCtx = true;
                 } else {
-                    ConnectContext.get().setCloudCluster(cloudCluster);
+                    ConnectContext.get().setCloudCluster(effectiveCluster);
                 }
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
@@ -1664,7 +1685,9 @@ public abstract class RoutineLoadJob
     }
 
     public String getClusterInfo() {
-        return Strings.nullToEmpty(cloudCluster);
+        // SHOW ROUTINE LOAD must display the cluster the job actually runs in, i.e. the declared
+        // compute group when there is one.
+        return Strings.nullToEmpty(getCloudCluster());
     }
 
     // check the correctness of commit info

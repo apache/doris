@@ -66,6 +66,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -338,6 +339,7 @@ public class MTMVTask extends AbstractTask {
         try {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
+            checkBindingBeforeTask(ctx);
             installTaskSnapshots(statementContext);
             TUniqueId queryId = generateQueryId();
             lastQueryId = DebugUtil.printId(queryId);
@@ -376,6 +378,10 @@ public class MTMVTask extends AbstractTask {
     private ConnectContext createTaskContext() {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
                 mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        // The planning done on this context (base table resolution, partition calculation) must see
+        // the same compute group the refresh will execute in, otherwise the workload group would be
+        // looked up in a different namespace.
+        setComputeGroup(ctx);
         ctx.setStatementContext(new StatementContext());
         return ctx;
     }
@@ -405,10 +411,37 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void setComputeGroup(ConnectContext ctx) {
-        String taskComputeGroup = taskContext.getComputeGroup();
-        if (Config.isCloudMode() && !Strings.isNullOrEmpty(taskComputeGroup)) {
-            ctx.setCloudCluster(taskComputeGroup);
+        if (!Config.isCloudMode()) {
+            return;
         }
+        // A compute group declared on the MV pins every refresh, automatic or manual, to that group.
+        // Only when the MV declares nothing does a manual REFRESH keep borrowing the session's group,
+        // which is the behaviour every existing MV keeps.
+        String declared = mtmv == null ? null : mtmv.getComputeGroup().orElse(null);
+        String effective = Strings.isNullOrEmpty(declared) ? taskContext.getComputeGroup() : declared;
+        if (!Strings.isNullOrEmpty(effective)) {
+            ctx.setCloudCluster(effective);
+        }
+    }
+
+    /**
+     * Re-checks the binding before the refresh runs: the groups can be dropped and privileges
+     * revoked while the MV exists, and without this the refresh would fail later with an unrelated
+     * message.
+     *
+     * <p>The identity used here is whatever the refresh actually runs as, which today is the
+     * hardcoded {@code admin} (see {@link MTMVPlanUtil#createBasicMvContext}). That makes the
+     * privilege half of the check always pass; the existence half is what has teeth right now. Once
+     * an MV carries a real owner, passing that owner here is the only change needed.
+     */
+    private void checkBindingBeforeTask(ConnectContext ctx) throws UserException {
+        if (mtmv == null) {
+            return;
+        }
+        // Only the explicitly declared compute group is re-checked; an MV that declares none borrows
+        // the session's group, which the user never chose for it.
+        ComputeGroupBindingUtil.checkBindingBeforeTask(ctx.getCurrentUserIdentity(),
+                mtmv.getComputeGroup().orElse(null), mtmv.getWorkloadGroup().orElse(null));
     }
 
     private void recordComputeGroup(ConnectContext ctx) {
