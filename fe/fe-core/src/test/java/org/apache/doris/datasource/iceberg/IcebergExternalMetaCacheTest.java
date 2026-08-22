@@ -419,6 +419,74 @@ public class IcebergExternalMetaCacheTest {
         }
     }
 
+    @Test
+    public void testResetCatalogReinitializesBeforeCaptureAndWritableStaysOnDispatchGeneration() {
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps retainedOps = Mockito.mock(IcebergMetadataOps.class);
+        IcebergMetadataOps currentOps = Mockito.mock(IcebergMetadataOps.class);
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        java.util.concurrent.atomic.AtomicBoolean initialized =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        Mockito.doAnswer(invocation -> {
+            initialized.set(true);
+            return null;
+        }).when(catalog).makeSureInitialized();
+        Mockito.when(catalog.getExecutionAuthenticator()).thenAnswer(invocation -> {
+            if (!initialized.get()) {
+                throw new RuntimeException(
+                        "ExecutionAuthenticator is null, please confirm it is initialized.");
+            }
+            return authenticator;
+        });
+        Mockito.when(catalog.getMetadataOps()).thenReturn(currentOps);
+        Table table = tableWithMetadataLocation("/metadata/reset-before-capture-v1.json");
+        Mockito.when(currentOps.loadTable("remote_db", "remote_tbl")).thenReturn(table);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+        };
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+
+            // A reset-to-uninitialized catalog must be initialized before the miss captures its
+            // execution context, exactly as the load used to trigger implicitly.
+            IcebergTableCacheValue published = tables.get(mapping);
+            Assert.assertSame(authenticator, published.getAuthenticator());
+
+            initialized.set(false);
+            Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable));
+            Assert.assertTrue(initialized.get());
+
+            // A caller that retains the ops of an earlier dispatch generation must not be handed
+            // the reinitialized generation's writable handle.
+            try {
+                cache.getWritableIcebergTable(dorisTable, retainedOps);
+                Assert.fail("a writable acquisition must stay on the caller's dispatch generation");
+            } catch (RuntimeException e) {
+                Assert.assertTrue(String.valueOf(e.getMessage()),
+                        exceptionChainContains(e, "was reset while acquiring iceberg table"));
+            }
+            Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable, currentOps));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
     private static boolean exceptionChainContains(Throwable throwable, String fragment) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current.getMessage() != null && current.getMessage().contains(fragment)) {

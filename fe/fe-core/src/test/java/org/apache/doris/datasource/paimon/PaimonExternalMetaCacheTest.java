@@ -1010,6 +1010,56 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 
+    @Test
+    public void testResetCatalogReinitializesBeforeCapturingAuthenticator() {
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        java.util.concurrent.atomic.AtomicBoolean initialized =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.doAnswer(invocation -> {
+            initialized.set(true);
+            return null;
+        }).when(catalog).makeSureInitialized();
+        Mockito.when(catalog.getExecutionAuthenticator()).thenAnswer(invocation -> {
+            if (!initialized.get()) {
+                throw new RuntimeException(
+                        "ExecutionAuthenticator is null, please confirm it is initialized.");
+            }
+            return authenticator;
+        });
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(paimonTable);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+
+            // A reset-to-uninitialized catalog must be initialized before the miss captures its
+            // execution context, exactly as the load used to trigger implicitly.
+            PaimonTableCacheValue published = tables.get(mapping);
+            Assert.assertSame(authenticator, published.getAuthenticator());
+            Assert.assertTrue(initialized.get());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
     private static boolean exceptionChainContains(Throwable throwable, String fragment) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current.getMessage() != null && current.getMessage().contains(fragment)) {

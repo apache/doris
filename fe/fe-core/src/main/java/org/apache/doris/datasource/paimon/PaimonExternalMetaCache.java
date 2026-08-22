@@ -350,6 +350,11 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
             // a spliced synthetic generation that every later fence and schema hydration would
             // deliberately trust.
             PaimonExternalCatalog catalog = tableLoader.catalog(nameMapping);
+            // A credential/storage ALTER can leave the catalog reset-to-uninitialized while a
+            // query still retains this external table. The authenticator exists again only after
+            // lazy initialization, which the load below used to trigger implicitly, so
+            // initialize before capturing the generation's execution context.
+            catalog.makeSureInitialized();
             org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator =
                     catalog.getExecutionAuthenticator();
             Table table = tableLoader.load(nameMapping);

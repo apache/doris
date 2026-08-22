@@ -483,7 +483,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void createOrReplaceBranchImpl(ExternalTable dorisTable, CreateOrReplaceBranchInfo branchInfo)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         BranchOptions branchOptions = branchInfo.getBranchOptions();
 
         Long snapshotId = branchOptions.getSnapshotId()
@@ -571,7 +571,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void createOrReplaceTagImpl(ExternalTable dorisTable, CreateOrReplaceTagInfo tagInfo)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         TagOptions tagOptions = tagInfo.getTagOptions();
         Long snapshotId = tagOptions.getSnapshotId()
                 .orElse(
@@ -623,7 +623,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void dropTagImpl(ExternalTable dorisTable, DropTagInfo tagInfo) throws UserException {
         String tagName = tagInfo.getTagName();
         boolean ifExists = tagInfo.getIfExists();
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         SnapshotRef snapshotRef = icebergTable.refs().get(tagName);
 
         if (snapshotRef != null || !ifExists) {
@@ -644,7 +644,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void dropBranchImpl(ExternalTable dorisTable, DropBranchInfo branchInfo) throws UserException {
         String branchName = branchInfo.getBranchName();
         boolean ifExists = branchInfo.getIfExists();
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         SnapshotRef snapshotRef = icebergTable.refs().get(branchName);
 
         if (snapshotRef != null || !ifExists) {
@@ -747,7 +747,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         validateAddColumnMetadata(column, true);
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateVariantSchema(icebergTable, column.getType(), column.getName(), false, true);
         validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         Schema schema = icebergTable.schema();
@@ -778,7 +778,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (!column.isAllowNull()) {
             throw new UserException("New nested field '" + columnPath.getFullPath() + "' must be nullable");
         }
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true, true);
         ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "add");
         if (!parentPath.getType().isStructType()) {
@@ -808,7 +808,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         for (Column column : columns) {
             validateAddColumnMetadata(column, true);
             validateVariantSchema(icebergTable, column.getType(), column.getName(), false, true);
@@ -831,7 +831,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateRowLineageColumnMutation(icebergTable, columnName, "drop");
         ResolvedColumnPath columnPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(columnName), "drop");
         UpdateSchema updateSchema = icebergTable.updateSchema();
@@ -851,7 +851,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             dropColumn(dorisTable, columnPath.getTopLevelName(), updateTime);
             return;
         }
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "drop");
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
@@ -868,7 +868,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateRowLineageColumnMutation(icebergTable, oldName, "rename");
         validateRowLineageColumnMutation(icebergTable, newName, "rename to");
         Schema schema = icebergTable.schema();
@@ -893,7 +893,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             renameColumn(dorisTable, columnPath.getTopLevelName(), newName, updateTime);
             return;
         }
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "rename");
         ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "rename");
         validateNoCaseInsensitiveSiblingCollision(parentPath.getType().asStructType(),
@@ -955,7 +955,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private void modifyTopLevelColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column,
             ColumnPosition position, long updateTime) throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify");
         NestedField currentCol = icebergTable.schema().asStruct()
                 .caseInsensitiveField(columnPath.getTopLevelName());
@@ -1024,7 +1024,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return;
         }
 
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
         validateCollectionPseudoFieldComment(
@@ -1075,7 +1075,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void modifyColumnComment(ExternalTable dorisTable, ColumnPath columnPath, String comment, long updateTime)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         if (!columnPath.isNested()) {
             validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify comment for");
         }
@@ -1642,7 +1642,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (newOrder == null || newOrder.isEmpty()) {
             throw new UserException("Reorder column failed, new order is empty.");
         }
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         List<String> canonicalOrder = new ArrayList<>(newOrder.size());
         Set<String> canonicalNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (String columnName : newOrder) {
@@ -1709,7 +1709,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
      */
     public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldClause clause, long updateTime)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
         String transformName = clause.getTransformName();
@@ -1738,7 +1738,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
      */
     public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldClause clause, long updateTime)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
         if (clause.getPartitionFieldName() != null) {
@@ -1765,7 +1765,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
      */
     public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldClause clause, long updateTime)
             throws UserException {
-        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
         // remove old partition field
