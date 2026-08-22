@@ -19,10 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.JsonParseException;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -365,6 +367,19 @@ public class PartitionKeyTest {
         Assert.assertFalse(restoredLegalMin.isMinValue());
         Assert.assertEquals(legalMin, restoredLegalMin);
         Assert.assertTrue(restoredInfinity.compareTo(restoredLegalMin) < 0);
+    }
+
+    @Test
+    public void testInvalidTimeStampNsPartitionKeyFailsDeserialization() throws Exception {
+        PartitionKey invalid = new PartitionKey();
+        invalid.pushColumn(new TimeStampNsLiteral(
+                1677, 9, 21, 0, 12, 43, 145224191), PrimitiveType.TIMESTAMP_NS);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        invalid.write(new DataOutputStream(bytes));
+
+        JsonParseException exception = Assert.assertThrows(JsonParseException.class, () -> PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))));
+        Assert.assertTrue(exception.getMessage().contains("Invalid TIMESTAMP_NS partition key"));
     }
 
     private void assertTimeStampNsMinValue(String minValue, String nextValue) throws Exception {

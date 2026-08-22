@@ -581,14 +581,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     try {
                         key.checkValueValid();
                     } catch (AnalysisException e) {
+                        if (type == PrimitiveType.TIMESTAMP_NS) {
+                            throw new JsonParseException(
+                                    "Invalid TIMESTAMP_NS partition key: " + key.getStringValue(), e);
+                        }
                         LOG.warn("Value {} for partition key [type = {}] is invalid! This is a bug exists "
                                 + "in Doris 1.2.0 and fixed since Doris 1.2.1. You should create this table "
                                 + "again using Doris 1.2.1+ .", key.getStringValue(), type);
-                        if (key instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
-                            ((org.apache.doris.analysis.TimeStampNsLiteral) key).setMinValue();
-                        } else {
-                            ((DateLiteral) key).setMinValue();
-                        }
+                        ((DateLiteral) key).setMinValue();
                     }
                 }
 
