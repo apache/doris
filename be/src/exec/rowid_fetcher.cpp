@@ -863,7 +863,7 @@ Status RowIdStorageReader::read_batch_external_row(
         runtime_profile->add_info_string(InitReaderAvgTimeProfile,
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(GetBlockAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
+                                         std::to_string(*get_block_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
         runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
