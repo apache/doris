@@ -50,11 +50,6 @@ public class HudiFsViewCacheValueTest {
 
         value.evict();
 
-        Mockito.verify(view, Mockito.never()).close();
-        HudiFsViewCacheValue.Lease lease = value.tryAcquire();
-        Assert.assertNotNull(lease);
-        Mockito.verify(view).sync();
-        lease.close();
         Mockito.verify(view).close();
         Assert.assertNull(value.tryAcquire());
     }

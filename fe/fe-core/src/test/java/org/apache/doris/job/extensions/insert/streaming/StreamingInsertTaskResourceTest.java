@@ -111,4 +111,85 @@ class StreamingInsertTaskResourceTest {
         Assertions.assertEquals(1, closeCalls.get());
         Assertions.assertTrue(cleanupRanOnWorker.get());
     }
+
+    @Test
+    void terminalFailureCanCancelFromExecutionOwnerWithoutSelfWait() throws Exception {
+        AtomicBoolean failed = new AtomicBoolean();
+        StreamingInsertTask task = new StreamingInsertTask(
+                1L, 2L, "", null, "", null, Collections.emptyMap(), null, null) {
+            @Override
+            public void before() {
+                setStatus(org.apache.doris.job.common.TaskStatus.RUNNING);
+                noRetry = true;
+            }
+
+            @Override
+            public void run() throws org.apache.doris.job.exception.JobException {
+                throw new org.apache.doris.job.exception.JobException("expected");
+            }
+
+            @Override
+            public synchronized void closeOrReleaseResources() {
+            }
+
+            @Override
+            protected void onFail(String errMsg) {
+                setStatus(org.apache.doris.job.common.TaskStatus.FAILED);
+                cancel(true);
+                failed.set(true);
+            }
+        };
+        Thread worker = new Thread(() -> {
+            try {
+                task.execute();
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        worker.start();
+        worker.join(TimeUnit.SECONDS.toMillis(10));
+
+        Assertions.assertFalse(worker.isAlive());
+        Assertions.assertTrue(failed.get());
+    }
+
+    @Test
+    void cleanupFailureIsHandledByTaskFailureStateMachine() throws Exception {
+        AtomicBoolean failed = new AtomicBoolean();
+        AtomicBoolean successCalled = new AtomicBoolean();
+        AbstractStreamingTask task = new AbstractStreamingTask(1L, 2L, null) {
+            @Override
+            public void before() {
+                setStatus(org.apache.doris.job.common.TaskStatus.RUNNING);
+                noRetry = true;
+            }
+
+            @Override
+            public void run() {
+            }
+
+            @Override
+            public boolean onSuccess() {
+                successCalled.set(true);
+                return true;
+            }
+
+            @Override
+            public void closeOrReleaseResources() {
+                throw new IllegalStateException("cleanup failed");
+            }
+
+            @Override
+            protected void onFail(String errMsg) {
+                Assertions.assertEquals("cleanup failed", errMsg);
+                failed.set(true);
+            }
+        };
+
+        task.execute();
+
+        Assertions.assertTrue(failed.get());
+        Assertions.assertFalse(successCalled.get());
+    }
 }
