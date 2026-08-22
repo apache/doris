@@ -57,12 +57,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ConnectContextTest {
     @Mocked
@@ -952,15 +953,27 @@ public class ConnectContextTest {
     public void testSessionSealWaitsForAdmittedResultPublisher() throws Exception {
         ConnectContext ctx = new ConnectContext();
         Assert.assertTrue(ctx.beginFlightSqlResultPublication());
+        Assert.assertFalse("one Flight SQL session cannot publish two queries concurrently",
+                ctx.beginFlightSqlResultPublication());
+        ctx.sealFlightSqlDeferredExecutors();
+        Assert.assertFalse(ctx.canPublishFlightSqlResult());
         ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch teardownEntered = new CountDownLatch(1);
+        AtomicReference<Thread> teardownThread = new AtomicReference<>();
         try {
-            Future<?> teardown = executor.submit(ctx::sealAndCloseFlightSqlDeferredExecutors);
-            try {
-                teardown.get(100, TimeUnit.MILLISECONDS);
-                Assert.fail("teardown must not destroy the result channel while a publisher is admitted");
-            } catch (TimeoutException expected) {
-                // expected
+            Future<?> teardown = executor.submit(() -> {
+                teardownThread.set(Thread.currentThread());
+                teardownEntered.countDown();
+                ctx.awaitAndCloseFlightSqlDeferredExecutors();
+            });
+            Assert.assertTrue(teardownEntered.await(10, TimeUnit.SECONDS));
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (teardownThread.get().getState() != Thread.State.WAITING
+                    && System.nanoTime() < deadlineNanos) {
+                Thread.yield();
             }
+            Assert.assertEquals("teardown must be waiting for the admitted publisher",
+                    Thread.State.WAITING, teardownThread.get().getState());
             Assert.assertFalse(ctx.endFlightSqlResultPublication());
             teardown.get(10, TimeUnit.SECONDS);
         } finally {
