@@ -38,6 +38,12 @@ suite("test_drop_policy_auth","p0,auth") {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("Admin_priv"))
         }
+        // test: user without GRANT priv should get access denied error
+        // regardless of whether the role exists or not (privilege-first validation)
+        test {
+            sql "DROP ROW POLICY test_row_policy_1 on table1 FOR ROLE non_exist_role"
+            exception "denied"
+        }
     }
     try_sql("DROP USER ${user}")
 }

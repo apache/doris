@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
@@ -54,7 +56,75 @@ public class DropRowPolicyCommandTest extends TestWithFeService {
         Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
                 Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
         Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(env.getAuth());
+        Mockito.doReturn(true).when(spyAuth).doesRoleExist(Mockito.eq("role1"));
+        Deencapsulation.setField(env, "auth", spyAuth);
         DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, "role1");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateNonExistRole() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(env.getAuth());
+        Mockito.doReturn(false).when(spyAuth).doesRoleExist(Mockito.eq("non_exist_role"));
+        Deencapsulation.setField(env, "auth", spyAuth);
+        DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user,
+                "non_exist_role");
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateNonExistRoleWithIfExists() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(env.getAuth());
+        Mockito.doReturn(false).when(spyAuth).doesRoleExist(Mockito.eq("non_exist_role"));
+        Deencapsulation.setField(env, "auth", spyAuth);
+        DropRowPolicyCommand command = new DropRowPolicyCommand(true, "test_policy", tableNameInfo, user,
+                "non_exist_role");
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateWithoutGrantPriv() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(env.getAuth());
+        Mockito.doReturn(false).when(spyAuth).doesRoleExist(Mockito.eq("non_exist_role"));
+        Deencapsulation.setField(env, "auth", spyAuth);
+        DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user,
+                "non_exist_role");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(ex.getMessage().contains("Access denied"),
+                "Expected access denied error but got: " + ex.getMessage());
+    }
+
+    @Test
+    public void testValidateWithoutGrantPrivForExistingRole() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        Auth spyAuth = Mockito.spy(env.getAuth());
+        Mockito.doReturn(true).when(spyAuth).doesRoleExist(Mockito.eq("role1"));
+        Deencapsulation.setField(env, "auth", spyAuth);
+        DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, "role1");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(ex.getMessage().contains("Access denied"),
+                "Expected access denied error but got: " + ex.getMessage());
     }
 }
