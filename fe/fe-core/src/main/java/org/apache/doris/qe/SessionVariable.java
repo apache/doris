@@ -620,6 +620,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
+    public static final String ENABLE_ELIMINATE_JOIN_BY_CONSTANT_ONE_ROW_RELATION
+            = "enable_eliminate_join_by_constant_one_row_relation";
+
     public static final String CTE_INLINE_MODE = "cte_inline_mode";
 
     public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
@@ -2656,6 +2659,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_CTE_MATERIALIZE)
     public boolean enableCTEMaterialize = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ELIMINATE_JOIN_BY_CONSTANT_ONE_ROW_RELATION)
+    public boolean enableEliminateJoinByConstantOneRowRelation = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
