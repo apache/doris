@@ -27,6 +27,7 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -37,6 +38,9 @@ import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
 import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneRules;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -44,6 +48,7 @@ import java.util.Set;
  * date util tools.
  */
 public class DateUtils {
+    public static final int NANOSECOND_SCALE = 9;
     public static final Set<String> monoFormat = ImmutableSet.of("yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss",
             "%Y", "%Y-%m", "%Y-%m-%d", "%Y-%m-%d %H", "%Y-%m-%d %H:%i", "%Y-%m-%d %H:%i:%s", "%Y-%m-%d %H:%i:%S",
             "%Y-%m-%d %T", "%Y%m%d", "%Y%m");
@@ -387,6 +392,98 @@ public class DateUtils {
 
     public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
         return accessor.isSupported(field) ? accessor.get(field) : /* default value */ 0;
+    }
+
+    /**
+     * Remove the TIMESTAMP_NS rounding guard digit before parsing because Java accepts at most
+     * nine fractional-second digits. The guard remains available in the original string and can
+     * be retrieved by {@link #getNanosecondGuardDigit(String)} during target-scale rounding.
+     */
+    public static String truncateFractionalSecondForJavaParser(String s) {
+        int dot = s.lastIndexOf('.');
+        if (dot < 0) {
+            return s;
+        }
+        int fractionEnd = dot + 1;
+        while (fractionEnd < s.length() && Character.isDigit(s.charAt(fractionEnd))) {
+            fractionEnd++;
+        }
+        int retainedEnd = Math.min(dot + NANOSECOND_SCALE + 1, fractionEnd);
+        return retainedEnd == fractionEnd ? s : s.substring(0, retainedEnd) + s.substring(fractionEnd);
+    }
+
+    /** Return the TIMESTAMP_NS rounding guard digit, or -1 when the input has none. */
+    public static int getNanosecondGuardDigit(String s) {
+        int dot = s.lastIndexOf('.');
+        int guardIndex = dot + NANOSECOND_SCALE + 1;
+        if (dot < 0 || guardIndex >= s.length() || !Character.isDigit(s.charAt(guardIndex))) {
+            return -1;
+        }
+        return s.charAt(guardIndex) - '0';
+    }
+
+    /** Format a datetime with the requested number of fractional-second digits. */
+    public static String formatDateTime(long year, long month, long day, long hour, long minute,
+            long second, long nanosecond, int scale) {
+        if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99
+                && 0 <= hour && hour <= 99 && 0 <= minute && minute <= 99
+                && 0 <= second && second <= 99 && 0 <= nanosecond && nanosecond < 1_000_000_000L) {
+            int length = scale == 0 ? 19 : 20 + scale;
+            char[] value = new char[length];
+            Arrays.fill(value, '0');
+            value[4] = '-';
+            value[7] = '-';
+            value[10] = ' ';
+            value[13] = ':';
+            value[16] = ':';
+            fillPaddedValue(value, 0, year, 4);
+            fillPaddedValue(value, 5, month, 2);
+            fillPaddedValue(value, 8, day, 2);
+            fillPaddedValue(value, 11, hour, 2);
+            fillPaddedValue(value, 14, minute, 2);
+            fillPaddedValue(value, 17, second, 2);
+            if (scale > 0) {
+                value[19] = '.';
+                long divisor = (long) Math.pow(10, NANOSECOND_SCALE - scale);
+                fillPaddedValue(value, 20, nanosecond / divisor, scale);
+            }
+            return String.valueOf(value);
+        }
+        String fractionFormat = scale > 0 ? ".%0" + scale + "d" : "";
+        long divisor = (long) Math.pow(10, NANOSECOND_SCALE - scale);
+        return String.format("%04d-%02d-%02d %02d:%02d:%02d" + fractionFormat,
+                year, month, day, hour, minute, second, nanosecond / divisor);
+    }
+
+    private static void fillPaddedValue(char[] buffer, int start, long value, int length) {
+        for (int i = start + length - 1; i >= start; i--) {
+            buffer[i] = (char) ('0' + value % 10);
+            value /= 10;
+        }
+    }
+
+    /** Convert a civil datetime between time zones using the same DST policy as BE cctz. */
+    public static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
+            long second, ZoneId fromZone, ZoneId toZone) {
+        LocalDateTime localDateTime = LocalDateTime.of((int) year, (int) month, (int) day,
+                (int) hour, (int) minute, (int) second);
+        return LocalDateTime.ofInstant(convertLocalToInstant(localDateTime, fromZone), toZone);
+    }
+
+    /**
+     * Convert a local civil datetime to an instant with the same overlap/gap policy as BE cctz.
+     * Repeated local times use the pre-transition offset; skipped local times map to the transition
+     * instant.
+     */
+    public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
+        ZoneRules rules = fromZone.getRules();
+        List<ZoneOffset> validOffsets = rules.getValidOffsets(localDateTime);
+        int size = validOffsets.size();
+        if (size == 1 || size == 2) {
+            return localDateTime.atOffset(validOffsets.get(0)).toInstant();
+        }
+        ZoneOffsetTransition transition = rules.getTransition(localDateTime);
+        return transition.getInstant();
     }
 
     /**

@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -45,6 +48,8 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -695,6 +700,17 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateTimeV2Type.of(4), CharType.createCharType(5), DateTimeV2Type.of(6));
         testProcessComparisonPredicate(DateTimeV2Type.of(4), VarcharType.createVarcharType(5), DateTimeV2Type.of(6));
         testProcessComparisonPredicate(DateTimeV2Type.of(4), StringType.INSTANCE, DateTimeV2Type.of(6));
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
+                TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, null);
+        Expression timestampNsDateTime = TypeCoercionUtils.processComparisonPredicate(
+                new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
+                        new SlotReference("right", DateTimeV2Type.MAX)));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(0).getDataType());
+        Assertions.assertEquals(DateTimeV2Type.MAX, timestampNsDateTime.child(1).getDataType());
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeStampTzType.MAX, null);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), ArrayType.of(StringType.INSTANCE), null);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), MapType.of(StringType.INSTANCE, StringType.INSTANCE), null);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), new StructType(ImmutableList.of(new StructField("c1", StringType.INSTANCE, true, ""))), null);

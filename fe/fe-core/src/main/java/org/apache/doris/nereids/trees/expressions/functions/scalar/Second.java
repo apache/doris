@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -45,6 +46,7 @@ public class Second extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TimeStampNsType.INSTANCE),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(TimeV2Type.WILDCARD));
 

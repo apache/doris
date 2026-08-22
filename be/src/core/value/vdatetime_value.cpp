@@ -2932,14 +2932,14 @@ void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
 
 template <typename T>
 bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
-                                                   size_t max_valid_length) const {
+                                                   size_t max_valid_length, int nanosecond) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
     }
 
     return DatetimeValueUtil::to_format_string_without_check<false>(
             format, len, to, max_valid_length, this->year(), this->month(), this->day(),
-            this->hour(), this->minute(), this->second(), this->microsecond());
+            this->hour(), this->minute(), this->second(), this->microsecond(), nanosecond);
 }
 
 template <typename T>
@@ -3116,7 +3116,8 @@ template <bool only_time>
 bool DatetimeValueUtil::to_format_string_without_check(const char* format, size_t len, char* to,
                                                        size_t max_valid_length, int16_t year,
                                                        int8_t month, int8_t day, int hour,
-                                                       int minute, int second, int ms) {
+                                                       int minute, int second, int microsecond,
+                                                       int nanosecond) {
     char* const begin = to; // to check written bytes
     char buf[64];
     char* pos = nullptr;
@@ -3239,8 +3240,18 @@ bool DatetimeValueUtil::to_format_string_without_check(const char* format, size_
             break;
         case 'f':
             // Microseconds (000000..999999)
-            pos = int_to_str(ms, cursor);
+            pos = int_to_str(microsecond, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 6, to);
+            break;
+        case 'n':
+            if (nanosecond < 0) {
+                // Preserve the established behavior for types without nanosecond precision:
+                // unknown format specifiers are emitted literally without the percent sign.
+                *to++ = ch;
+            } else {
+                pos = int_to_str(nanosecond, cursor);
+                to = append_with_prefix(cursor, pos - cursor, '0', 9, to);
+            }
             break;
         case 'j':
             // Day of year (001..366)
@@ -3698,10 +3709,12 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>()
 
 template bool DatetimeValueUtil::to_format_string_without_check<false>(const char*, size_t, char*,
                                                                        size_t, int16_t, int8_t,
-                                                                       int8_t, int, int, int, int);
+                                                                       int8_t, int, int, int, int,
+                                                                       int);
 
 template bool DatetimeValueUtil::to_format_string_without_check<true>(const char*, size_t, char*,
                                                                       size_t, int16_t, int8_t,
-                                                                      int8_t, int, int, int, int);
+                                                                      int8_t, int, int, int, int,
+                                                                      int);
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

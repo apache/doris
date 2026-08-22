@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeE
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -42,6 +43,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -136,6 +139,9 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         // mtmv only support one partition column
         Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
                 "only support one partition column");
+        if (partitionColumnType.isTimeStampNs()) {
+            return generateTimeStampNsRollUpPartitionKeyDesc(partitionKeyDesc);
+        }
         DateTimeV2Literal beginTime = dateTrunc(
                 partitionKeyDesc.getLowerValues().get(0).getStringValue(),
                 Optional.empty(), false);
@@ -146,6 +152,83 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         return PartitionKeyDesc.createFixed(
                 Collections.singletonList(lowerValue),
                 Collections.singletonList(upperValue));
+    }
+
+    private PartitionKeyDesc generateTimeStampNsRollUpPartitionKeyDesc(PartitionKeyDesc partitionKeyDesc)
+            throws AnalysisException {
+        TimeStampNsLiteral lower = new TimeStampNsLiteral(
+                partitionKeyDesc.getLowerValues().get(0).getStringValue());
+        LocalDateTime beginTruncTime = dateTrunc(lower.toJavaDateType());
+
+        PartitionValue upperValue = partitionKeyDesc.getUpperValues().get(0);
+        LocalDateTime upperRepresentative = upperValue.isMax()
+                ? TimeStampNsLiteral.getMaxValue().toJavaDateType()
+                : new TimeStampNsLiteral(upperValue.getStringValue()).toJavaDateType().minusNanos(1);
+        LocalDateTime endTruncTime = dateTrunc(upperRepresentative);
+        if (!beginTruncTime.equals(endTruncTime)) {
+            throw new AnalysisException(
+                    String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s",
+                            beginTruncTime, endTruncTime));
+        }
+
+        PartitionValue lowerValue = timestampNsToPartitionValue(beginTruncTime);
+        PartitionValue rollUpUpperValue = timestampNsToPartitionValue(dateIncrement(beginTruncTime));
+        return PartitionKeyDesc.createFixed(
+                Collections.singletonList(lowerValue),
+                Collections.singletonList(rollUpUpperValue));
+    }
+
+    private PartitionValue timestampNsToPartitionValue(LocalDateTime value) {
+        LocalDateTime minValue = TimeStampNsLiteral.getMinValue().toJavaDateType();
+        LocalDateTime maxValue = TimeStampNsLiteral.getMaxValue().toJavaDateType();
+        // The exclusive end of the last natural bucket is beyond the type maximum.
+        // Keep it as infinity because clamping it to the legal maximum would exclude that value.
+        if (value.isAfter(maxValue)) {
+            return PartitionValue.MAX_VALUE;
+        }
+        // The first natural bucket starts before the signed epoch-nanosecond minimum.
+        LocalDateTime clampedValue = value.isBefore(minValue) ? minValue : value;
+        return new PartitionValue(TimeStampNsLiteral.fromJavaDateType(clampedValue).getStringValue());
+    }
+
+    private LocalDateTime dateTrunc(LocalDateTime value) throws AnalysisException {
+        switch (timeUnit) {
+            case "year":
+                return LocalDateTime.of(value.getYear(), 1, 1, 0, 0);
+            case "quarter":
+                return LocalDateTime.of(value.getYear(), (value.getMonthValue() - 1) / 3 * 3 + 1, 1, 0, 0);
+            case "month":
+                return LocalDateTime.of(value.getYear(), value.getMonthValue(), 1, 0, 0);
+            case "week":
+                return value.minusDays(value.getDayOfWeek().getValue() - 1L).truncatedTo(ChronoUnit.DAYS);
+            case "day":
+                return value.truncatedTo(ChronoUnit.DAYS);
+            case "hour":
+                return value.truncatedTo(ChronoUnit.HOURS);
+            default:
+                throw new AnalysisException(
+                        "async materialized view partition roll up not support timeUnit: " + timeUnit);
+        }
+    }
+
+    private LocalDateTime dateIncrement(LocalDateTime value) throws AnalysisException {
+        switch (timeUnit) {
+            case "year":
+                return value.plusYears(1L);
+            case "quarter":
+                return value.plusMonths(3L);
+            case "month":
+                return value.plusMonths(1L);
+            case "week":
+                return value.plusWeeks(1L);
+            case "day":
+                return value.plusDays(1L);
+            case "hour":
+                return value.plusHours(1L);
+            default:
+                throw new AnalysisException(
+                        "async materialized view partition roll up not support timeUnit: " + timeUnit);
+        }
     }
 
     private PartitionValue getUpperValue(PartitionValue upperValue, DateTimeV2Literal beginTruncTime,

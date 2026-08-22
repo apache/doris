@@ -2039,6 +2039,11 @@ public class StmtExecutor {
                                 serializer.writeInt4((int) microSecond);
                             }
                             break;
+                        case TIMESTAMP_NS:
+                            // MySQL temporal binary values cannot carry nanoseconds. The metadata advertises
+                            // MYSQL_TYPE_STRING, so encode the result as length-encoded text.
+                            serializer.writeLenEncodedString(item);
+                            break;
                         default:
                             serializer.writeLenEncodedString(item);
                     }

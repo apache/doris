@@ -23,9 +23,11 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,24 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
+    @Test
+    void testUnixTimestampMatchesBeDstTransitionPolicy() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            DecimalV3Literal gap = (DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(
+                    new TimeStampNsLiteral("2024-03-10 02:30:00.123456789"));
+            Assertions.assertEquals(new BigDecimal("1710054000.123456789"), gap.getValue());
+
+            DecimalV3Literal overlap = (DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(
+                    new TimeStampNsLiteral("2024-11-03 01:30:00.123456789"));
+            Assertions.assertEquals(new BigDecimal("1730611800.123456789"), overlap.getValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     void testSpecialDateWeeks() {
         // test week/yearweek for 0000-01-01/02
@@ -166,6 +186,25 @@ class DateTimeExtractAndTransformTest {
         DecimalV3Literal dec = new DecimalV3Literal(big);
         Assertions.assertThrows(AnalysisException.class,
                 () -> DateTimeExtractAndTransform.fromUnixTime(dec));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(new BigIntLiteral(Long.MAX_VALUE)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("100000000000000000000"))));
+    }
+
+    @Test
+    void testFromUnixTimeNanosecondKeepsMicrosecondRounding() {
+        VarcharLiteral format = new VarcharLiteral("%s.%f|%n");
+        Assertions.assertEquals(new VarcharLiteral("00.123456|123456499"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.123456499")), format));
+        Assertions.assertEquals(new VarcharLiteral("00.123457|123456500"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.123456500")), format));
+        Assertions.assertEquals(new VarcharLiteral("01.000000|999999500"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.999999500")), format));
     }
 
     @Test

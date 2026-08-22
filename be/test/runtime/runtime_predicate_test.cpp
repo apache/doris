@@ -24,6 +24,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "core/value/timestamp_ns_value.h"
 #include "exec/pipeline/thrift_builder.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
@@ -229,6 +230,25 @@ TEST(RuntimePredicateTest, TopNPredicateKeepsDirectCapabilityBeforeFirstBound) {
     context->close();
 }
 
+TEST(RuntimePredicateTest, TopNPredicateFiltersTimestampNsRawValues) {
+    MockRuntimeState state;
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, false);
+    auto context = create_prepared_topn_expr(
+            &state, type, Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0)));
+    const std::array<TimeStampNsValue, 3> values {TimeStampNsValue(-1), TimeStampNsValue(0),
+                                                  TimeStampNsValue(1)};
+    IColumn::Filter matches(values.size(), 1);
+
+    ASSERT_TRUE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+    ASSERT_TRUE(context->root()
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(TimeStampNsValue), type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ(matches, (IColumn::Filter {1, 1, 0}));
+    context->close();
+}
+
 TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySupportedType) {
     struct TypeSpec {
         PrimitiveType type;
@@ -236,7 +256,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
         int scale = 0;
         bool binary = false;
     };
-    const std::array<TypeSpec, 23> supported_types {{
+    const std::array<TypeSpec, 24> supported_types {{
             {TYPE_BOOLEAN},
             {TYPE_TINYINT},
             {TYPE_SMALLINT},
@@ -247,6 +267,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
             {TYPE_DATETIME},
             {TYPE_DATEV2},
             {TYPE_DATETIMEV2},
+            {TYPE_TIMESTAMP_NS},
             {TYPE_TIMESTAMPTZ},
             {TYPE_TIMEV2},
             {TYPE_DECIMAL32, 9, 2},

@@ -547,6 +547,8 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {
     assert_parse_and_prune_type<TYPE_DATEV2>(date_v2(2024, 1, 1), date_v2(2024, 2, 1));
     assert_parse_and_prune_type<TYPE_DATETIMEV2>(datetime_v2(2024, 1, 1), datetime_v2(2024, 2, 1),
                                                  0, 6);
+    assert_parse_and_prune_type<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1), TimeStampNsValue(1), 0,
+                                                   TimeStampNsValue::FRACTIONAL_DIGITS);
     assert_parse_and_prune_type<TYPE_TIMESTAMPTZ>(timestamptz(2024, 1, 1), timestamptz(2024, 2, 1),
                                                   0, 6);
     assert_parse_and_prune_type<TYPE_DECIMAL32>(Decimal32(100), Decimal32(200), 9, 2);

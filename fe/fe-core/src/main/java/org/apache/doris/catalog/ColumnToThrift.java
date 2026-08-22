@@ -60,8 +60,12 @@ public class ColumnToThrift {
         tColumn.setIsAllowNull(column.isAllowNull());
         tColumn.setIsAutoIncrement(column.isAutoInc());
         tColumn.setIsOnUpdateCurrentTimestamp(column.hasOnUpdateDefaultValue());
-        tColumn.setDefaultValue(
-                column.getRealDefaultValue() == null ? column.getDefaultValue() : column.getRealDefaultValue());
+        String realDefaultValue = column.getRealDefaultValue();
+        tColumn.setDefaultValue(realDefaultValue == null ? column.getDefaultValue() : realDefaultValue);
+        if (column.getType().isTimeStampNs() && realDefaultValue != null && column.getDefaultValue() != null
+                && !realDefaultValue.equals(column.getDefaultValue())) {
+            tColumn.setDefaultValueExpr(column.getDefaultValue());
+        }
         tColumn.setVisible(column.isVisible());
         toChildrenThrift(column, tColumn);
 

@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 /**
  * TimeWithPrecision. fill precision to the return type.
@@ -46,7 +48,13 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
             // searching in FunctionSet. So we adjust the return type by hand here.
             if (getArgument(0) instanceof IntegerLikeLiteral) {
                 IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) getArgument(0);
-                signature = signature.withReturnType(DateTimeV2Type.of(integerLikeLiteral.getIntValue()));
+                int precision = integerLikeLiteral.getIntValue();
+                if (precision > TimeStampNsType.SCALE) {
+                    throw new AnalysisException("Precision of NOW must be between 0 and "
+                            + TimeStampNsType.SCALE + ". Precision was set to: " + precision);
+                }
+                signature = signature.withReturnType(precision > DateTimeV2Type.MAX_SCALE
+                        ? TimeStampNsType.INSTANCE : DateTimeV2Type.of(precision));
             } else {
                 signature = signature.withReturnType(DateTimeV2Type.of(6));
             }

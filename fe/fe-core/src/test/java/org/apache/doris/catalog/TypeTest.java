@@ -26,6 +26,18 @@ import java.util.ArrayList;
 
 public class TypeTest {
 
+    @Test
+    public void testTimestampNsJavaUdfType() {
+        Assert.assertEquals(1,
+                Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());
+        Assert.assertTrue(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(java.time.LocalDateTime.class));
+        Assert.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.LocalDateTime.class));
+        Assert.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.DateTime.class));
+    }
+
     // ===================== ArrayType =====================
     @Test
     public void testArrayOfArrayExactMatch() {
@@ -259,5 +271,19 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, true));
         // Same scale -> match
         Assert.assertTrue(Type.matchExactType(dtv2s6, ScalarType.createDatetimeV2Type(6), false));
+
+        ScalarType timestampNs = ScalarType.createTimeStampNsType();
+        Assert.assertNotEquals(timestampNs, dtv2s6);
+        for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
+            ScalarType invalidDatetimeV2 = ScalarType.createDatetimeV2Type(invalidScale);
+            Assert.assertTrue(invalidDatetimeV2.isDatetimeV2());
+            Assert.assertFalse(invalidDatetimeV2.isTimeStampNs());
+            Assert.assertNotEquals(timestampNs, invalidDatetimeV2);
+        }
+        ScalarType wildcardDatetimeV2 = ScalarType.createDatetimeV2Type(-1);
+        Assert.assertFalse(timestampNs.matchesType(wildcardDatetimeV2));
+        Assert.assertFalse(timestampNs.matchesType(dtv2s6));
+        Assert.assertFalse(dtv2s6.matchesType(timestampNs));
+        Assert.assertFalse(Type.matchExactType(timestampNs, wildcardDatetimeV2, false));
     }
 }

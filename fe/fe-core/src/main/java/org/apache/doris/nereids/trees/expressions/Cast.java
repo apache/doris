@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -32,6 +34,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -113,13 +116,18 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
+        } else if ((childDataType.isDateLikeType() || childDataType.isTimeType())
+                && targetType instanceof TimeStampNsType) {
+            // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
+            return true;
         } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
                 || childDataType.isTimeStampTzType())
                 && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
             // datetime to datetime is always nullable
             return true;
-        } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
-            // Datetime to timestamptz is always nullable
+        } else if ((childDataType.isDateTimeV2Type() || childDataType.isTimeStampNsType())
+                && targetType.isTimeStampTzType()) {
+            // Datetime and timestamp_ns to timestamptz are always nullable
             return true;
         } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
             // timestamptz to timestamptz is always nullable
@@ -298,11 +306,27 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
 
+        if (targetType instanceof TimeStampNsType && !isRangeWithinTimeStampNs(lower, upper)) {
+            return false;
+        }
+
         if (childType instanceof TimeStampTzType && targetType instanceof DateTimeV2Type) {
             return isTimeStampTzToDateTimeV2Monotonic(
                     (TimeStampTzType) childType, (DateTimeV2Type) targetType, lower, upper);
         }
         return true;
+    }
+
+    private boolean isRangeWithinTimeStampNs(Literal lower, Literal upper) {
+        if (lower == null || upper == null) {
+            return false;
+        }
+        try {
+            return !(lower.checkedCastTo(targetType) instanceof NullLiteral)
+                    && !(upper.checkedCastTo(targetType) instanceof NullLiteral);
+        } catch (AnalysisException e) {
+            return false;
+        }
     }
 
     private boolean isTimeStampTzToDateTimeV2Monotonic(

@@ -88,6 +88,32 @@ using FunctionDatetimeAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<
 using FunctionDatetimeAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATETIMEV2>>;
 
+#define TIMESTAMP_NS_COMPUTATION_ALIAS(NAME, IMPL) \
+    using FunctionTimeStampNs##NAME = FunctionDateOrDateTimeComputation<IMPL<TYPE_TIMESTAMP_NS>>
+
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddMicroseconds, AddMicrosecondsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddMilliseconds, AddMillisecondsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddSeconds, AddSecondsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddMinutes, AddMinutesImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddHours, AddHoursImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddDays, AddDaysImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddWeeks, AddWeeksImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddMonths, AddMonthsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddYears, AddYearsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(AddQuarters, AddQuartersImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubMicroseconds, SubtractMicrosecondsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubMilliseconds, SubtractMillisecondsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubSeconds, SubtractSecondsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubMinutes, SubtractMinutesImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubHours, SubtractHoursImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubDays, SubtractDaysImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubWeeks, SubtractWeeksImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubMonths, SubtractMonthsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubQuarters, SubtractQuartersImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(SubYears, SubtractYearsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(ToYearWeekTwoArgs, ToYearWeekTwoArgsImpl);
+TIMESTAMP_NS_COMPUTATION_ALIAS(ToWeekTwoArgs, ToWeekTwoArgsImpl);
+
 using FunctionTimestamptzAddMicroseconds =
         FunctionDateOrDateTimeComputation<AddMicrosecondsImpl<TYPE_TIMESTAMPTZ>>;
 using FunctionTimestamptzAddMilliseconds =
@@ -105,14 +131,18 @@ using FunctionTimestamptzAddMonths =
         FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_TIMESTAMPTZ>>;
 using FunctionTimestamptzAddYears =
         FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_TIMESTAMPTZ>>;
-#define FUNCTION_TIME_UNION_CAL(TYPE)                                                 \
-    using FunctionDatetimeAdd##TYPE =                                                 \
-            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_DATETIMEV2>>;      \
-    using FunctionDatetimeSub##TYPE =                                                 \
-            FunctionDateOrDateTimeComputation<Subtract##TYPE##Impl<TYPE_DATETIMEV2>>; \
-    using FunctionTimestamptzAdd##TYPE =                                              \
-            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_TIMESTAMPTZ>>;     \
-    using FunctionTimestamptzSub##TYPE =                                              \
+#define FUNCTION_TIME_UNION_CAL(TYPE)                                                   \
+    using FunctionDatetimeAdd##TYPE =                                                   \
+            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_DATETIMEV2>>;        \
+    using FunctionDatetimeSub##TYPE =                                                   \
+            FunctionDateOrDateTimeComputation<Subtract##TYPE##Impl<TYPE_DATETIMEV2>>;   \
+    using FunctionTimeStampNsAdd##TYPE =                                                \
+            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_TIMESTAMP_NS>>;      \
+    using FunctionTimeStampNsSub##TYPE =                                                \
+            FunctionDateOrDateTimeComputation<Subtract##TYPE##Impl<TYPE_TIMESTAMP_NS>>; \
+    using FunctionTimestamptzAdd##TYPE =                                                \
+            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_TIMESTAMPTZ>>;       \
+    using FunctionTimestamptzSub##TYPE =                                                \
             FunctionDateOrDateTimeComputation<Subtract##TYPE##Impl<TYPE_TIMESTAMPTZ>>;
 
 FUNCTION_TIME_UNION_CAL(SecondMicrosecond);
@@ -174,19 +204,24 @@ using FunctionTimestamptzSubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
 
 using FunctionAddTimeDatetime = FunctionNeedsToHandleNull<AddTimeDatetimeImpl, TYPE_DATETIMEV2>;
+using FunctionAddTimeTimeStampNs =
+        FunctionNeedsToHandleNull<AddTimeTimeStampNsImpl, TYPE_TIMESTAMP_NS>;
 using FunctionAddTimeTime = FunctionNeedsToHandleNull<AddTimeTimeImpl, TYPE_TIMEV2>;
 using FunctionAddTimeTimestampTz =
         FunctionNeedsToHandleNull<AddTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
 using FunctionSubTimeDatetime = FunctionNeedsToHandleNull<SubTimeDatetimeImpl, TYPE_DATETIMEV2>;
+using FunctionSubTimeTimeStampNs =
+        FunctionNeedsToHandleNull<SubTimeTimeStampNsImpl, TYPE_TIMESTAMP_NS>;
 using FunctionSubTimeTime = FunctionNeedsToHandleNull<SubTimeTimeImpl, TYPE_TIMEV2>;
 using FunctionSubTimeTimestampTz =
         FunctionNeedsToHandleNull<SubTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
 
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
-#define ALL_FUNCTION_TIME_DIFF(NAME, IMPL)          \
-    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATETIMEV2) \
-    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATEV2)     \
+#define ALL_FUNCTION_TIME_DIFF(NAME, IMPL)            \
+    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATETIMEV2)   \
+    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_TIMESTAMP_NS) \
+    FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_DATEV2)       \
     FUNCTION_TIME_DIFF(NAME, IMPL, TYPE_TIMESTAMPTZ)
 // these diff functions accept all v2 types. but for v1 only datetime.
 ALL_FUNCTION_TIME_DIFF(FunctionDatetimeDateDiff, DateDiffImpl)
@@ -257,6 +292,16 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeAddMonths>();
     factory.register_function<FunctionDatetimeAddYears>();
     factory.register_function<FunctionDatetimeAddQuarters>();
+    factory.register_function<FunctionTimeStampNsAddMicroseconds>();
+    factory.register_function<FunctionTimeStampNsAddMilliseconds>();
+    factory.register_function<FunctionTimeStampNsAddSeconds>();
+    factory.register_function<FunctionTimeStampNsAddMinutes>();
+    factory.register_function<FunctionTimeStampNsAddHours>();
+    factory.register_function<FunctionTimeStampNsAddDays>();
+    factory.register_function<FunctionTimeStampNsAddWeeks>();
+    factory.register_function<FunctionTimeStampNsAddMonths>();
+    factory.register_function<FunctionTimeStampNsAddYears>();
+    factory.register_function<FunctionTimeStampNsAddQuarters>();
     factory.register_function<FunctionTimestamptzAddMicroseconds>();
     factory.register_function<FunctionTimestamptzAddMilliseconds>();
     factory.register_function<FunctionTimestamptzAddSeconds>();
@@ -271,6 +316,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
 #define REGISTER_TIME_UNION_CAL(TYPE)                          \
     factory.register_function<FunctionDatetimeAdd##TYPE>();    \
     factory.register_function<FunctionDatetimeSub##TYPE>();    \
+    factory.register_function<FunctionTimeStampNsAdd##TYPE>(); \
+    factory.register_function<FunctionTimeStampNsSub##TYPE>(); \
     factory.register_function<FunctionTimestamptzAdd##TYPE>(); \
     factory.register_function<FunctionTimestamptzSub##TYPE>();
 
@@ -302,6 +349,16 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeSubYears>();
     factory.register_function<FunctionDatetimeSubQuarters>();
     factory.register_function<FunctionDatetimeSubWeeks>();
+    factory.register_function<FunctionTimeStampNsSubMicroseconds>();
+    factory.register_function<FunctionTimeStampNsSubMilliseconds>();
+    factory.register_function<FunctionTimeStampNsSubSeconds>();
+    factory.register_function<FunctionTimeStampNsSubMinutes>();
+    factory.register_function<FunctionTimeStampNsSubHours>();
+    factory.register_function<FunctionTimeStampNsSubDays>();
+    factory.register_function<FunctionTimeStampNsSubMonths>();
+    factory.register_function<FunctionTimeStampNsSubYears>();
+    factory.register_function<FunctionTimeStampNsSubQuarters>();
+    factory.register_function<FunctionTimeStampNsSubWeeks>();
 
     factory.register_function<FunctionTimestamptzSubMicroseconds>();
     factory.register_function<FunctionTimestamptzSubMilliseconds>();
@@ -315,17 +372,20 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimestamptzSubWeeks>();
 
     factory.register_function<FunctionAddTimeDatetime>();
+    factory.register_function<FunctionAddTimeTimeStampNs>();
     factory.register_function<FunctionAddTimeTime>();
     factory.register_function<FunctionAddTimeTimestampTz>();
     factory.register_function<FunctionSubTimeDatetime>();
+    factory.register_function<FunctionSubTimeTimeStampNs>();
     factory.register_function<FunctionSubTimeTime>();
     factory.register_function<FunctionSubTimeTimestampTz>();
 
 #define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 
-#define REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(NAME)          \
-    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATETIMEV2) \
-    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATEV2)     \
+#define REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(NAME)            \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATETIMEV2)   \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_TIMESTAMP_NS) \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATEV2)       \
     REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_TIMESTAMPTZ)
 
     REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeDateDiff)
@@ -345,6 +405,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToWeekTwoArgs>();
     factory.register_function<FunctionDatetimeToYearWeekTwoArgs>();
     factory.register_function<FunctionDatetimeToWeekTwoArgs>();
+    factory.register_function<FunctionTimeStampNsToYearWeekTwoArgs>();
+    factory.register_function<FunctionTimeStampNsToWeekTwoArgs>();
 }
 
 } // namespace doris

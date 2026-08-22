@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -67,10 +69,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     /** Date difference rounded toward zero by time part. */
     public static long dateDiffInDaysRoundToZeroByTime(DateLiteral lhs, DateLiteral rhs) {
         long days = DateV2Literal.dateDiffInDays(lhs, rhs);
-        long microSecondDiff = timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
-        if (days > 0 && microSecondDiff < 0) {
+        long nanosecondDiff = lhs.getTimePartInNanoseconds() - rhs.getTimePartInNanoseconds();
+        if (days > 0 && nanosecondDiff < 0) {
             days--;
-        } else if (days < 0 && microSecondDiff > 0) {
+        } else if (days < 0 && nanosecondDiff > 0) {
             days++;
         }
         return days;
@@ -88,10 +90,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     private static long timePartToMicroSecond(DateLiteral date) {
-        if (date instanceof DateTimeLiteral) {
-            return ((DateTimeLiteral) date).timePartToMicroSecond();
-        }
-        return 0;
+        return date.getTimePartInNanoseconds() / 1000L;
     }
 
     @Override
@@ -198,6 +197,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         if (targetType.isDateTimeType()) {
             return new DateTimeLiteral((DateTimeType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        }
+        if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, hour, minute, second,
+                        microSecond * 1000);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         }
         if (targetType.isTimeStampTzType()) {
             DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
@@ -419,6 +426,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public int getScale() {
         return ((DateTimeV2Type) dataType).getScale();
+    }
+
+    /** Return DATETIMEV2's microsecond fraction in the common nanosecond comparison unit. */
+    public long getNanoSecond() {
+        return microSecond * 1000L;
     }
 
     public int commonScale(DateTimeV2Literal other) {

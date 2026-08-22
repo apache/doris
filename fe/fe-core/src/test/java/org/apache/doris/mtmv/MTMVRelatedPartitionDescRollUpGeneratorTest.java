@@ -122,6 +122,52 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     }
 
     @Test
+    public void testRollUpRangeTimestampNs() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("hour")), true);
+        try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    .thenReturn(ScalarType.createTimeStampNsType());
+            Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
+            Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+
+            MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+            Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                            Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000001"))),
+                    Sets.newHashSet("one-nanosecond"));
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                            Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224193"))),
+                    Sets.newHashSet("minimum"));
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("2262-04-11 23:47:16.854775807")),
+                            Lists.newArrayList(PartitionValue.MAX_VALUE)),
+                    Sets.newHashSet("maximum"));
+
+            Map<PartitionKeyDesc, Set<String>> result = generator.rollUpRange(relatedPartitionDescs,
+                    mtmvPartitionInfo, null);
+
+            PartitionKeyDesc expectedOneNanosecond = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                    Lists.newArrayList(new PartitionValue("2024-01-01 01:00:00.000000000")));
+            PartitionKeyDesc expectedMinimum = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                    Lists.newArrayList(new PartitionValue("1677-09-21 01:00:00.000000000")));
+            PartitionKeyDesc expectedMaximum = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2262-04-11 23:00:00.000000000")),
+                    Lists.newArrayList(PartitionValue.MAX_VALUE));
+
+            Assert.assertEquals(3, result.size());
+            Assert.assertEquals(Sets.newHashSet("one-nanosecond"), result.get(expectedOneNanosecond));
+            Assert.assertEquals(Sets.newHashSet("minimum"), result.get(expectedMinimum));
+            Assert.assertEquals(Sets.newHashSet("maximum"), result.get(expectedMaximum));
+        }
+    }
+
+    @Test
     public void testRollUpRangeTimestampTz() throws AnalysisException {
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
                 Lists.newArrayList(new SlotRef(null, null), new StringLiteral("day")), true);

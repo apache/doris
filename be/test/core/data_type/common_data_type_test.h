@@ -131,6 +131,7 @@ public:
             is_int_or_bool(data_type->get_primitive_type()) ||
             is_float_or_double(data_type->get_primitive_type()) ||
             is_date_type(data_type->get_primitive_type()) ||
+            is_timestamp_ns_type(data_type->get_primitive_type()) ||
             is_ip(data_type->get_primitive_type())) {
             ASSERT_EQ(data_type->get_size_of_value_in_memory(), meta_info.size_of_value_in_memory);
         } else {

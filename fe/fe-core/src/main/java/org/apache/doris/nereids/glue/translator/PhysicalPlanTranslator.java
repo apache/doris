@@ -3453,12 +3453,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ArrayList<Expr> execGroupingExpressions = translateGroupByExprs(groupByExpressions, context);
 
         // 2. collect agg expressions and generate agg function to slot reference map.
-        //    Reuse the shared helper from visitPhysicalHashAggregate; the bucketed
-        //    path passes null for hasPartialOut (never partial, always needsFinalize).
+        // A GLOBAL INPUT_TO_RESULT aggregate can still contain functions that produce
+        // buffers, for example the deduplication stage of multi_distinct_count. Keep the
+        // output mode consistent with the output slot types in that case.
+        boolean[] hasPartialInAggFunc = new boolean[1];
         Pair<List<Slot>, ArrayList<FunctionCallExpr>> aggResult =
-                collectAggFunctions(outputExpressions, null, context);
+                collectAggFunctions(outputExpressions, hasPartialInAggFunc, context);
         List<Slot> aggFunctionOutput = aggResult.first;
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggResult.second;
+        boolean isPartial = hasPartialInAggFunc[0];
 
         // 3. generate output tuple
         Pair<TupleDescriptor, List<Integer>> tupleAndIds =
@@ -3466,14 +3469,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor outputTupleDesc = tupleAndIds.first;
         List<Integer> aggFunOutputIds = tupleAndIds.second;
 
-        // Bucketed agg uses AggPhase.FIRST (update semantics): raw input -> final result.
-        // Not partial — always needsFinalize.
+        // Bucketed agg uses AggPhase.FIRST (update semantics) because it consumes raw input.
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
-                aggFunOutputIds, false /* isPartial */, outputTupleDesc,
+                aggFunOutputIds, isPartial, outputTupleDesc,
                 AggregateInfo.AggPhase.FIRST);
 
         BucketedAggregationNode bucketedAggNode = new BucketedAggregationNode(
-                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true);
+                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, !isPartial);
 
         bucketedAggNode.setNereidsId(aggregate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), bucketedAggNode.getId());
@@ -3496,7 +3498,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      *
      * @param hasPartialOut if non-null and length >= 1, hasPartialOut[0] is set to
      *        true when any aggregate function produces a buffer (i.e. is partial).
-     *        The bucketed path passes null.
      */
     private Pair<List<Slot>, ArrayList<FunctionCallExpr>> collectAggFunctions(
             List<NamedExpression> outputExpressions,

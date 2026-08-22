@@ -484,13 +484,13 @@ public class BindSink implements AnalysisRuleFactory {
                     try {
                         Expression unboundDefaultValue = new NereidsParser().parseExpression(
                                 column.getDefaultValueSql());
-                        Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                        Expression defaultValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundDefaultValue);
-                        if (defualtValueExpression instanceof Alias) {
-                            defualtValueExpression = ((Alias) defualtValueExpression).child();
+                        if (defaultValueExpression instanceof Alias) {
+                            defaultValueExpression = ((Alias) defaultValueExpression).child();
                         }
                         Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                defaultValueExpression, DataType.fromCatalogType(column.getType()))),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());

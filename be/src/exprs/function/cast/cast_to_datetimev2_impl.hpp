@@ -27,6 +27,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/datelike_serde_common.hpp"
 #include "core/types.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h" // IWYU pragma: keep
 #include "util/asan_util.h"
@@ -1071,6 +1072,42 @@ inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
         }
         to_value = dtmv2;
     }
+    return true;
+}
+
+// Round the nine-digit fraction to a DATETIMEV2/TIMEV2 target scale. The rounded civil value is
+// allowed to lie outside the TIMESTAMP_NS range because the destination type has the wider
+// year-0000..9999 domain. This matters at the lower boundary, whose microsecond rounding is 192ns
+// below the TIMESTAMP_NS minimum but is still a valid DATETIMEV2 value.
+inline bool round_timestamp_ns_fraction(UInt32 to_scale, DateV2Value<DateTimeV2ValueType>& datetime,
+                                        uint32_t& nanoseconds) {
+    DCHECK_LE(to_scale, 6);
+    const auto divisor = static_cast<uint32_t>(common::exp10_i64(9 - to_scale));
+    const uint32_t remainder = nanoseconds % divisor;
+    nanoseconds = nanoseconds / divisor * divisor;
+    if (remainder >= divisor / 2) {
+        nanoseconds += divisor;
+    }
+    if (nanoseconds >= TimeStampNsValue::NANOS_PER_SECOND) {
+        nanoseconds = 0;
+        if (!datetime.template date_add_interval<TimeUnit::SECOND>(
+                    TimeInterval {TimeUnit::SECOND, 1, false})) {
+            return false;
+        }
+    }
+    datetime.set_microsecond(nanoseconds / TimeStampNsValue::NANOS_PER_MICROSECOND);
+    return true;
+}
+
+inline bool transform_date_scale(UInt32 to_scale, UInt32 /*from_scale*/,
+                                 DateV2Value<DateTimeV2ValueType>& to_value,
+                                 const TimeStampNsValue& from_value) {
+    auto datetime = from_value.to_datetime();
+    uint32_t nanoseconds = from_value.nanosecond();
+    if (!round_timestamp_ns_fraction(to_scale, datetime, nanoseconds)) {
+        return false;
+    }
+    to_value = datetime;
     return true;
 }
 
