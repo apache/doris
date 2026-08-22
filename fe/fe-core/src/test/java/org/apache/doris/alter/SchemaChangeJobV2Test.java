@@ -42,6 +42,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -49,6 +50,7 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -582,5 +584,114 @@ public class SchemaChangeJobV2Test {
         expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change "
                 + "distribution type of aggregate keys table which has value columns with REPLACE type.");
         Env.getCurrentEnv().convertDistributionType(db, table);
+    }
+
+    // A schema-change job cancelled while the table is still WAITING_STABLE (it never became
+    // stable, so it was never promoted to SCHEMA_CHANGE) must reset the table back to NORMAL.
+    // Otherwise the table is permanently stuck in WAITING_STABLE with no live job, and every
+    // subsequent ALTER / TRUNCATE / DROP PARTITION / RENAME / CANCEL is rejected (deadlock).
+    @Test
+    public void testCancelSchemaChangeWhileWaitingStable() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        // add a schema change job
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, alterJobsV2.size());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
+
+        // make the table unstable so the pending job parks in WAITING_STABLE
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        Replica replica1 = baseIndex.getTablets().get(0).getReplicas().get(0);
+        replica1.setState(Replica.ReplicaState.DECOMMISSION);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.PENDING, schemaChangeJob.getJobState());
+        Assert.assertEquals(OlapTableState.WAITING_STABLE, olapTable.getState());
+
+        // cancel while WAITING_STABLE: the table must return to NORMAL (before the fix it stayed
+        // stuck in WAITING_STABLE because changeTableState() only reset from SCHEMA_CHANGE).
+        boolean cancelled = schemaChangeJob.cancel("test cancel while waiting stable");
+        Assert.assertTrue(cancelled);
+        Assert.assertEquals(JobState.CANCELLED, schemaChangeJob.getJobState());
+        Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+    }
+
+    // A table left in WAITING_STABLE with no backing schema-change job (an orphaned state that older
+    // binaries could produce) must be self-healed by CANCEL ALTER TABLE: the table is reset to NORMAL
+    // instead of throwing "could not find related job" (which previously left DROP TABLE as the only escape).
+    @Test
+    public void testCancelColumnJobSelfHealsOrphanedState() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+
+        // simulate the orphaned state: table flagged WAITING_STABLE but no alter job backs it
+        olapTable.setState(OlapTableState.WAITING_STABLE);
+        Assert.assertTrue(schemaChangeHandler.getUnfinishedAlterJobV2ByTableId(olapTable.getId()).isEmpty());
+
+        TableNameInfo tableNameInfo = new TableNameInfo(db.getName(), olapTable.getName());
+        CancelAlterTableCommand cancelCommand = new CancelAlterTableCommand(
+                tableNameInfo, CancelAlterTableCommand.AlterType.COLUMN, Lists.newArrayList());
+        // must not throw, and must reset the table back to NORMAL
+        schemaChangeHandler.cancel(cancelCommand);
+        Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+    }
+
+    // A table flagged SCHEMA_CHANGE with no backing job is not a known-reachable state and a silent reset
+    // could abandon still-present shadow indexes; CANCEL must fail loudly and leave the state untouched
+    // (only WAITING_STABLE is self-healed).
+    @Test
+    public void testCancelColumnJobRejectsOrphanedSchemaChangeState() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+
+        // simulate an unexpected orphaned state: table flagged SCHEMA_CHANGE but no alter job backs it
+        olapTable.setState(OlapTableState.SCHEMA_CHANGE);
+        Assert.assertTrue(schemaChangeHandler.getUnfinishedAlterJobV2ByTableId(olapTable.getId()).isEmpty());
+
+        TableNameInfo tableNameInfo = new TableNameInfo(db.getName(), olapTable.getName());
+        CancelAlterTableCommand cancelCommand = new CancelAlterTableCommand(
+                tableNameInfo, CancelAlterTableCommand.AlterType.COLUMN, Lists.newArrayList());
+        // must throw and must NOT change the table state
+        Assert.assertThrows(DdlException.class, () -> schemaChangeHandler.cancel(cancelCommand));
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+
+        // restore state so it does not leak into other tests sharing the catalog fixture
+        olapTable.setState(OlapTableState.NORMAL);
     }
 }
