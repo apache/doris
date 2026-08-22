@@ -22,12 +22,15 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 import java.nio.ByteBuffer;
 
 // PlaceHolderExpr is a reference class point to real LiteralExpr
 public class PlaceHolderExpr extends LiteralExpr {
+    @SerializedName("le")
     private LiteralExpr lExpr;
+    @SerializedName("mtc")
     int mysqlTypeCode = -1;
 
     public PlaceHolderExpr() {

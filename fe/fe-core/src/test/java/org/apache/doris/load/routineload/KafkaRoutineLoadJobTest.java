@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -40,10 +41,13 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -58,9 +62,14 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -270,6 +279,99 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testAlterPersistsLoadDescAndCsvPropertiesForReplay() throws Exception {
+        KafkaRoutineLoadJob leader = createPausedJob();
+        KafkaRoutineLoadJob follower = createPausedJob();
+        RoutineLoadDesc originalDesc = new RoutineLoadDesc(new Separator("|", "|"), null, null,
+                null, null, null, null, LoadTask.MergeType.APPEND, "original_sequence");
+        leader.setRoutineLoadDesc(originalDesc);
+        follower.setRoutineLoadDesc(originalDesc);
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"");
+        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "\\");
+        jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
+        RoutineLoadDesc delta = new RoutineLoadDesc(null, new Separator("\n", "\\n"), null,
+                null, null, null, null, LoadTask.MergeType.APPEND, null);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        AlterRoutineLoadJobOperationLog alterLog;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            leader.modifyProperties(command);
+
+            ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                    ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+            alterLog = logCaptor.getValue();
+        }
+
+        Assert.assertSame(delta, alterLog.getRoutineLoadDesc());
+        Assert.assertEquals(jobProperties, alterLog.getJobProperties());
+        assertAlterState(leader);
+
+        follower.replayModifyProperties(alterLog);
+        assertAlterState(follower);
+
+        assertAlterState(imageRoundTrip(leader));
+        assertAlterState(imageRoundTrip(follower));
+    }
+
+    @Test
+    public void testReplayLegacyCsvPropertiesDoesNotRunNewValidation() {
+        KafkaRoutineLoadJob follower = createPausedJob();
+        Map<String, String> legacyJobProperties = Maps.newHashMap();
+        legacyJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "legacy");
+        AlterRoutineLoadJobOperationLog legacyLog = new AlterRoutineLoadJobOperationLog(
+                follower.getId(), legacyJobProperties, null);
+
+        follower.replayModifyProperties(legacyLog);
+
+        Assert.assertEquals((byte) 'l', follower.getEnclose());
+        Map<String, String> persistedJobProperties = Deencapsulation.getField(follower, "jobProperties");
+        Assert.assertEquals("legacy", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+    }
+
+    private static KafkaRoutineLoadJob createPausedJob() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "job1", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        return job;
+    }
+
+    private static void assertAlterState(RoutineLoadJob job) {
+        Assert.assertEquals("|", job.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\n", job.getLineDelimiter().getSeparator());
+        Assert.assertEquals("original_sequence", job.getSequenceCol());
+        Assert.assertEquals((byte) '"', job.getEnclose());
+        Assert.assertEquals((byte) '\\', job.getEscape());
+        Assert.assertTrue(job.getEmptyFieldAsNull());
+        Assert.assertEquals(Boolean.TRUE, Deencapsulation.getField(job, "emptyFieldAsNull"));
+
+        Map<String, String> persistedJobProperties = Deencapsulation.getField(job, "jobProperties");
+        Assert.assertEquals("\"", persistedJobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+        Assert.assertEquals("\\", persistedJobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+        Assert.assertEquals("true", persistedJobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL));
+    }
+
+    private static RoutineLoadJob imageRoundTrip(RoutineLoadJob routineLoadJob) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            routineLoadJob.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return RoutineLoadJob.read(in);
+        }
     }
 
     @Test

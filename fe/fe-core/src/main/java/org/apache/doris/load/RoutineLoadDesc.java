@@ -26,19 +26,29 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
 public class RoutineLoadDesc {
+    @SerializedName("cs")
     private final Separator columnSeparator;
+    @SerializedName("ld")
     private final Separator lineDelimiter;
+    @SerializedName("cols")
     private final List<ImportColumnDesc> columnsInfo;
+    @SerializedName("pf")
     private final Expr precedingFilter;
+    @SerializedName("f")
     private final Expr filter;
+    @SerializedName("dc")
     private final Expr deleteCondition;
+    @SerializedName("mt")
     private LoadTask.MergeType mergeType;
     // nullable
+    @SerializedName("pn")
     private final PartitionNamesInfo partitionNamesInfo;
+    @SerializedName("sc")
     private final String sequenceColName;
 
     public RoutineLoadDesc(Separator columnSeparator, Separator lineDelimiter, List<ImportColumnDesc> columnsInfo,
