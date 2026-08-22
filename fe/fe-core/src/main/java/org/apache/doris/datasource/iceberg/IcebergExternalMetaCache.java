@@ -19,12 +19,14 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
@@ -33,6 +35,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.StaleMetaCacheEntryException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
@@ -144,6 +147,29 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
     }
 
+    public IcebergTableCacheValue.Lease retainIcebergTable(ExternalTable dorisTable) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
+        return lease == null ? borrow(nameMapping) : lease.retain();
+    }
+
+    public ExecutionAuthenticator getIcebergTableAuthenticator(ExternalTable dorisTable) {
+        return requiredStatementLease(dorisTable).getAuthenticator();
+    }
+
+    public Map<StorageProperties.Type, StorageProperties> getIcebergTableStorageProperties(
+            ExternalTable dorisTable) {
+        return requiredStatementLease(dorisTable).getStorageProperties();
+    }
+
+    private IcebergTableCacheValue.Lease requiredStatementLease(ExternalTable dorisTable) {
+        IcebergTableCacheValue.Lease lease = statementLease(dorisTable.getOrBuildNameMapping());
+        if (lease == null) {
+            throw new IllegalStateException("Iceberg scan runtime requires a statement-owned table generation");
+        }
+        return lease;
+    }
+
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
@@ -220,9 +246,13 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 boolean cleanupTransferred = false;
                 try {
                     ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
+                    Map<StorageProperties.Type, StorageProperties> storageProperties =
+                            VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                                    loadContext.getMetastoreProperties(), loadContext.getStorageProperties(), table);
                     catalogLease = loadContext.promote();
                     IcebergCatalogResourceTracker.ResourceLease finalCatalogLease = catalogLease;
                     IcebergTableCacheValue value = new IcebergTableCacheValue(table, ops.getThreadPoolWithPreAuth(),
+                            loadContext.getAuthenticator(), storageProperties,
                             () -> loadSnapshotProjection(dorisTable, table, ops.getThreadPoolWithPreAuth()), () -> {
                         try {
                             tableCleanup.run();
@@ -256,8 +286,11 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 }
                 ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
                 ThreadPoolExecutor executor = loadContext.getExecutor();
+                Map<StorageProperties.Type, StorageProperties> storageProperties =
+                        VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                                loadContext.getMetastoreProperties(), loadContext.getStorageProperties(), table);
                 IcebergCatalogResourceTracker.ResourceLease catalogLease = loadContext.promote();
-                return new IcebergTableCacheValue(table, executor,
+                return new IcebergTableCacheValue(table, executor, loadContext.getAuthenticator(), storageProperties,
                         () -> loadSnapshotProjection(dorisTable, table, executor), catalogLease::close);
             }
         }

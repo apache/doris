@@ -50,6 +50,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
@@ -59,6 +60,7 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -1064,8 +1066,21 @@ public class IcebergUtils {
     }
 
     /** The action must return derived metadata rather than retain the supplied table. */
-    static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
+    public static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
         return icebergExternalMetaCache(dorisTable).withIcebergTable(dorisTable, action);
+    }
+
+    public static IcebergTableCacheValue.Lease retainIcebergTable(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).retainIcebergTable(dorisTable);
+    }
+
+    public static ExecutionAuthenticator getIcebergTableAuthenticator(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).getIcebergTableAuthenticator(dorisTable);
+    }
+
+    public static Map<StorageProperties.Type, StorageProperties> getIcebergTableStorageProperties(
+            ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).getIcebergTableStorageProperties(dorisTable);
     }
 
     private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {

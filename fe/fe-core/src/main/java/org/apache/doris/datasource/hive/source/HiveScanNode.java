@@ -75,6 +75,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -143,6 +144,15 @@ public class HiveScanNode extends FileQueryScanNode {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
+            try {
+                StatementContext statementContext = ConnectContext.get().getStatementContext();
+                String queryId = hiveTransaction.getQueryId();
+                statementContext.getOrRegisterStatementResource("hive-transaction:" + queryId,
+                        () -> (Closeable) () -> Env.getCurrentHiveTransactionMgr().deregister(queryId));
+            } catch (RuntimeException | Error e) {
+                Env.getCurrentHiveTransactionMgr().deregister(hiveTransaction.getQueryId());
+                throw e;
+            }
             skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
         }
         ensureHmsRuntimeGeneration();

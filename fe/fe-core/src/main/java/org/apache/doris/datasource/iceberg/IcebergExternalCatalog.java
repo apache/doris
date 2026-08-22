@@ -33,6 +33,8 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.Table;
@@ -40,6 +42,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -159,7 +162,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     synchronized TableLoadContext beginTableLoad() {
         makeSureInitialized();
         return new TableLoadContext((IcebergMetadataOps) metadataOps, executionAuthenticator, icebergCatalogType,
-                resourceTracker.beginLoad());
+                catalogProperty.getMetastoreProperties(),
+                new HashMap<>(catalogProperty.getStoragePropertiesMap()), resourceTracker.beginLoad());
     }
 
     public String getIcebergCatalogType() {
@@ -226,13 +230,19 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         private final IcebergMetadataOps ops;
         private final ExecutionAuthenticator authenticator;
         private final String catalogType;
+        private final MetastoreProperties metastoreProperties;
+        private final Map<StorageProperties.Type, StorageProperties> storageProperties;
         private final IcebergCatalogResourceTracker.LoadGuard guard;
 
         private TableLoadContext(IcebergMetadataOps ops, ExecutionAuthenticator authenticator, String catalogType,
+                MetastoreProperties metastoreProperties,
+                Map<StorageProperties.Type, StorageProperties> storageProperties,
                 IcebergCatalogResourceTracker.LoadGuard guard) {
             this.ops = ops;
             this.authenticator = authenticator;
             this.catalogType = catalogType;
+            this.metastoreProperties = metastoreProperties;
+            this.storageProperties = storageProperties;
             this.guard = guard;
         }
 
@@ -246,6 +256,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
         String getCatalogType() {
             return catalogType;
+        }
+
+        ExecutionAuthenticator getAuthenticator() {
+            return authenticator;
+        }
+
+        MetastoreProperties getMetastoreProperties() {
+            return metastoreProperties;
+        }
+
+        Map<StorageProperties.Type, StorageProperties> getStorageProperties() {
+            return storageProperties;
         }
 
         IcebergCatalogResourceTracker.ResourceLease promote() {

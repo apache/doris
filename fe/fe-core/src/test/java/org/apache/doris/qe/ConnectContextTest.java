@@ -57,6 +57,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectContextTest {
@@ -941,5 +946,25 @@ public class ConnectContextTest {
                 ctx.addFlightSqlDeferredExecutor(late));
         ctx.closeFlightSqlDeferredExecutors();
         Mockito.verifyNoInteractions(late);
+    }
+
+    @Test
+    public void testSessionSealWaitsForAdmittedResultPublisher() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        Assert.assertTrue(ctx.beginFlightSqlResultPublication());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> teardown = executor.submit(ctx::sealAndCloseFlightSqlDeferredExecutors);
+            try {
+                teardown.get(100, TimeUnit.MILLISECONDS);
+                Assert.fail("teardown must not destroy the result channel while a publisher is admitted");
+            } catch (TimeoutException expected) {
+                // expected
+            }
+            Assert.assertFalse(ctx.endFlightSqlResultPublication());
+            teardown.get(10, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
     }
 }

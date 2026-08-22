@@ -37,7 +37,6 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
-import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
@@ -46,6 +45,7 @@ import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTableCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
@@ -138,7 +138,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -281,12 +281,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 // These tables are always readable regardless of format version
                 formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
             }
-            preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-            storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                    source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
-                    icebergTable
-            );
+            ExternalTable runtimeTable = getRuntimeExternalTable();
+            preExecutionAuthenticator = IcebergUtils.getIcebergTableAuthenticator(runtimeTable);
+            storagePropertiesMap = IcebergUtils.getIcebergTableStorageProperties(runtimeTable);
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         } finally {
             if (getSummaryProfile() != null) {
@@ -695,52 +692,86 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     public void doStartSplit() throws UserException {
-        TableScan scan = createTableScan();
-        CompletableFuture.runAsync(() -> {
-            AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
-            try {
-                preExecutionAuthenticator.execute(
-                        () -> {
-                            long startTime = System.currentTimeMillis();
-                            try {
-                                CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                                taskRef.set(fileScanTasks);
-                                CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
-                                while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
-                                    try {
-                                        splitAssignment.addToQueue(
-                                                Lists.newArrayList(createIcebergSplit(iterator.next())));
-                                    } catch (UserException e) {
-                                        throw new RuntimeException(e);
+        IcebergTableCacheValue.Lease planningLease = retainPlanningGeneration();
+        TableScan scan;
+        try {
+            scan = createTableScan();
+        } catch (UserException | RuntimeException | Error t) {
+            planningLease.close();
+            throw t;
+        }
+        Future<?> planningFuture;
+        try {
+            planningFuture = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor().submit(() -> {
+                AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
+                try {
+                    preExecutionAuthenticator.execute(
+                            () -> {
+                                long startTime = System.currentTimeMillis();
+                                try {
+                                    CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
+                                    taskRef.set(fileScanTasks);
+                                    CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
+                                    while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                                        try {
+                                            splitAssignment.addToQueue(
+                                                    Lists.newArrayList(createIcebergSplit(iterator.next())));
+                                        } catch (UserException e) {
+                                            throw new RuntimeException(e);
+                                        }
+                                    }
+                                } finally {
+                                    if (getSummaryProfile() != null) {
+                                        getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                                                System.currentTimeMillis() - startTime);
                                     }
                                 }
-                            } finally {
-                                if (getSummaryProfile() != null) {
-                                    getSummaryProfile().addExternalTableGetFileScanTasksTime(
-                                            System.currentTimeMillis() - startTime);
-                                }
                             }
-                        }
-                );
-                splitAssignment.finishSchedule();
-                recordManifestCacheProfile();
-            } catch (Exception e) {
-                Optional<NotSupportedException> opt = checkNotSupportedException(e);
-                if (opt.isPresent()) {
-                    splitAssignment.setException(new UserException(opt.get().getMessage(), opt.get()));
-                } else {
-                    splitAssignment.setException(new UserException(e.getMessage(), e));
-                }
-            } finally {
-                if (taskRef.get() != null) {
-                    try {
-                        taskRef.get().close();
-                    } catch (IOException e) {
-                        // ignore
+                    );
+                    splitAssignment.finishSchedule();
+                    recordManifestCacheProfile();
+                } catch (Exception e) {
+                    Optional<NotSupportedException> opt = checkNotSupportedException(e);
+                    if (opt.isPresent()) {
+                        splitAssignment.setException(new UserException(opt.get().getMessage(), opt.get()));
+                    } else {
+                        splitAssignment.setException(new UserException(e.getMessage(), e));
                     }
+                } finally {
+                    if (taskRef.get() != null) {
+                        try {
+                            taskRef.get().close();
+                        } catch (IOException e) {
+                            // ignore
+                        }
+                    }
+                    planningLease.close();
                 }
-            }
-        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
+            });
+        } catch (RuntimeException | Error t) {
+            planningLease.close();
+            throw t;
+        }
+        // Cancellation interrupts the worker, while the lease remains owned by its actual-terminal finally.
+        splitAssignment.addCloseable(() -> planningFuture.cancel(true));
+        // Close the registration race when teardown won immediately before addCloseable().
+        if (splitAssignment.isStop()) {
+            planningFuture.cancel(true);
+        }
+    }
+
+    private IcebergTableCacheValue.Lease retainPlanningGeneration() {
+        return IcebergUtils.retainIcebergTable(getRuntimeExternalTable());
+    }
+
+    private ExternalTable getRuntimeExternalTable() {
+        TableIf targetTable = source.getTargetTable();
+        if (targetTable instanceof IcebergSysExternalTable) {
+            targetTable = ((IcebergSysExternalTable) targetTable).getSourceTable();
+        }
+        Preconditions.checkState(targetTable instanceof ExternalTable,
+                "Iceberg planning target must be an external table");
+        return (ExternalTable) targetTable;
     }
 
     @VisibleForTesting
