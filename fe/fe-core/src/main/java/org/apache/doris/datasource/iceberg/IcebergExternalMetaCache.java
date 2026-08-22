@@ -521,8 +521,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             return true;
         }
         Optional<Table> retainedTable = projection.getRetainedIcebergTable();
-        // Count-mode projections do not retain a table handle; nothing to rebind.
-        return !retainedTable.isPresent() || currentValue.sharesOperationalResources(retainedTable.get());
+        // Count-mode projections do not retain a table handle; nothing to rebind (and nothing is
+        // planned through a frozen generation, so a stale captured context is inert).
+        if (!retainedTable.isPresent()) {
+            return true;
+        }
+        // The captured execution context must match as well: after an auth-only ALTER the frozen
+        // handle is operationally equivalent but unplannable under the new context, and serving
+        // it would make every retried statement hit the same rejected projection until expiry.
+        return currentValue.sharesOperationalResources(retainedTable.get())
+                && currentValue.getAuthenticator() == projection.getCapturedAuthenticator();
     }
 
     private IcebergSnapshotCacheValue loadSnapshotProjection(

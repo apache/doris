@@ -572,6 +572,68 @@ public class IcebergExternalMetaCacheTest {
         }
     }
 
+    @Test
+    public void testAuthOnlyAlterRetiresProjectionsOfTheOldContext() {
+        ExecutionAuthenticator oldContext = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        ExecutionAuthenticator newContext = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = NameMapping.createForTest(catalogId, "db", "tbl");
+            TableMetadata metadata = metadataWithLocation("/metadata/auth-only-alter-v1.json");
+            // Same metadata file and operationally equivalent FileIO resources; only the
+            // captured execution context differs, as after an auth-only catalog ALTER.
+            IcebergTableCacheValue first = new IcebergTableCacheValue(
+                    tableWithMetadata(metadata, new PropertiesFileIO("token", "same")));
+            first.bindAuthenticator(oldContext);
+            IcebergTableCacheValue refreshed = new IcebergTableCacheValue(
+                    tableWithMetadata(metadata, new PropertiesFileIO("token", "same")));
+            refreshed.bindAuthenticator(newContext);
+            Assert.assertTrue(first.isSamePhysicalGeneration(refreshed));
+            Assert.assertFalse("a replaced execution context is a new operational generation",
+                    first.isSameOperationalGeneration(refreshed));
+            IcebergTableCacheValue sameContext = new IcebergTableCacheValue(
+                    tableWithMetadata(metadata, new PropertiesFileIO("token", "same")));
+            sameContext.bindAuthenticator(oldContext);
+            Assert.assertTrue(first.isSameOperationalGeneration(sameContext));
+
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_SNAPSHOT,
+                    IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class);
+            tables.put(mapping, first);
+            IcebergSnapshotEntryKey key = IcebergSnapshotEntryKey.tryCreate(
+                    mapping, first.getRetainedIcebergTable()).get();
+            snapshots.put(key, new IcebergSnapshotCacheValue(
+                    IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L), Optional.empty(),
+                    first.getRetainedIcebergTable())
+                    .bindCapturedAuthenticator(oldContext));
+
+            // The same-metadata refresh under the new context must retire the old projection so
+            // the next lookup rebuilds one that is plannable again.
+            tables.put(mapping, refreshed);
+            Assert.assertNull("projections of the replaced execution context must be retired",
+                    snapshots.peekIfPresent(key));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
     private static boolean exceptionChainContains(Throwable throwable, String fragment) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current.getMessage() != null && current.getMessage().contains(fragment)) {

@@ -208,6 +208,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void onCatalogPermanentlyRemoved(long catalogId) {
+        super.onCatalogPermanentlyRemoved(catalogId);
         // The id is never reused; without this, create/use/drop churn would accumulate counter
         // map nodes for the FE lifetime. In-flight scans cannot recreate the records because
         // the counter helpers only allocate while the catalog's entry group exists.

@@ -155,7 +155,12 @@ public class IcebergTableCacheValue {
      * credentials; projections frozen on the previous handle must not outlive that rotation.
      */
     boolean isSameOperationalGeneration(IcebergTableCacheValue other) {
-        return isSamePhysicalGeneration(other) && sharesOperationalResources(other.icebergTable);
+        // The captured execution context is part of the operational generation: an auth-only
+        // ALTER hands out the same metadata and equivalent FileIO under a new authenticator,
+        // and projections frozen on the old context would fail the planning fence forever
+        // instead of being rebuilt.
+        return isSamePhysicalGeneration(other) && sharesOperationalResources(other.icebergTable)
+                && authenticator == other.authenticator;
     }
 
     boolean sharesOperationalResources(Table table) {

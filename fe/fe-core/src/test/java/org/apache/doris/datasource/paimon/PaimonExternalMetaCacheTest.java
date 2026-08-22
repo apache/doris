@@ -1089,6 +1089,55 @@ public class PaimonExternalMetaCacheTest {
                         - PaimonCacheSizeEstimator.estimateSnapshotEntry(key, plain).getBytes());
     }
 
+    @Test
+    public void testPermanentlyDroppedCatalogFailsLookupsImmediately() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            AtomicInteger dropPreparerCalls = new AtomicInteger();
+            cache.bindCatalogPreparer(id -> dropPreparerCalls.incrementAndGet());
+            // DROP CATALOG: the group is retired and the removal is permanent - no preparer can
+            // ever restore it, so the lookup must fail terminally instead of consuming the
+            // contended-handoff retry window.
+            cache.invalidateCatalog(1L);
+            cache.onCatalogPermanentlyRemoved(1L);
+            long startNanos = System.nanoTime();
+            try {
+                cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                        NameMapping.class, PaimonTableCacheValue.class);
+                Assert.fail("a permanently dropped catalog must fail lookups terminally");
+            } catch (IllegalStateException e) {
+                Assert.assertTrue(String.valueOf(e.getMessage()),
+                        String.valueOf(e.getMessage()).contains("was dropped"));
+            }
+            Assert.assertTrue("a dropped catalog must not consume the retry window",
+                    System.nanoTime() - startNanos < 1_000_000_000L);
+
+            // A rename/contended handoff produces only a transient absence: the bounded retry
+            // must still absorb it and observe the re-prepared group.
+            cache.initCatalog(2L, Collections.emptyMap());
+            cache.invalidateCatalog(2L);
+            AtomicInteger renamePreparerCalls = new AtomicInteger();
+            cache.bindCatalogPreparer(id -> {
+                if (renamePreparerCalls.incrementAndGet() >= 2) {
+                    cache.initCatalog(2L, Collections.emptyMap());
+                }
+            });
+            Assert.assertNotNull(cache.entry(2L, PaimonExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, PaimonTableCacheValue.class));
+            Assert.assertTrue(renamePreparerCalls.get() >= 2);
+
+            // Re-creating a catalog id clears the tombstone (defensive: ids are never reused).
+            cache.initCatalog(1L, Collections.emptyMap());
+            Assert.assertNotNull(cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, PaimonTableCacheValue.class));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
     private static boolean exceptionChainContains(Throwable throwable, String fragment) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current.getMessage() != null && current.getMessage().contains(fragment)) {

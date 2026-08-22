@@ -520,6 +520,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void onCatalogPermanentlyRemoved(long catalogId) {
+        super.onCatalogPermanentlyRemoved(catalogId);
         // A lookup racing the drop may re-insert a fence owner after invalidateCatalog cleaned
         // the map; this hook runs even when the entry group is already retired and the id is
         // never reused, so the owners cannot leak for the FE lifetime.
