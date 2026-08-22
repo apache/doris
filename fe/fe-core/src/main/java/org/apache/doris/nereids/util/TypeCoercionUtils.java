@@ -249,6 +249,9 @@ public class TypeCoercionUtils {
                     && (input instanceof NumericType || input.isDateLikeType()
                             || input instanceof TimeV2Type || input instanceof CharacterType)) {
                 return Optional.of(expected);
+            } else if (input instanceof TimeStampNsType
+                    && (expected instanceof FloatType || expected instanceof DoubleType)) {
+                return Optional.of(expected);
             } else if (input instanceof TimeStampNsType && expected instanceof CharacterType) {
                 return Optional.of(expected.defaultConcreteType());
             }

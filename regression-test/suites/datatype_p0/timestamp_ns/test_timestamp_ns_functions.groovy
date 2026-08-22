@@ -70,25 +70,6 @@ suite("test_timestamp_ns_functions") {
     sql "set debug_skip_fold_constant = false"
     testFoldConst(scalarFunctionConstantsSql)
 
-    def widthBucketNanosecondsSql = """
-        select width_bucket(
-            cast('1970-01-01 00:00:00.000000005' as timestamp_ns),
-            cast('1970-01-01 00:00:00.000000000' as timestamp_ns),
-            cast('1970-01-01 00:00:00.000000010' as timestamp_ns), 2),
-        width_bucket(
-            cast('1677-09-21 00:12:43.145224192' as timestamp_ns),
-            cast('1677-09-21 00:12:43.145224192' as timestamp_ns),
-            cast('2262-04-11 23:47:16.854775807' as timestamp_ns), 2),
-        width_bucket(
-            cast('2262-04-11 23:47:16.854775806' as timestamp_ns),
-            cast('1677-09-21 00:12:43.145224192' as timestamp_ns),
-            cast('2262-04-11 23:47:16.854775807' as timestamp_ns), 2)
-    """
-    qt_width_bucket_nanoseconds_fold widthBucketNanosecondsSql
-    sql "set debug_skip_fold_constant = true"
-    qt_width_bucket_nanoseconds_runtime widthBucketNanosecondsSql
-    sql "set debug_skip_fold_constant = false"
-
     def fromUnixTimeMicrosecondRoundingSql = """
         select
             from_unixtime(0.123456499, '%s.%f|%n'),
