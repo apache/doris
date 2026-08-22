@@ -34,6 +34,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
@@ -54,7 +55,7 @@ import java.util.Optional;
 @Getter
 public class StreamingInsertTask extends AbstractStreamingTask {
     private String sql;
-    private StmtExecutor stmtExecutor;
+    private volatile StmtExecutor stmtExecutor;
     private InsertIntoTableCommand taskCommand;
     private String currentDb;
     private ConnectContext ctx;
@@ -173,11 +174,15 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     @Override
     public void cancel(boolean needWaitCancelComplete) {
         super.cancel(needWaitCancelComplete);
-        if (null != stmtExecutor) {
+        StmtExecutor executor = stmtExecutor;
+        if (null != executor) {
             log.info("cancelling streaming insert task, job id is {}, task id is {}",
                     getJobId(), getTaskId());
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
+            executor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
                     needWaitCancelComplete);
+        }
+        if (needWaitCancelComplete) {
+            awaitExecutionCompletion();
         }
     }
 
@@ -185,8 +190,15 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     public synchronized void closeOrReleaseResources() {
         ConnectContext taskContext = ctx;
         try {
-            if (taskContext != null && taskContext.getStatementContext() != null) {
-                taskContext.getStatementContext().close();
+            if (taskContext != null) {
+                if (taskContext.queryId() != null) {
+                    // Planning can register query-finish callbacks before a coordinator exists. Always run the
+                    // registry teardown so Hive read transactions do not survive a failed/cancelled attempt.
+                    QeProcessorImpl.INSTANCE.unregisterQuery(taskContext.queryId());
+                }
+                if (taskContext.getStatementContext() != null) {
+                    taskContext.getStatementContext().close();
+                }
             }
         } finally {
             stmtExecutor = null;

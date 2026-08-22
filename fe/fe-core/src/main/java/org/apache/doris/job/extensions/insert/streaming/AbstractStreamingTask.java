@@ -59,6 +59,9 @@ public abstract class AbstractStreamingTask {
     protected Long finishTimeMs;
     @Getter
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
+    private final Object executionCompletion = new Object();
+    private boolean executionStarted;
+    private boolean executionFinished;
 
     public AbstractStreamingTask(long jobId, long taskId, UserIdentity userIdentity) {
         this.jobId = jobId;
@@ -94,34 +97,58 @@ public abstract class AbstractStreamingTask {
     }
 
     public void execute() throws JobException {
-        while (retryCount <= MAX_RETRY) {
-            try {
-                before();
-                run();
-                onSuccess();
-                return;
-            } catch (Exception e) {
-                if (TaskStatus.CANCELED.equals(status)) {
+        synchronized (executionCompletion) {
+            executionStarted = true;
+        }
+        try {
+            while (retryCount <= MAX_RETRY) {
+                try {
+                    before();
+                    run();
+                    onSuccess();
                     return;
-                }
-                this.errMsg = e.getMessage();
-                retryCount++;
-                if (noRetry || retryCount > MAX_RETRY) {
-                    log.error("Task execution failed, job id {}, task id {}, noRetry {}, retry {}.",
-                            jobId, taskId, noRetry, retryCount, e);
-                    onFail(e.getMessage());
-                    return;
-                }
-                log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
-                        jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
-            } finally {
-                // The cancel logic will call the closeOrReleased Resources method by itself.
-                // If it is also called here,
-                // it may result in the inability to obtain relevant information when canceling the task
-                if (!TaskStatus.CANCELED.equals(status)) {
+                } catch (Exception e) {
+                    if (TaskStatus.CANCELED.equals(status)) {
+                        return;
+                    }
+                    this.errMsg = e.getMessage();
+                    retryCount++;
+                    if (noRetry || retryCount > MAX_RETRY) {
+                        log.error("Task execution failed, job id {}, task id {}, noRetry {}, retry {}.",
+                                jobId, taskId, noRetry, retryCount, e);
+                        onFail(e.getMessage());
+                        return;
+                    }
+                    log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
+                            jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
+                } finally {
+                    // Only the scheduler worker that created this attempt's ConnectContext may tear it down.
+                    // A cancelling thread waits for this handoff instead of racing before() and clearing fields
+                    // while planning is still publishing them.
                     closeOrReleaseResources();
                 }
             }
+        } finally {
+            synchronized (executionCompletion) {
+                executionFinished = true;
+                executionCompletion.notifyAll();
+            }
+        }
+    }
+
+    protected void awaitExecutionCompletion() {
+        boolean interrupted = false;
+        synchronized (executionCompletion) {
+            while (executionStarted && !executionFinished) {
+                try {
+                    executionCompletion.wait();
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 

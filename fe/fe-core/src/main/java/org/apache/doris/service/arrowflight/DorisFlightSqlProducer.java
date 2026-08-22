@@ -216,9 +216,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + queryId);
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        return publishFlightInfo(connectContext, getFlightInfoForSchema(ticketStatement, descriptor,
+                        FlightInfo flightInfo = getFlightInfoForSchema(ticketStatement, descriptor,
                                 connectContext.getFlightSqlChannel().getResult(queryId).getVectorSchemaRoot()
-                                        .getSchema()));
+                                        .getSchema());
+                        resultPublisher = false;
+                        return publishFlightInfo(connectContext, flightInfo);
                     } else {
                         // A Flight Sql request can only contain one statement that returns result,
                         // otherwise expected thrown exception during execution.
@@ -232,10 +234,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                                 peerIdentity + ":" + DebugUtil.printId(connectContext.queryId()));
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        return publishFlightInfo(connectContext,
-                                getFlightInfoForSchema(ticketStatement, descriptor, connectContext.getFlightSqlChannel()
+                        FlightInfo flightInfo = getFlightInfoForSchema(ticketStatement, descriptor,
+                                connectContext.getFlightSqlChannel()
                                         .getResult(DebugUtil.printId(connectContext.queryId())).getVectorSchemaRoot()
-                                        .getSchema()));
+                                        .getSchema());
+                        resultPublisher = false;
+                        return publishFlightInfo(connectContext, flightInfo);
                     }
                 } else {
                     // Now only query stmt will pull results from BE.
@@ -285,8 +289,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         endpoints.add(new FlightEndpoint(ticket, location));
                     }
                     // TODO Set in BE callback after query end, Client will not callback.
-                    return publishFlightInfo(connectContext,
-                            new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1));
+                    FlightInfo flightInfo = new FlightInfo(
+                            flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
+                    resultPublisher = false;
+                    return publishFlightInfo(connectContext, flightInfo);
                 }
             }
         } catch (Throwable e) {
@@ -312,7 +318,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     private FlightInfo publishFlightInfo(ConnectContext connectContext, FlightInfo flightInfo) {
-        Preconditions.checkState(connectContext.canPublishFlightSqlResult(),
+        Preconditions.checkState(connectContext.endFlightSqlResultPublication(),
                 "Arrow Flight SQL session was torn down before GetFlightInfo completed");
         return flightInfo;
     }
