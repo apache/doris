@@ -25,6 +25,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -281,10 +282,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        cacheMgr.runCatalogLifecycle(getId(), () -> resetCatalogRuntime(cacheMgr, invalidCache));
+    }
+
+    private void resetCatalogRuntime(ExternalMetaCacheMgr cacheMgr, boolean invalidCache) {
         runtimeGeneration.incrementAndGet();
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        cacheMgr.removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
+        cacheMgr.removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
+        cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         super.resetToUninitialized(invalidCache);
     }
 

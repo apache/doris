@@ -556,18 +556,32 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void updateJobStatus(JobStatus status) throws JobException {
+        AbstractStreamingTask taskToCancel = null;
+        boolean waitForTask = JobStatus.PAUSED.equals(status);
         lock.writeLock().lock();
         try {
-            super.updateJobStatus(status);
-            if (JobStatus.PAUSED.equals(getJobStatus())) {
-                clearRunningStreamTask(status);
+            if ((JobStatus.PAUSED.equals(status) || JobStatus.STOPPED.equals(status))
+                    && status != getJobStatus()) {
+                taskToCancel = runningStreamTask;
+                runningStreamTask = null;
             }
+            super.updateJobStatus(status);
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
+        } catch (RuntimeException | JobException e) {
+            if (taskToCancel != null) {
+                runningStreamTask = taskToCancel;
+            }
+            throw e;
         } finally {
             lock.writeLock().unlock();
+        }
+        if (taskToCancel != null) {
+            // The task owner can need this job's write lock while finishing transaction callbacks.
+            // Cancel and wait only after publishing the status and releasing the job lock.
+            taskToCancel.cancel(waitForTask);
         }
     }
 
@@ -818,6 +832,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             log.info("clear running streaming insert task for job {}, task {}, status {} ",
                     getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getStatus());
             runningStreamTask.cancel(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
+            runningStreamTask = null;
         }
     }
 

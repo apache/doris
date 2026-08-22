@@ -62,6 +62,12 @@ public class HudiFsViewCacheValue {
 
     public synchronized void evict() {
         evicted = true;
+        // A value rejected before getFsView() returns still owns the loader's transferable reference.
+        // Consume it here so a sealed/generation-lost load can reach zero without a nonexistent caller.
+        if (loaderReferenceAvailable) {
+            loaderReferenceAvailable = false;
+            refCount--;
+        }
         maybeClose();
     }
 

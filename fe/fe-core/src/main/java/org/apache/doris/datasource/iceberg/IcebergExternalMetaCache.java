@@ -215,17 +215,34 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
-                ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
                 Runnable tableCleanup = tableCleanup(loadContext.getCatalogType(), ops, table);
-                IcebergCatalogResourceTracker.ResourceLease catalogLease = loadContext.promote();
-                return new IcebergTableCacheValue(table, ops.getThreadPoolWithPreAuth(),
-                        () -> loadSnapshotProjection(dorisTable, table, ops.getThreadPoolWithPreAuth()), () -> {
-                    try {
-                        tableCleanup.run();
-                    } finally {
-                        catalogLease.close();
+                IcebergCatalogResourceTracker.ResourceLease catalogLease = null;
+                boolean cleanupTransferred = false;
+                try {
+                    ExternalTable dorisTable = findExternalTable(nameMapping, ENGINE);
+                    catalogLease = loadContext.promote();
+                    IcebergCatalogResourceTracker.ResourceLease finalCatalogLease = catalogLease;
+                    IcebergTableCacheValue value = new IcebergTableCacheValue(table, ops.getThreadPoolWithPreAuth(),
+                            () -> loadSnapshotProjection(dorisTable, table, ops.getThreadPoolWithPreAuth()), () -> {
+                        try {
+                            tableCleanup.run();
+                        } finally {
+                            finalCatalogLease.close();
+                        }
+                    });
+                    cleanupTransferred = true;
+                    return value;
+                } finally {
+                    if (!cleanupTransferred) {
+                        try {
+                            tableCleanup.run();
+                        } finally {
+                            if (catalogLease != null) {
+                                catalogLease.close();
+                            }
+                        }
                     }
-                });
+                }
             }
         }
         if (catalog instanceof HMSExternalCatalog) {

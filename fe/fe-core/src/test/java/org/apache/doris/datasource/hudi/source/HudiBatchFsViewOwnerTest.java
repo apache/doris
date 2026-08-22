@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -116,5 +117,53 @@ class HudiBatchFsViewOwnerTest {
             release.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void synchronousListingCancellationReturnsBeforeBlockedTaskAndRetainsLease() throws Exception {
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.ListingFsViewOwner owner = new HudiScanNode.ListingFsViewOwner(lease);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(() -> {
+            started.countDown();
+            while (release.getCount() > 0) {
+                try {
+                    release.await(3, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    // Model storage code that does not terminate when interrupted.
+                }
+            }
+        }, () -> { });
+        owner.track(task);
+        owner.submissionDone();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            executor.execute(task);
+            Assertions.assertTrue(started.await(3, TimeUnit.SECONDS));
+            Future<?> waiter = executor.submit(() ->
+                    Assertions.assertThrows(CancellationException.class, owner::awaitCompletion));
+
+            owner.close();
+
+            waiter.get(3, TimeUnit.SECONDS);
+            Mockito.verify(lease, Mockito.never()).close();
+            release.countDown();
+            Mockito.verify(lease, Mockito.timeout(3000)).close();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void synchronousListingDiscardBeforeSubmissionReleasesLease() {
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.ListingFsViewOwner owner = new HudiScanNode.ListingFsViewOwner(lease);
+
+        owner.discardBeforeSubmission();
+
+        Mockito.verify(lease).close();
+        Assertions.assertDoesNotThrow(owner::awaitCompletion);
     }
 }

@@ -33,6 +33,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -40,6 +41,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalMetaCacheRouteResolverTest {
 
@@ -208,6 +212,54 @@ public class ExternalMetaCacheRouteResolverTest {
         Assert.assertEquals(0, paimon.invalidateCatalogCalls);
     }
 
+    @Test
+    public void testCatalogTransitionFencesLazyGroupPublicationUntilPropertiesChange() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> true);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive);
+        long catalogId = 12L;
+        AtomicReference<Map<String, String>> properties = new AtomicReference<>(
+                Collections.singletonMap("generation", "g1"));
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getProperties()).thenAnswer(ignored -> properties.get());
+        mockCurrentCatalog(catalogId, catalog);
+        CountDownLatch transitionEntered = new CountDownLatch(1);
+        CountDownLatch allowPropertyChange = new CountDownLatch(1);
+        CountDownLatch accessorStarted = new CountDownLatch(1);
+        CountDownLatch accessorDone = new CountDownLatch(1);
+        Thread transition = new Thread(() -> metaCacheMgr.runCatalogLifecycle(catalogId, () -> {
+            transitionEntered.countDown();
+            try {
+                if (!allowPropertyChange.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("timed out waiting to change catalog properties");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+            properties.set(Collections.singletonMap("generation", "g2"));
+        }));
+        Thread accessor = new Thread(() -> {
+            accessorStarted.countDown();
+            metaCacheMgr.prepareCatalogByEngine(catalogId, "hive");
+            accessorDone.countDown();
+        });
+
+        transition.start();
+        Assert.assertTrue(transitionEntered.await(10, TimeUnit.SECONDS));
+        accessor.start();
+        Assert.assertTrue(accessorStarted.await(10, TimeUnit.SECONDS));
+        Assert.assertFalse("cache publication must wait for the complete runtime transition",
+                accessorDone.await(200, TimeUnit.MILLISECONDS));
+        allowPropertyChange.countDown();
+        transition.join(TimeUnit.SECONDS.toMillis(10));
+        accessor.join(TimeUnit.SECONDS.toMillis(10));
+
+        Assert.assertFalse(transition.isAlive());
+        Assert.assertFalse(accessor.isAlive());
+        Assert.assertEquals("g2", hive.lastCatalogProperties.get("generation"));
+    }
+
     @SuppressWarnings("unchecked")
     private ExternalMetaCacheMgr newManagerWithCaches(RecordingExternalMetaCache... caches) throws Exception {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
@@ -283,6 +335,7 @@ public class ExternalMetaCacheRouteResolverTest {
         private int invalidateDbCalls;
         private int invalidateTableCalls;
         private int invalidatePartitionsCalls;
+        private Map<String, String> lastCatalogProperties;
 
         private RecordingExternalMetaCache(String engine, List<String> aliases,
                 java.util.function.Predicate<CatalogIf<?>> ignoredPredicate) {
@@ -303,6 +356,7 @@ public class ExternalMetaCacheRouteResolverTest {
         @Override
         public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
             initializedCatalogIds.add(catalogId);
+            lastCatalogProperties = catalogProperties;
             initCatalogCalls++;
         }
 
