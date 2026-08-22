@@ -162,6 +162,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -505,7 +506,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     // check validation of ndv.
     private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
-        for (Slot slot : ((Plan) olapScan).getOutput()) {
+        for (Slot slot : getStatsNeededSlots(olapScan)) {
             if (isVisibleSlotReference(slot)) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 if (!cache.isUnKnown) {
@@ -598,6 +599,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
         }
+        // Only operative slots' column stats are needed by the query, column stats of other slots
+        // are useless and fetching them would pollute the column stats cache and waste time on wide
+        // tables. If operative slots are not derived yet (e.g. stats derivation during RBO) or full
+        // stats fidelity is required (forbidUnknownColStats), fall back to all visible output slots.
+        Set<Slot> statsNeededSlots = new HashSet<>(getStatsNeededSlots(olapScan));
 
         if (!isRegisteredRowCount(olapScan)
                 && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
@@ -612,7 +618,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     && connectContext.getSessionVariable().enablePartitionAnalyze;
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
-                if (enablePartitionStatics) {
+                if (!statsNeededSlots.contains(slot)) {
+                    // slot's stats are not needed by the query, use the cached value only if it is
+                    // already loaded, otherwise unknown, without triggering a stats cache load
+                    cache = olapTableStats.getColumnStatisticsIfPresent(slot.getName(), connectContext);
+                } else if (enablePartitionStatics) {
                     cache = getColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
                 } else {
                     cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
@@ -633,7 +643,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                ColumnStatistic cache;
+                if (!statsNeededSlots.contains(slot)) {
+                    // slot's stats are not needed by the query, use the cached value only if it is
+                    // already loaded, otherwise unknown, without triggering a stats cache load
+                    cache = olapTableStats.getColumnStatisticsIfPresent(slot.getName(), connectContext);
+                } else {
+                    cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
@@ -642,6 +659,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setRowCount(tableRowCount);
         }
         return computeVirtualColumnStats(olapScan, builder.build());
+    }
+
+    /**
+     * Returns the slots whose column stats should be fetched for the query.
+     *
+     * <p>Only operative slots' column stats are needed by the query, column stats of other slots are
+     * useless and fetching them would pollute the column stats cache and waste time on wide tables.
+     * If operative slots are not derived yet (e.g. stats derivation during RBO) or full stats
+     * fidelity is required (forbidUnknownColStats), fall back to all output slots.
+     */
+    private List<Slot> getStatsNeededSlots(OlapScan olapScan) {
+        if (forbidUnknownColStats) {
+            return ((Plan) olapScan).getOutput();
+        }
+        List<Slot> operativeSlots = ((CatalogRelation) olapScan).getOperativeSlots();
+        return operativeSlots.isEmpty() ? ((Plan) olapScan).getOutput() : operativeSlots;
     }
 
     private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {

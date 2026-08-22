@@ -105,6 +105,25 @@ public class StatisticsCache {
         return doGetColumnStatistics(catalogId, dbId, tblId, idxId, colName, ctx);
     }
 
+    /**
+     * Returns the column statistic only when it is already present in the cache, without
+     * triggering a cache load. Used for columns whose stats are not needed by the query,
+     * so that useless columns do not pollute the cache nor issue queries to the stats table.
+     */
+    public ColumnStatistic getColumnStatisticsIfPresent(
+            long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
+        if (shouldReturnUnknownStats(catalogId, dbId, ctx)) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        // Need to change base index id to -1 for OlapTable.
+        try {
+            idxId = changeBaseIndexId(catalogId, dbId, tblId, idxId);
+        } catch (Exception e) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return doGetColumnStatisticsIfPresent(catalogId, dbId, tblId, idxId, colName, ctx);
+    }
+
     public OlapTableStatistics getOlapTableStats(OlapScan olapScan) {
         return new OlapTableStatistics(olapScan);
     }
@@ -124,6 +143,28 @@ public class StatisticsCache {
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+        }
+        return ColumnStatistic.UNKNOWN;
+    }
+
+    /**
+     * Returns the column statistic only when it is already present in the cache, without
+     * triggering a cache load. Used for columns whose stats are not needed by the query,
+     * so that useless columns do not pollute the cache nor issue queries to the stats table.
+     */
+    private ColumnStatistic doGetColumnStatisticsIfPresent(
+            long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
+        StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName);
+        CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.getIfPresent(k);
+        if (f != null && f.isDone()) {
+            try {
+                Optional<ColumnStatistic> columnStatistic = f.get();
+                if (columnStatistic != null && columnStatistic.isPresent()) {
+                    return columnStatistic.get();
+                }
+            } catch (Exception e) {
+                LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+            }
         }
         return ColumnStatistic.UNKNOWN;
     }
@@ -421,6 +462,20 @@ public class StatisticsCache {
                 return ColumnStatistic.UNKNOWN;
             }
             return doGetColumnStatistics(
+                    catalogId, schemaId, tableId, selectIndexId, colName, ctx
+            );
+        }
+
+        /**
+         * Returns the column statistic only when it is already present in the cache, without
+         * triggering a cache load. Used for columns whose stats are not needed by the query,
+         * so that useless columns do not pollute the cache nor issue queries to the stats table.
+         */
+        public ColumnStatistic getColumnStatisticsIfPresent(String colName, ConnectContext ctx) {
+            if (shouldReturnUnknownStats(catalogId, schemaId, olapTable, ctx)) {
+                return ColumnStatistic.UNKNOWN;
+            }
+            return doGetColumnStatisticsIfPresent(
                     catalogId, schemaId, tableId, selectIndexId, colName, ctx
             );
         }
