@@ -20,6 +20,8 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -28,8 +30,12 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -39,6 +45,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class JoinUtilsTest {
 
@@ -287,5 +294,82 @@ public class JoinUtilsTest {
             conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
             Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
         }
+    }
+
+    @Test
+    public void testCheckBroadcastJoinStatsRowCountBoundary() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        double broadcastRowLimit = ctx.getSessionVariable().getBroadcastRowCountLimit();
+
+        // rowCount strictly above broadcast_row_count_limit: reject.
+        PhysicalHashJoin<?, ?> joinTooMany = Mockito.mock(PhysicalHashJoin.class);
+        GroupExpression geTooMany = Mockito.mock(GroupExpression.class);
+        Statistics statsTooMany = new StatisticsBuilder().setRowCount(broadcastRowLimit + 1).build();
+        Mockito.when(joinTooMany.getGroupExpression()).thenReturn(Optional.of(geTooMany));
+        Mockito.when(geTooMany.child(1)).thenReturn(Mockito.mock(Group.class));
+        Mockito.when(geTooMany.child(1).getStatistics()).thenReturn(statsTooMany);
+        Mockito.when(joinTooMany.right()).thenReturn(Mockito.mock(Plan.class));
+        Mockito.when(joinTooMany.right().getOutput()).thenReturn(Lists.newArrayList());
+
+        Assertions.assertFalse(JoinUtils.checkBroadcastJoinStats(joinTooMany),
+                "Should reject broadcast when rowCount exceeds broadcast_row_count_limit");
+
+        // rowCount exactly at limit: accept (the check is rowCount <= limit).
+        PhysicalHashJoin<?, ?> joinAtLimit = Mockito.mock(PhysicalHashJoin.class);
+        GroupExpression geAtLimit = Mockito.mock(GroupExpression.class);
+        Statistics statsAtLimit = new StatisticsBuilder().setRowCount(broadcastRowLimit).build();
+        Mockito.when(joinAtLimit.getGroupExpression()).thenReturn(Optional.of(geAtLimit));
+        Mockito.when(geAtLimit.child(1)).thenReturn(Mockito.mock(Group.class));
+        Mockito.when(geAtLimit.child(1).getStatistics()).thenReturn(statsAtLimit);
+        Mockito.when(joinAtLimit.right()).thenReturn(Mockito.mock(Plan.class));
+        Mockito.when(joinAtLimit.right().getOutput()).thenReturn(Lists.newArrayList());
+
+        Assertions.assertTrue(JoinUtils.checkBroadcastJoinStats(joinAtLimit),
+                "Should accept broadcast when rowCount equals broadcast_row_count_limit "
+                        + "(check is inclusive, datasize is 0 with no output cols)");
+    }
+
+    @Test
+    public void testCheckBroadcastJoinStatsHappyPath() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        GroupExpression ge = Mockito.mock(GroupExpression.class);
+        Statistics stats = new StatisticsBuilder().setRowCount(100).build();
+        Mockito.when(join.getGroupExpression()).thenReturn(Optional.of(ge));
+        Mockito.when(ge.child(1)).thenReturn(Mockito.mock(Group.class));
+        Mockito.when(ge.child(1).getStatistics()).thenReturn(stats);
+        Mockito.when(join.right()).thenReturn(Mockito.mock(Plan.class));
+        Mockito.when(join.right().getOutput()).thenReturn(Lists.newArrayList());
+
+        Assertions.assertTrue(JoinUtils.checkBroadcastJoinStats(join),
+                "Small build side under both gates should be accepted as broadcast candidate");
+    }
+
+    @Test
+    public void testCheckBroadcastJoinStatsRejectsClampedRowCount() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        GroupExpression ge = Mockito.mock(GroupExpression.class);
+        // Mirror what StatsCalculator.computeOlapScan does for an un-ANALYZE'd
+        // Olap table: setRowCountWasUnknown(true) + setRowCount(1).
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(1)
+                .setRowCountWasUnknown(true)
+                .build();
+        Mockito.when(join.getGroupExpression()).thenReturn(Optional.of(ge));
+        Mockito.when(ge.child(1)).thenReturn(Mockito.mock(Group.class));
+        Mockito.when(ge.child(1).getStatistics()).thenReturn(stats);
+        Mockito.when(join.right()).thenReturn(Mockito.mock(Plan.class));
+        Mockito.when(join.right().getOutput()).thenReturn(Lists.newArrayList());
+
+        Assertions.assertFalse(JoinUtils.checkBroadcastJoinStats(join),
+                "Clamped rowCount = 1 (rowCountWasUnknown=true) must NOT be accepted "
+                        + "as a broadcast candidate; otherwise un-ANALYZE'd large tables "
+                        + "would be wrongly broadcast.");
     }
 }
