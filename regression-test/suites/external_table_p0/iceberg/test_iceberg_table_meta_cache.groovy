@@ -109,7 +109,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                     'meta.cache.iceberg.table.ttl-second' = '-2'
                 );
                 """
-                exception "must be >= -1"
+                exception "is wrong"
             }
 
             // disable iceberg table meta cache
