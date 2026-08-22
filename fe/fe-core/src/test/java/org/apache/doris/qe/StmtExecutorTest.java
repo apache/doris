@@ -113,6 +113,19 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testArrowFlightFinalizesImmediatelyWhenSessionTeardownSealedRegistration() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        stmtExecutor.setCoord(coord);
+
+        connectContext.sealAndCloseFlightSqlDeferredExecutors();
+        stmtExecutor.deferArrowFlightQuery();
+
+        Mockito.verify(coord).close();
+    }
+
+    @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();

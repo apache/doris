@@ -27,6 +27,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
@@ -77,17 +78,31 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
     private static final Logger LOG = LogManager.getLogger(ReauthenticatingRestSessionCatalog.class);
 
     private final Supplier<RESTSessionCatalog> delegateBuilder;
+    private final IcebergCatalogResourceTracker resourceTracker;
+    private final Runnable invalidateTables;
     private volatile RESTSessionCatalog delegate;
 
     public ReauthenticatingRestSessionCatalog(RESTSessionCatalog initialDelegate,
             Supplier<RESTSessionCatalog> delegateBuilder) {
+        this(initialDelegate, delegateBuilder, null, () -> { });
+    }
+
+    ReauthenticatingRestSessionCatalog(RESTSessionCatalog initialDelegate,
+            Supplier<RESTSessionCatalog> delegateBuilder, IcebergCatalogResourceTracker resourceTracker,
+            Runnable invalidateTables) {
         this.delegate = initialDelegate;
         this.delegateBuilder = delegateBuilder;
+        this.resourceTracker = resourceTracker;
+        this.invalidateTables = invalidateTables;
     }
 
     @VisibleForTesting
     RESTSessionCatalog currentDelegate() {
         return delegate;
+    }
+
+    FileIO takeCatalogFileIo(Table table) {
+        return IcebergConnector.takeRestTableCatalogFileIo(table);
     }
 
     private <T> T withAuthRecovery(SessionContext context, Supplier<T> op) {
@@ -124,9 +139,36 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
                 + "then retrying the request once.", name(), cause);
         RESTSessionCatalog replacement = delegateBuilder.get();
         RESTSessionCatalog wedged = delegate;
-        delegate = replacement;
+        if (resourceTracker == null) {
+            delegate = replacement;
+            closeReplacedDelegate(wedged);
+            return;
+        }
         try {
-            wedged.close();
+            resourceTracker.rotate(() -> closeReplacedDelegate(wedged), () -> delegate = replacement);
+        } catch (RuntimeException replacementFailure) {
+            // Connector teardown may close the tracker after the replacement has been fully built but before
+            // rotate accepts it. It was never published, so this method is its only owner and must close it.
+            // Preserve the catalog's original 401 as the primary failure seen by the caller; the teardown race
+            // remains available as a suppressed diagnostic instead of replacing the useful remote error.
+            closeReplacedDelegate(replacement);
+            cause.addSuppressed(replacementFailure);
+            throw cause;
+        }
+        try {
+            // Publish the new resource generation before fencing table-cache loads. A miss admitted while the
+            // wedged delegate was current then loses the cache-generation check and cannot publish an owner of
+            // the retired REST client; a miss after rotation either loads the replacement or is conservatively
+            // retried after this invalidation.
+            invalidateTables.run();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire Iceberg table cache after replacing REST client of catalog {}", name(), e);
+        }
+    }
+
+    private void closeReplacedDelegate(RESTSessionCatalog replaced) {
+        try {
+            replaced.close();
         } catch (IOException | RuntimeException e) {
             LOG.warn("Failed to close the replaced Iceberg REST client of catalog {}", name(), e);
         }
@@ -184,7 +226,28 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
 
     @Override
     public Table loadTable(SessionContext context, TableIdentifier ident) {
-        return withAuthRecovery(context, () -> delegate.loadTable(context, ident));
+        RESTSessionCatalog attemptedOn = delegate;
+        try {
+            return loadTableAndRecordFileIo(attemptedOn, context, ident);
+        } catch (RuntimeException e) {
+            if (!isAuthExpired(e) || !usesCatalogIdentity(context)) {
+                throw e;
+            }
+            reauthenticate(attemptedOn, e);
+            return loadTableAndRecordFileIo(delegate, context, ident);
+        }
+    }
+
+    private Table loadTableAndRecordFileIo(
+            RESTSessionCatalog attemptedOn, SessionContext context, TableIdentifier ident) {
+        Table table = attemptedOn.loadTable(context, ident);
+        IcebergConnector.recordRestTableCatalogFileIo(table, catalogFileIo(attemptedOn));
+        return table;
+    }
+
+    @VisibleForTesting
+    FileIO catalogFileIo(RESTSessionCatalog catalog) {
+        return IcebergConnector.restCatalogFileIO(catalog);
     }
 
     @Override

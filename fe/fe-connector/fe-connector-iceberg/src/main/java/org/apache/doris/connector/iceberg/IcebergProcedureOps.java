@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -69,6 +70,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     // (fail-closed); every other catalog (and the offline-test ctor) resolves the single shared ops (s -> catalogOps).
     private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     public IcebergProcedureOps(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
@@ -85,9 +87,16 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     public IcebergProcedureOps(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context) {
+        this(properties, catalogOpsResolver, context, null);
+    }
+
+    IcebergProcedureOps(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context,
+            IcebergCatalogResourceTracker resourceTracker) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
+        this.resourceTracker = resourceTracker;
     }
 
     @Override
@@ -179,6 +188,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action,
             ConnectorSession session) {
+        return withCatalogLease(() -> runInAuthScopeUntracked(handle, action, session));
+    }
+
+    private ConnectorProcedureResult runInAuthScopeUntracked(IcebergTableHandle handle, BaseIcebergAction action,
+            ConnectorSession session) {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces the
         // DorisConnectorException verbatim (not wrapped by executeAuthenticated's catch).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
@@ -207,6 +221,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private List<ConnectorRewriteGroup> planInAuthScope(IcebergTableHandle handle,
             IcebergRewriteDataFilesAction action, ConnectorSession session) {
+        return withCatalogLease(() -> planInAuthScopeUntracked(handle, action, session));
+    }
+
+    private List<ConnectorRewriteGroup> planInAuthScopeUntracked(IcebergTableHandle handle,
+            IcebergRewriteDataFilesAction action, ConnectorSession session) {
         ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
         RewriteDataFilePlanner planner = new RewriteDataFilePlanner(action.buildRewriteParameters(), sessionZone);
         // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
@@ -228,6 +247,15 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             }
         }
         return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+    }
+
+    private <T> T withCatalogLease(Supplier<T> operation) {
+        if (resourceTracker == null) {
+            return operation.get();
+        }
+        try (IcebergCatalogResourceTracker.TrackedResource<T> tracked = resourceTracker.load(operation)) {
+            return tracked.resource();
+        }
     }
 
     /**

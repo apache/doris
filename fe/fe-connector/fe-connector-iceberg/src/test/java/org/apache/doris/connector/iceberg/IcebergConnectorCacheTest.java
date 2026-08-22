@@ -29,6 +29,9 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -285,6 +288,68 @@ public class IcebergConnectorCacheTest {
 
         connector.invalidateAll();
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
+
+    @Test
+    public void closeInvalidatesCrossQueryTableCache() throws Exception {
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergTableCache cache = connector.tableCacheForTest();
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> fakeTable("db1.t1"));
+        Assertions.assertEquals(1, cache.size());
+
+        connector.close();
+
+        Assertions.assertEquals(0, cache.size(), "connector teardown must release its table-cache ownership");
+    }
+
+    @Test
+    public void directTableCleanupOnlyClosesTableOwnedFileIO() {
+        RecordingFileIO tableFileIO = new RecordingFileIO();
+        FakeIcebergTable table = (FakeIcebergTable) fakeTable("rest.table");
+        table.setIo(tableFileIO);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_REST).run();
+        Assertions.assertEquals(0, tableFileIO.closeCalls,
+                "REST FileIO is owned by the retained REST catalog generation and its FileIOTracker");
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_GLUE).run();
+        Assertions.assertEquals(1, tableFileIO.closeCalls);
+    }
+
+    @Test
+    public void restConfigOnlyTableFileIOIsOwnedByTable() {
+        RecordingFileIO catalogFileIO = new RecordingFileIO();
+        RecordingFileIO configOnlyTableFileIO = new RecordingFileIO();
+
+        Assertions.assertFalse(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, catalogFileIO, catalogFileIO));
+        Assertions.assertTrue(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, configOnlyTableFileIO, catalogFileIO));
+    }
+
+    private static final class RecordingFileIO implements FileIO {
+        private int closeCalls;
+
+        @Override
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void close() {
+            closeCalls++;
+        }
     }
 
     // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============

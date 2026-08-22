@@ -31,6 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -83,11 +86,172 @@ final class IcebergStatementScope {
                 () -> snapshotReadTable(loader.get()));
     }
 
+    /**
+     * Statement-scoped variant for a table borrowed from {@link IcebergTableCache}. The memoized holder is
+     * {@link AutoCloseable}, so the engine's statement-scope teardown releases the borrower only after scan
+     * pumps have quiesced. Cache eviction and statement completion may happen in either order; the underlying
+     * FileIO is closed only after both owners release it.
+     */
+    static Table sharedBorrowedTable(ConnectorSession session, String dbName, String tableName,
+            Supplier<IcebergTableCache.TableLease> loader, Supplier<Table> unscopedLoader) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            // NONE has no statement-end callback, so it cannot safely own a lease. Preserve its original direct
+            // load-every-time behavior; creating a lease here would drop its only close handle and leak forever.
+            return snapshotReadTable(unscopedLoader.get());
+        }
+        ScopedBorrow borrowed = ConnectorStatementScopes.resolveInStatement(
+                session, TABLE_NAMESPACE, dbName, tableName, () -> new ScopedBorrow(loader.get()));
+        return borrowed.table;
+    }
+
+    /** Runs a metadata-only load under a bounded lease when no statement scope exists. */
+    static <T> T withBorrowedTable(ConnectorSession session, String dbName, String tableName,
+            Supplier<IcebergTableCache.TableLease> loader, Supplier<Table> unscopedLoader,
+            Function<Table, T> action) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            try (IcebergTableCache.TableLease lease = loader.get()) {
+                return action.apply(snapshotReadTable(lease.table()));
+            }
+        }
+        return action.apply(sharedBorrowedTable(session, dbName, tableName, loader, unscopedLoader));
+    }
+
+    /** Statement-owned direct table for credential-dependent catalogs where cross-query caching is disabled. */
+    static Table sharedTrackedTable(ConnectorSession session, String dbName, String tableName,
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
+            Function<Table, Runnable> cleanupFactory) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return snapshotReadTable(loader.get());
+        }
+        TrackedTable tracked = ConnectorStatementScopes.resolveInStatement(
+                session, TABLE_NAMESPACE, dbName, tableName,
+                () -> trackedTable(resourceTracker, loader, cleanupFactory, true));
+        return tracked.table();
+    }
+
+    /** Runs a metadata-only direct load under a bounded generation owner outside a statement. */
+    static <T> T withTrackedTable(ConnectorSession session, String dbName, String tableName,
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
+            Function<Table, Runnable> cleanupFactory, Function<Table, T> action) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            try (TrackedTable tracked = trackedTable(resourceTracker, loader, cleanupFactory, false)) {
+                return action.apply(snapshotReadTable(tracked.table()));
+            }
+        }
+        return action.apply(sharedTrackedTable(
+                session, dbName, tableName, resourceTracker, loader, cleanupFactory));
+    }
+
+    private static final class ScopedBorrow implements AutoCloseable {
+        private final IcebergTableCache.TableLease lease;
+        private final Table table;
+
+        private ScopedBorrow(IcebergTableCache.TableLease lease) {
+            this.lease = lease;
+            this.table = snapshotReadTable(lease.table());
+        }
+
+        @Override
+        public void close() {
+            lease.close();
+        }
+    }
+
     /** Loads the mutable table used only by write planning and transaction creation. */
     static Table sharedWritableTable(
             ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {
         return ConnectorStatementScopes.resolveInStatement(
                 session, WRITABLE_TABLE_NAMESPACE, dbName, tableName, loader);
+    }
+
+    /** Mutable table paired with the exact catalog generation that produced it. */
+    static TrackedTable sharedTrackedWritableTable(ConnectorSession session, String dbName, String tableName,
+            IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
+            Function<Table, Runnable> cleanupFactory) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return trackedTable(resourceTracker, loader, cleanupFactory, false);
+        }
+        return ConnectorStatementScopes.resolveInStatement(
+                session, WRITABLE_TABLE_NAMESPACE, dbName, tableName,
+                () -> trackedTable(resourceTracker, loader, cleanupFactory, true));
+    }
+
+    private static TrackedTable trackedTable(IcebergCatalogResourceTracker resourceTracker,
+            Supplier<Table> loader, Function<Table, Runnable> cleanupFactory, boolean statementOwned) {
+        IcebergCatalogResourceTracker.TrackedResource<Table> tracked = resourceTracker.load(loader);
+        try {
+            return new TrackedTable(tracked, cleanupFactory.apply(tracked.resource()), statementOwned);
+        } catch (RuntimeException | Error t) {
+            tracked.close();
+            throw t;
+        }
+    }
+
+    static final class TrackedTable implements AutoCloseable {
+        private final IcebergCatalogResourceTracker.TrackedResource<Table> tracked;
+        private final Runnable tableCleanup;
+        private final boolean statementOwned;
+        private final AtomicInteger references = new AtomicInteger(1);
+
+        private TrackedTable(IcebergCatalogResourceTracker.TrackedResource<Table> tracked,
+                Runnable tableCleanup, boolean statementOwned) {
+            this.tracked = tracked;
+            this.tableCleanup = tableCleanup;
+            this.statementOwned = statementOwned;
+        }
+
+        Table table() {
+            return tracked.resource();
+        }
+
+        TrackedTableLease retainLease() {
+            int current = references.get();
+            while (current != 0) {
+                if (references.compareAndSet(current, current + 1)) {
+                    return new TrackedTableLease(this);
+                }
+                current = references.get();
+            }
+            throw new IllegalStateException("Iceberg direct table owner is already closed");
+        }
+
+        boolean isStatementOwned() {
+            return statementOwned;
+        }
+
+        @Override
+        public void close() {
+            release();
+        }
+
+        private void release() {
+            int remaining = references.decrementAndGet();
+            if (remaining == 0) {
+                try {
+                    tableCleanup.run();
+                } finally {
+                    tracked.close();
+                }
+            } else if (remaining < 0) {
+                throw new IllegalStateException("Iceberg direct table owner released too many times");
+            }
+        }
+    }
+
+    static final class TrackedTableLease implements AutoCloseable {
+        private final TrackedTable owner;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private TrackedTableLease(TrackedTable owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                owner.release();
+            }
+        }
     }
 
     private static Table snapshotReadTable(Table table) {
