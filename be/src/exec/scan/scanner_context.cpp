@@ -183,6 +183,9 @@ Status ScannerContext::init() {
     _scanner_profile = _local_state->_scanner_profile;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
+    // ThreadPool scheduling queues a Context rather than a Scanner. Its queue delay is therefore
+    // meaningful only as Context-level latency; per-scanner delays depend on arbitrary selection.
+    _context_wait_worker_timer = ADD_TIMER(_scanner_profile, "ScannerContextWaitWorkerTime");
 
     // 3. get thread token
     if (!_state->get_query_ctx()) {
@@ -327,9 +330,9 @@ void ScannerContext::return_free_block(BlockUPtr block) {
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
                                         std::unique_lock<std::mutex>& /*transfer_lock*/) {
     // increase _num_finished_scanners no matter the scan_task is submitted successfully or not.
-    // since if submit failed, it will be added back by ScannerContext::push_back_scan_task
+    // since if submit failed, it will be added back by ScannerContext::push_completed_scan_task
     // and _num_finished_scanners will be reduced.
-    // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
+    // if submit succeed, it will be also added back by ScannerContext::push_completed_scan_task
     // see ScannerScheduler::_scanner_scan.
     _in_flight_tasks_num++;
     return _scanner_scheduler->submit(shared_from_this(), scan_task);
@@ -339,7 +342,7 @@ void ScannerContext::clear_free_blocks() {
     clear_blocks(_free_blocks);
 }
 
-void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
+void ScannerContext::push_completed_scan_task(std::shared_ptr<ScanTask> scan_task) {
     if (scan_task->status_ok()) {
         if (scan_task->cached_block && scan_task->cached_block->rows() > 0) {
             Status st = validate_block_schema(scan_task->cached_block.get());
@@ -349,6 +352,8 @@ void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
         }
     }
 
+    // Publishing the result and releasing its in-flight slot must be atomic. Otherwise a worker
+    // could observe an available slot before the operator can observe this completed task.
     std::lock_guard<std::mutex> l(_transfer_lock);
     if (!scan_task->status_ok()) {
         _process_status = scan_task->get_status();
@@ -409,15 +414,24 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
             _num_finished_scanners++;
             RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
         } else {
-            scan_task->set_state(ScanTask::State::IN_FLIGHT);
+            // A completed non-EOS attempt is still non-terminal. This covers a task whose block
+            // was just consumed above as well as one that produced no block. The scheduler returns
+            // it to PENDING (ThreadPool) or re-admits it (TaskExecutor) for another scan.
             RETURN_IF_ERROR(
                     _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
         }
     }
 
+    // A scanner can make shared LIMIT exhausted while it is still producing the final block:
+    // 1. The remaining limit is 5 and an in-flight scanner reads 100 rows.
+    // 2. The scanner decrements the shared limit below zero, then publishes its 100-row block. If not check
+    // _in_flight_tasks_num == 0 here, the operator will find the limit has reached, but actuall it
+    // do not get the cached block yet.
+    // 3. The operator consumes the block and applies the final limit of 5 rows.
+    // Therefore, wait for every worker to publish its block or EOS before completing this Context.
     if (_completed_tasks.empty() &&
         (_num_finished_scanners == _all_scanners.size() ||
-         (_is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
+         (is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
         _set_scanner_done();
         _is_finished = true;
     }
@@ -558,8 +572,87 @@ void ScannerContext::_set_scanner_done() {
     _dependency->set_always_ready();
 }
 
-bool ScannerContext::_is_shared_scan_limit_exhausted() const {
+bool ScannerContext::is_shared_scan_limit_exhausted() const {
     return limit >= 0 && _shared_scan_limit->load(std::memory_order_acquire) <= 0;
+}
+
+bool ScannerContext::is_context_queued(const std::unique_lock<std::mutex>& transfer_lock) const {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    return _is_context_queued;
+}
+
+void ScannerContext::set_context_queued(bool queued,
+                                        const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    DORIS_CHECK(_is_context_queued != queued);
+    if (queued) {
+        // A Context is deduplicated while queued, so this timestamp covers exactly one submitted
+        // runnable rather than the wait time of any particular scanner it may later choose.
+        DORIS_CHECK(_context_wait_worker_start_ns == 0);
+        _context_wait_worker_start_ns = MonotonicNanos();
+    } else {
+        // A worker clears the state immediately after dequeueing the runnable. Record the elapsed
+        // time here so queue-state changes and profiling cannot diverge. Failed submissions never
+        // set this state, and therefore never enter this branch.
+        DORIS_CHECK(_context_wait_worker_start_ns != 0);
+#ifndef BE_TEST
+        DORIS_CHECK(_context_wait_worker_timer != nullptr);
+        COUNTER_UPDATE(_context_wait_worker_timer,
+                       MonotonicNanos() - _context_wait_worker_start_ns);
+#endif
+        _context_wait_worker_start_ns = 0;
+    }
+    _is_context_queued = queued;
+}
+
+void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
+                                            const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    DORIS_CHECK(scan_task != nullptr);
+    DORIS_CHECK(scan_task->cached_block == nullptr);
+    DORIS_CHECK(!scan_task->is_eos());
+    // The state transition documents that this is an admission queue, not a completed-result queue.
+    scan_task->set_state(ScanTask::State::PENDING);
+    _pending_tasks.push(std::move(scan_task));
+}
+
+std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
+        const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    if (done() || _pending_tasks.empty()) {
+        return nullptr;
+    }
+
+    int32_t effective_max_concurrency = _max_scan_concurrency;
+    if (_enable_adaptive_scanners) {
+        effective_max_concurrency = _adaptive_processor->expected_scanners > 0
+                                            ? _adaptive_processor->expected_scanners
+                                            : _max_scan_concurrency;
+    }
+    if (low_memory_mode()) {
+        effective_max_concurrency = std::min(effective_max_concurrency, low_memory_mode_scanners());
+    }
+
+    // Completed blocks still occupy a concurrency slot until the operator consumes them. Counting
+    // both collections prevents a fast producer from exceeding the per-Context scanner limit.
+    const int32_t current_concurrency =
+            cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num;
+    // Keep at least one task progressing whenever a pending scanner exists:
+    // 1. An adaptive or low-memory limit can temporarily reduce effective concurrency to zero.
+    // 2. If there are no completed or in-flight tasks, no worker can publish a block or EOS.
+    // 3. Admit one scanner in that case so the query can make progress and cannot stall.
+    const bool has_progressing_task = current_concurrency > 0;
+    if (has_progressing_task && current_concurrency >= effective_max_concurrency) {
+        return nullptr;
+    }
+
+    // Pop and mark in-flight while holding the same lock used by completion and consumption.
+    // Thus concurrent Context workers cannot admit the same task or both pass the limit check.
+    auto scan_task = _pending_tasks.top();
+    _pending_tasks.pop();
+    scan_task->set_state(ScanTask::State::IN_FLIGHT);
+    ++_in_flight_tasks_num;
+    return scan_task;
 }
 
 void ScannerContext::update_peak_running_scanner(int num) {
@@ -754,13 +847,6 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
-        // Do not submit more pending scanners after the shared LIMIT is exhausted while
-        // completed or in-flight tasks can still make progress. If neither exists, allow pending
-        // scanners to be submitted so they can report EOS and wake the pipeline task.
-        if (_is_shared_scan_limit_exhausted() &&
-            (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
-            return nullptr;
-        }
         std::shared_ptr<ScanTask> next_scan_task;
         next_scan_task = _pending_tasks.top();
         _pending_tasks.pop();

@@ -169,7 +169,10 @@ TEST_F(ScannerContextTest, test_init) {
     state->set_query_options(query_options);
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
             std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    // init() is invoked twice below, and each invocation performs one initial scheduling attempt.
+    // Keep this expectation explicit so changing bootstrap scheduling updates this test too.
     EXPECT_CALL(*scheduler, schedule_scan_task(testing::_, testing::_, testing::_))
+            .Times(2)
             .WillRepeatedly(testing::Return(Status::OK()));
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -454,7 +457,7 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
     ASSERT_EQ(scanner_context->_max_scan_concurrency, 1);
 }
 
-TEST_F(ScannerContextTest, test_push_back_scan_task) {
+TEST_F(ScannerContextTest, test_push_completed_scan_task) {
     const int parallel_tasks = 1;
     auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
                                                              parallel_tasks, TQueryCacheParam {});
@@ -486,7 +489,7 @@ TEST_F(ScannerContextTest, test_push_back_scan_task) {
 
     for (int i = 0; i < 5; ++i) {
         auto scan_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
-        scanner_context->push_back_scan_task(scan_task);
+        scanner_context->push_completed_scan_task(scan_task);
         ASSERT_EQ(scanner_context->_in_flight_tasks_num, 10 - i);
     }
 }
@@ -662,6 +665,35 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     pull_scan_task = scanner_context->_pull_next_scan_task(
             nullptr, scanner_context->_max_scan_concurrency - 1);
     EXPECT_NE(pull_scan_task, nullptr);
+
+    std::unique_lock<std::mutex> context_transfer_lock(scanner_context->transfer_lock());
+    scanner_context->_pending_tasks = std::stack<std::shared_ptr<ScanTask>>();
+    scanner_context->_completed_tasks.clear();
+    scanner_context->_in_flight_tasks_num = 0;
+    // Even if the effective limit is temporarily zero, one pending task must run so it can publish
+    // a block or EOS and prevent the Context from stalling.
+    scanner_context->_max_scan_concurrency = 0;
+
+    auto completed_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
+    completed_task->set_state(ScanTask::State::IN_FLIGHT);
+    completed_task->cached_block = Block::create_unique();
+    completed_task->set_state(ScanTask::State::COMPLETED);
+    completed_task->cached_block.reset();
+    // A consumed non-EOS result must be eligible for another Context admission. This also covers
+    // the COMPLETED -> PENDING transition used by ThreadPool scheduling.
+    scanner_context->push_pending_scan_task(completed_task, context_transfer_lock);
+
+    EXPECT_FALSE(scanner_context->is_context_queued(context_transfer_lock));
+    scanner_context->set_context_queued(true, context_transfer_lock);
+    EXPECT_TRUE(scanner_context->is_context_queued(context_transfer_lock));
+    scanner_context->set_context_queued(false, context_transfer_lock);
+
+    // The Context can admit exactly one scanner at its configured concurrency limit.
+    auto admitted_task = scanner_context->try_get_next_scan_task(context_transfer_lock);
+    EXPECT_EQ(admitted_task, completed_task);
+    EXPECT_EQ(admitted_task->_state, ScanTask::State::IN_FLIGHT);
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 1);
+    EXPECT_EQ(scanner_context->try_get_next_scan_task(context_transfer_lock), nullptr);
 }
 
 TEST_F(ScannerContextTest, schedule_scan_task) {
