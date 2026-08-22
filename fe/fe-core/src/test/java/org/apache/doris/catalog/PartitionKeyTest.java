@@ -19,14 +19,10 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -359,11 +355,16 @@ public class PartitionKeyTest {
         Assert.assertTrue(restoredInfinity.isMinValue());
         Assert.assertEquals(infinityMin, restoredInfinity);
 
-        TimeStampNsLiteral infinityLiteral = TimeStampNsLiteral.createMinValue();
-        JsonObject legacyJson = JsonParser.parseString(GsonUtils.GSON.toJson(infinityLiteral)).getAsJsonObject();
-        legacyJson.remove("inf");
-        TimeStampNsLiteral restoredLegacy = GsonUtils.GSON.fromJson(legacyJson, TimeStampNsLiteral.class);
-        Assert.assertTrue(restoredLegacy.isMinValue());
+        PartitionKey legalMin = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                Arrays.asList(column));
+        ByteArrayOutputStream legalMinBytes = new ByteArrayOutputStream();
+        legalMin.write(new DataOutputStream(legalMinBytes));
+        PartitionKey restoredLegalMin = PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(legalMinBytes.toByteArray())));
+        Assert.assertFalse(restoredLegalMin.isMinValue());
+        Assert.assertEquals(legalMin, restoredLegalMin);
+        Assert.assertTrue(restoredInfinity.compareTo(restoredLegalMin) < 0);
     }
 
     private void assertTimeStampNsMinValue(String minValue, String nextValue) throws Exception {

@@ -64,7 +64,7 @@ public final class TimeStampNsLiteral extends LiteralExpr {
     @SerializedName("ns")
     private long nanosecond;
     @SerializedName("inf")
-    private Boolean isMinInfinity;
+    private boolean isMinInfinity;
 
     public TimeStampNsLiteral() {
         type = Type.TIMESTAMP_NS;
@@ -118,9 +118,7 @@ public final class TimeStampNsLiteral extends LiteralExpr {
 
     @Override
     public boolean isMinValue() {
-        // Metadata written before the explicit infinity marker represented MINVALUE with the
-        // same fields as the legal TIMESTAMP_NS minimum. Preserve that legacy interpretation.
-        return isMinInfinity == null ? compareBoundary(MIN_VALUE) == 0 : isMinInfinity;
+        return isMinInfinity;
     }
 
     @Override
