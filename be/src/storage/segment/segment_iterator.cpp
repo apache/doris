@@ -3787,6 +3787,9 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             RETURN_IF_ERROR(column_expr->root()->execute_column(column_expr.get(), block, nullptr,
                                                                 _selected_size, result_column));
 
+            // The materialized value is cached in the block and later consumed as the slot's
+            // concrete column type, so do not let a ColumnConst cross this boundary.
+            result_column = result_column->convert_to_full_column_if_const();
             block->replace_by_position(materialized_pos, std::move(result_column));
         }
     }
