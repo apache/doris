@@ -179,6 +179,17 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return createQueryTable(nameMapping, tableValue);
     }
 
+    /** Resolve the current table generation, exposing the handle and its captured context together. */
+    IcebergTableCacheValue getTableCacheValue(ExternalTable dorisTable) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
+    }
+
+    /** Query-scoped view of an already-resolved generation; see {@link #getTableCacheValue}. */
+    Table createQueryScopedTable(ExternalTable dorisTable, IcebergTableCacheValue tableValue) {
+        return createQueryTable(dorisTable.getOrBuildNameMapping(), tableValue);
+    }
+
     private Table createQueryTable(
             NameMapping nameMapping, IcebergTableCacheValue tableValue) {
         boolean isolateForQueries = tableValue.isQueryIsolationPrepared()

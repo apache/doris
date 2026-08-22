@@ -24,6 +24,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
+import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
@@ -535,6 +536,39 @@ public class IcebergExternalMetaCacheTest {
         } catch (IllegalStateException e) {
             Assert.assertTrue(String.valueOf(e.getMessage()),
                     e.getMessage().contains("please retry"));
+        }
+    }
+
+    @Test
+    public void testExplicitSnapshotValueCarriesItsGenerationContext() {
+        ExecutionAuthenticator captured = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        ExecutionAuthenticator replaced = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        Table table = tableWithMetadataLocation("/metadata/explicit-snapshot-v1.json");
+        IcebergTableCacheValue generation = new IcebergTableCacheValue(table);
+        generation.bindAuthenticator(captured);
+
+        // VERSION/TIME and branch/tag relations retain the query-scoped table of the generation
+        // they were bound on; the constructed value must carry that generation's context so the
+        // planning fence can reject a catalog that was reset in between.
+        IcebergSnapshotCacheValue value = IcebergUtils.newExplicitSnapshotValue(
+                new IcebergTableQueryInfo(1L, "main", 0), table, generation);
+        Assert.assertSame(captured, value.getCapturedAuthenticator());
+        value.ensurePlannableUnder(captured, "tbl");
+        try {
+            value.ensurePlannableUnder(replaced, "tbl");
+            Assert.fail("an explicit snapshot bound before a catalog reset must not plan under the new context");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(String.valueOf(e.getMessage()), e.getMessage().contains("please retry"));
         }
     }
 

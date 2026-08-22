@@ -2044,20 +2044,34 @@ public class IcebergUtils {
             Optional<TableScanParams> scanParams) {
         if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
             // If a snapshot is specified, use the specified snapshot and the corresponding schema (not latest).
+            // Resolve the generation once so the retained query-scoped table and the execution
+            // context it is planned under always come from the same catalog generation.
             IcebergExternalMetaCache metaCache = icebergExternalMetaCache(dorisTable);
-            Table icebergTable = metaCache.getQueryScopedIcebergTable(dorisTable);
+            IcebergTableCacheValue tableValue = metaCache.getTableCacheValue(dorisTable);
+            Table icebergTable = metaCache.createQueryScopedTable(dorisTable, tableValue);
             IcebergTableQueryInfo info;
             try {
                 info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
             } catch (UserException e) {
                 throw new RuntimeException(e);
             }
-            return new IcebergSnapshotCacheValue(
-                    IcebergPartitionInfo.empty(),
-                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
-                    getNameMapping(icebergTable), icebergTable);
+            return newExplicitSnapshotValue(info, icebergTable, tableValue);
         }
         return getLatestSnapshotCacheValue(dorisTable);
+    }
+
+    /**
+     * An explicit VERSION/TIME or branch/tag relation retains its query-scoped table exactly like
+     * a latest projection retains the frozen generation, so the value must carry the generation's
+     * captured execution context for the planning-time fence in IcebergScanNode.
+     */
+    static IcebergSnapshotCacheValue newExplicitSnapshotValue(
+            IcebergTableQueryInfo info, Table queryScopedTable, IcebergTableCacheValue generation) {
+        return new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(),
+                new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
+                getNameMapping(queryScopedTable), queryScopedTable)
+                .bindCapturedAuthenticator(generation.getAuthenticator());
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {
