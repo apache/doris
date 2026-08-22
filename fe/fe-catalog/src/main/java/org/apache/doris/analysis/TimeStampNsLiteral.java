@@ -310,18 +310,6 @@ public final class TimeStampNsLiteral extends LiteralExpr {
         return new TimeStampNsLiteral(toLocalDateTime().plusSeconds(seconds));
     }
 
-    public void setMinValue() {
-        TimeStampNsLiteral minimum = createMinValue();
-        year = minimum.year;
-        month = minimum.month;
-        day = minimum.day;
-        hour = minimum.hour;
-        minute = minimum.minute;
-        second = minimum.second;
-        nanosecond = minimum.nanosecond;
-        isMinInfinity = true;
-    }
-
     public long getYear() {
         return year;
     }

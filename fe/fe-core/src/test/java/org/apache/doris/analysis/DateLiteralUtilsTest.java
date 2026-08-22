@@ -338,10 +338,6 @@ public class DateLiteralUtilsTest {
 
         TimeStampNsLiteral maximum = new TimeStampNsLiteral(true);
         Assertions.assertEquals(Long.MAX_VALUE, maximum.getRealValue());
-
-        epoch.setMinValue();
-        Assertions.assertEquals(Long.MIN_VALUE, epoch.getRealValue());
-        Assertions.assertTrue(epoch.isMinValue());
     }
 
     @Test
