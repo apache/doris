@@ -38,6 +38,10 @@ public class AlterUserCommand extends AlterCommand implements NeedAuditEncryptio
         this.alterUserInfo = alterUserInfo;
     }
 
+    public AlterUserInfo getAlterUserInfo() {
+        return alterUserInfo;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterUserCommand(this, context);

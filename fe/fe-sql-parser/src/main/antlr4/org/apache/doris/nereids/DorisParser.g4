@@ -342,6 +342,7 @@ supportedAlterStatement
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
+        (retainCurrent=RETAIN CURRENT PASSWORD | discardOld=DISCARD OLD PASSWORD)?
         passwordOption requireClause? commentSpec?                                          #alterUser
     ;
 
@@ -1000,7 +1001,8 @@ optionWithoutType
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
     | PASSWORD (FOR userIdentify)? EQ (pwd=STRING_LITERAL
-        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN)) #setPassword
+        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))
+        (retainCurrent=RETAIN CURRENT PASSWORD)?                        #setPassword
     | LDAP_ADMIN_PASSWORD EQ (pwd=STRING_LITERAL
         | (PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))         #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType
@@ -2107,6 +2109,7 @@ nonReserved
     | DIAGNOSIS
     | DICTIONARIES
     | DICTIONARY
+    | DISCARD
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
@@ -2244,6 +2247,7 @@ nonReserved
     | OF
     | OFF
     | OFFSET
+    | OLD
     | ONLY
     | OPEN
     | OPTIMIZE
