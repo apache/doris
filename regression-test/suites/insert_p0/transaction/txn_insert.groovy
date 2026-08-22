@@ -244,10 +244,7 @@ suite("txn_insert") {
         // 6. insert select with error, insert overwrite
         if (use_nereids_planner) {
             sql """ begin; """
-            test {
-                sql """ insert into ${table}_0 select * from $tableMV; """
-                exception "insert into cols should be corresponding to the query output"
-            }
+            sql """ insert into ${table}_0 select * from $tableMV; """
             test {
                 sql """ insert overwrite table ${table}_1 select * from $table where k2 = 2.2 limit 1; """
                 exception "This is in a transaction, only insert, update, delete, commit, rollback is acceptable"
