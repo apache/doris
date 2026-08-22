@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -178,6 +179,15 @@ public class PaimonUtil {
                 .collect(Collectors.toList());
         List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
         Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
+        long retainedPayloadBytes = 0L;
+        if (!partitionEntries.isEmpty()) {
+            for (Column partitionColumn : partitionColumns) {
+                // Every partition's typed spec keys the same schema-owned name reference; the
+                // retained graph holds one string per column, not one per partition.
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionColumn.getName());
+            }
+        }
 
         for (PartitionEntry partitionEntry : partitionEntries) {
             Map<String, String> typedSpec = getPartitionInfoMap(
@@ -188,6 +198,8 @@ public class PaimonUtil {
 
             List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
             LinkedHashMap<String, String> orderedTypedSpec = new LinkedHashMap<>();
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                    PaimonPartitionInfo.partitionColumnBytes(partitionColumns.size()));
             for (Column partitionColumn : partitionColumns) {
                 String partitionColumnName = partitionColumn.getName();
                 Preconditions.checkState(typedSpec.containsKey(partitionColumnName),
@@ -195,6 +207,8 @@ public class PaimonUtil {
                 String partitionValue = typedSpec.get(partitionColumnName);
                 partitionValues.add(partitionValue);
                 orderedTypedSpec.put(partitionColumnName, partitionValue);
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionValue);
             }
 
             PartitionItem partitionItem;
@@ -219,6 +233,8 @@ public class PaimonUtil {
             }
             String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
             String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                    retainedPayloadBytes, displayName);
             Map<String, String> previousTypedSpec = displayNameToTypedSpec.putIfAbsent(
                     displayName, orderedTypedSpec);
             if (previousTypedSpec != null) {
@@ -249,7 +265,7 @@ public class PaimonUtil {
             nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
             nameToPartition.put(candidate.displayName, partition);
         }
-        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition, retainedPayloadBytes);
     }
 
     private static final class PaimonPartitionCandidate {

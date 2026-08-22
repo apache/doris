@@ -28,6 +28,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
@@ -83,7 +84,11 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<HudiSchemaCacheKey, SchemaCacheValue> schemaEntry;
 
     public HudiExternalMetaCache(ExecutorService refreshExecutor) {
-        super(ENGINE, refreshExecutor);
+        this(refreshExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
+    }
+
+    public HudiExternalMetaCache(ExecutorService refreshExecutor, ExternalMetaCacheBudgetManager budgetManager) {
+        super(ENGINE, refreshExecutor, budgetManager);
         partitionEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_PARTITION, HudiPartitionCacheKey.class,
                 TablePartitionValues.class, this::loadPartitionValuesCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiPartitionCacheKey::getNameMapping)));
@@ -93,8 +98,10 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiMetaClientCacheKey::getNameMapping)));
+        // Schema values are keyed by an immutable (table, timestamp) pair, so a timed refresh
+        // can never observe new content; misses load on demand.
         schemaEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_SCHEMA, HudiSchemaCacheKey.class,
-                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(),
+                SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(), false,
                 MetaCacheEntryInvalidation.forNameMapping(HudiSchemaCacheKey::getNameMapping)));
     }
 

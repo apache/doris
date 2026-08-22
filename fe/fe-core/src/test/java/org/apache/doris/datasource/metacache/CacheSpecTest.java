@@ -19,6 +19,7 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.DdlException;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
@@ -68,6 +69,7 @@ public class CacheSpecTest {
     public void testFromPropertiesWithEngineEntryKeys() {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("meta.cache.hive.schema.ttl-second", "0");
+        properties.put("meta.cache.hive.schema.max-weight", "2KB");
 
         CacheSpec defaultSpec = CacheSpec.fromProperties(
                 Maps.newHashMap(),
@@ -79,6 +81,8 @@ public class CacheSpecTest {
         Assert.assertTrue(spec.isEnable());
         Assert.assertEquals(0, spec.getTtlSecond());
         Assert.assertEquals(100, spec.getCapacity());
+        Assert.assertTrue(spec.isWeightBounded());
+        Assert.assertEquals(2048L, spec.getMaxWeight().getAsLong());
     }
 
     @Test
@@ -108,6 +112,7 @@ public class CacheSpecTest {
         Assert.assertTrue(enabled.isEnable());
         Assert.assertEquals(60, enabled.getTtlSecond());
         Assert.assertEquals(100, enabled.getCapacity());
+        Assert.assertFalse(enabled.isWeightBounded());
 
         CacheSpec zeroTtl = CacheSpec.of(true, 0, 100);
         Assert.assertTrue(zeroTtl.isEnable());
@@ -147,6 +152,10 @@ public class CacheSpecTest {
         Assert.assertFalse(CacheSpec.isCacheEnabled(false, CacheSpec.CACHE_NO_TTL, 1));
         Assert.assertFalse(CacheSpec.isCacheEnabled(true, 0, 1));
         Assert.assertFalse(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 0));
+        Assert.assertFalse(CacheSpec.ofWeight(
+                true, CacheSpec.CACHE_NO_TTL, 0L, 1L).isCacheEnabled());
+        Assert.assertFalse(CacheSpec.ofWeight(
+                true, CacheSpec.CACHE_NO_TTL, 1L, 0L).isCacheEnabled());
     }
 
     @Test
@@ -165,5 +174,52 @@ public class CacheSpecTest {
         OptionalLong negativeOther = CacheSpec.toExpireAfterAccess(-2);
         Assert.assertTrue(negativeOther.isPresent());
         Assert.assertEquals(0, negativeOther.getAsLong());
+    }
+
+    @Test
+    public void testParseWeight() {
+        Assert.assertEquals(1L, CacheSpec.parseWeight("1", "weight", false, 0L));
+        Assert.assertEquals(1024L, CacheSpec.parseWeight("1KB", "weight", false, 0L));
+        Assert.assertEquals(2L * 1024L * 1024L,
+                CacheSpec.parseWeight("2 mb", "weight", false, 0L));
+        Assert.assertEquals(250L, CacheSpec.parseWeight("25%", "weight", true, 1000L));
+        Assert.assertEquals(0L, CacheSpec.parseWeight("0", "weight", false, 0L));
+
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.parseWeight("1.5GB", "weight", false, 0L));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.parseWeight("101%", "weight", true, 1000L));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.parseWeight("1PB000", "weight", false, 0L));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.parseWeight("999999999999999999PB", "weight", false, 0L));
+    }
+
+    @Test
+    public void testStrictEnginePropertyAllowlist() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("meta.cache.hive.partition_values.enable", "true");
+        properties.put("meta.cache.hive.partition_values.ttl-second", "-1");
+        properties.put("meta.cache.hive.partition_values.capacity", "10");
+        properties.put("meta.cache.hive.partition_values.max-weight", "2MB");
+        CacheSpec.validateEngineProperties(properties, "hive",
+                ImmutableSet.of("partition_values", "schema"), ImmutableSet.of("partition_values"));
+
+        properties.put("meta.cache.hive.partiton_values.capacity", "10");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.validateEngineProperties(properties, "hive",
+                        ImmutableSet.of("partition_values", "schema"), ImmutableSet.of("partition_values")));
+        properties.remove("meta.cache.hive.partiton_values.capacity");
+
+        properties.put("meta.cache.hive.partition_values.enabel", "true");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.validateEngineProperties(properties, "hive",
+                        ImmutableSet.of("partition_values", "schema"), ImmutableSet.of("partition_values")));
+        properties.remove("meta.cache.hive.partition_values.enabel");
+
+        properties.put("meta.cache.hive.schema.max-weight", "1MB");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.validateEngineProperties(properties, "hive",
+                        ImmutableSet.of("partition_values", "schema"), ImmutableSet.of("partition_values")));
     }
 }

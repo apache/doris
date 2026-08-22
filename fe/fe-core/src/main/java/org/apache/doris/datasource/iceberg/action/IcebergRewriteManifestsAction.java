@@ -68,7 +68,7 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
         try {
-            Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+            Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
             Snapshot current = icebergTable.currentSnapshot();
             if (current == null) {
                 // No current snapshot means the table is empty, no manifests to rewrite

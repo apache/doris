@@ -107,7 +107,7 @@ public class PaimonExternalTableTest {
 
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 Mockito.mock(PaimonPartitionInfoLoader.class),
-                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "db", "table");
         Mockito.doAnswer(ignored -> new PaimonMvccSnapshot(
@@ -122,7 +122,8 @@ public class PaimonExternalTableTest {
         try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(
                 PaimonUtils.class, Mockito.CALLS_REAL_METHODS)) {
             paimonUtils.when(() -> PaimonUtils.loadSnapshotAtFence(
-                    Mockito.eq(externalTable), Mockito.eq(safeRelationTable), Mockito.any(PaimonSnapshot.class)))
+                    Mockito.eq(externalTable), Mockito.eq(safeRelationTable),
+                    Mockito.any(PaimonSnapshotCacheValue.class)))
                     .thenReturn(projectedValue);
             StatementContext statementContext = new StatementContext(new ConnectContext(), null);
 
@@ -240,8 +241,11 @@ public class PaimonExternalTableTest {
 
         try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
             paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(unsafeDataTable);
+            paimonUtils.when(() -> PaimonUtils.getPaimonTableCacheValue(externalTable))
+                    .thenReturn(new PaimonTableCacheValue(unsafeDataTable));
             paimonUtils.when(() -> PaimonUtils.loadSnapshotProjection(
-                    Mockito.eq(externalTable), Mockito.any(Table.class))).thenReturn(projection);
+                    Mockito.eq(externalTable), Mockito.any(Table.class),
+                    Mockito.any(PaimonTableCacheValue.class))).thenReturn(projection);
 
             PaimonMvccSnapshot snapshot = (PaimonMvccSnapshot) externalTable.loadSnapshot(
                     Optional.empty(), Optional.of(scanParams));
@@ -249,7 +253,8 @@ public class PaimonExternalTableTest {
             Assert.assertSame(projection, snapshot.getSnapshotCacheValue());
             paimonUtils.verify(() -> PaimonUtils.loadSnapshotProjection(
                     Mockito.eq(externalTable), Mockito.argThat(table ->
-                            "1".equals(table.options().get("scan.manifest.parallelism")))));
+                            "1".equals(table.options().get("scan.manifest.parallelism"))),
+                    Mockito.argThat(generation -> generation.getPaimonTable() == unsafeDataTable)));
         }
     }
 
@@ -269,10 +274,13 @@ public class PaimonExternalTableTest {
 
         try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
             paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(partitionedTable);
+            paimonUtils.when(() -> PaimonUtils.getPaimonTableCacheValue(externalTable))
+                    .thenReturn(new PaimonTableCacheValue(partitionedTable));
             paimonUtils.when(() -> PaimonUtils.getLatestSnapshotCacheValue(externalTable))
                     .thenReturn(memoizedProjection);
             paimonUtils.when(() -> PaimonUtils.loadSnapshotProjection(
-                    Mockito.eq(externalTable), Mockito.any(Table.class))).thenAnswer(invocation -> {
+                    Mockito.eq(externalTable), Mockito.any(Table.class),
+                    Mockito.any(PaimonTableCacheValue.class))).thenAnswer(invocation -> {
                         directProjectionLoads.incrementAndGet();
                         return directProjection;
                     });
@@ -301,8 +309,11 @@ public class PaimonExternalTableTest {
 
         try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
             paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(capturedTable);
+            paimonUtils.when(() -> PaimonUtils.getPaimonTableCacheValue(externalTable))
+                    .thenReturn(new PaimonTableCacheValue(capturedTable));
             paimonUtils.when(() -> PaimonUtils.loadSnapshotProjection(
-                    Mockito.eq(externalTable), Mockito.any(Table.class)))
+                    Mockito.eq(externalTable), Mockito.any(Table.class),
+                    Mockito.any(PaimonTableCacheValue.class)))
                     .thenThrow(new AssertionError(
                             "reader-only tuning must not enumerate a new partition projection"));
             paimonUtils.when(() -> PaimonUtils.getLatestSnapshotCacheValue(externalTable))

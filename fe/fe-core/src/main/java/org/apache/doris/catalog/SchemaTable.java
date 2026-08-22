@@ -635,6 +635,18 @@ public class SchemaTable extends Table {
                                     .column("LAST_LOAD_SUCCESS_TIME", ScalarType.createStringType())
                                     .column("LAST_LOAD_FAILURE_TIME", ScalarType.createStringType())
                                     .column("LAST_ERROR", ScalarType.createStringType())
+                                    .column("WEIGHT_BOUNDED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("EVICTION_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("WEIGHT_REJECT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CATALOG_MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CATALOG_ESTIMATED_WEIGHT",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL_MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL_ESTIMATED_WEIGHT",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LAST_WEIGHT_REJECT_REASON", ScalarType.createStringType())
                                     .build())
             )
             .put("backend_kerberos_ticket_cache",
