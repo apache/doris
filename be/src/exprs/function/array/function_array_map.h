@@ -19,6 +19,7 @@
 
 #include <type_traits>
 
+#include "core/arena.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_string.h"
@@ -167,7 +168,13 @@ public:
                           std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         ColumnArrayMutableData dst =
                 create_mutable_data(datas[0].nested_col.get(), datas[0].nested_nullmap_data);
-        if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row)) {
+
+        bool executed =
+                _execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row);
+        if constexpr (operation == MapOperation::UNION) {
+            executed = executed || _execute_nested_array(dst, datas, col_const, start_row, end_row);
+        }
+        if (executed) {
             res_ptr = assemble_column_array(dst);
             return Status::OK();
         }
@@ -188,6 +195,81 @@ private:
         Impl impl;
         ColumnPtr res_column;
         impl.apply(dst, datas, col_const, start_row, end_row);
+        return true;
+    }
+
+    static bool _execute_nested_array(ColumnArrayMutableData& dst,
+                                      const ColumnArrayExecutionDatas& datas,
+                                      const std::vector<bool>& col_const, size_t start_row,
+                                      size_t end_row) {
+        for (const auto& data : datas) {
+            if (!is_column<ColumnArray>(*data.nested_col)) {
+                return false;
+            }
+        }
+
+        size_t result_offset = 0;
+        for (size_t row = start_row; row < end_row; ++row) {
+            bool has_null = false;
+            for (size_t arg_idx = 0; arg_idx < datas.size() && !has_null; ++arg_idx) {
+                const auto& data = datas[arg_idx];
+                const size_t input_row = index_check_const(row, col_const[arg_idx]);
+                const size_t begin = (*data.offsets_ptr)[input_row - 1];
+                const size_t end = (*data.offsets_ptr)[input_row];
+
+                for (size_t off = begin; off < end; ++off) {
+                    if (data.nested_nullmap_data && data.nested_nullmap_data[off]) {
+                        has_null = true;
+                        break;
+                    }
+                }
+            }
+
+            const size_t row_result_begin = result_offset;
+            if (has_null) {
+                dst.nested_col->insert_default();
+                if (dst.nested_nullmap_data) {
+                    dst.nested_nullmap_data->push_back(1);
+                }
+                ++result_offset;
+            }
+
+            for (size_t arg_idx = 0; arg_idx < datas.size(); ++arg_idx) {
+                const auto& data = datas[arg_idx];
+                const size_t input_row = index_check_const(row, col_const[arg_idx]);
+                const size_t begin = (*data.offsets_ptr)[input_row - 1];
+                const size_t end = (*data.offsets_ptr)[input_row];
+
+                for (size_t off = begin; off < end; ++off) {
+                    if (data.nested_nullmap_data && data.nested_nullmap_data[off]) {
+                        continue;
+                    }
+
+                    bool duplicated = false;
+                    for (size_t result_pos = row_result_begin; result_pos < result_offset;
+                         ++result_pos) {
+                        if (dst.nested_nullmap_data && (*dst.nested_nullmap_data)[result_pos]) {
+                            continue;
+                        }
+
+                        if (data.nested_col->compare_at(off, result_pos, *dst.nested_col, 1) == 0) {
+                            duplicated = true;
+                            break;
+                        }
+                    }
+
+                    if (!duplicated) {
+                        dst.nested_col->insert_from(*data.nested_col, off);
+                        if (dst.nested_nullmap_data) {
+                            dst.nested_nullmap_data->push_back(0);
+                        }
+                        ++result_offset;
+                    }
+                }
+            }
+
+            dst.offsets_ptr->push_back(result_offset);
+        }
         return true;
     }
 
