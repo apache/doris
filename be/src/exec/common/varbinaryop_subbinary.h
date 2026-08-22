@@ -86,6 +86,7 @@ private:
     static void vectors(const ColumnVarbinary* binarys, const ColumnInt32* start,
                         const ColumnInt32* len, ColumnVarbinary* res, size_t size) {
         res->get_data().reserve(size);
+        bool has_non_inline_value = false;
 
         for (size_t i = 0; i < size; ++i) {
             doris::StringView binary = binarys->get_data()[index_check_const<binary_const>(i)];
@@ -107,8 +108,14 @@ private:
                 fixed_pos = binary_size + fixed_pos + 1;
             }
             int fixed_len = std::min(binary_size - fixed_pos, len_value);
+            const auto result_size = cast_set<uint32_t>(fixed_len);
 
-            res->insert_data(binary.data() + fixed_pos, fixed_len);
+            has_non_inline_value |= !StringView::isInline(result_size);
+            res->get_data().emplace_back(binary.data() + fixed_pos, result_size);
+        }
+
+        if (has_non_inline_value) {
+            res->add_auxiliary_owners_from(*binarys);
         }
     }
 };
