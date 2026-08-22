@@ -105,9 +105,11 @@ public abstract class AbstractStreamingTask {
         try {
             while (retryCount <= MAX_RETRY) {
                 Exception attemptFailure = null;
+                boolean executionSucceeded = false;
                 try {
                     before();
                     run();
+                    executionSucceeded = true;
                 } catch (Exception e) {
                     attemptFailure = e;
                 } finally {
@@ -124,8 +126,21 @@ public abstract class AbstractStreamingTask {
                         }
                     }
                 }
+                // A completed insert must never be replayed merely because teardown failed. Likewise,
+                // successor-publication failures belong to the job state machine, not to the insert retry loop.
+                if (executionSucceeded) {
+                    if (attemptFailure != null) {
+                        failCompletedAttempt(attemptFailure);
+                        return;
+                    }
+                    try {
+                        onSuccess();
+                    } catch (Exception completionFailure) {
+                        failCompletedAttempt(completionFailure);
+                    }
+                    return;
+                }
                 if (attemptFailure == null) {
-                    onSuccess();
                     return;
                 }
                 if (TaskStatus.CANCELED.equals(status)) {
@@ -148,18 +163,34 @@ public abstract class AbstractStreamingTask {
                 executionOwner = null;
                 executionCompletion.notifyAll();
             }
+            onExecutionFinished();
         }
     }
 
-    protected void awaitExecutionCompletion() {
+    protected void onExecutionFinished() {
+    }
+
+    private void failCompletedAttempt(Exception failure) throws JobException {
+        this.errMsg = failure.getMessage();
+        log.error("Completed streaming task could not publish its terminal state, job id {}, task id {}.",
+                jobId, taskId, failure);
+        onFail(failure.getMessage());
+    }
+
+    protected void awaitExecutionCompletion(long timeoutMs) {
         boolean interrupted = false;
         synchronized (executionCompletion) {
             if (Thread.currentThread() == executionOwner) {
                 return;
             }
+            long deadline = System.currentTimeMillis() + timeoutMs;
             while (executionStarted && !executionFinished) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    break;
+                }
                 try {
-                    executionCompletion.wait();
+                    executionCompletion.wait(remaining);
                 } catch (InterruptedException e) {
                     interrupted = true;
                 }

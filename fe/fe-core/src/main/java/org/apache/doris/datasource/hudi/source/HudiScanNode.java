@@ -790,14 +790,16 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private void recordBatchException(Throwable t) {
-        batchException.compareAndSet(null, new UserException(t.getMessage(), t));
+        UserException failure = new UserException(t.getMessage(), t);
+        if (batchException.compareAndSet(null, failure)) {
+            // Consumers should observe the known failure immediately; sibling terminal accounting
+            // remains independent and still owns the filesystem-view lease until every task exits.
+            splitAssignment.setException(failure);
+        }
     }
 
     private void finishBatchSplit(BatchFsViewOwner batchOwner, long startTime) {
         try {
-            if (batchException.get() != null) {
-                splitAssignment.setException(batchException.get());
-            }
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }

@@ -431,8 +431,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             View icebergView = getIcebergView();
             return icebergView.location();
         } else {
-            Table icebergTable = getIcebergTable();
-            return icebergTable.location();
+            return IcebergUtils.withIcebergTable(this, Table::location);
         }
     }
 
@@ -445,16 +444,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             View icebergView = getIcebergView();
             return icebergView.properties();
         } else {
-            Table icebergTable = getIcebergTable();
-            return icebergTable.properties();
+            return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
         }
     }
 
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
-        Table table = getIcebergTable();
-        return table.spec().isPartitioned();
+        return IcebergUtils.withIcebergTable(this, table -> table.spec().isPartitioned());
     }
 
     /**
@@ -462,7 +459,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return SQL string representing ORDER BY clause, or empty string if no sort order
      */
     public String getSortOrderSql() {
-        return getSortOrderSql(getIcebergTable());
+        return IcebergUtils.withIcebergTable(this, this::getSortOrderSql);
     }
 
     /** Return the sort order SQL for an already resolved Iceberg metadata generation. */

@@ -206,6 +206,8 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
         Assert.assertTrue(task.cancelCalled);
         Assert.assertFalse(task.cancelObservedWriteLock);
+        Assert.assertSame(task, Deencapsulation.getField(job, "runningStreamTask"));
+        job.clearRunningStreamTask(task);
         Assert.assertNull(Deencapsulation.getField(job, "runningStreamTask"));
     }
 

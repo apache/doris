@@ -125,14 +125,19 @@ class HudiBatchFsViewOwnerTest {
         HudiScanNode.ListingFsViewOwner owner = new HudiScanNode.ListingFsViewOwner(lease);
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch terminated = new CountDownLatch(1);
         HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(() -> {
             started.countDown();
-            while (release.getCount() > 0) {
-                try {
-                    release.await(3, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {
-                    // Model storage code that does not terminate when interrupted.
+            try {
+                while (release.getCount() > 0) {
+                    try {
+                        release.await(3, TimeUnit.SECONDS);
+                    } catch (InterruptedException ignored) {
+                        // Model storage code that does not terminate when interrupted.
+                    }
                 }
+            } finally {
+                terminated.countDown();
             }
         }, () -> { });
         owner.track(task);
@@ -149,6 +154,7 @@ class HudiBatchFsViewOwnerTest {
             waiter.get(3, TimeUnit.SECONDS);
             Mockito.verify(lease, Mockito.never()).close();
             release.countDown();
+            Assertions.assertTrue(terminated.await(3, TimeUnit.SECONDS));
             Mockito.verify(lease, Mockito.timeout(3000)).close();
         } finally {
             release.countDown();
