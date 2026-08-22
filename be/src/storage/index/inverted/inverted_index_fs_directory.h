@@ -24,7 +24,6 @@
 #include <CLucene/store/_RAMDirectory.h>
 
 #include <string>
-#include <vector>
 
 #include "CLucene/SharedHeader.h"
 #include "io/fs/file_reader_writer_fwd.h"
