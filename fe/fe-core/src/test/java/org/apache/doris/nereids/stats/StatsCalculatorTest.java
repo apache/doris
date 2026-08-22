@@ -330,9 +330,9 @@ public class StatsCalculatorTest {
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
         Statistics topNStats = ownerGroup.getStatistics();
-        Assertions.assertEquals(1, topNStats.getRowCount());
+        Assertions.assertEquals(3, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
-        Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
+        Assertions.assertEquals(3, slot1Stats.ndv, 0.1);
         Assertions.assertEquals(1, slot1Stats.numNulls, 0.1);
     }
 

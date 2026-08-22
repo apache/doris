@@ -1341,7 +1341,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public Statistics computeTopN(TopN topN, Statistics inputStats) {
         return inputStats.cleanHotValues().build()
-                .withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), topN.getLimit()));
+                .withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), topN.getLimit() + topN.getOffset()));
     }
 
     /**
