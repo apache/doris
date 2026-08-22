@@ -1335,8 +1335,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         try {
             Types.NestedField current = executeAuthenticated(() ->
-                    catalogOps.loadTable(handle.getDbName(), handle.getTableName())
-                            .schema().findField(column.getName()));
+                    catalogOps.withTable(handle.getDbName(), handle.getTableName(),
+                            table -> table.schema().findField(column.getName())));
             if (current != null && !current.type().isPrimitiveType()) {
                 IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
             }
@@ -2117,8 +2117,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                             table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()),
                             this::latestSnapshotPin);
                 }
-                return latestSnapshotPin(catalogOps.loadTable(
-                        iceHandle.getDbName(), iceHandle.getTableName()));
+                return catalogOps.withTable(iceHandle.getDbName(), iceHandle.getTableName(),
+                        this::latestSnapshotPin);
             });
         } catch (Exception e) {
             throw IcebergExceptionUtils.wrapTableLoadFailure(

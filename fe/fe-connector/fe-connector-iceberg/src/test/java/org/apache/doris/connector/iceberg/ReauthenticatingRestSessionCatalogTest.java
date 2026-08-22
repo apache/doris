@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -50,6 +52,7 @@ public class ReauthenticatingRestSessionCatalogTest {
         private final RuntimeException failure;
         private final AtomicInteger listCalls = new AtomicInteger();
         private volatile Table loadedTable;
+        private volatile Catalog.TableBuilder tableBuilder;
         private volatile CountDownLatch loadStarted;
         private volatile CountDownLatch finishLoad;
         private volatile boolean closed;
@@ -95,6 +98,11 @@ public class ReauthenticatingRestSessionCatalogTest {
                 }
             }
             return loadedTable;
+        }
+
+        @Override
+        public Catalog.TableBuilder buildTable(SessionContext context, TableIdentifier ident, Schema schema) {
+            return tableBuilder;
         }
 
         @Override
@@ -312,6 +320,47 @@ public class ReauthenticatingRestSessionCatalogTest {
         Assertions.assertFalse(loader.isAlive());
         Assertions.assertSame(table, loaded.get());
         Assertions.assertSame(oldFileIo, catalog.takeCatalogFileIo(table));
+    }
+
+    @Test
+    public void testCreatedTableKeepsProducingDelegateAcrossRotation() {
+        FakeRestSessionCatalog oldDelegate = new FakeRestSessionCatalog("old", notAuthorized());
+        FakeRestSessionCatalog freshDelegate = new FakeRestSessionCatalog("fresh", null);
+        Table table = interfaceProxy(Table.class);
+        FileIO oldFileIo = interfaceProxy(FileIO.class);
+        FileIO freshFileIo = interfaceProxy(FileIO.class);
+        oldDelegate.tableBuilder = tableBuilderReturning(table);
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(
+                oldDelegate, () -> freshDelegate) {
+            @Override
+            FileIO catalogFileIo(RESTSessionCatalog delegate) {
+                return delegate == oldDelegate ? oldFileIo : freshFileIo;
+            }
+        };
+
+        Catalog.TableBuilder builder = catalog.buildTable(
+                SessionContext.createEmpty(), TableIdentifier.of("db", "tbl"), new Schema());
+        catalog.listNamespaces(SessionContext.createEmpty(), NS);
+        Table created = builder.create();
+
+        Assertions.assertSame(table, created);
+        Assertions.assertSame(oldFileIo, catalog.takeCatalogFileIo(created));
+    }
+
+    private static Catalog.TableBuilder tableBuilderReturning(Table table) {
+        AtomicReference<Object> builderRef = new AtomicReference<>();
+        Object builder = Proxy.newProxyInstance(Catalog.TableBuilder.class.getClassLoader(),
+                new Class<?>[] {Catalog.TableBuilder.class}, (proxy, method, args) -> {
+                    if ("create".equals(method.getName())) {
+                        return table;
+                    }
+                    if (method.getReturnType() == Catalog.TableBuilder.class) {
+                        return builderRef.get();
+                    }
+                    return null;
+                });
+        builderRef.set(builder);
+        return (Catalog.TableBuilder) builder;
     }
 
     private static <T> T interfaceProxy(Class<T> type) {

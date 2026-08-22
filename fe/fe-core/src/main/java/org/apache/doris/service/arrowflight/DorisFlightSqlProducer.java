@@ -186,13 +186,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
-        boolean resultPublisher = false;
+        Preconditions.checkState(null != connectContext);
+        Preconditions.checkState(!query.isEmpty());
+        boolean resultPublisher = connectContext.beginFlightSqlResultPublication();
+        Preconditions.checkState(resultPublisher,
+                "Arrow Flight SQL session already has an active result publisher or is torn down");
         try {
-            Preconditions.checkState(null != connectContext);
-            Preconditions.checkState(!query.isEmpty());
-            resultPublisher = connectContext.beginFlightSqlResultPublication();
-            Preconditions.checkState(resultPublisher,
-                    "Arrow Flight SQL session is already torn down");
             // Finalize the previous query's coordinator on this connection whose close was
             // deferred (Arrow Flight keeps it alive across GetFlightInfo -> DoGet so the BE can
             // fetch external-table splits during DoGet). By now the previous DoGet is done. #62259

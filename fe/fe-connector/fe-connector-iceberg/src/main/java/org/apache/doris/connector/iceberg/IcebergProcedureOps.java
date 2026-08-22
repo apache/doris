@@ -198,11 +198,12 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         ConnectorProcedureResult result;
         if (context == null) {
-            result = action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session);
+            result = ops.withTable(handle.getDbName(), handle.getTableName(), table -> action.execute(table, session));
         } else {
             try {
                 result = context.executeAuthenticated(() ->
-                        action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session));
+                        ops.withTable(handle.getDbName(), handle.getTableName(),
+                                table -> action.execute(table, session)));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -233,12 +234,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         List<RewriteDataGroup> groups;
         if (context == null) {
-            groups = planner.planAndOrganizeTasks(
-                    ops.loadTable(handle.getDbName(), handle.getTableName()));
+            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
         } else {
             try {
-                groups = context.executeAuthenticated(() -> planner.planAndOrganizeTasks(
-                        ops.loadTable(handle.getDbName(), handle.getTableName())));
+                groups = context.executeAuthenticated(() -> ops.withTable(
+                        handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {

@@ -1027,10 +1027,10 @@ public class ConnectContext {
 
     public boolean beginFlightSqlResultPublication() {
         synchronized (flightSqlDeferredExecutors) {
-            if (flightSqlDeferredExecutorsSealed) {
+            if (flightSqlDeferredExecutorsSealed || flightSqlResultPublishers != 0) {
                 return false;
             }
-            flightSqlResultPublishers++;
+            flightSqlResultPublishers = 1;
             return true;
         }
     }
@@ -1055,6 +1055,19 @@ public class ConnectContext {
 
     /** Prevents a session teardown race from accepting an executor after the final drain. */
     public void sealAndCloseFlightSqlDeferredExecutors() {
+        sealFlightSqlDeferredExecutors();
+        awaitAndCloseFlightSqlDeferredExecutors();
+    }
+
+    /** Rejects new result/executor publications without waiting for an admitted publisher. */
+    public void sealFlightSqlDeferredExecutors() {
+        synchronized (flightSqlDeferredExecutors) {
+            flightSqlDeferredExecutorsSealed = true;
+        }
+    }
+
+    /** Waits for admitted publishers after their query has been canceled, then drains retained executors. */
+    public void awaitAndCloseFlightSqlDeferredExecutors() {
         closeFlightSqlDeferredExecutors(true);
     }
 

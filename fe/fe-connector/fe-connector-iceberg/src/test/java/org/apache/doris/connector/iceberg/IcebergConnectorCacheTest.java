@@ -315,6 +315,9 @@ public class IcebergConnectorCacheTest {
 
         IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_GLUE).run();
         Assertions.assertEquals(1, tableFileIO.closeCalls);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_S3_TABLES).run();
+        Assertions.assertEquals(2, tableFileIO.closeCalls);
     }
 
     @Test
