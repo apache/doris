@@ -23,6 +23,7 @@ import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Lists;
 import com.google.common.testing.FakeTicker;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -230,6 +231,7 @@ public class CacheFactoryTest {
         Assertions.assertTrue(futureValue.isDone());
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
         Assertions.assertEquals(1, counter.get());
+        CompletableFuture<Optional<CacheValue>> cachedFuture = futureValue;
         // advance 11 seconds to pass the refreshAfterWrite
         ticker.advance(11, TimeUnit.SECONDS);
         // trigger refresh
@@ -237,8 +239,11 @@ public class CacheFactoryTest {
         // refresh in background, so still get value1
         Assertions.assertTrue(futureValue.isDone());
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
-        // sleep longer to wait for refresh
-        Thread.sleep(2500);
+        // Wait until the refresh is published to the cache instead of observing loader-side progress.
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).until(() -> {
+            CompletableFuture<Optional<CacheValue>> refreshedFuture = loadingCache.get(1);
+            return refreshedFuture != cachedFuture && refreshedFuture.isDone();
+        });
         futureValue = loadingCache.get(1);
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
         // refreshed, so counter +1
