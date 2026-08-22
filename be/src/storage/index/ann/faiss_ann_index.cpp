@@ -48,6 +48,7 @@
 #include "faiss/IndexIVF.h"
 #include "faiss/IndexIVFFlat.h"
 #include "faiss/IndexIVFPQ.h"
+#include "faiss/IndexIVFRaBitQ.h"
 #include "faiss/IndexScalarQuantizer.h"
 #include "faiss/MetricType.h"
 #include "faiss/impl/FaissException.h"
@@ -514,7 +515,8 @@ Int64 FaissVectorIndex::get_min_train_rows() const {
         // See code from contrib/faiss/faiss/impl/ProductQuantizer.cpp::65
         quantizer_min = (1LL << _params.pq_nbits) * 100;
     } else if (_params.quantizer == FaissBuildParameter::Quantizer::SQ4 ||
-               _params.quantizer == FaissBuildParameter::Quantizer::SQ8) {
+               _params.quantizer == FaissBuildParameter::Quantizer::SQ8 ||
+               _params.quantizer == FaissBuildParameter::Quantizer::RABITQ) {
         // For SQ, minimal training requirement as scalar quantization is simpler
         quantizer_min = 1;
     }
@@ -542,6 +544,10 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
 
     if (params.index_type == FaissBuildParameter::IndexType::HNSW) {
         set_type(AnnIndexType::HNSW);
+        if (params.quantizer == FaissBuildParameter::Quantizer::RABITQ) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "RaBitQ quantizer only supports IVF or IVF_ON_DISK index");
+        }
         std::unique_ptr<faiss::IndexHNSW> hnsw_index;
         if (params.quantizer == FaissBuildParameter::Quantizer::SQ4) {
             if (params.metric_type == FaissBuildParameter::MetricType::L2) {
@@ -641,6 +647,15 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
                 ivf_index = std::make_unique<faiss::IndexIVFPQ>(
                         _quantizer.get(), params.dim, params.ivf_nlist, params.pq_m,
                         params.pq_nbits, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::RABITQ) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFRaBitQ>(
+                        _quantizer.get(), params.dim, params.ivf_nlist, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFRaBitQ>(_quantizer.get(), params.dim,
+                                                                    params.ivf_nlist,
+                                                                    faiss::METRIC_INNER_PRODUCT);
             }
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
