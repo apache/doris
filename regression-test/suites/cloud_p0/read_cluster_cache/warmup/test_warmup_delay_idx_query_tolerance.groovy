@@ -233,7 +233,7 @@ suite('test_warmup_delay_idx_query_tolerance', 'docker') {
                 INDEX idx1(col1) USING INVERTED
             ) UNIQUE KEY(`col0`)
             DISTRIBUTED BY HASH(col0) BUCKETS 1
-            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true", "enable_unique_key_merge_on_write" = "false");
+            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true");
         """
 
         clearFileCacheOnAllBackends()

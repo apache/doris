@@ -186,13 +186,7 @@ suite("test_stream_load_2pc", "p0") {
                 kd15 CHAR(255)       NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
                 kd16 VARCHAR(300)    NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
                 kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
-                kd18 JSON            NULL,
-
-                INDEX idx_bitmap_k104 (`k02`) USING INVERTED,
-                INDEX idx_bitmap_k110 (`kd01`) USING INVERTED,
-                INDEX idx_bitmap_k113 (`k13`) USING INVERTED,
-                INDEX idx_bitmap_k114 (`k14`) USING INVERTED,
-                INDEX idx_bitmap_k117 (`k17`) USING INVERTED
+                kd18 JSON            NULL
             )
             UNIQUE KEY(k00,k01)
         """,
@@ -242,9 +236,7 @@ suite("test_stream_load_2pc", "p0") {
                 kd18 JSON            REPLACE NULL,
                 kd19 BITMAP          BITMAP_UNION ,
                 kd20 HLL             HLL_UNION ,
-                kd21 QUANTILE_STATE  QUANTILE_UNION ,
-
-                INDEX idx_bitmap_k104 (`k01`) USING INVERTED
+                kd21 QUANTILE_STATE  QUANTILE_UNION
             )
             AGGREGATE KEY(k00,k01)
         """

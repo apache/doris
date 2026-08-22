@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -117,6 +118,16 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
                 });
         if (!hasScoreFunction) {
             return null;
+        }
+
+        // score() relies on an inverted index, which is only allowed on DUP_KEYS tables and
+        // merge-on-write UNIQUE_KEYS tables. On AGG_KEYS / merge-on-read UNIQUE_KEYS tables rows
+        // may be aggregated or replaced, so relevance scoring has no well-defined semantics.
+        KeysType keysType = scan.getTable().getKeysType();
+        if (keysType == KeysType.AGG_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && !scan.getTable().getEnableUniqueKeyMergeOnWrite())) {
+            throw new AnalysisException(
+                    "score() function is not supported on AGG_KEYS table or merge-on-read UNIQUE_KEYS table");
         }
 
         // 2. Requirement: WHERE clause must contain a MATCH or SEARCH function.

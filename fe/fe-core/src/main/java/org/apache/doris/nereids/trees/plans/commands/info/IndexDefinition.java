@@ -236,19 +236,19 @@ public class IndexDefinition {
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
             }
-            if (!column.isKey()) {
-                if (keysType == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
-                        + " or key columns of AGG_KEYS table. invalid index: " + name);
-                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
-                               && indexType == IndexType.INVERTED && properties != null
-                               && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY))) {
-                    throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
-                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
-                }
+            // INVERTED index is not supported on AGG_KEYS tables or merge-on-read UNIQUE_KEYS
+            // tables at all, even on key columns: rows may be aggregated or replaced, so tokenized
+            // search / relevance scoring over an inverted index has no well-defined semantics.
+            if (indexType == IndexType.INVERTED
+                    && (keysType == KeysType.AGG_KEYS
+                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
+                throw new AnalysisException("INVERTED index is not supported on AGG_KEYS table or merge-on-read"
+                    + " UNIQUE_KEYS table (enable_unique_key_merge_on_write = false). invalid index: " + name);
+            }
+            // Other index types on an AGG_KEYS table are only allowed on key columns.
+            if (!column.isKey() && keysType == KeysType.AGG_KEYS) {
+                throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                    + " or key columns of AGG_KEYS table. invalid index: " + name);
             }
 
             if (indexType == IndexType.INVERTED) {
@@ -353,16 +353,19 @@ public class IndexDefinition {
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
             }
-            if (!column.isKey()) {
-                if (keysType == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
-                        + " or key columns of AGG_KEYS table. invalid index: " + name);
-                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
-                        && indexType == IndexType.INVERTED && properties != null
-                        && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
-                    throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
-                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
-                }
+            // INVERTED index is not supported on AGG_KEYS tables or merge-on-read UNIQUE_KEYS
+            // tables at all, even on key columns: rows may be aggregated or replaced, so tokenized
+            // search / relevance scoring over an inverted index has no well-defined semantics.
+            if (indexType == IndexType.INVERTED
+                    && (keysType == KeysType.AGG_KEYS
+                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
+                throw new AnalysisException("INVERTED index is not supported on AGG_KEYS table or merge-on-read"
+                    + " UNIQUE_KEYS table (enable_unique_key_merge_on_write = false). invalid index: " + name);
+            }
+            // Other index types on an AGG_KEYS table are only allowed on key columns.
+            if (!column.isKey() && keysType == KeysType.AGG_KEYS) {
+                throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                    + " or key columns of AGG_KEYS table. invalid index: " + name);
             }
 
             if (indexType == IndexType.INVERTED) {

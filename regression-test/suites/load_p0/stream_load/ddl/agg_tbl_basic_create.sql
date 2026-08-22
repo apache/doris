@@ -42,9 +42,7 @@ CREATE TABLE stream_load_agg_tbl_basic
     kd18 JSON            REPLACE NULL,
     kd19 BITMAP          BITMAP_UNION ,
     kd20 HLL             HLL_UNION ,
-    kd21 QUANTILE_STATE  QUANTILE_UNION ,
-
-    INDEX idx_bitmap_k104 (`k01`) USING INVERTED
+    kd21 QUANTILE_STATE  QUANTILE_UNION
 )
 AGGREGATE KEY(k00,k01)
 PARTITION BY RANGE(k01)
