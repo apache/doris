@@ -31,6 +31,9 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -115,6 +118,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -263,6 +267,44 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("not 1 > 2", "true");
         assertRewriteAfterTypeCoercion("not null + 1 > 2", "null");
         assertRewriteAfterTypeCoercion("not (1 + 5) / 2 + (10 - 1) * 3 > 3 * 5 + 1", "false");
+    }
+
+    @Test
+    void testComparisonFoldWithNonComparableLiteral() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        Expression analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
+                PARSER.parseExpression("curtime() >= '20:00:00'"));
+        Expression rewritten = executor.rewrite(analyzed, context);
+        Assertions.assertTrue(rewritten instanceof GreaterThanEqual);
+        Assertions.assertTrue(rewritten.child(0) instanceof TimeV2Literal);
+        Assertions.assertTrue(rewritten.child(1) instanceof TimeV2Literal);
+
+        analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
+                PARSER.parseExpression("curtime() > '20:00:00'"));
+        rewritten = executor.rewrite(analyzed, context);
+        Assertions.assertTrue(rewritten instanceof GreaterThan);
+        Assertions.assertTrue(rewritten.child(0) instanceof TimeV2Literal);
+        Assertions.assertTrue(rewritten.child(1) instanceof TimeV2Literal);
+
+        analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
+                PARSER.parseExpression("curtime() <= '20:00:00'"));
+        rewritten = executor.rewrite(analyzed, context);
+        Assertions.assertTrue(rewritten instanceof LessThanEqual);
+        Assertions.assertTrue(rewritten.child(0) instanceof TimeV2Literal);
+        Assertions.assertTrue(rewritten.child(1) instanceof TimeV2Literal);
+
+        analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
+                PARSER.parseExpression("curtime() < '20:00:00'"));
+        rewritten = executor.rewrite(analyzed, context);
+        Assertions.assertTrue(rewritten instanceof LessThan);
+        Assertions.assertTrue(rewritten.child(0) instanceof TimeV2Literal);
+        Assertions.assertTrue(rewritten.child(1) instanceof TimeV2Literal);
+
+        assertRewriteAfterTypeCoercion("curtime() = '20:00:00'", "false");
+        assertRewriteAfterTypeCoercion("curtime() <=> '20:00:00'", "false");
     }
 
     @Test
