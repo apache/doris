@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class IcebergSnapshotCacheValue {
 
@@ -41,28 +42,37 @@ public class IcebergSnapshotCacheValue {
     private final IcebergSnapshot snapshot;
     private final Optional<Map<Integer, List<String>>> nameMapping;
     private final Optional<Table> icebergTable;
+    private final ThreadPoolExecutor planningExecutor;
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
-        this(partitionInfo, snapshot, Optional.empty(), Optional.empty());
+        this(partitionInfo, snapshot, Optional.empty(), Optional.empty(), null);
     }
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
             Optional<Map<Integer, List<String>>> nameMapping) {
-        this(partitionInfo, snapshot, nameMapping, Optional.empty());
+        this(partitionInfo, snapshot, nameMapping, Optional.empty(), null);
     }
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
             Optional<Map<Integer, List<String>>> nameMapping, Table icebergTable) {
-        this(partitionInfo, snapshot, nameMapping, Optional.of(icebergTable));
+        this(partitionInfo, snapshot, nameMapping, Optional.of(icebergTable), null);
+    }
+
+    public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
+            Optional<Map<Integer, List<String>>> nameMapping, Table icebergTable,
+            ThreadPoolExecutor planningExecutor) {
+        this(partitionInfo, snapshot, nameMapping, Optional.of(icebergTable), planningExecutor);
     }
 
     private IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
-            Optional<Map<Integer, List<String>>> nameMapping, Optional<Table> icebergTable) {
+            Optional<Map<Integer, List<String>>> nameMapping, Optional<Table> icebergTable,
+            ThreadPoolExecutor planningExecutor) {
         this.partitionInfo = partitionInfo;
         this.snapshot = snapshot;
         // A cached BaseTable shares live TableOperations; retain a metadata-only generation so a
         // later commit through that same Table cannot move an already bound statement forward.
         this.icebergTable = icebergTable.map(IcebergSnapshotCacheValue::retainTableGeneration);
+        this.planningExecutor = planningExecutor;
         this.nameMapping = nameMapping.map(mapping -> {
             Map<Integer, List<String>> copy = new HashMap<>();
             // Preserve the immutable snapshot contract while remaining compatible with branch-4.1's Java target.
@@ -86,6 +96,15 @@ public class IcebergSnapshotCacheValue {
 
     public Optional<Table> getIcebergTable() {
         return icebergTable;
+    }
+
+    /** Copy safe to return after the Table/FileIO/executor generation lease has been released. */
+    IcebergSnapshotCacheValue metadataOnlyCopy() {
+        return new IcebergSnapshotCacheValue(partitionInfo, snapshot, nameMapping);
+    }
+
+    public ThreadPoolExecutor getPlanningExecutor() {
+        return planningExecutor;
     }
 
     static Table retainTableGeneration(Table table) {

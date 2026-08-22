@@ -31,6 +31,7 @@ import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -38,6 +39,7 @@ import org.junit.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -203,6 +205,71 @@ public class DorisFlightSqlProducerTest {
             // again (no double-close, no retained reference).
             ctx.closeFlightSqlDeferredExecutors();
             Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+        } finally {
+            producer.close();
+        }
+    }
+
+    @Test
+    public void testGetFlightInfoFailsWhenTeardownDrainsRegisteredQueryBeforePublication() throws Exception {
+        assertTeardownPreventsFlightInfoPublication(true);
+    }
+
+    @Test
+    public void testGetFlightInfoFailsWhenTeardownSealsBeforeQueryRegistration() throws Exception {
+        assertTeardownPreventsFlightInfoPublication(false);
+    }
+
+    @Test
+    public void testPublicationCompletionAtomicallyObservesTerminalSeal() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        Assert.assertTrue(ctx.beginFlightSqlResultPublication());
+        Assert.assertTrue(ctx.addFlightSqlDeferredExecutor(deferred));
+
+        ctx.sealAndCloseFlightSqlDeferredExecutors();
+        Assert.assertFalse("a publication in flight before teardown must not commit after the terminal seal",
+                ctx.endFlightSqlResultPublication());
+        Mockito.verify(deferred).finalizeArrowFlightQuery();
+    }
+
+    private void assertTeardownPreventsFlightInfoPublication(boolean registerBeforeSeal) throws Exception {
+        ConnectContext ctx = Mockito.spy(new ConnectContext());
+        Mockito.doReturn(Mockito.mock(FlightSqlChannel.class)).when(ctx).getFlightSqlChannel();
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessionsManager.getConnectContext(Mockito.anyString())).thenReturn(ctx);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager);
+        try (MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                FlightSqlConnectProcessor.class, (mock, context) -> {
+                    Mockito.doAnswer(invocation -> {
+                        ctx.setReturnResultFromLocal(false);
+                        if (registerBeforeSeal) {
+                            Assert.assertTrue(ctx.addFlightSqlDeferredExecutor(deferred));
+                        }
+                        ctx.sealAndCloseFlightSqlDeferredExecutors();
+                        if (!registerBeforeSeal) {
+                            Assert.assertFalse(ctx.addFlightSqlDeferredExecutor(deferred));
+                        }
+                        return null;
+                    }).when(mock).handleQuery(Mockito.anyString());
+                    Mockito.when(mock.getArrowSchema()).thenReturn(new Schema(Collections.emptyList()));
+                })) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
+            FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
+
+            try {
+                producer.getFlightInfoStatement(request, callContext, descriptor);
+                Assert.fail("teardown must prevent publishing a ticket for finalized query resources");
+            } catch (Throwable expected) {
+                Assert.assertTrue(expected.getMessage().contains("torn down"));
+            }
+
+            Mockito.verify(deferred, Mockito.times(registerBeforeSeal ? 1 : 0)).finalizeArrowFlightQuery();
         } finally {
             producer.close();
         }

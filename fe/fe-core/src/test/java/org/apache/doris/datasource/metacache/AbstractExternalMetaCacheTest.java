@@ -98,6 +98,27 @@ public class AbstractExternalMetaCacheTest {
     }
 
     @Test
+    public void testDetachedEntryCannotLoadAfterCatalogRemoved() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
+            cache.initCatalog(1L, Maps.newHashMap());
+            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> detached = cache.entry(
+                    1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
+
+            cache.invalidateCatalog(1L);
+
+            Assert.assertThrows(StaleMetaCacheEntryException.class,
+                    () -> detached.get(new SchemaCacheKey(NameMapping.createForTest(1L, "db1", "tbl1"))));
+            cache.initCatalog(1L, Maps.newHashMap());
+            Assert.assertNotSame(detached,
+                    cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testEntryLevelInvalidationUsesRegisteredMatcher() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {

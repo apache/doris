@@ -58,6 +58,7 @@ import javax.annotation.Nullable;
  * 3. Row count cache.
  */
 public class ExternalMetaCacheMgr {
+    private static final int CATALOG_LIFECYCLE_LOCK_COUNT = 128;
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
     private static final String ENTRY_SCHEMA = "schema";
     private static final String ENGINE_DEFAULT = "default";
@@ -100,8 +101,12 @@ public class ExternalMetaCacheMgr {
     private FileSystemCache fsCache;
     // all external table row count cache.
     private ExternalRowCountCache rowCountCache;
+    private final Object[] catalogLifecycleLocks = new Object[CATALOG_LIFECYCLE_LOCK_COUNT];
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        for (int i = 0; i < catalogLifecycleLocks.length; i++) {
+            catalogLifecycleLocks[i] = new Object();
+        }
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
@@ -191,24 +196,35 @@ public class ExternalMetaCacheMgr {
     }
 
     public void prepareCatalog(long catalogId) {
-        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
-        if (catalogProperties == null) {
-            logMissingCatalogSkip(catalogId, "prepareCatalog");
-            return;
+        synchronized (catalogLifecycleLock(catalogId)) {
+            Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+            if (catalogProperties == null) {
+                logMissingCatalogSkip(catalogId, "prepareCatalog");
+                return;
+            }
+            routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
         }
-        routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine) {
-        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
-        if (catalogProperties == null) {
-            logMissingCatalogSkip(catalogId, "prepareCatalogByEngine");
-            return;
+        synchronized (catalogLifecycleLock(catalogId)) {
+            Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+            if (catalogProperties == null) {
+                logMissingCatalogSkip(catalogId, "prepareCatalogByEngine");
+                return;
+            }
+            prepareCatalogByEngineLocked(catalogId, engine, catalogProperties);
         }
-        prepareCatalogByEngine(catalogId, engine, catalogProperties);
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine, Map<String, String> catalogProperties) {
+        synchronized (catalogLifecycleLock(catalogId)) {
+            prepareCatalogByEngineLocked(catalogId, engine, catalogProperties);
+        }
+    }
+
+    private void prepareCatalogByEngineLocked(long catalogId, String engine,
+            Map<String, String> catalogProperties) {
         Map<String, String> safeCatalogProperties = catalogProperties == null
                 ? Maps.newHashMap()
                 : Maps.newHashMap(catalogProperties);
@@ -228,15 +244,30 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "removeCatalog",
-                () -> cache.invalidateCatalog(catalogId)));
+        synchronized (catalogLifecycleLock(catalogId)) {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "removeCatalog",
+                    () -> cache.invalidateCatalog(catalogId)));
+        }
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
-        routeSpecifiedEngine(engine, cache -> safeInvalidate(
-                cache, catalogId, "removeCatalogByEngine",
-                () -> cache.invalidateCatalog(catalogId)));
+        synchronized (catalogLifecycleLock(catalogId)) {
+            routeSpecifiedEngine(engine, cache -> safeInvalidate(
+                    cache, catalogId, "removeCatalogByEngine",
+                    () -> cache.invalidateCatalog(catalogId)));
+        }
+    }
+
+    /**
+     * Fences a catalog runtime transition against lazy cache-group initialization. The transition callback
+     * must cover both cache removal and the catalog property/runtime mutation; otherwise an accessor can
+     * snapshot the retiring properties after removal and publish that group into the new generation.
+     */
+    public void runCatalogLifecycle(long catalogId, Runnable transition) {
+        synchronized (catalogLifecycleLock(catalogId)) {
+            transition.run();
+        }
     }
 
     public void invalidateDb(long catalogId, String dbName) {
@@ -352,6 +383,11 @@ public class ExternalMetaCacheMgr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("skip {} for catalog {} because catalog does not exist", operation, catalogId);
         }
+    }
+
+    private Object catalogLifecycleLock(long catalogId) {
+        return catalogLifecycleLocks[(Long.hashCode(catalogId) & Integer.MAX_VALUE)
+                % catalogLifecycleLocks.length];
     }
 
     @Nullable

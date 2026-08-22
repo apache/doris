@@ -46,4 +46,8 @@ public class CatalogEntryGroup {
     public void invalidateAll() {
         entries.values().forEach(MetaCacheEntry::invalidateAll);
     }
+
+    public void sealAndInvalidateAll() {
+        entries.values().forEach(MetaCacheEntry::seal);
+    }
 }

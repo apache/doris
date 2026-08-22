@@ -201,6 +201,11 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+    // Resources that must outlive planning and remain valid until the statement itself finishes.
+    // Keep these separate from plannerResources: NereidsPlanner releases planner resources as soon as
+    // physical planning completes, while external split planning can still use statement-scoped objects.
+    private final Map<Object, CloseableResource> statementResources = new LinkedHashMap<>();
+    private boolean statementResourcesClosed;
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -904,11 +909,113 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Returns one closeable resource per statement key and closes it when this statement is closed.
+     * The supplier is invoked at most once for a key. This is intentionally independent from planner locks,
+     * whose lifetime ends at the end of Nereids planning.
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized <T extends Closeable> T getOrRegisterStatementResource(
+            Object resourceKey, java.util.function.Supplier<T> supplier) {
+        if (statementResourcesClosed) {
+            throw new IllegalStateException("Statement resources are already closed");
+        }
+        CloseableResource existing = statementResources.get(resourceKey);
+        if (existing != null) {
+            return (T) existing.resource;
+        }
+        T resource = supplier.get();
+        statementResources.put(resourceKey, new CloseableResource(
+                String.valueOf(resourceKey), Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, resource));
+        return resource;
+    }
+
+    /** Start a new execution-scoped resource generation for a retained prepared statement context. */
+    public synchronized void beginStatementResourceGeneration() {
+        if (!statementResources.isEmpty()) {
+            throw new IllegalStateException("Previous statement resources are still active");
+        }
+        statementResourcesClosed = false;
+    }
+
+    /**
+     * Transfers the current statement resources to a later completion boundary. The returned handle owns
+     * exactly this generation and is idempotent, while {@link #close()} will no longer release the resources.
+     */
+    public synchronized Closeable detachStatementResources() {
+        if (statementResourcesClosed || statementResources.isEmpty()) {
+            statementResourcesClosed = true;
+            return () -> { };
+        }
+        statementResourcesClosed = true;
+        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
+        statementResources.clear();
+        return new DetachedStatementResources(resources);
+    }
+
+    private synchronized void releaseStatementResources() {
+        if (statementResourcesClosed) {
+            return;
+        }
+        statementResourcesClosed = true;
+        Throwable throwable = null;
+        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
+        statementResources.clear();
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            try {
+                resources.get(i).close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release statement resource failed", throwable);
+        }
+    }
+
+    private static class DetachedStatementResources implements Closeable {
+        private final List<CloseableResource> resources;
+        private boolean closed;
+
+        private DetachedStatementResources(List<CloseableResource> resources) {
+            this.resources = resources;
+        }
+
+        @Override
+        public synchronized void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            Throwable throwable = null;
+            for (int i = resources.size() - 1; i >= 0; i--) {
+                try {
+                    resources.get(i).close();
+                } catch (Throwable t) {
+                    if (throwable == null) {
+                        throwable = t;
+                    } else {
+                        throwable.addSuppressed(t);
+                    }
+                }
+            }
+            resources.clear();
+            if (throwable != null) {
+                Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
+                throw new IllegalStateException("Release detached statement resource failed", throwable);
+            }
+        }
+    }
+
     // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
-        if (!plannerResources.isEmpty()) {
-            String msg = "Resources leak: " + plannerResources;
+        if (!plannerResources.isEmpty() || !statementResources.isEmpty()) {
+            String msg = "Resources leak: planner=" + plannerResources + ", statement=" + statementResources;
             LOG.error(msg);
             throw new IllegalStateException(msg);
         }
@@ -918,7 +1025,11 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         clearExternalScanTasks();
-        releasePlannerResources();
+        try {
+            releaseStatementResources();
+        } finally {
+            releasePlannerResources();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {

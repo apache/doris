@@ -984,21 +984,96 @@ public class ConnectContext {
     // with "Split source X is released". These executors are finalized when the next query starts
     // on this connection, or when the connection is torn down. See #62259.
     private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
+    private boolean flightSqlDeferredExecutorsSealed;
+    private int flightSqlResultPublishers;
 
-    public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
+    public boolean addFlightSqlDeferredExecutor(StmtExecutor executor) {
         synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutorsSealed) {
+                return false;
+            }
             flightSqlDeferredExecutors.add(executor);
+            return true;
         }
     }
 
-    public void closeFlightSqlDeferredExecutors() {
-        List<StmtExecutor> toClose;
+    /** Linearizes GetFlightInfo publication with the terminal session seal. */
+    public boolean canPublishFlightSqlResult() {
         synchronized (flightSqlDeferredExecutors) {
-            if (flightSqlDeferredExecutors.isEmpty()) {
-                return;
+            return !flightSqlDeferredExecutorsSealed;
+        }
+    }
+
+    public boolean beginFlightSqlResultPublication() {
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutorsSealed) {
+                return false;
             }
-            toClose = new ArrayList<>(flightSqlDeferredExecutors);
-            flightSqlDeferredExecutors.clear();
+            flightSqlResultPublishers++;
+            return true;
+        }
+    }
+
+    public boolean endFlightSqlResultPublication() {
+        List<StmtExecutor> toClose = null;
+        boolean published;
+        synchronized (flightSqlDeferredExecutors) {
+            published = !flightSqlDeferredExecutorsSealed;
+            if (--flightSqlResultPublishers == 0 && flightSqlDeferredExecutorsSealed) {
+                toClose = drainFlightSqlDeferredExecutors();
+                flightSqlDeferredExecutors.notifyAll();
+            }
+        }
+        finalizeFlightSqlDeferredExecutors(toClose);
+        return published;
+    }
+
+    public void closeFlightSqlDeferredExecutors() {
+        closeFlightSqlDeferredExecutors(false);
+    }
+
+    /** Prevents a session teardown race from accepting an executor after the final drain. */
+    public void sealAndCloseFlightSqlDeferredExecutors() {
+        closeFlightSqlDeferredExecutors(true);
+    }
+
+    private void closeFlightSqlDeferredExecutors(boolean seal) {
+        List<StmtExecutor> toClose = null;
+        synchronized (flightSqlDeferredExecutors) {
+            if (seal) {
+                flightSqlDeferredExecutorsSealed = true;
+                // The result channel is destroyed immediately after this method returns. Wait until every
+                // admitted publisher has either committed or observed the seal, so a losing local-result
+                // publisher cannot insert Arrow buffers after the channel's one-time invalidation.
+                boolean interrupted = false;
+                while (flightSqlResultPublishers != 0) {
+                    try {
+                        flightSqlDeferredExecutors.wait();
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            toClose = drainFlightSqlDeferredExecutors();
+        }
+        finalizeFlightSqlDeferredExecutors(toClose);
+    }
+
+    private List<StmtExecutor> drainFlightSqlDeferredExecutors() {
+        if (flightSqlDeferredExecutors.isEmpty()) {
+            return null;
+        }
+        List<StmtExecutor> toClose = new ArrayList<>(flightSqlDeferredExecutors);
+        flightSqlDeferredExecutors.clear();
+        return toClose;
+    }
+
+    private void finalizeFlightSqlDeferredExecutors(List<StmtExecutor> toClose) {
+        if (toClose == null) {
+            return;
         }
         for (StmtExecutor deferredExecutor : toClose) {
             try {

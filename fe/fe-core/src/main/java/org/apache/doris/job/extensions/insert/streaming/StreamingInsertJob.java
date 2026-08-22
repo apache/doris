@@ -556,18 +556,31 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void updateJobStatus(JobStatus status) throws JobException {
+        AbstractStreamingTask taskToCancel = null;
+        boolean waitForTask = JobStatus.PAUSED.equals(status);
         lock.writeLock().lock();
         try {
-            super.updateJobStatus(status);
-            if (JobStatus.PAUSED.equals(getJobStatus())) {
-                clearRunningStreamTask(status);
+            if ((JobStatus.PAUSED.equals(status) || JobStatus.STOPPED.equals(status))
+                    && status != getJobStatus()) {
+                taskToCancel = runningStreamTask;
             }
+            super.updateJobStatus(status);
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
+        } catch (RuntimeException | JobException e) {
+            if (taskToCancel != null) {
+                runningStreamTask = taskToCancel;
+            }
+            throw e;
         } finally {
             lock.writeLock().unlock();
+        }
+        if (taskToCancel != null && waitForTask) {
+            // The task owner can need this job's write lock while finishing transaction callbacks.
+            // Cancel and wait only after publishing the status and releasing the job lock.
+            taskToCancel.cancel(waitForTask);
         }
     }
 
@@ -601,7 +614,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // already counted by onStreamTaskFail(), so skip to avoid double-counting.
             boolean wasActive = TaskStatus.RUNNING.equals(runningStreamTask.getStatus())
                     || TaskStatus.PENDING.equals(runningStreamTask.getStatus());
-            runningStreamTask.cancel(needWaitCancelComplete);
+            // Publish cancellation under the job lock, but never wait here: transaction callbacks
+            // need the same lock and keep using this exact task until the owner reaches terminality.
+            runningStreamTask.cancel(false);
             if (wasActive) {
                 canceledTaskCount.incrementAndGet();
             }
@@ -749,12 +764,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
                 // When a job is manually paused, it does not need to be set again,
                 // otherwise, it may be woken up by auto resume.
-                // Pause before setting the reason: updateJobStatus's writeLock orders this after any
-                // task-success callback that clears failureReason, so a success can't wipe the reason.
-                this.updateJobStatus(JobStatus.PAUSED);
                 this.setFailureReason(
                         new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                                 "Failed to fetch meta, " + ex.getMessage()));
+                // Publish the non-resumable reason before PAUSED becomes scheduler-visible.
+                this.updateJobStatus(JobStatus.PAUSED);
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -818,7 +832,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             log.info("clear running streaming insert task for job {}, task {}, status {} ",
                     getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getStatus());
             runningStreamTask.cancel(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
-            runningStreamTask.closeOrReleaseResources();
+            runningStreamTask = null;
+        }
+    }
+
+    public void clearRunningStreamTask(AbstractStreamingTask finishedTask) {
+        lock.writeLock().lock();
+        try {
+            if (runningStreamTask == finishedTask) {
+                runningStreamTask = null;
+            }
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 

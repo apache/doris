@@ -757,6 +757,10 @@ public abstract class ConnectProcessor {
                     }
                     throw new RuntimeException("Prepare failed when proxy execute");
                 }
+                // Forwarded PREPARE and EXECUTE share the retained StatementContext, but they are distinct
+                // resource generations. Release any catalog/table leases acquired while analyzing PREPARE
+                // before ExecuteCommand opens the execution generation.
+                ctx.getStatementContext().detachStatementResources().close();
                 handleExecute(preparedStatementContext.command, Long.parseLong(preparedStmtId),
                         preparedStatementContext,
                         ByteBuffer.wrap(request.getPrepareExecuteBuffer()).order(ByteOrder.LITTLE_ENDIAN), queryId);
@@ -773,8 +777,17 @@ public abstract class ConnectProcessor {
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
-        // no matter the master execute success or fail, the master must transfer the result to follower
-        // and tell the follower the current journalID.
+        try {
+            return buildProxyResult(request, executor);
+        } finally {
+            if (ctx.getStatementContext() != null) {
+                ctx.getStatementContext().close();
+            }
+        }
+    }
+
+    private TMasterOpResult buildProxyResult(TMasterOpRequest request, StmtExecutor executor) {
+        // No matter whether execution succeeds or fails, return the result and current journal ID to the follower.
         TMasterOpResult result = new TMasterOpResult();
         if (ctx.queryId() != null
                 // If none master FE not set query id or query id was reset in StmtExecutor

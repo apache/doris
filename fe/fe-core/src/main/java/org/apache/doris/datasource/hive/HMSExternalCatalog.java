@@ -21,19 +21,25 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
+import org.apache.doris.datasource.iceberg.IcebergCatalogResourceTracker;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -41,14 +47,17 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -75,8 +84,22 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
+    private final IcebergCatalogResourceTracker icebergResourceTracker = new IcebergCatalogResourceTracker();
 
     private volatile AbstractHiveProperties hmsProperties;
+    private final AtomicLong runtimeGeneration = new AtomicLong();
+
+    public long getRuntimeGeneration() {
+        return runtimeGeneration.get();
+    }
+
+    @Override
+    public synchronized void modifyCatalogProps(Map<String, String> props) {
+        // Fence scans before the mutable CatalogProperty is changed. super invokes resetToUninitialized while
+        // this monitor is still held, so no scan can capture the new properties with the old generation.
+        runtimeGeneration.incrementAndGet();
+        super.modifyCatalogProps(props);
+    }
 
     /**
      * Lazily initializes HMSProperties from catalog properties.
@@ -157,7 +180,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onClose() {
+    public synchronized void onClose() {
+        ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
+        threadPoolWithPreAuth = null;
+        IcebergMetadataOps retiredIcebergMetadataOps = icebergMetadataOps;
+        icebergMetadataOps = null;
         super.onClose();
         if (null != fileSystemExecutor) {
             ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
@@ -166,10 +193,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
             metadataOps.close();
             metadataOps = null;
         }
-        if (null != icebergMetadataOps) {
-            icebergMetadataOps.close();
-            icebergMetadataOps = null;
-        }
+        icebergResourceTracker.retireCurrent(() -> {
+            if (retiredIcebergMetadataOps != null) {
+                retiredIcebergMetadataOps.close();
+            }
+            if (retiredExecutor != null) {
+                ThreadPoolManager.shutdownExecutorService(retiredExecutor);
+            }
+        });
     }
 
     @Override
@@ -222,6 +253,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
         }
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        }
     }
 
     @Override
@@ -233,12 +268,89 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public IcebergMetadataOps getIcebergMetadataOps() {
+    public synchronized IcebergMetadataOps getIcebergMetadataOps() {
         makeSureInitialized();
         if (icebergMetadataOps == null) {
             HiveCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
             icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
         }
         return icebergMetadataOps;
+    }
+
+    /** Retains the exact HMS Iceberg runtime while a table cache generation is being loaded or borrowed. */
+    public synchronized IcebergTableLoadContext beginIcebergTableLoad() {
+        makeSureInitialized();
+        IcebergMetadataOps ops = getIcebergMetadataOps();
+        return new IcebergTableLoadContext(ops, threadPoolWithPreAuth, executionAuthenticator,
+                catalogProperty.getMetastoreProperties(),
+                new HashMap<>(catalogProperty.getStoragePropertiesMap()), icebergResourceTracker.beginLoad());
+    }
+
+    @Override
+    public synchronized void resetToUninitialized(boolean invalidCache) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        cacheMgr.runCatalogLifecycle(getId(), () -> resetCatalogRuntime(cacheMgr, invalidCache));
+    }
+
+    private void resetCatalogRuntime(ExternalMetaCacheMgr cacheMgr, boolean invalidCache) {
+        runtimeGeneration.incrementAndGet();
+        cacheMgr.removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
+        cacheMgr.removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
+        cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        super.resetToUninitialized(invalidCache);
+    }
+
+    public final class IcebergTableLoadContext implements AutoCloseable {
+        private final IcebergMetadataOps ops;
+        private final ThreadPoolExecutor executor;
+        private final ExecutionAuthenticator authenticator;
+        private final MetastoreProperties metastoreProperties;
+        private final Map<StorageProperties.Type, StorageProperties> storageProperties;
+        private final IcebergCatalogResourceTracker.LoadGuard guard;
+
+        private IcebergTableLoadContext(IcebergMetadataOps ops, ThreadPoolExecutor executor,
+                ExecutionAuthenticator authenticator, MetastoreProperties metastoreProperties,
+                Map<StorageProperties.Type, StorageProperties> storageProperties,
+                IcebergCatalogResourceTracker.LoadGuard guard) {
+            this.ops = ops;
+            this.executor = executor;
+            this.authenticator = authenticator;
+            this.metastoreProperties = metastoreProperties;
+            this.storageProperties = storageProperties;
+            this.guard = guard;
+        }
+
+        public IcebergMetadataOps getOps() {
+            return ops;
+        }
+
+        public ThreadPoolExecutor getExecutor() {
+            return executor;
+        }
+
+        public ExecutionAuthenticator getAuthenticator() {
+            return authenticator;
+        }
+
+        public MetastoreProperties getMetastoreProperties() {
+            return metastoreProperties;
+        }
+
+        public Map<StorageProperties.Type, StorageProperties> getStorageProperties() {
+            return storageProperties;
+        }
+
+        public Table loadTable(String dbName, String tableName) throws Exception {
+            return authenticator.execute(() -> ops.loadTable(dbName, tableName));
+        }
+
+        public IcebergCatalogResourceTracker.ResourceLease promote() {
+            return guard.promote();
+        }
+
+        @Override
+        public void close() {
+            guard.close();
+        }
     }
 }

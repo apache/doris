@@ -528,9 +528,9 @@ public class HiveScanNodeTest {
             HivePartition partition, HiveExternalMetaCache.FileCacheValue fileCacheValue) throws Exception {
         Class<?> keyClass = Class.forName(HiveScanNode.class.getName() + "$HiveFileScanTaskCacheKey");
         Constructor<?> constructor = keyClass.getDeclaredConstructor(
-                long.class, long.class, List.class, long.class, List.class);
+                long.class, long.class, long.class, List.class, long.class, List.class);
         constructor.setAccessible(true);
-        return constructor.newInstance(1L, 2L, Collections.singletonList(partition), 0L,
+        return constructor.newInstance(1L, 2L, 3L, Collections.singletonList(partition), 0L,
                 Collections.singletonList(fileCacheValue));
     }
 }

@@ -127,7 +127,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     public void invalidateCatalog(long catalogId) {
         CatalogEntryGroup removed = catalogEntries.remove(catalogId);
         if (removed != null) {
-            removed.invalidateAll();
+            removed.sealAndInvalidateAll();
         }
     }
 
@@ -163,7 +163,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     @Override
     public void close() {
-        catalogEntries.values().forEach(CatalogEntryGroup::invalidateAll);
+        catalogEntries.values().forEach(CatalogEntryGroup::sealAndInvalidateAll);
         catalogEntries.clear();
     }
 
@@ -299,7 +299,8 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         return new MetaCacheEntry<>(entryDef.getName(),
                 wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
                 cacheSpec,
-                refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly());
+                refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
+                entryDef.getRetirementListener());
     }
 
     private <K, V> Function<K, V> wrapSchemaValidator(Function<K, V> loader, Class<V> valueType) {

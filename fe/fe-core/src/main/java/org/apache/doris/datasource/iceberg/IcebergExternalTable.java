@@ -239,14 +239,20 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * And the column couldn't change to another column during partition evolution.
      */
     @Override
-    public boolean isValidRelatedTable() {
+    public synchronized boolean isValidRelatedTable() {
         makeSureInitialized();
+        if (isValidRelatedTableCached) {
+            return isValidRelatedTable;
+        }
+        return IcebergUtils.withIcebergTable(this, this::isValidRelatedTable);
+    }
+
+    synchronized boolean isValidRelatedTable(Table table) {
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
         isValidRelatedTable = false;
         Set<String> allFields = Sets.newHashSet();
-        Table table = getIcebergTable();
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
                 isValidRelatedTableCached = true;
@@ -421,8 +427,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             View icebergView = getIcebergView();
             return icebergView.location();
         } else {
-            Table icebergTable = getIcebergTable();
-            return icebergTable.location();
+            return IcebergUtils.withIcebergTable(this, Table::location);
         }
     }
 
@@ -435,16 +440,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             View icebergView = getIcebergView();
             return icebergView.properties();
         } else {
-            Table icebergTable = getIcebergTable();
-            return icebergTable.properties();
+            return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
         }
     }
 
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
-        Table table = getIcebergTable();
-        return table.spec().isPartitioned();
+        return IcebergUtils.withIcebergTable(this, table -> table.spec().isPartitioned());
     }
 
     /**
@@ -452,7 +455,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return SQL string representing ORDER BY clause, or empty string if no sort order
      */
     public String getSortOrderSql() {
-        return getSortOrderSql(getIcebergTable());
+        return IcebergUtils.withIcebergTable(this, this::getSortOrderSql);
     }
 
     /** Return the sort order SQL for an already resolved Iceberg metadata generation. */
