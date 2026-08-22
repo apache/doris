@@ -44,9 +44,13 @@ public class FlightSqlConnectPoolMgrTest {
         // The deferred coordinators must be released on teardown even though this connection was
         // never registered in the pool (an abandoned connection is still cleaned up, not leaked).
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).sealFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).cancelQuery(Mockito.any());
+        Mockito.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
         InOrder teardownOrder = Mockito.inOrder(ctx, channel);
-        teardownOrder.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        teardownOrder.verify(ctx).sealFlightSqlDeferredExecutors();
+        teardownOrder.verify(ctx).cancelQuery(Mockito.any());
+        teardownOrder.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
         teardownOrder.verify(channel).close();
     }
 
@@ -67,9 +71,13 @@ public class FlightSqlConnectPoolMgrTest {
         poolMgr.unregisterConnection(ctx);
 
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).sealFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).cancelQuery(Mockito.any());
+        Mockito.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
         InOrder teardownOrder = Mockito.inOrder(ctx, channel);
-        teardownOrder.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        teardownOrder.verify(ctx).sealFlightSqlDeferredExecutors();
+        teardownOrder.verify(ctx).cancelQuery(Mockito.any());
+        teardownOrder.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
         teardownOrder.verify(channel).close();
         Assert.assertNull(poolMgr.getConnectionMap().get(7));
     }
