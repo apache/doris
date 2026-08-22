@@ -1728,10 +1728,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // rowConverter: { row -> convertedRow }
-    void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null) {
+    // queryExecutor: in verification mode, execute the query after reserving the expected output block
+    void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null,
+            Closure queryExecutor = null) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
-            if (arg instanceof PreparedStatement) {
+            if (queryExecutor != null) {
+                tupleResult = queryExecutor.call()
+            } else if (arg instanceof PreparedStatement) {
                 if (tag.contains("hive_docker")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix),  (PreparedStatement) arg)
                 } else if (tag.contains("hive_remote")) {
@@ -1783,7 +1787,9 @@ class Suite implements GroovyInterceptable {
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
-            if (arg instanceof PreparedStatement) {
+            if (queryExecutor != null) {
+                tupleResult = queryExecutor.call()
+            } else if (arg instanceof PreparedStatement) {
                 if (tag.contains("hive_docker")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix),  (PreparedStatement) arg)
                 } else if (tag.contains("hive_remote")) {
@@ -1875,8 +1881,7 @@ class Suite implements GroovyInterceptable {
             tupleResult = JdbcUtils.executeToStringList(context.getConnection(), (String) arg)
         }
 
-        def (realResults, meta) = tupleResult
-        return [realResults, meta]
+        return tupleResult
     }
 
     // test results of two sqls are the same
@@ -1901,7 +1906,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void quickTest(String tag, String sql, boolean isOrder = false) {
+    void quickTest(String tag, String sql, boolean isOrder = false, Closure queryExecutor = null) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
         if (tag.contains("hive_docker")) {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
@@ -1911,7 +1916,7 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql, isOrder)
+        quickRunTest(tag, sql, isOrder, null, queryExecutor)
     }
 
     void quickTest(String tag, String sql1, String sql2) {

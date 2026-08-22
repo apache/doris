@@ -72,7 +72,7 @@ suite("test_file_tvf_s3", "p0") {
 
     def file_s3_tvf = {uri_prefix, endpoint_key, ak_key, sk_key, region_key, is_path_style  ->
         // http schema
-        order_qt_s3_tvf """ SELECT * FROM FILE (
+        def tvfSql = """ SELECT * FROM FILE (
             "uri" = "${uri_prefix}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
             "${endpoint_key}" = "${s3_endpoint}",
             "${ak_key}"= "${ak}",
@@ -82,6 +82,23 @@ suite("test_file_tvf_s3", "p0") {
             "format" = "parquet"
         );
         """
+        quickTest("s3_tvf", tvfSql, true, {
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    return executeQueryByTag("s3_tvf", tvfSql)
+                } catch (java.sql.SQLException e) {
+                    boolean isS3ConnectTimeout = e.message?.contains("errCode = 202")
+                            && e.message?.contains("Failed to access object storage")
+                            && e.message?.contains("Connect timed out")
+                    if (!isS3ConnectTimeout || attempt == 2) {
+                        throw e
+                    }
+                    logger.warn("FILE TVF connection to S3 endpoint ${s3_endpoint} timed out, retrying once")
+                    sleep(5000)
+                }
+            }
+            throw new IllegalStateException("Unreachable")
+        })
     }
 
 
