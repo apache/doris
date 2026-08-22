@@ -172,11 +172,31 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
                 }
             }
         } else {
+            // A near-unique distinct argument makes MultiDistinct hold a whole group's value set on
+            // one node; force CTE split (redistributes on the distinct key) as the no-group-by branch
+            // above already does. Checked before hasUnknownStatistics so a function group-by key
+            // (e.g. format_datetime) with unknown stats still gets protected.
+            if (AggregateUtils.hasHighNdvDistinctArgument(agg, childStats, row)) {
+                return false;
+            }
+            // A distinct argument with unknown statistics could be near-unique. We cannot rule out
+            // the single-node OOM above, so treat unknown as risky and split, matching the no-group-by
+            // branch which also routes unknown distinct statistics to CTE. Only when every distinct
+            // argument is confirmed low-ndv (neither high nor unknown) do we fall through to the
+            // group-by cardinality checks below.
+            if (AggregateUtils.hasUnknownNdvDistinctArgument(agg, childStats)) {
+                return false;
+            }
             if (agg.hasSkewHint()) {
                 return false;
             }
             if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
-                return true;
+                // Reached only when every distinct argument is confirmed low-ndv, so a single node
+                // holding a whole group's value set is not a concern. With a single group-by key the
+                // parallelism is still capped at the (unknown) group count, so prefer CTE split; with
+                // >=2 keys the joint cardinality is usually high enough for MultiDistinct to spread
+                // safely. Mirrors StarRocks' fallback.
+                return agg.getGroupByExpressions().size() >= 2;
             }
             // The joint ndv of Group by key is high, so multi_distinct is not selected;
             if (aggStats.getRowCount() >= row * AggregateUtils.LOW_CARDINALITY_THRESHOLD) {

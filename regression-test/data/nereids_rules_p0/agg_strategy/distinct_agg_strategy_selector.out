@@ -30,13 +30,29 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
--- !should_use_multi_distinct_with_group_by --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[t1000]
+-- !should_use_cte_with_group_by_high_ndv --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[t1000]
+--PhysicalResultSink
+----PhysicalDistribute[DistributionSpecGather]
+------hashJoin[INNER_JOIN colocated] hashCondition=((a_1 <=> .a_1)) otherCondition=()
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !no_stats_should_use_cte --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -61,13 +77,19 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
--- !no_stats_should_use_multi_distinct --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[t1000]
+-- !no_stats_should_use_cte_with_group_by --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[t1000]
+--PhysicalResultSink
+----PhysicalDistribute[DistributionSpecGather]
+------hashJoin[INNER_JOIN colocated] hashCondition=((a_1 <=> .a_1)) otherCondition=()
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !count_distinct_group --
 5	5
