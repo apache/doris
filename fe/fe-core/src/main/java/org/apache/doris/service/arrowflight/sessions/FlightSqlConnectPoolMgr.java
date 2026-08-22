@@ -17,11 +17,13 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -57,9 +59,12 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
 
     @Override
     public void unregisterConnection(ConnectContext ctx) {
-        // Reject new publications and wait for in-flight GetFlightInfo publication to decide its
-        // outcome before destroying either local Arrow results or deferred coordinators.
-        ctx.sealAndCloseFlightSqlDeferredExecutors();
+        // Reject new publications first, then signal the active query before waiting for an admitted
+        // GetFlightInfo publisher. Waiting before cancellation can deadlock KILL CONNECTION behind the
+        // publisher whose query must be canceled in order to leave publication.
+        ctx.sealFlightSqlDeferredExecutors();
+        ctx.cancelQuery(new Status(TStatusCode.CANCELLED, "arrow flight connection closed"));
+        ctx.awaitAndCloseFlightSqlDeferredExecutors();
         // All Flight SQL session teardown paths (idle/query timeout, bearer token expiry, and
         // explicit CloseSession) reach here. Release channel-cached Arrow results before removing
         // the context from the pool.
