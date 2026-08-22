@@ -62,6 +62,7 @@ public abstract class AbstractStreamingTask {
     private final Object executionCompletion = new Object();
     private boolean executionStarted;
     private boolean executionFinished;
+    private Thread executionOwner;
 
     public AbstractStreamingTask(long jobId, long taskId, UserIdentity userIdentity) {
         this.jobId = jobId;
@@ -99,38 +100,52 @@ public abstract class AbstractStreamingTask {
     public void execute() throws JobException {
         synchronized (executionCompletion) {
             executionStarted = true;
+            executionOwner = Thread.currentThread();
         }
         try {
             while (retryCount <= MAX_RETRY) {
+                Exception attemptFailure = null;
                 try {
                     before();
                     run();
-                    onSuccess();
-                    return;
                 } catch (Exception e) {
-                    if (TaskStatus.CANCELED.equals(status)) {
-                        return;
-                    }
-                    this.errMsg = e.getMessage();
-                    retryCount++;
-                    if (noRetry || retryCount > MAX_RETRY) {
-                        log.error("Task execution failed, job id {}, task id {}, noRetry {}, retry {}.",
-                                jobId, taskId, noRetry, retryCount, e);
-                        onFail(e.getMessage());
-                        return;
-                    }
-                    log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
-                            jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
+                    attemptFailure = e;
                 } finally {
                     // Only the scheduler worker that created this attempt's ConnectContext may tear it down.
                     // A cancelling thread waits for this handoff instead of racing before() and clearing fields
                     // while planning is still publishing them.
-                    closeOrReleaseResources();
+                    try {
+                        closeOrReleaseResources();
+                    } catch (RuntimeException cleanupFailure) {
+                        if (attemptFailure == null) {
+                            attemptFailure = cleanupFailure;
+                        } else {
+                            attemptFailure.addSuppressed(cleanupFailure);
+                        }
+                    }
                 }
+                if (attemptFailure == null) {
+                    onSuccess();
+                    return;
+                }
+                if (TaskStatus.CANCELED.equals(status)) {
+                    return;
+                }
+                this.errMsg = attemptFailure.getMessage();
+                retryCount++;
+                if (noRetry || retryCount > MAX_RETRY) {
+                    log.error("Task execution failed, job id {}, task id {}, noRetry {}, retry {}.",
+                            jobId, taskId, noRetry, retryCount, attemptFailure);
+                    onFail(attemptFailure.getMessage());
+                    return;
+                }
+                log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
+                        jobId, taskId, retryCount, MAX_RETRY, attemptFailure.getMessage());
             }
         } finally {
             synchronized (executionCompletion) {
                 executionFinished = true;
+                executionOwner = null;
                 executionCompletion.notifyAll();
             }
         }
@@ -139,6 +154,9 @@ public abstract class AbstractStreamingTask {
     protected void awaitExecutionCompletion() {
         boolean interrupted = false;
         synchronized (executionCompletion) {
+            if (Thread.currentThread() == executionOwner) {
+                return;
+            }
             while (executionStarted && !executionFinished) {
                 try {
                     executionCompletion.wait();

@@ -26,6 +26,8 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -47,19 +49,31 @@ public class DorisRowResult implements RowResult {
     private boolean eof;
 
     private Object[] current;
+    private Closeable statementResources;
 
     public DorisRowResult(Coordinator coord, List<String> columnNames, List<Type> dorisTypes) {
+        this(coord, columnNames, dorisTypes, null);
+    }
+
+    public DorisRowResult(Coordinator coord, List<String> columnNames, List<Type> dorisTypes,
+            Closeable statementResources) {
         this.coord = coord;
         this.columnNames = columnNames;
         this.dorisTypes = dorisTypes;
         this.current = columnNames != null ? new Object[columnNames.size()] : null;
         this.isLazyLoading = false;
         this.eof = false;
+        this.statementResources = statementResources;
     }
 
     @Override
     public boolean next() {
-        if (eof || coord == null) {
+        if (eof) {
+            return false;
+        }
+        if (coord == null) {
+            eof = true;
+            close();
             return false;
         }
         try {
@@ -69,6 +83,7 @@ public class DorisRowResult implements RowResult {
                 index = 0;
                 if (batch.isEos()) {
                     eof = true;
+                    close();
                     return false;
                 }
             } else {
@@ -76,6 +91,11 @@ public class DorisRowResult implements RowResult {
             }
             isLazyLoading = true;
         } catch (Exception e) {
+            try {
+                close();
+            } catch (RuntimeException closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
             throw new QueryException(e);
         }
         return true;
@@ -83,7 +103,32 @@ public class DorisRowResult implements RowResult {
 
     @Override
     public void close() {
-        // TODO
+        RuntimeException failure = null;
+        if (coord != null) {
+            try {
+                coord.close();
+            } catch (RuntimeException e) {
+                failure = e;
+            } finally {
+                coord = null;
+            }
+        }
+        if (statementResources != null) {
+            try {
+                statementResources.close();
+            } catch (IOException | RuntimeException e) {
+                if (failure == null) {
+                    failure = new RuntimeException("Failed to close PLSQL statement resources", e);
+                } else {
+                    failure.addSuppressed(e);
+                }
+            } finally {
+                statementResources = null;
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
     }
 
     @Override

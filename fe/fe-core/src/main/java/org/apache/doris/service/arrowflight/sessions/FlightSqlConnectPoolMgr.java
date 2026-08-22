@@ -57,6 +57,9 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
 
     @Override
     public void unregisterConnection(ConnectContext ctx) {
+        // Reject new publications and wait for in-flight GetFlightInfo publication to decide its
+        // outcome before destroying either local Arrow results or deferred coordinators.
+        ctx.sealAndCloseFlightSqlDeferredExecutors();
         // All Flight SQL session teardown paths (idle/query timeout, bearer token expiry, and
         // explicit CloseSession) reach here. Release channel-cached Arrow results before removing
         // the context from the pool.
@@ -77,7 +80,6 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
         // Finalize any Arrow Flight query whose coordinator was kept alive across the
         // GetFlightInfo -> DoGet phases (see #62259), releasing its resources (e.g. external-table
         // batch SplitSources and the query queue slot).
-        ctx.sealAndCloseFlightSqlDeferredExecutors();
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {
             numberConnection.decrementAndGet();
