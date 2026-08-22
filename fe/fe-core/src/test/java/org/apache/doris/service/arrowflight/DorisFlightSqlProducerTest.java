@@ -220,6 +220,19 @@ public class DorisFlightSqlProducerTest {
         assertTeardownPreventsFlightInfoPublication(false);
     }
 
+    @Test
+    public void testPublicationCompletionAtomicallyObservesTerminalSeal() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        Assert.assertTrue(ctx.beginFlightSqlResultPublication());
+        Assert.assertTrue(ctx.addFlightSqlDeferredExecutor(deferred));
+
+        ctx.sealAndCloseFlightSqlDeferredExecutors();
+        Assert.assertFalse("a publication in flight before teardown must not commit after the terminal seal",
+                ctx.endFlightSqlResultPublication());
+        Mockito.verify(deferred).finalizeArrowFlightQuery();
+    }
+
     private void assertTeardownPreventsFlightInfoPublication(boolean registerBeforeSeal) throws Exception {
         ConnectContext ctx = Mockito.spy(new ConnectContext());
         Mockito.doReturn(Mockito.mock(FlightSqlChannel.class)).when(ctx).getFlightSqlChannel();
