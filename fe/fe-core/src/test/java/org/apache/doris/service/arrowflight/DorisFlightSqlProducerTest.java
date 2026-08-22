@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
@@ -227,10 +228,43 @@ public class DorisFlightSqlProducerTest {
         Assert.assertTrue(ctx.beginFlightSqlResultPublication());
         Assert.assertTrue(ctx.addFlightSqlDeferredExecutor(deferred));
 
-        ctx.sealAndCloseFlightSqlDeferredExecutors();
+        ctx.sealFlightSqlDeferredExecutors();
         Assert.assertFalse("a publication in flight before teardown must not commit after the terminal seal",
                 ctx.endFlightSqlResultPublication());
         Mockito.verify(deferred).finalizeArrowFlightQuery();
+    }
+
+    @Test
+    public void testRejectedConcurrentPublisherDoesNotTouchActiveQueryState() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor activeDeferred = Mockito.mock(StmtExecutor.class);
+        Assert.assertTrue(ctx.beginFlightSqlResultPublication());
+        Assert.assertTrue(ctx.addFlightSqlDeferredExecutor(activeDeferred));
+        ctx.setCommand(MysqlCommand.COM_QUERY);
+        FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessionsManager.getConnectContext(Mockito.anyString())).thenReturn(ctx);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager);
+
+        try {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 2").build();
+            FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
+            Throwable rejected = Assert.assertThrows(Throwable.class,
+                    () -> producer.getFlightInfoStatement(request, callContext, descriptor));
+            Assert.assertTrue(rejected.getMessage(),
+                    rejected.getMessage().contains("active result publisher"));
+
+            Mockito.verify(activeDeferred, Mockito.never()).finalizeArrowFlightQuery();
+            Assert.assertEquals("a rejected publisher must not mark the active query idle",
+                    MysqlCommand.COM_QUERY, ctx.getCommand());
+            Assert.assertTrue(ctx.endFlightSqlResultPublication());
+            ctx.closeFlightSqlDeferredExecutors();
+            Mockito.verify(activeDeferred).finalizeArrowFlightQuery();
+        } finally {
+            producer.close();
+        }
     }
 
     private void assertTeardownPreventsFlightInfoPublication(boolean registerBeforeSeal) throws Exception {
@@ -251,7 +285,7 @@ public class DorisFlightSqlProducerTest {
                         if (registerBeforeSeal) {
                             Assert.assertTrue(ctx.addFlightSqlDeferredExecutor(deferred));
                         }
-                        ctx.sealAndCloseFlightSqlDeferredExecutors();
+                        ctx.sealFlightSqlDeferredExecutors();
                         if (!registerBeforeSeal) {
                             Assert.assertFalse(ctx.addFlightSqlDeferredExecutor(deferred));
                         }
