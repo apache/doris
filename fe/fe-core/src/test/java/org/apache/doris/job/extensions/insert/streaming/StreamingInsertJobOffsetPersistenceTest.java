@@ -195,6 +195,20 @@ public class StreamingInsertJobOffsetPersistenceTest {
         Assert.assertEquals(1234L, job.getStartTimeMs());
     }
 
+    @Test
+    public void testPauseCancelsTaskAfterReleasingJobWriteLock() throws Exception {
+        TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);
+        ReentrantReadWriteLock jobLock = Deencapsulation.getField(job, "lock");
+        LockCheckingTask task = new LockCheckingTask(1017L, jobLock);
+        Deencapsulation.setField(job, "runningStreamTask", task);
+
+        job.updateJobStatus(JobStatus.PAUSED);
+
+        Assert.assertTrue(task.cancelCalled);
+        Assert.assertFalse(task.cancelObservedWriteLock);
+        Assert.assertNull(Deencapsulation.getField(job, "runningStreamTask"));
+    }
+
     private static TestStreamingInsertJob newJob(JdbcSourceOffsetProvider provider, long taskId) {
         TestStreamingInsertJob job = new TestStreamingInsertJob();
         Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
@@ -258,6 +272,24 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
         @Override
         public void successCallback(CommitOffsetRequest offsetRequest) throws JobException {
+        }
+    }
+
+    private static class LockCheckingTask extends NoopStreamingMultiTblTask {
+        private final ReentrantReadWriteLock jobLock;
+        private boolean cancelCalled;
+        private boolean cancelObservedWriteLock;
+
+        LockCheckingTask(long taskId, ReentrantReadWriteLock jobLock) {
+            super(taskId);
+            this.jobLock = jobLock;
+        }
+
+        @Override
+        public void cancel(boolean needWaitCancelComplete) {
+            cancelCalled = true;
+            cancelObservedWriteLock = jobLock.isWriteLockedByCurrentThread();
+            super.cancel(false);
         }
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 public class FlightSqlConnectPoolMgrTest {
@@ -44,6 +45,9 @@ public class FlightSqlConnectPoolMgrTest {
         // never registered in the pool (an abandoned connection is still cleaned up, not leaked).
         Mockito.verify(channel).close();
         Mockito.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        InOrder teardownOrder = Mockito.inOrder(ctx, channel);
+        teardownOrder.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        teardownOrder.verify(channel).close();
     }
 
     // Cleanup must run before the connection bookkeeping (closeTxn / map removal), so that a failure
@@ -64,6 +68,9 @@ public class FlightSqlConnectPoolMgrTest {
 
         Mockito.verify(channel).close();
         Mockito.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        InOrder teardownOrder = Mockito.inOrder(ctx, channel);
+        teardownOrder.verify(ctx).sealAndCloseFlightSqlDeferredExecutors();
+        teardownOrder.verify(channel).close();
         Assert.assertNull(poolMgr.getConnectionMap().get(7));
     }
 }

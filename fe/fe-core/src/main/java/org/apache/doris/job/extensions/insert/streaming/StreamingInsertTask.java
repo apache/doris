@@ -189,15 +189,28 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     @Override
     public synchronized void closeOrReleaseResources() {
         ConnectContext taskContext = ctx;
+        RuntimeException cleanupFailure = null;
         try {
             if (taskContext != null) {
                 if (taskContext.queryId() != null) {
                     // Planning can register query-finish callbacks before a coordinator exists. Always run the
                     // registry teardown so Hive read transactions do not survive a failed/cancelled attempt.
-                    QeProcessorImpl.INSTANCE.unregisterQuery(taskContext.queryId());
+                    try {
+                        QeProcessorImpl.INSTANCE.unregisterQuery(taskContext.queryId());
+                    } catch (RuntimeException e) {
+                        cleanupFailure = e;
+                    }
                 }
                 if (taskContext.getStatementContext() != null) {
-                    taskContext.getStatementContext().close();
+                    try {
+                        taskContext.getStatementContext().close();
+                    } catch (RuntimeException e) {
+                        if (cleanupFailure == null) {
+                            cleanupFailure = e;
+                        } else {
+                            cleanupFailure.addSuppressed(e);
+                        }
+                    }
                 }
             }
         } finally {
@@ -209,6 +222,9 @@ public class StreamingInsertTask extends AbstractStreamingTask {
             if (ConnectContext.get() == taskContext) {
                 ConnectContext.remove();
             }
+        }
+        if (cleanupFailure != null) {
+            throw cleanupFailure;
         }
     }
 

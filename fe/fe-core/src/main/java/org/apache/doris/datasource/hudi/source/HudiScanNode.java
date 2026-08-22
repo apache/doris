@@ -91,6 +91,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -138,6 +139,7 @@ public class HudiScanNode extends HiveScanNode {
     private HudiFsViewCacheValue.Lease fsViewLease;
     private final AtomicBoolean fsViewReleased = new AtomicBoolean(false);
     private final Object batchFsViewResourceKey = new Object();
+    private final Object listingFsViewResourceKey = new Object();
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -532,29 +534,50 @@ public class HudiScanNode extends HiveScanNode {
 
     private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
-        List<CompletableFuture<Void>> acceptedTasks = new ArrayList<>(partitions.size());
+        ListingFsViewOwner createdOwner = new ListingFsViewOwner(fsViewLease);
+        ListingFsViewOwner owner = createdOwner;
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
+        if (statementContext != null) {
+            try {
+                owner = statementContext.getOrRegisterStatementResource(listingFsViewResourceKey, () -> createdOwner);
+                if (owner != createdOwner) {
+                    throw new IllegalStateException("Hudi listing owner was registered twice");
+                }
+            } catch (RuntimeException e) {
+                createdOwner.discardBeforeSubmission();
+                throw e;
+            }
+        }
+        // The owner now releases the exact fs-view generation after every accepted task terminates.
+        if (!fsViewReleased.compareAndSet(false, true)) {
+            owner.discardBeforeSubmission();
+            throw new IllegalStateException("Hudi filesystem-view lease has already been released");
+        }
         AtomicReference<Throwable> throwable = new AtomicReference<>();
         RuntimeException submissionFailure = null;
         long startTime = System.currentTimeMillis();
         for (HivePartition partition : partitions) {
+            TerminalTask task = terminalTask(() -> {
+                try {
+                    ensureHmsRuntimeGeneration();
+                    getPartitionSplits(partition, splits);
+                    ensureHmsRuntimeGeneration();
+                } catch (Throwable t) {
+                    throwable.compareAndSet(null, t);
+                }
+            }, () -> { });
+            owner.track(task);
             try {
-                acceptedTasks.add(CompletableFuture.runAsync(() -> {
-                    try {
-                        ensureHmsRuntimeGeneration();
-                        getPartitionSplits(partition, splits);
-                        ensureHmsRuntimeGeneration();
-                    } catch (Throwable t) {
-                        throwable.compareAndSet(null, t);
-                    }
-                }, executor));
+                executor.execute(task);
             } catch (RuntimeException e) {
                 submissionFailure = e;
+                task.cancelBeforeStart();
                 break;
             }
         }
-        // CompletableFuture.allOf has no Phaser party limit and join is uninterruptible: every accepted task is
-        // terminal before the caller releases the filesystem-view lease, including submission rejection.
-        CompletableFuture.allOf(acceptedTasks.toArray(new CompletableFuture[0])).join();
+        owner.submissionDone();
+        owner.awaitCompletion();
         if (submissionFailure != null) {
             throw submissionFailure;
         }
@@ -831,6 +854,78 @@ public class HudiScanNode extends HiveScanNode {
             // interruption. Their TerminalTask.done callbacks retain exact task accounting and eventually call
             // finish(), which releases the fs-view lease only after the last task exits. Cancellation must return
             // promptly instead of waiting here and wedging statement/Arrow cleanup behind remote storage.
+        }
+    }
+
+    @VisibleForTesting
+    static class ListingFsViewOwner implements Closeable {
+        private final HudiFsViewCacheValue.Lease lease;
+        private final AtomicInteger pendingTasks = new AtomicInteger(1);
+        private final AtomicBoolean submissionFinished = new AtomicBoolean();
+        private final AtomicBoolean stopping = new AtomicBoolean();
+        private final ConcurrentLinkedQueue<TerminalTask> tasks = new ConcurrentLinkedQueue<>();
+        private final CompletableFuture<Void> tasksFinished = new CompletableFuture<>();
+        private final CompletableFuture<Void> cancelled = new CompletableFuture<>();
+
+        ListingFsViewOwner(HudiFsViewCacheValue.Lease lease) {
+            this.lease = lease;
+        }
+
+        void track(TerminalTask task) {
+            pendingTasks.incrementAndGet();
+            task.setOwnerDone(() -> {
+                tasks.remove(task);
+                taskDone();
+            });
+            tasks.add(task);
+            if (stopping.get()) {
+                task.requestStop();
+            }
+        }
+
+        void submissionDone() {
+            if (submissionFinished.compareAndSet(false, true)) {
+                taskDone();
+            }
+        }
+
+        void discardBeforeSubmission() {
+            close();
+            submissionDone();
+        }
+
+        private void taskDone() {
+            if (pendingTasks.decrementAndGet() == 0) {
+                try {
+                    lease.close();
+                    tasksFinished.complete(null);
+                } catch (RuntimeException e) {
+                    tasksFinished.completeExceptionally(e);
+                }
+            }
+        }
+
+        void awaitCompletion() {
+            try {
+                CompletableFuture.anyOf(tasksFinished, cancelled).get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                close();
+                throw new CancellationException("Hudi split listing was interrupted");
+            } catch (java.util.concurrent.ExecutionException e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
+            if (cancelled.isDone() && !tasksFinished.isDone()) {
+                throw new CancellationException("Hudi split listing was cancelled");
+            }
+        }
+
+        @Override
+        public void close() {
+            if (stopping.compareAndSet(false, true)) {
+                tasks.forEach(TerminalTask::requestStop);
+                cancelled.complete(null);
+            }
         }
     }
 
