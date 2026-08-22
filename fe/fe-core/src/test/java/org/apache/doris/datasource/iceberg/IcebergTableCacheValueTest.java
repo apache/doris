@@ -31,6 +31,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -50,6 +51,22 @@ class IcebergTableCacheValueTest {
             Assertions.assertSame(executor, lease.getPlanningExecutor());
             lease.close();
             value.retire();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void backgroundSnapshotCopyDropsRuntimeGenerationOwners() {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        try {
+            IcebergSnapshotCacheValue runtimeValue = new IcebergSnapshotCacheValue(
+                    null, null, Optional.empty(), newProxy(Table.class), executor);
+
+            IcebergSnapshotCacheValue detached = runtimeValue.metadataOnlyCopy();
+
+            Assertions.assertFalse(detached.getIcebergTable().isPresent());
+            Assertions.assertNull(detached.getPlanningExecutor());
         } finally {
             executor.shutdownNow();
         }
