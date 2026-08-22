@@ -130,9 +130,16 @@ static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       const TQueryOptions& query_options, const TabletSchema& schema,
-                      size_t block_size) {
+                      size_t block_size, const std::string& time_zone) {
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
+    // Install the request's session timezone before the expressions are
+    // opened: VExpr::open() evaluates constant children (e.g. a const
+    // VCastExpr) with the runtime state's timezone, which would otherwise be
+    // the default +08:00 even though the request may use a different one.
+    if (!time_zone.empty()) {
+        _runtime_state->set_timezone(time_zone);
+    }
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     for (const auto* slot : tuple_desc()->slots()) {
@@ -306,6 +313,12 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
+    // Timezone of the session that sent the request. It must be installed on
+    // the reusable's runtime state before the output expressions are opened
+    // so that constant children are evaluated with it (see Reusable::init).
+    std::string request_time_zone =
+            (request->has_time_zone() && !request->time_zone().empty()) ? request->time_zone()
+                                                                        : std::string();
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;
@@ -352,18 +365,18 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(),
-                                               s_preallocted_blocks_num));
+                                               *_tablet->tablet_schema(), s_preallocted_blocks_num,
+                                               request_time_zone));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(), 1));
+                                               *_tablet->tablet_schema(), 1, request_time_zone));
         }
     }
     _init_remote_scan_cache_write_limiter();
     // Set timezone from request for functions like from_unixtime()
-    if (request->has_time_zone() && !request->time_zone().empty()) {
-        _reusable->runtime_state()->set_timezone(request->time_zone());
+    if (!request_time_zone.empty()) {
+        _reusable->runtime_state()->set_timezone(request_time_zone);
     }
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();

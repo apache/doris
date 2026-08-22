@@ -537,6 +537,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimezoneHour;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimezoneMinute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBinary;
@@ -1101,6 +1103,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitConvertTz(ConvertTz convertTz, C context) {
         return visitScalarFunction(convertTz, context);
+    }
+
+    default R visitTimezoneHour(TimezoneHour timezoneHour, C context) {
+        return visitScalarFunction(timezoneHour, context);
+    }
+
+    default R visitTimezoneMinute(TimezoneMinute timezoneMinute, C context) {
+        return visitScalarFunction(timezoneMinute, context);
     }
 
     default R visitCos(Cos cos, C context) {
