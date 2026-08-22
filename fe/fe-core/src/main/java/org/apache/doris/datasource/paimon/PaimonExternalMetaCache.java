@@ -116,6 +116,23 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
         PaimonTableCacheValue tableValue = tables.get(nameMapping);
+        if (tables.isEffectivelyEnabled()) {
+            // Serve the memoized latest projection of this table generation while it is still
+            // published: the latest read is as stale-until-TTL/refresh as the cached table
+            // handle itself and costs no snapshot IO, preserving the pre-existing external
+            // metadata cache contract. The fence is re-observed only when no projection of this
+            // generation is reachable anymore (first read, expiry, weight eviction, explicit
+            // invalidation), which is also when rollback ordering below matters.
+            ObservedFence observed = latestObservedFences.get(
+                    new LatestFenceOwner(nameMapping, tableValue.getGeneration()));
+            if (observed != null) {
+                PaimonSnapshotCacheValue memoized =
+                        snapshotEntry.get(nameMapping.getCtlId()).peekIfPresent(observed.key);
+                if (memoized != null) {
+                    return memoized;
+                }
+            }
+        }
         PaimonSnapshot fence = loadLatestSnapshotFence(nameMapping, tableValue).getSnapshot();
         if (!tables.isEffectivelyEnabled()) {
             // Projections are keyed by the synthetic generation of a published table handle. An

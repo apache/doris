@@ -779,7 +779,7 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testSnapshotHitRefreshesFenceWithoutReloadingProjection() {
+    public void testMemoizedLatestProjectionServesHitsWithoutFenceReads() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
@@ -830,7 +830,9 @@ public class PaimonExternalMetaCacheTest {
             Assert.assertEquals(7L, cache.loadLatestSnapshotFence(dorisTable).getSnapshot().getSnapshotId());
             Assert.assertEquals(7L, cache.loadLatestSnapshotFence(dorisTable).getSnapshot().getSnapshotId());
 
-            Mockito.verify(table, Mockito.times(4)).copyWithLatestSchema();
+            // The first latest read observes the fence (one IO); the second is served from the
+            // memoized projection without touching storage. Explicit statement fences always read.
+            Mockito.verify(table, Mockito.times(3)).copyWithLatestSchema();
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -1457,9 +1459,11 @@ public class PaimonExternalMetaCacheTest {
             Assert.assertSame(at7, snapshots.peekIfPresent(key7));
             Assert.assertSame(at7, cache.getSnapshotCache(dorisTable));
 
-            // Commits observed before the table handle refreshes advance the fence: only the
-            // newest projection of this generation stays reachable.
+            // Commits observed before the table handle refreshes advance the fence once the
+            // memoized projection is gone (expiry/eviction/invalidation): only the newest
+            // projection of this generation stays reachable.
             mocked.latestSnapshotId.set(8L);
+            snapshots.invalidateKey(key7);
             PaimonSnapshotCacheValue at8 = cache.getSnapshotCache(dorisTable);
             PaimonSnapshotEntryKey key8 = new PaimonSnapshotEntryKey(mapping, 8L, 3L, tableValue.getGeneration());
             Assert.assertEquals(8L, at8.getSnapshot().getSnapshotId());
@@ -1499,9 +1503,11 @@ public class PaimonExternalMetaCacheTest {
                 olderCall.shutdownNow();
             }
 
-            // Rollback: the latest snapshot moves backwards; the newly observed fence replaces the
-            // projection of the higher snapshot id instead of being retired by it.
+            // Rollback: the latest snapshot moves backwards; once the memoized projection is
+            // dropped, the newly observed fence replaces the projection of the higher snapshot id
+            // instead of being retired by it.
             mocked.latestSnapshotId.set(8L);
+            snapshots.invalidateKey(key9);
             PaimonSnapshotCacheValue rolledBack = cache.getSnapshotCache(dorisTable);
             Assert.assertEquals(8L, rolledBack.getSnapshot().getSnapshotId());
             Assert.assertSame(rolledBack, snapshots.peekIfPresent(key8));
