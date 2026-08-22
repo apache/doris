@@ -1265,6 +1265,90 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 
+    @Test
+    public void testFailedFenceOrProjectionLoadsDoNotStrandCaptureLockOwners() {
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        java.util.concurrent.atomic.AtomicBoolean fenceReadFails =
+                new java.util.concurrent.atomic.AtomicBoolean(true);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenAnswer(invocation -> {
+            if (fenceReadFails.get()) {
+                throw new RuntimeException("fence read failed");
+            }
+            return latestSchemaTable;
+        });
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+        Mockito.when(latestSnapshot.id()).thenReturn(7L);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(3L);
+        // The projection load fails after a successful fence read.
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap()))
+                .thenThrow(new RuntimeException("projection load failed"));
+        Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(baseTable);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // Weight-bounded table entry with an unsupported (mocked) table: every load is
+            // rejected, so each lookup runs on a fresh unpublished generation.
+            cache.initCatalog(1L, Collections.singletonMap(
+                    "meta.cache.paimon.table.max-weight", "1MB"));
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            // Exception point 1: the fence read itself fails.
+            for (int i = 0; i < 3; i++) {
+                try {
+                    cache.getSnapshotCache(dorisTable);
+                    Assert.fail("the failing fence read must surface");
+                } catch (RuntimeException e) {
+                    Assert.assertTrue(String.valueOf(e.getMessage()),
+                            exceptionChainContains(e, "fence read failed"));
+                }
+            }
+            Assert.assertEquals("failed fence reads must not strand capture-lock owners",
+                    0, fenceCaptureLockCount(cache));
+            Assert.assertEquals(0, observedFenceOwnerCount(cache));
+
+            // Exception point 2: the fence read succeeds, the projection load fails.
+            fenceReadFails.set(false);
+            for (int i = 0; i < 3; i++) {
+                try {
+                    cache.getSnapshotCache(dorisTable);
+                    Assert.fail("the failing projection load must surface");
+                } catch (RuntimeException e) {
+                    Assert.assertTrue(String.valueOf(e.getMessage()),
+                            exceptionChainContains(e, "projection load failed"));
+                }
+            }
+            Assert.assertEquals("failed projection loads must not strand capture-lock owners",
+                    0, fenceCaptureLockCount(cache));
+            Assert.assertEquals(0, observedFenceOwnerCount(cache));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
     private static boolean exceptionChainContains(Throwable throwable, String fragment) {
         for (Throwable current = throwable; current != null; current = current.getCause()) {
             if (current.getMessage() != null && current.getMessage().contains(fragment)) {
@@ -2378,6 +2462,15 @@ public class PaimonExternalMetaCacheTest {
         Map<K, V> map = Mockito.mock(Map.class);
         Mockito.when(map.size()).thenReturn(size);
         return map;
+    }
+
+    private int fenceCaptureLockCount(PaimonExternalMetaCache cache) {
+        try {
+            return ((java.util.Map<?, ?>) readField(
+                    cache, PaimonExternalMetaCache.class, "fenceCaptureLocks")).size();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private int observedFenceOwnerCount(PaimonExternalMetaCache cache) {

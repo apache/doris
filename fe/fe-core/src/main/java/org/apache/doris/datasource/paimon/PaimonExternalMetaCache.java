@@ -153,40 +153,50 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         // read. Capture and number assignment are serialized per owner so the observation order
         // always matches the fence-read order; without this, a capture pausing between the read
         // and the increment could replace a newer already-published fence with an older one.
-        PaimonSnapshot fence;
-        long observation;
-        Object captureLock = fenceCaptureLocks.computeIfAbsent(owner, ignored -> new Object());
-        synchronized (captureLock) {
-            fence = loadLatestSnapshotFence(nameMapping, tableValue).getSnapshot();
-            observation = fenceObservations.incrementAndGet();
-        }
-        PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
-                nameMapping, fence, tableValue.getGeneration());
         MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> entry =
                 snapshotEntry.get(nameMapping.getCtlId());
-        AtomicBoolean loaded = new AtomicBoolean();
-        PaimonSnapshotCacheValue snapshotValue = entry.get(key,
-                ignored -> executeForGeneration(tableValue, nameMapping, () -> {
-                    loaded.set(true);
-                    return latestSnapshotProjectionLoader.loadAtFence(
-                            nameMapping, fence, tableValue.getGeneration())
-                            .bindCapturedAuthenticator(tableValue.getAuthenticator());
-                }));
-        ObservedFence latest = latestObservedFences.compute(owner, (ignored, current) ->
-                current == null || current.observation < observation ? new ObservedFence(observation, key) : current);
-        if (loaded.get()) {
-            retireSupersededLatestProjections(entry, owner, latest.key);
+        Object captureLock = fenceCaptureLocks.computeIfAbsent(owner, ignored -> new Object());
+        PaimonSnapshotEntryKey key = null;
+        PaimonSnapshotCacheValue snapshotValue = null;
+        try {
+            PaimonSnapshot fence;
+            long observation;
+            synchronized (captureLock) {
+                fence = loadLatestSnapshotFence(nameMapping, tableValue).getSnapshot();
+                observation = fenceObservations.incrementAndGet();
+            }
+            key = PaimonSnapshotEntryKey.of(nameMapping, fence, tableValue.getGeneration());
+            PaimonSnapshotEntryKey loadKey = key;
+            AtomicBoolean loaded = new AtomicBoolean();
+            snapshotValue = entry.get(key,
+                    ignored -> executeForGeneration(tableValue, nameMapping, () -> {
+                        loaded.set(true);
+                        return latestSnapshotProjectionLoader.loadAtFence(
+                                nameMapping, fence, tableValue.getGeneration())
+                                .bindCapturedAuthenticator(tableValue.getAuthenticator());
+                    }));
+            ObservedFence latest = latestObservedFences.compute(owner, (ignored, current) ->
+                    current == null || current.observation < observation
+                            ? new ObservedFence(observation, loadKey) : current);
+            if (loaded.get()) {
+                retireSupersededLatestProjections(entry, owner, latest.key);
+            }
+            return snapshotValue;
+        } finally {
+            if (!isCurrentTableGeneration(nameMapping, tableValue.getGeneration())) {
+                // A generation that is not published (rejected admission, replaced or invalidated
+                // mid-load) can never be observed again; drop everything this call registered -
+                // including on the failure paths of the fence read and the projection load, where
+                // every retried lookup would otherwise strand a fresh capture-lock owner - so
+                // persistently rejected tables cannot grow either map, and a delayed
+                // old-generation load cannot resurrect an owner catalog cleanup already removed.
+                if (key != null && snapshotValue != null) {
+                    entry.invalidateKeyIfSame(key, snapshotValue);
+                }
+                latestObservedFences.remove(owner);
+                fenceCaptureLocks.remove(owner, captureLock);
+            }
         }
-        if (!isCurrentTableGeneration(nameMapping, tableValue.getGeneration())) {
-            entry.invalidateKeyIfSame(key, snapshotValue);
-            // A generation that is not published (rejected admission, replaced or invalidated
-            // mid-load) can never be observed again; drop the owner this call registered so
-            // persistently rejected tables cannot grow the map, and so a delayed old-generation
-            // load cannot resurrect an owner that catalog cleanup already removed.
-            latestObservedFences.remove(owner);
-            fenceCaptureLocks.remove(owner);
-        }
-        return snapshotValue;
     }
 
     /**
