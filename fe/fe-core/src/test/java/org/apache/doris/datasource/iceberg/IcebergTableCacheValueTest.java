@@ -109,6 +109,23 @@ class IcebergTableCacheValueTest {
     }
 
     @Test
+    void retainedLeaseKeepsGenerationAliveForAsyncOwner() {
+        AtomicInteger cleanupCount = new AtomicInteger();
+        IcebergTableCacheValue value = newValue(cleanupCount);
+        IcebergTableCacheValue.Lease statementLease = value.tryAcquire();
+        Assertions.assertNotNull(statementLease);
+        IcebergTableCacheValue.Lease asyncLease = statementLease.retain();
+        value.releaseLoaderReference();
+        value.releaseCacheReference();
+
+        statementLease.close();
+        Assertions.assertEquals(0, cleanupCount.get());
+
+        asyncLease.close();
+        Assertions.assertEquals(1, cleanupCount.get());
+    }
+
+    @Test
     void statementCloseReleasesBorrowerAfterPlannerResources() {
         AtomicInteger cleanupCount = new AtomicInteger();
         IcebergTableCacheValue value = newValue(cleanupCount);

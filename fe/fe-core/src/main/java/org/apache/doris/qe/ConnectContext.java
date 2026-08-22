@@ -1024,6 +1024,7 @@ public class ConnectContext {
             published = !flightSqlDeferredExecutorsSealed;
             if (--flightSqlResultPublishers == 0 && flightSqlDeferredExecutorsSealed) {
                 toClose = drainFlightSqlDeferredExecutors();
+                flightSqlDeferredExecutors.notifyAll();
             }
         }
         finalizeFlightSqlDeferredExecutors(toClose);
@@ -1044,11 +1045,19 @@ public class ConnectContext {
         synchronized (flightSqlDeferredExecutors) {
             if (seal) {
                 flightSqlDeferredExecutorsSealed = true;
-                // An in-flight GetFlightInfo owns the coordinator until it either publishes its result or
-                // observes the seal and fails. Let its terminal path perform the drain so teardown cannot
-                // release the query resources while a successful ticket is still being constructed.
-                if (flightSqlResultPublishers != 0) {
-                    return;
+                // The result channel is destroyed immediately after this method returns. Wait until every
+                // admitted publisher has either committed or observed the seal, so a losing local-result
+                // publisher cannot insert Arrow buffers after the channel's one-time invalidation.
+                boolean interrupted = false;
+                while (flightSqlResultPublishers != 0) {
+                    try {
+                        flightSqlDeferredExecutors.wait();
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
                 }
             }
             toClose = drainFlightSqlDeferredExecutors();
