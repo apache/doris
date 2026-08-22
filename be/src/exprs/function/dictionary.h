@@ -129,6 +129,24 @@ protected:
         using ColumnType = ColumnString;
     };
 
+    // Generic holder for complex value types (Array, etc.) that cannot be templated.
+    struct ColumnWithTypeGeneric {
+        ColumnPtr null_map;
+        ColumnPtr column; // ColumnArray or other complex column
+
+        // Provides the same OutputColumnType interface as ColumnWithType<T>
+        using OutputColumnType = IColumn;
+
+        const IColumn* get() const { return column.get(); }
+
+        const ColumnUInt8* get_null_map() const {
+            if (!null_map) {
+                return nullptr;
+            }
+            return assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get());
+        }
+    };
+
     template <typename Type>
     struct ColumnWithType {
         // OutputColumnType is used as the result column type
@@ -154,6 +172,23 @@ protected:
     // value_column : corresponding value column, non-nullable
     // value_null_column : corresponding value null map, if the original value is non-nullable, it will be nullptr
     // value_idx : index in the value column
+    // Overload for complex/generic value types (Array, etc.) stored as IColumn.
+    // Uses insert_from since IColumn has no insert_value / get_element.
+    template <bool value_is_nullable>
+    ALWAYS_INLINE static void set_value_data(IColumn* res_real_column, UInt8& res_null,
+                                             const IColumn* value_column,
+                                             const ColumnUInt8* value_null_column,
+                                             const size_t& value_idx) {
+        if constexpr (value_is_nullable) {
+            if (value_null_column->get_element(value_idx)) {
+                res_null = true;
+                res_real_column->insert_default();
+                return;
+            }
+        }
+        res_real_column->insert_from(*value_column, value_idx);
+    }
+
     template <bool value_is_nullable, typename ResultColumnType>
     ALWAYS_INLINE static void set_value_data(ResultColumnType* res_real_column, UInt8& res_null,
                                              const auto* value_column,
@@ -176,7 +211,6 @@ protected:
         }
     }
 
-    /// TODO: Add support for more data types ,such as Array, Map, etc.
     using ValueData =
             std::variant<ColumnWithType<DataTypeUInt8>, ColumnWithType<DataTypeInt8>,
                          ColumnWithType<DataTypeInt16>, ColumnWithType<DataTypeInt32>,
@@ -191,7 +225,9 @@ protected:
                          ColumnWithType<DataTypeDateV2>, ColumnWithType<DataTypeDateTimeV2>,
 
                          ColumnWithType<DataTypeDecimal32>, ColumnWithType<DataTypeDecimal64>,
-                         ColumnWithType<DataTypeDecimal128>, ColumnWithType<DataTypeDecimal256>>;
+                         ColumnWithType<DataTypeDecimal128>, ColumnWithType<DataTypeDecimal256>,
+
+                         ColumnWithTypeGeneric>; // for Array and other complex value types
 
     void load_values(const std::vector<ColumnPtr>& values_column);
 
