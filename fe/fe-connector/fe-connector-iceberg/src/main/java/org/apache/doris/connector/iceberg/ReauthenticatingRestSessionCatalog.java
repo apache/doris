@@ -27,6 +27,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
@@ -98,6 +99,10 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
     @VisibleForTesting
     RESTSessionCatalog currentDelegate() {
         return delegate;
+    }
+
+    FileIO takeCatalogFileIo(Table table) {
+        return IcebergConnector.takeRestTableCatalogFileIo(table);
     }
 
     private <T> T withAuthRecovery(SessionContext context, Supplier<T> op) {
@@ -221,7 +226,28 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
 
     @Override
     public Table loadTable(SessionContext context, TableIdentifier ident) {
-        return withAuthRecovery(context, () -> delegate.loadTable(context, ident));
+        RESTSessionCatalog attemptedOn = delegate;
+        try {
+            return loadTableAndRecordFileIo(attemptedOn, context, ident);
+        } catch (RuntimeException e) {
+            if (!isAuthExpired(e) || !usesCatalogIdentity(context)) {
+                throw e;
+            }
+            reauthenticate(attemptedOn, e);
+            return loadTableAndRecordFileIo(delegate, context, ident);
+        }
+    }
+
+    private Table loadTableAndRecordFileIo(
+            RESTSessionCatalog attemptedOn, SessionContext context, TableIdentifier ident) {
+        Table table = attemptedOn.loadTable(context, ident);
+        IcebergConnector.recordRestTableCatalogFileIo(table, catalogFileIo(attemptedOn));
+        return table;
+    }
+
+    @VisibleForTesting
+    FileIO catalogFileIo(RESTSessionCatalog catalog) {
+        return IcebergConnector.restCatalogFileIO(catalog);
     }
 
     @Override

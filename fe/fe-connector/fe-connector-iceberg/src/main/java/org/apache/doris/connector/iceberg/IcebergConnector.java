@@ -92,6 +92,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -119,6 +120,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class IcebergConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnector.class);
+    // Direct statement scopes and the cross-query cache share this ownership lookup. Weak keys avoid retaining
+    // tables loaded by callers that never install a Doris cleanup owner.
+    private static final Map<Table, FileIO> REST_TABLE_CATALOG_FILE_IO =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     /**
      * Caches {@link ClassLoader}s keyed by resolved driver URL so a given JDBC driver jar is loaded at
@@ -925,7 +930,9 @@ public class IcebergConnector implements Connector {
                     || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
                 tableOwned = true;
             } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)) {
-                FileIO catalogFileIO = restCatalogFileIO(catalog);
+                FileIO producingCatalogFileIo = takeRestTableCatalogFileIo(table);
+                FileIO catalogFileIO = producingCatalogFileIo != null
+                        ? producingCatalogFileIo : restCatalogFileIO(catalog);
                 tableOwned = catalogFileIO != null
                         ? shouldCloseTableFileIO(flavor, table.io(), catalogFileIO)
                         : table.io() instanceof SupportsStorageCredentials
@@ -956,7 +963,15 @@ public class IcebergConnector implements Connector {
                 && catalogFileIO != null && tableFileIO != catalogFileIO;
     }
 
-    private static FileIO restCatalogFileIO(Object catalog) {
+    static void recordRestTableCatalogFileIo(Table table, FileIO fileIo) {
+        REST_TABLE_CATALOG_FILE_IO.put(table, fileIo);
+    }
+
+    static FileIO takeRestTableCatalogFileIo(Table table) {
+        return REST_TABLE_CATALOG_FILE_IO.remove(table);
+    }
+
+    static FileIO restCatalogFileIO(Object catalog) {
         Object current = catalog;
         try {
             if (current instanceof ReauthenticatingRestSessionCatalog) {

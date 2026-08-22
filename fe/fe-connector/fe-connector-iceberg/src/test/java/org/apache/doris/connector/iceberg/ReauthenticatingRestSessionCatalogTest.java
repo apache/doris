@@ -17,16 +17,22 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -43,6 +49,9 @@ public class ReauthenticatingRestSessionCatalogTest {
         private final String label;
         private final RuntimeException failure;
         private final AtomicInteger listCalls = new AtomicInteger();
+        private volatile Table loadedTable;
+        private volatile CountDownLatch loadStarted;
+        private volatile CountDownLatch finishLoad;
         private volatile boolean closed;
 
         FakeRestSessionCatalog(String label, RuntimeException failure) {
@@ -62,6 +71,30 @@ public class ReauthenticatingRestSessionCatalogTest {
                 throw failure;
             }
             return Collections.singletonList(Namespace.of(label));
+        }
+
+        void blockLoad(Table table, CountDownLatch started, CountDownLatch finish) {
+            loadedTable = table;
+            loadStarted = started;
+            finishLoad = finish;
+        }
+
+        @Override
+        public Table loadTable(SessionContext context, TableIdentifier ident) {
+            if (loadStarted != null) {
+                loadStarted.countDown();
+            }
+            if (finishLoad != null) {
+                try {
+                    if (!finishLoad.await(10, TimeUnit.SECONDS)) {
+                        throw new AssertionError("timed out waiting to finish fake table load");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
+            return loadedTable;
         }
 
         @Override
@@ -235,5 +268,75 @@ public class ReauthenticatingRestSessionCatalogTest {
 
         Assertions.assertEquals(Collections.singletonList(Namespace.of("fresh")), namespaces);
         Assertions.assertEquals(1, invalidations.get());
+    }
+
+    @Test
+    public void testTableCleanupUsesDelegateThatProducedTableAcrossRotation() throws Exception {
+        FakeRestSessionCatalog oldDelegate = new FakeRestSessionCatalog("old", notAuthorized());
+        FakeRestSessionCatalog freshDelegate = new FakeRestSessionCatalog("fresh", null);
+        Table table = interfaceProxy(Table.class);
+        FileIO oldFileIo = interfaceProxy(FileIO.class);
+        FileIO freshFileIo = interfaceProxy(FileIO.class);
+        CountDownLatch classificationStarted = new CountDownLatch(1);
+        CountDownLatch finishClassification = new CountDownLatch(1);
+        oldDelegate.blockLoad(table, null, null);
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(
+                oldDelegate, () -> freshDelegate) {
+            @Override
+            FileIO catalogFileIo(RESTSessionCatalog delegate) {
+                if (delegate != oldDelegate) {
+                    return freshFileIo;
+                }
+                classificationStarted.countDown();
+                try {
+                    if (!finishClassification.await(10, TimeUnit.SECONDS)) {
+                        throw new AssertionError("timed out waiting to classify table FileIO");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                return oldFileIo;
+            }
+        };
+        AtomicReference<Table> loaded = new AtomicReference<>();
+        Thread loader = new Thread(() -> loaded.set(catalog.loadTable(
+                SessionContext.createEmpty(), TableIdentifier.of("db", "tbl"))));
+
+        loader.start();
+        Assertions.assertTrue(classificationStarted.await(10, TimeUnit.SECONDS));
+        catalog.listNamespaces(SessionContext.createEmpty(), NS);
+        finishClassification.countDown();
+        loader.join(TimeUnit.SECONDS.toMillis(10));
+
+        Assertions.assertFalse(loader.isAlive());
+        Assertions.assertSame(table, loaded.get());
+        Assertions.assertSame(oldFileIo, catalog.takeCatalogFileIo(table));
+    }
+
+    private static <T> T interfaceProxy(Class<T> type) {
+        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+                (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        if ("hashCode".equals(method.getName())) {
+                            return System.identityHashCode(proxy);
+                        }
+                        if ("equals".equals(method.getName())) {
+                            return proxy == args[0];
+                        }
+                        return type.getSimpleName() + "Proxy";
+                    }
+                    Class<?> returnType = method.getReturnType();
+                    if (!returnType.isPrimitive()) {
+                        return null;
+                    }
+                    if (returnType == boolean.class) {
+                        return false;
+                    }
+                    if (returnType == char.class) {
+                        return '\0';
+                    }
+                    return 0;
+                }));
     }
 }
