@@ -246,6 +246,21 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
     }
 
     @Test
+    void testDistinctAggregatePreservesNonLiteralConstantArguments() {
+        assertOptimizeSuccess(
+                "select percentile(distinct a, cast('0.5' as double)) from test.distinct_agg_split_t");
+        assertOptimizeSuccess(
+                "select percentile_approx(distinct a, cast('0.5' as double), cast('2048' as double)) "
+                        + "from test.distinct_agg_split_t");
+        assertOptimizeSuccess(
+                "select percentile_array(distinct a, array(cast('0.5' as double), cast('0.8' as double))) "
+                        + "from test.distinct_agg_split_t");
+        assertOptimizeSuccess(
+                "select percentile_reservoir(distinct a, cast('0.5' as double)) "
+                        + "from test.distinct_agg_split_t");
+    }
+
+    @Test
     void testChooseStrategyWithoutStatsSatisfyDistribution() throws Exception {
         DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
         LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
@@ -351,6 +366,13 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         Optional<LogicalAggregate<? extends Plan>> aggregate = findAggregate(plan);
         Assertions.assertTrue(aggregate.isPresent());
         return aggregate.get();
+    }
+
+    private void assertOptimizeSuccess(String sql) {
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .optimize();
     }
 
     private Optional<LogicalAggregate<? extends Plan>> findAggregate(Plan plan) {

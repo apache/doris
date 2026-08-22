@@ -22,11 +22,14 @@
 #include <memory>
 
 #include "common/status.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
@@ -275,6 +278,11 @@ public:
 
     bool is_blockable() const override { return true; }
 
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        static const std::vector<size_t> indexes {0, 2};
+        return indexes;
+    }
+
     void create(AggregateDataPtr __restrict place) const override {
         new (place) AggregateFunctionAIAggData;
         data(place).set_query_context(_ctx);
@@ -282,11 +290,10 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        data(place).prepare(
-                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                        .get_data_at(0),
-                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2])
-                        .get_data_at(0));
+        const auto& resource_name_column =
+                *check_and_get_column_with_const<ColumnString>(*columns[0]);
+        const auto& task_column = *check_and_get_column_with_const<ColumnString>(*columns[2]);
+        data(place).prepare(resource_name_column.get_data_at(0), task_column.get_data_at(0));
 
         data(place).add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                 .get_data_at(row_num));
@@ -295,11 +302,10 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
         if (!data(place).inited) {
-            data(place).prepare(
-                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                            .get_data_at(0),
-                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2])
-                            .get_data_at(0));
+            const auto& resource_name_column =
+                    *check_and_get_column_with_const<ColumnString>(*columns[0]);
+            const auto& task_column = *check_and_get_column_with_const<ColumnString>(*columns[2]);
+            data(place).prepare(resource_name_column.get_data_at(0), task_column.get_data_at(0));
         }
 
         const auto& data_column =
@@ -310,9 +316,9 @@ public:
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
-        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_const_argument_column_type<ColumnString>(columns[0]);
         this->template check_argument_column_type<ColumnString>(columns[1]);
-        this->template check_argument_column_type<ColumnString>(columns[2]);
+        this->template check_const_argument_column_type<ColumnString>(columns[2]);
     }
 
     void reset(AggregateDataPtr place) const override {

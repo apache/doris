@@ -229,8 +229,9 @@ public:
 
 private:
     friend class AnalyticSinkLocalState;
-    Status _insert_range_column(Block* block, const VExprContextSPtr& expr, IColumn* dst_column,
-                                size_t length);
+    Status _insert_range_column(Block* block, const VExprContextSPtr& expr,
+                                MutableColumnPtr& dst_column, size_t length,
+                                bool always_const = false);
     Status _add_input_block(doris::RuntimeState* state, Block* input_block);
 
     ObjectPool* _pool = nullptr;

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <string>
 
+#include "core/column/column_const.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_state.h"
@@ -378,7 +379,7 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const IColumn*> agg_columns;
-        for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
+        for (size_t j = 0; j < _agg_input_columns[i].size(); ++j) {
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
         if constexpr (incremental) {
@@ -784,19 +785,23 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
         SCOPED_TIMER(local_state._compute_agg_data_timer);
         //insert _agg_input_columns, execute calculate for its, and those columns maybe could remove have used data
         for (size_t i = 0; i < _agg_functions_size; ++i) {
+            const auto& always_const_argument_idx =
+                    local_state._agg_functions[i]->always_const_argument_idx();
             for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
+                const bool always_const =
+                        j < always_const_argument_idx.size() && always_const_argument_idx[j];
                 RETURN_IF_ERROR(_insert_range_column(input_block, local_state._agg_expr_ctxs[i][j],
-                                                     local_state._agg_input_columns[i][j].get(),
-                                                     block_rows));
+                                                     local_state._agg_input_columns[i][j],
+                                                     block_rows, always_const));
             }
         }
     }
     {
         SCOPED_TIMER(local_state._compute_partition_by_timer);
         for (size_t i = 0; i < local_state._partition_by_eq_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(
-                    _insert_range_column(input_block, local_state._partition_by_eq_expr_ctxs[i],
-                                         local_state._partition_by_columns[i].get(), block_rows));
+            RETURN_IF_ERROR(_insert_range_column(input_block,
+                                                 local_state._partition_by_eq_expr_ctxs[i],
+                                                 local_state._partition_by_columns[i], block_rows));
             convert_column_if_overflow(local_state._partition_by_columns[i]);
         }
     }
@@ -804,17 +809,16 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
         SCOPED_TIMER(local_state._compute_order_by_timer);
         for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
             RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
-                                                 local_state._order_by_columns[i].get(),
-                                                 block_rows));
+                                                 local_state._order_by_columns[i], block_rows));
             convert_column_if_overflow(local_state._order_by_columns[i]);
         }
     }
     {
         SCOPED_TIMER(local_state._compute_range_between_function_timer);
         for (size_t i = 0; i < local_state._range_between_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(
-                    _insert_range_column(input_block, local_state._range_between_expr_ctxs[i],
-                                         local_state._range_result_columns[i].get(), block_rows));
+            RETURN_IF_ERROR(_insert_range_column(input_block,
+                                                 local_state._range_between_expr_ctxs[i],
+                                                 local_state._range_result_columns[i], block_rows));
         }
     }
     Block::erase_useless_column(input_block, column_to_keep);
@@ -895,9 +899,20 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
 }
 
 Status AnalyticSinkOperatorX::_insert_range_column(Block* block, const VExprContextSPtr& expr,
-                                                   IColumn* dst_column, size_t length) {
+                                                   MutableColumnPtr& dst_column, size_t length,
+                                                   bool always_const) {
+    if (always_const && is_column<ColumnConst>(*dst_column)) {
+        dst_column->resize(dst_column->size() + length);
+        return Status::OK();
+    }
+
     ColumnPtr column;
     RETURN_IF_ERROR(expr->execute(block, column));
+    if (always_const) {
+        dst_column = ColumnConst::create(column->cut(0, 1), length);
+        return Status::OK();
+    }
+
     column = column->convert_to_full_column_if_const();
     // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
     // the column is used by compare_at self to find the range, it's need convert it when overflow?
