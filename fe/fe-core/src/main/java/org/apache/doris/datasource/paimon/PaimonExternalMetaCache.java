@@ -71,6 +71,12 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<PaimonSchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final PaimonTableLoader tableLoader;
     private final PaimonLatestSnapshotProjectionLoader latestSnapshotProjectionLoader;
+    // Serializes fence capture plus observation-number assignment per owner: a capture that
+    // pauses between reading the fence and taking its number could otherwise outnumber a later
+    // capture that already published a newer fence, replacing it with the older one. Entries are
+    // retired together with their owners.
+    private final java.util.concurrent.ConcurrentHashMap<LatestFenceOwner, Object> fenceCaptureLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
     // Most recently observed latest fence per (table, generation); see getSnapshotCache.
     private final AtomicLong fenceObservations = new AtomicLong();
     private final ConcurrentHashMap<LatestFenceOwner, ObservedFence> latestObservedFences =
@@ -116,37 +122,44 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
         PaimonTableCacheValue tableValue = tables.get(nameMapping);
-        if (tables.isEffectivelyEnabled()) {
-            // Serve the memoized latest projection of this table generation while it is still
-            // published: the latest read is as stale-until-TTL/refresh as the cached table
-            // handle itself and costs no snapshot IO, preserving the pre-existing external
-            // metadata cache contract. The fence is re-observed only when no projection of this
-            // generation is reachable anymore (first read, expiry, weight eviction, explicit
-            // invalidation), which is also when rollback ordering below matters.
-            ObservedFence observed = latestObservedFences.get(
-                    new LatestFenceOwner(nameMapping, tableValue.getGeneration()));
-            if (observed != null) {
-                PaimonSnapshotCacheValue memoized =
-                        snapshotEntry.get(nameMapping.getCtlId()).peekIfPresent(observed.key);
-                if (memoized != null) {
-                    return memoized;
-                }
-            }
-        }
-        PaimonSnapshot fence = loadLatestSnapshotFence(nameMapping, tableValue).getSnapshot();
         if (!tables.isEffectivelyEnabled()) {
             // Projections are keyed by the synthetic generation of a published table handle. An
             // ineffective table entry publishes nothing, so nothing keyed by this load could ever
             // be looked up again: serve it directly instead of churning the snapshot entry.
+            PaimonSnapshot fence = loadLatestSnapshotFence(nameMapping, tableValue).getSnapshot();
             return executeForGeneration(tableValue, nameMapping,
                     () -> latestSnapshotProjectionLoader.loadAtFence(
                             nameMapping, fence, tableValue.getGeneration()))
                     .bindCapturedAuthenticator(tableValue.getAuthenticator());
         }
+        LatestFenceOwner owner = new LatestFenceOwner(nameMapping, tableValue.getGeneration());
+        // Serve the memoized latest projection of this table generation while it is still
+        // published: the latest read is as stale-until-TTL/refresh as the cached table
+        // handle itself and costs no snapshot IO, preserving the pre-existing external
+        // metadata cache contract. The fence is re-observed only when no projection of this
+        // generation is reachable anymore (first read, expiry, weight eviction, explicit
+        // invalidation), which is also when rollback ordering below matters.
+        ObservedFence observed = latestObservedFences.get(owner);
+        if (observed != null) {
+            PaimonSnapshotCacheValue memoized =
+                    snapshotEntry.get(nameMapping.getCtlId()).peekIfPresent(observed.key);
+            if (memoized != null) {
+                return memoized;
+            }
+        }
         // Order fence observations, not snapshot ids: a rollback moves the latest snapshot
         // backwards, and a concurrent call may finish after a later observation (reversed
-        // completion). Either way the most recently observed fence is the one future lookups read.
-        long observation = fenceObservations.incrementAndGet();
+        // completion). Either way the most recently observed fence is the one future lookups
+        // read. Capture and number assignment are serialized per owner so the observation order
+        // always matches the fence-read order; without this, a capture pausing between the read
+        // and the increment could replace a newer already-published fence with an older one.
+        PaimonSnapshot fence;
+        long observation;
+        Object captureLock = fenceCaptureLocks.computeIfAbsent(owner, ignored -> new Object());
+        synchronized (captureLock) {
+            fence = loadLatestSnapshotFence(nameMapping, tableValue).getSnapshot();
+            observation = fenceObservations.incrementAndGet();
+        }
         PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
                 nameMapping, fence, tableValue.getGeneration());
         MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> entry =
@@ -159,7 +172,6 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                             nameMapping, fence, tableValue.getGeneration())
                             .bindCapturedAuthenticator(tableValue.getAuthenticator());
                 }));
-        LatestFenceOwner owner = new LatestFenceOwner(nameMapping, tableValue.getGeneration());
         ObservedFence latest = latestObservedFences.compute(owner, (ignored, current) ->
                 current == null || current.observation < observation ? new ObservedFence(observation, key) : current);
         if (loaded.get()) {
@@ -172,6 +184,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
             // persistently rejected tables cannot grow the map, and so a delayed old-generation
             // load cannot resurrect an owner that catalog cleanup already removed.
             latestObservedFences.remove(owner);
+            fenceCaptureLocks.remove(owner);
         }
         return snapshotValue;
     }
@@ -190,6 +203,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     private void forgetObservedFences(NameMapping nameMapping, java.util.function.LongPredicate retiredGeneration) {
         latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.equals(nameMapping)
+                && retiredGeneration.test(owner.generation));
+        fenceCaptureLocks.keySet().removeIf(owner -> owner.nameMapping.equals(nameMapping)
                 && retiredGeneration.test(owner.generation));
     }
 
@@ -515,21 +530,23 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     @Override
     public void invalidateCatalog(long catalogId) {
         latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+        fenceCaptureLocks.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
         super.invalidateCatalog(catalogId);
     }
 
     @Override
     public void onCatalogPermanentlyRemoved(long catalogId) {
-        super.onCatalogPermanentlyRemoved(catalogId);
         // A lookup racing the drop may re-insert a fence owner after invalidateCatalog cleaned
         // the map; this hook runs even when the entry group is already retired and the id is
         // never reused, so the owners cannot leak for the FE lifetime.
         latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+        fenceCaptureLocks.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
     }
 
     @Override
     public void invalidateCatalogEntries(long catalogId) {
         latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+        fenceCaptureLocks.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
         super.invalidateCatalogEntries(catalogId);
     }
 

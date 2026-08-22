@@ -750,6 +750,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
         }
         externalCatalog.modifyCatalogProps(newProps);
+        // The commit reset the catalog's execution context and closed its SDK resources. Cached
+        // base generations and projections are bound to the replaced context; retire them now so
+        // the next statement loads a generation the planning fences accept, instead of retrying
+        // against an unplannable cached generation until managed refresh.
+        Env currentEnv = Env.getCurrentEnv();
+        ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+        if (cacheMgr != null) {
+            cacheMgr.onCatalogOperationalContextChanged(externalCatalog.getId());
+        }
     }
 
     public void unregisterExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)

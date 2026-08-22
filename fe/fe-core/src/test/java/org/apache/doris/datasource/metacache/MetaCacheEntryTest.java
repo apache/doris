@@ -1845,6 +1845,43 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testDeadReservationsReleaseBeforeDependencyRetirement() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(1L << 20));
+        ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                1L, "test", "release-order", OptionalLong.empty(), OptionalLong.empty());
+        CountDownLatch listenerEntered = new CountDownLatch(1);
+        CountDownLatch releaseListener = new CountDownLatch(1);
+        MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
+                "release-order", key -> new byte[1],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 1L << 20),
+                refreshExecutor, false, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget, null,
+                value -> "token",
+                (key, token) -> {
+                    listenerEntered.countDown();
+                    awaitLatch(releaseListener);
+                });
+        try {
+            entry.put("k", new byte[1500]);
+            Assert.assertTrue(manager.getGlobalUsedWeight() >= 1500L);
+
+            // Automatic eviction queues both the dead reservation and the dependency
+            // notification for the shared cleanup worker.
+            extractLoadingCache(entry).policy().eviction().get().setMaximum(1L);
+            Assert.assertTrue(listenerEntered.await(3L, TimeUnit.SECONDS));
+
+            // Dependency retirement can be arbitrarily slow (it is still blocked here), but the
+            // dead reservation must already have released its global quota.
+            Assert.assertEquals(0L, manager.getGlobalUsedWeight());
+        } finally {
+            releaseListener.countDown();
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testRemovalListenerReceivesRemovedValuesButNotReplacements() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         java.util.List<String> removed = java.util.Collections.synchronizedList(new java.util.ArrayList<>());

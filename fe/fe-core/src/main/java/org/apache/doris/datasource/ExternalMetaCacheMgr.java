@@ -423,6 +423,19 @@ public class ExternalMetaCacheMgr {
      * same-id policy rebuilds; the hook reaches every engine even when its entry group is
      * already retired.
      */
+    /**
+     * A committed catalog property ALTER (fresh or replayed) resets the catalog's execution
+     * context and closes its SDK resources without retiring the engine cache groups. Cached base
+     * generations and their projections are bound to the replaced context: served as-is they
+     * would fail the planning fences until expiry, so retire the entries (groups and policies
+     * stay) and let the next statement load a generation bound to the new context.
+     */
+    public void onCatalogOperationalContextChanged(long catalogId) {
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "onCatalogOperationalContextChanged",
+                () -> cache.invalidateCatalogEntries(catalogId)));
+    }
+
     public void removeCatalogPermanently(long catalogId) {
         Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
         lifecycleLock.lock();

@@ -36,8 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -80,10 +78,8 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     }
 
     private volatile LongConsumer catalogPreparer;
-    // Catalog ids are never reused, so a permanently dropped id is a terminal state for this
-    // engine: lookups must fail immediately instead of consuming the contended-handoff retry
-    // window. A rename produces only a transient map absence and never lands here.
-    private final Set<Long> permanentlyRemovedCatalogs = ConcurrentHashMap.newKeySet();
+    // Test hook; production probes the catalog manager. See catalogPermanentlyDropped.
+    private volatile java.util.function.LongPredicate droppedCatalogProbeForTest;
 
     protected AbstractExternalMetaCache(String engine, ExecutorService refreshExecutor,
             ExternalMetaCacheBudgetManager budgetManager) {
@@ -171,7 +167,6 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             if (catalogEntries.containsKey(catalogId)) {
                 return;
             }
-            permanentlyRemovedCatalogs.remove(catalogId);
             Map<String, String> safeCatalogProperties = sanitizeCatalogPropertiesForRuntime(
                     catalogProperties,
                     warning -> LOG.warn("{} (engine={}, catalog={})", warning, engine, catalogId));
@@ -352,11 +347,11 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             // sleep-and-retry: the ALTER finishes within the window, or the lookup fails as
             // before without any deadlock.
             long deadlineNanos = System.nanoTime() + PREPARE_RETRY_WINDOW_NANOS;
-            while (!permanentlyRemovedCatalogs.contains(catalogId)) {
+            while (!catalogPermanentlyDropped(catalogId)) {
                 catalogPreparer.accept(catalogId);
                 group = catalogEntries.get(catalogId);
                 if (group != null || System.nanoTime() >= deadlineNanos
-                        || permanentlyRemovedCatalogs.contains(catalogId)) {
+                        || catalogPermanentlyDropped(catalogId)) {
                     break;
                 }
                 try {
@@ -368,7 +363,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             }
         }
         if (group == null) {
-            if (permanentlyRemovedCatalogs.contains(catalogId)) {
+            if (catalogPermanentlyDropped(catalogId)) {
                 throw new IllegalStateException(String.format(
                         "Catalog %d was dropped; engine '%s' serves no metadata for it.",
                         catalogId, engine));
@@ -380,14 +375,32 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         return group;
     }
 
-    @Override
-    public void bindCatalogPreparer(LongConsumer catalogPreparer) {
-        this.catalogPreparer = catalogPreparer;
+    /**
+     * DROP CATALOG is terminal: ids are never reused, and the catalog manager removes the
+     * catalog before any engine group is detached or closed, so a lookup that finds neither a
+     * group nor a live catalog can fail immediately instead of consuming the contended-handoff
+     * retry window. A rename keeps the catalog registered under the same id, so its transient
+     * group absence still gets the bounded retry, and no per-engine dropped-id state is retained.
+     */
+    private boolean catalogPermanentlyDropped(long catalogId) {
+        java.util.function.LongPredicate probe = droppedCatalogProbeForTest;
+        if (probe != null) {
+            return probe.test(catalogId);
+        }
+        org.apache.doris.catalog.Env env = org.apache.doris.catalog.Env.getCurrentEnv();
+        org.apache.doris.datasource.CatalogMgr catalogMgr = env == null ? null : env.getCatalogMgr();
+        // An absent manager (isolated construction/boot) proves nothing; keep the bounded retry.
+        return catalogMgr != null && catalogMgr.getCatalog(catalogId) == null;
+    }
+
+    /** Test hook: overrides the live-catalog probe used to detect a permanent DROP. */
+    public void bindDroppedCatalogProbeForTest(java.util.function.LongPredicate probe) {
+        this.droppedCatalogProbeForTest = probe;
     }
 
     @Override
-    public void onCatalogPermanentlyRemoved(long catalogId) {
-        permanentlyRemovedCatalogs.add(catalogId);
+    public void bindCatalogPreparer(LongConsumer catalogPreparer) {
+        this.catalogPreparer = catalogPreparer;
     }
 
     protected CatalogIf<?> getCatalog(long catalogId) {

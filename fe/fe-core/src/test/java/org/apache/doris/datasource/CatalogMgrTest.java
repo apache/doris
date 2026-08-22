@@ -27,6 +27,7 @@ import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -117,6 +118,55 @@ public class CatalogMgrTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void testCommittedAlterRetiresTheOperationalContextButFailedAlterDoesNot() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        long catalogId = 45L;
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.validatePropertiesBeforeUpdate(Mockito.any(), Mockito.any()))
+                .thenReturn(true);
+        addCatalog(catalogMgr, catalog);
+        Map<String, String> oldProperties = ImmutableMap.of("s3.access_key", "old");
+        Map<String, String> newProperties = ImmutableMap.of("s3.access_key", "new");
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalogId);
+        log.setNewProps(newProperties);
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(cacheMgr.withCatalogLifecycleLock(Mockito.eq(catalogId), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    java.util.function.Supplier<?> action = invocation.getArgument(1);
+                    return action.get();
+                });
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalogMgr.replayAlterCatalogProps(log, oldProperties, false);
+        }
+        // The commit reset the catalog execution context: cached generations bound to the old
+        // context must be retired so the next statement loads a plannable one.
+        Mockito.verify(catalog).modifyCatalogProps(newProperties);
+        Mockito.verify(cacheMgr).onCatalogOperationalContextChanged(catalogId);
+
+        // A failed validation never commits, so nothing may be retired.
+        Mockito.reset(cacheMgr);
+        Mockito.when(cacheMgr.withCatalogLifecycleLock(Mockito.eq(catalogId), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    java.util.function.Supplier<?> action = invocation.getArgument(1);
+                    return action.get();
+                });
+        Mockito.when(catalog.validatePropertiesBeforeUpdate(Mockito.any(), Mockito.any()))
+                .thenThrow(new IllegalArgumentException("invalid"));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(DdlException.class,
+                    () -> catalogMgr.replayAlterCatalogProps(log, oldProperties, false));
+        }
+        Mockito.verify(cacheMgr, Mockito.never()).onCatalogOperationalContextChanged(catalogId);
     }
 
     @Test

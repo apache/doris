@@ -587,6 +587,9 @@ public class PaimonExternalMetaCacheTest {
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
         try {
             AtomicInteger prepareAttempts = new AtomicInteger();
+            // The catalog stays registered during a contended handoff; without an Env in this
+            // test the live-catalog probe must be pinned to "not dropped".
+            cache.bindDroppedCatalogProbeForTest(catalogId -> false);
             cache.bindCatalogPreparer(catalogId -> {
                 // Simulate a fence contended for the first attempts, then a successful handoff.
                 if (prepareAttempts.incrementAndGet() >= 3) {
@@ -1097,11 +1100,13 @@ public class PaimonExternalMetaCacheTest {
             cache.initCatalog(1L, Collections.emptyMap());
             AtomicInteger dropPreparerCalls = new AtomicInteger();
             cache.bindCatalogPreparer(id -> dropPreparerCalls.incrementAndGet());
-            // DROP CATALOG: the group is retired and the removal is permanent - no preparer can
-            // ever restore it, so the lookup must fail terminally instead of consuming the
-            // contended-handoff retry window.
+            // DROP CATALOG: the catalog manager no longer serves the id (ids are never reused),
+            // so the lookup must fail terminally instead of consuming the contended-handoff
+            // retry window. The probe stands in for the live catalog-manager lookup, which the
+            // manager updates before any engine group is detached or closed - no per-engine
+            // dropped-id state is retained.
             cache.invalidateCatalog(1L);
-            cache.onCatalogPermanentlyRemoved(1L);
+            cache.bindDroppedCatalogProbeForTest(id -> id == 1L);
             long startNanos = System.nanoTime();
             try {
                 cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
@@ -1135,6 +1140,128 @@ public class PaimonExternalMetaCacheTest {
         } finally {
             cache.close();
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testFenceCaptureAndObservationAssignmentAreSerializedPerOwner() throws Exception {
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        };
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        Mockito.doReturn(database).when(catalog).getDbNullable("db");
+        Mockito.when(database.getTableNullable("tbl")).thenReturn(externalTable);
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
+        Mockito.doReturn(Optional.of(externalTable)).when(database).getTable("tbl");
+        Mockito.doAnswer(invocation -> {
+            Column partitionColumn = new Column("part", Type.INT);
+            return new PaimonSchemaCacheValue(
+                    Collections.singletonList(partitionColumn),
+                    Collections.singletonList(partitionColumn), null);
+        }).when(externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
+
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable fenceTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable snapshotTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        java.util.concurrent.atomic.AtomicLong latestSnapshotId =
+                new java.util.concurrent.atomic.AtomicLong(8L);
+        AtomicReference<java.util.concurrent.CountDownLatch> blockNextFenceIdRead =
+                new AtomicReference<>();
+        java.util.concurrent.CountDownLatch fenceIdReadEntered =
+                new java.util.concurrent.CountDownLatch(1);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+        Mockito.when(latestSnapshot.id()).thenAnswer(invocation -> {
+            // Capture the id first, then optionally pause: the capture pauses between reading
+            // the fence and taking its observation number, exactly the racy window.
+            long id = latestSnapshotId.get();
+            java.util.concurrent.CountDownLatch block = blockNextFenceIdRead.getAndSet(null);
+            if (block != null) {
+                fenceIdReadEntered.countDown();
+                Assert.assertTrue(block.await(5L, java.util.concurrent.TimeUnit.SECONDS));
+            }
+            return id;
+        });
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(3L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fenceTable);
+        Mockito.when(fenceTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(snapshotTable);
+        Mockito.when(fenceTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(snapshotTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(snapshotTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.listPartitionEntries()).thenReturn(Collections.emptyList());
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            PaimonTableCacheValue tableValue = new PaimonTableCacheValue(baseTable, authenticator);
+            cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, PaimonTableCacheValue.class).put(mapping, tableValue);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots = cache.entry(
+                    1L, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            // A reads fence 8 and pauses before its observation number is assigned.
+            java.util.concurrent.CountDownLatch releaseOlderCapture =
+                    new java.util.concurrent.CountDownLatch(1);
+            blockNextFenceIdRead.set(releaseOlderCapture);
+            java.util.concurrent.Future<PaimonSnapshotCacheValue> older = workers.submit(() -> {
+                try (MockedStatic<Env> workerEnv = Mockito.mockStatic(Env.class)) {
+                    workerEnv.when(Env::getCurrentEnv).thenReturn(env);
+                    return cache.getSnapshotCache(dorisTable);
+                }
+            });
+            Assert.assertTrue(fenceIdReadEntered.await(5L, java.util.concurrent.TimeUnit.SECONDS));
+            latestSnapshotId.set(9L);
+            // B must not capture fence 9 while A is still inside its capture window.
+            java.util.concurrent.Future<PaimonSnapshotCacheValue> newer = workers.submit(() -> {
+                try (MockedStatic<Env> workerEnv = Mockito.mockStatic(Env.class)) {
+                    workerEnv.when(Env::getCurrentEnv).thenReturn(env);
+                    return cache.getSnapshotCache(dorisTable);
+                }
+            });
+            Thread.sleep(200L);
+            Assert.assertFalse("fence capture must be serialized per owner", newer.isDone());
+
+            releaseOlderCapture.countDown();
+            Assert.assertEquals(8L, older.get(5L, java.util.concurrent.TimeUnit.SECONDS)
+                    .getSnapshot().getSnapshotId());
+            Assert.assertEquals(9L, newer.get(5L, java.util.concurrent.TimeUnit.SECONDS)
+                    .getSnapshot().getSnapshotId());
+            // The later capture read the later fence and must own the memoized latest.
+            Assert.assertEquals(9L, cache.getSnapshotCache(dorisTable).getSnapshot().getSnapshotId());
+            Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+            workers.shutdownNow();
         }
     }
 

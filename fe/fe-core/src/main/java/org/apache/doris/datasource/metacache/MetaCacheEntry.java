@@ -843,10 +843,9 @@ public class MetaCacheEntry<K, V> {
         if (cause == RemovalCause.REPLACED) {
             return;
         }
-        if (removalListener != null) {
-            pendingRemovalNotifications.add(new RemovedToken<>(key, removalToken(value)));
-            scheduleRemovalCleanup();
-        }
+        // The dead reservation is queued before the dependency notification so the shared
+        // cleanup worker can always release quota before entering potentially expensive listener
+        // work; see drainRemovalCleanups.
         if (Thread.holdsLock(admissionLock)) {
             // Other removals have already removed the Caffeine mapping and can release their owner
             // inline. A stale callback cannot release a replacement while its mapping is visible.
@@ -867,6 +866,7 @@ public class MetaCacheEntry<K, V> {
                     }
                 }
             }
+            queueRemovalNotification(key, value);
             return;
         }
         beforeRemovalOwnerSnapshotForTest(key);
@@ -874,6 +874,7 @@ public class MetaCacheEntry<K, V> {
         if (ownerGeneration >= 0L) {
             beforeRemovalReleaseForTest(key);
             if (closed.get()) {
+                queueRemovalNotification(key, value);
                 return;
             }
             if (cause.wasEvicted()) {
@@ -883,10 +884,20 @@ public class MetaCacheEntry<K, V> {
             if (closed.get()) {
                 pendingRemovalGenerations.remove(key, ownerGeneration);
                 pendingEvictionGenerations.remove(key, ownerGeneration);
+                queueRemovalNotification(key, value);
                 return;
             }
             scheduleRemovalCleanup();
         }
+        queueRemovalNotification(key, value);
+    }
+
+    private void queueRemovalNotification(K key, @Nullable V value) {
+        if (removalListener == null) {
+            return;
+        }
+        pendingRemovalNotifications.add(new RemovedToken<>(key, removalToken(value)));
+        scheduleRemovalCleanup();
     }
 
     private void scheduleRemovalCleanup() {
@@ -905,7 +916,6 @@ public class MetaCacheEntry<K, V> {
 
     private void drainRemovalCleanups() {
         try {
-            drainRemovalNotifications();
             int processed = 0;
             for (Map.Entry<K, Long> cleanup : pendingRemovalGenerations.entrySet()) {
                 if (processed++ >= REMOVAL_CLEANUP_BATCH_SIZE) {
@@ -938,6 +948,11 @@ public class MetaCacheEntry<K, V> {
                             name, e);
                 }
             }
+            // Dependency retirement can be expensive (a table listener may scan every child
+            // projection) and the cleanup executor is shared by every entry, so already-dead
+            // reservations release their global/catalog quota first; generations reported by
+            // these listeners are picked up by the requeued drain below.
+            drainRemovalNotifications();
         } finally {
             removalCleanupScheduled.set(false);
             if (!closed.get()
