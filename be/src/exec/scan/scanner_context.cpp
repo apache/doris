@@ -617,6 +617,11 @@ void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
     _pending_tasks.push(std::move(scan_task));
 }
 
+bool ScannerContext::has_progressing_task(const std::unique_lock<std::mutex>& transfer_lock) const {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    return cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num > 0;
+}
+
 bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const {
     DORIS_CHECK(transfer_lock.owns_lock());
     if (done() || _pending_tasks.empty()) {
@@ -663,6 +668,12 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
 
 std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
         const std::unique_lock<std::mutex>& transfer_lock) {
+    if (_enable_adaptive_scanners) {
+        // Refresh expected_scanners and feed current block estimates back to the memory limiter,
+        // exactly as _get_margin() does on the TaskExecutor path. can_admit_scan_task() only reads
+        // the cached value, so ThreadPool admission would otherwise never apply adaptive limits.
+        static_cast<void>(_available_pickup_scanner_count());
+    }
     if (!can_admit_scan_task(transfer_lock)) {
         return nullptr;
     }
@@ -671,6 +682,12 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
     // Thus concurrent Context workers cannot admit the same task or both pass the limit check.
     auto scan_task = _pending_tasks.top();
     _pending_tasks.pop();
+    // ThreadPool admission bypasses ScannerScheduler::submit(); restart the per-scanner wait
+    // timer here so it measures admission-to-execution instead of everything since the previous
+    // attempt paused, which would include time the completed block waited for the operator.
+    if (auto scanner_delegate = scan_task->scanner.lock()) {
+        scanner_delegate->_scanner->start_wait_worker_timer();
+    }
     scan_task->set_state(ScanTask::State::IN_FLIGHT);
     ++_in_flight_tasks_num;
     return scan_task;

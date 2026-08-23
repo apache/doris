@@ -293,6 +293,12 @@ public:
     // _transfer_lock.
     bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const;
 
+    // Return whether at least one task is progressing: in flight on a worker, or completed and
+    // awaiting operator consumption. A progressing task eventually triggers rescheduling, so the
+    // ThreadPool scheduler can tolerate a failed runnable submission while one exists. The caller
+    // must hold _transfer_lock.
+    bool has_progressing_task(const std::unique_lock<std::mutex>& transfer_lock) const;
+
     // Atomically check whether this context can start another scan task, move one task from
     // pending to in-flight, and return it. The caller must hold _transfer_lock.
     std::shared_ptr<ScanTask> try_get_next_scan_task(
