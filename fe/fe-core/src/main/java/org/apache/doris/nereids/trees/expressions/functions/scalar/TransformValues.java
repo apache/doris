@@ -27,8 +27,11 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -40,24 +43,27 @@ import java.util.List;
  * <pre>
  * transform_values((mapKey, mapValue) -> newValue, inputMap)
  *   ->
- * %map_from_arrays_unique%(
- *   map_keys(inputMap),
+ * %map_from_entries_unique%(
  *   array_map(
- *     (mapKey, mapValue) -> newValue,
- *     map_keys(inputMap), map_values(inputMap)))
+ *     entry -> struct(entry[1], newValue(entry[1], entry[2])),
+ *     map_entries(inputMap)))
  * </pre>
  */
 public class TransformValues extends ScalarFunction
         implements CustomSignature, PropagateNullable, PreferPushDownProject, RewriteWhenAnalyze {
 
     public TransformValues(Expression arg) {
-        this(MapLambdaValidator.requireLambda("transform_values", arg));
+        this(MapLambdaFunctionUtils.requireLambda("transform_values", arg));
     }
 
     private TransformValues(Lambda lambda) {
+        this(MapLambdaFunctionUtils.rewrite(lambda,
+                (body, key, value, entry) -> new CreateStruct(key, body)));
+    }
+
+    private TransformValues(MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda) {
         super("transform_values",
-                MapLambdaValidator.extractMapExpression("transform_values", lambda),
-                new MapEntryArrayMap(lambda));
+                rewrittenLambda.getMapExpression(), rewrittenLambda.toArrayMap());
     }
 
     private TransformValues(ScalarFunctionParams functionParams) {
@@ -67,13 +73,16 @@ public class TransformValues extends ScalarFunction
     @Override
     public FunctionSignature customSignature() {
         MapType inputMapType = (MapType) getArgument(0).getDataType();
-        ArrayType transformedValuesType = (ArrayType) getArgument(1).getDataType();
-        DataType resultValueType = MapLambdaValidator.mergeNestedNullTypes(
-                transformedValuesType.getItemType(), inputMapType.getValueType());
-        transformedValuesType = ArrayType.of(resultValueType);
+        ArrayType mappedEntriesType = (ArrayType) getArgument(1).getDataType();
+        StructType entryType = (StructType) mappedEntriesType.getItemType();
+        List<StructField> fields = entryType.getFields();
+        DataType resultValueType = MapLambdaFunctionUtils.mergeNestedNullTypes(
+                fields.get(1).getDataType(), inputMapType.getValueType());
+        StructType resolvedEntryType = new StructType(ImmutableList.of(
+                fields.get(0), fields.get(1).withDataType(resultValueType)));
         MapType resultType = MapType.of(inputMapType.getKeyType(), resultValueType);
         resultType.validateDataType();
-        return FunctionSignature.ret(resultType).args(inputMapType, transformedValuesType);
+        return FunctionSignature.ret(resultType).args(inputMapType, ArrayType.of(resolvedEntryType));
     }
 
     @Override
@@ -84,7 +93,7 @@ public class TransformValues extends ScalarFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        return new MapFromArraysUnique(new MapKeys(getArgument(0)), getArgument(1));
+        return new MapFromEntriesUnique(getArgument(1));
     }
 
     @Override

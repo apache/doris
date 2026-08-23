@@ -23,16 +23,20 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 
-/** Marks an ArrayMap whose first two arguments evaluate the key and value of each Map entry. */
-public final class MapEntryArrayMap extends ArrayMap {
+/** Internal Map constructor that drops null entries produced by a Map-filter Lambda. */
+public class MapFromFilteredEntriesUnique extends MapFromEntries {
 
-    MapEntryArrayMap(Lambda lambda) {
-        super(lambda);
+    public MapFromFilteredEntriesUnique(Expression entries) {
+        super("%map_from_filtered_entries_unique%", entries);
+    }
+
+    private MapFromFilteredEntriesUnique(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
-    public MapEntryArrayMap withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1 && children.get(0) instanceof Lambda);
-        return new MapEntryArrayMap((Lambda) children.get(0));
+    public MapFromFilteredEntriesUnique withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new MapFromFilteredEntriesUnique(getFunctionParams(children));
     }
 }

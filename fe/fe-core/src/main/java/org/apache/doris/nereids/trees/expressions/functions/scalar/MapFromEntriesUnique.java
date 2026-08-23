@@ -23,20 +23,20 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 
-/** Internal Map constructor used only when the input keys are known to be unique. */
-public class MapFromArraysUnique extends MapFromArrays {
+/** Internal Map constructor used when entry keys are known to be unique. */
+public class MapFromEntriesUnique extends MapFromEntries {
 
-    public MapFromArraysUnique(Expression keys, Expression values) {
-        super("%map_from_arrays_unique%", keys, values);
+    public MapFromEntriesUnique(Expression entries) {
+        super("%map_from_entries_unique%", entries);
     }
 
-    private MapFromArraysUnique(ScalarFunctionParams functionParams) {
+    private MapFromEntriesUnique(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public MapFromArraysUnique withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new MapFromArraysUnique(getFunctionParams(children));
+    public MapFromEntriesUnique withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new MapFromEntriesUnique(getFunctionParams(children));
     }
 }

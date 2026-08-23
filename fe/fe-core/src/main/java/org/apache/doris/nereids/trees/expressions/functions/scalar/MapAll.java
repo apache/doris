@@ -40,8 +40,8 @@ import java.util.List;
  *   ->
  * array_match_all(
  *   array_map(
- *     (mapKey, mapValue) -> predicate,
- *     map_keys(inputMap), map_values(inputMap)))
+ *     entry -> predicate(entry[1], entry[2]),
+ *     map_entries(inputMap)))
  * </pre>
  */
 public class MapAll extends ScalarFunction
@@ -52,11 +52,15 @@ public class MapAll extends ScalarFunction
 
     // The argument is a bound Lambda.
     public MapAll(Expression arg) {
-        this(MapLambdaValidator.requireLambda("map_all", arg));
+        this(MapLambdaFunctionUtils.requireLambda("map_all", arg));
     }
 
     private MapAll(Lambda lambda) {
-        super("map_all", new MapEntryArrayMap(lambda));
+        this(MapLambdaFunctionUtils.rewrite(lambda, (body, key, value, entry) -> body));
+    }
+
+    private MapAll(MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda) {
+        super("map_all", rewrittenLambda.toArrayMap());
     }
 
     private MapAll(ScalarFunctionParams functionParams) {

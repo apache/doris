@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -88,8 +89,8 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
                 tupleMapApply.getDataType());
 
         Expression mapFilter = analyze("map_filter((k, v) -> v > 10, map(1, 10, 2, 20))");
-        Assertions.assertTrue(mapFilter instanceof MapFilter);
-        assertMapEntryArray(((MapFilter) mapFilter).child(1));
+        Assertions.assertTrue(mapFilter instanceof MapFromFilteredEntriesUnique);
+        assertMapEntryArray(mapFilter.child(0));
 
         Expression mapFilterWithMask = analyze("map_filter(map(1, 10, 2, 20), "
                 + "array_map((k, v) -> v > k, [1, 2], [10, 20]))");
@@ -97,17 +98,15 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         Assertions.assertTrue(mapFilterWithMask.child(1).getDataType() instanceof ArrayType);
 
         Expression transformKeys = analyze("transform_keys((k, v) -> k + 1, map(1, 10, 2, 20))");
-        Assertions.assertTrue(transformKeys instanceof MapFromArrays);
+        Assertions.assertTrue(transformKeys instanceof MapFromEntries);
         assertMapEntryArray(transformKeys.child(0));
-        Assertions.assertTrue(transformKeys.child(1) instanceof MapValues);
         Assertions.assertEquals(MapType.of(SmallIntType.INSTANCE, TinyIntType.INSTANCE),
                 transformKeys.getDataType());
 
         Expression transformValues = analyze(
                 "transform_values((k, v) -> v + 1, map(1, 10, 2, 20))");
-        Assertions.assertTrue(transformValues instanceof MapFromArraysUnique);
-        Assertions.assertTrue(transformValues.child(0) instanceof MapKeys);
-        assertMapEntryArray(transformValues.child(1));
+        Assertions.assertTrue(transformValues instanceof MapFromEntriesUnique);
+        assertMapEntryArray(transformValues.child(0));
         Assertions.assertEquals(MapType.of(TinyIntType.INSTANCE, SmallIntType.INSTANCE),
                 transformValues.getDataType());
     }
@@ -130,20 +129,19 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         Expression transformValues = analyze(
                 "transform_values((k, v) -> null, map(1, 10))");
         Assertions.assertEquals(inputMapType, transformValues.getDataType());
-        Assertions.assertEquals(ArrayType.of(TinyIntType.INSTANCE),
-                transformValues.child(1).getDataType());
+        Assertions.assertEquals(TinyIntType.INSTANCE,
+                mappedEntryType(transformValues).getFields().get(1).getDataType());
 
         Expression transformKeys = analyze(
                 "transform_keys((k, v) -> null, map(1, 10))");
         Assertions.assertEquals(inputMapType, transformKeys.getDataType());
-        Assertions.assertEquals(ArrayType.of(TinyIntType.INSTANCE),
-                transformKeys.child(1).getDataType());
+        Assertions.assertEquals(TinyIntType.INSTANCE,
+                mappedEntryType(transformKeys).getFields().get(0).getDataType());
 
         Expression mapApply = analyze(
                 "map_apply((k, v) -> struct(k, null), map(1, 10))");
         Assertions.assertEquals(inputMapType, mapApply.getDataType());
-        StructType mappedEntryType =
-                (StructType) ((ArrayType) mapApply.child(0).getDataType()).getItemType();
+        StructType mappedEntryType = mappedEntryType(mapApply);
         Assertions.assertEquals(TinyIntType.INSTANCE,
                 mappedEntryType.getFields().get(0).getDataType());
         Assertions.assertEquals(TinyIntType.INSTANCE,
@@ -162,8 +160,8 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         Expression transformArrayValues = analyze(
                 "transform_values((k, v) -> [], map(1, [10]))");
         Assertions.assertEquals(arrayValueMapType, transformArrayValues.getDataType());
-        Assertions.assertEquals(ArrayType.of(tinyIntArrayType),
-                transformArrayValues.child(1).getDataType());
+        Assertions.assertEquals(tinyIntArrayType,
+                mappedEntryType(transformArrayValues).getFields().get(1).getDataType());
 
         Expression mapApplyArrayValue = analyze(
                 "map_apply((k, v) -> struct(k, []), map(1, [10]))");
@@ -204,20 +202,33 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
     }
 
     @Test
+    public void testFreshEntryNameAvoidsUserLambdaArgumentCollision() {
+        Expression mapExists = analyze("map_exists(($_map_entry_2_$, v) -> "
+                + "$_map_entry_2_$ > 0, map(1, 10))");
+        Assertions.assertTrue(mapExists instanceof ArrayMatchAny);
+        ArrayMap arrayMap = (ArrayMap) mapExists.child(0);
+        Lambda lambda = (Lambda) arrayMap.child(0);
+        Assertions.assertNotEquals("$_map_entry_2_$", lambda.getLambdaArgumentName(0));
+        assertMapEntryArray(arrayMap);
+    }
+
+    @Test
     public void testComputedMapIsAccepted() {
         SlotReference value = new SlotReference("value", IntegerType.INSTANCE);
         CreateMap computedMap = new CreateMap(Literal.of(1), value);
-        Lambda lambda = new Lambda(ImmutableList.of("k", "v"), value);
-        List<ArrayItemReference> arguments =
-                lambda.makeArguments("transform_values", ImmutableList.of(computedMap));
-        Lambda boundLambda = lambda.withLambdaFunctionArguments(arguments.get(1).toSlot(), arguments);
+        ArrayItemReference entryArgument = new ArrayItemReference("entry", new MapEntries(computedMap));
+        Lambda boundLambda = new Lambda(
+                ImmutableList.of("entry"),
+                new ElementAt(entryArgument.toSlot(), new IntegerLiteral(2)),
+                ImmutableList.of(entryArgument));
         TransformValues transformValues = new TransformValues(boundLambda);
 
         Assertions.assertSame(computedMap, transformValues.child(0));
 
         Expression nondeterministicMap = analyze(
                 "transform_values((k, v) -> v, map(cast(random() as int), 10))");
-        Assertions.assertTrue(nondeterministicMap instanceof MapFromArraysUnique);
+        Assertions.assertTrue(nondeterministicMap instanceof MapFromEntriesUnique);
+        assertMapEntryArray(nondeterministicMap.child(0));
     }
 
     @Test
@@ -269,11 +280,10 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         Assertions.assertTrue(complexKeyException.getMessage().contains(
                 "MAP key type must be a primitive type"), complexKeyException::getMessage);
 
-        AnalysisException invalidNestedValueException = Assertions.assertThrows(AnalysisException.class,
-                () -> analyze("map_from_arrays([1], [[]])"));
-        Assertions.assertTrue(invalidNestedValueException.getMessage().contains(
-                "Unsupported data type: map<tinyint,array<null_type>>"),
-                invalidNestedValueException::getMessage);
+        Expression nestedNullValueMap = analyze("map_from_arrays([1], [[]])");
+        Assertions.assertEquals(
+                MapType.of(TinyIntType.INSTANCE, ArrayType.of(TinyIntType.INSTANCE)),
+                nestedNullValueMap.getDataType());
     }
 
     @Test
@@ -324,21 +334,25 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         while (expression instanceof Cast) {
             expression = expression.child(0);
         }
-        Assertions.assertTrue(expression instanceof MapEntryArrayMap);
-        MapEntryArrayMap marker = (MapEntryArrayMap) expression;
-        Assertions.assertTrue(marker.child(0) instanceof Lambda);
+        Assertions.assertTrue(expression instanceof ArrayMap);
+        ArrayMap arrayMap = (ArrayMap) expression;
+        Assertions.assertTrue(arrayMap.child(0) instanceof Lambda);
 
-        Lambda lambda = (Lambda) marker.child(0);
+        Lambda lambda = (Lambda) arrayMap.child(0);
         List<ArrayItemReference> arguments = lambda.getLambdaArguments();
-        Assertions.assertEquals(2, arguments.size());
-        Assertions.assertTrue(arguments.get(0).getArrayExpression() instanceof MapKeys);
-        Assertions.assertTrue(arguments.get(1).getArrayExpression() instanceof MapValues);
-        Assertions.assertEquals(
-                arguments.get(0).getArrayExpression().child(0),
-                arguments.get(1).getArrayExpression().child(0));
-        Assertions.assertNotEquals(arguments.get(0).getExprId(), arguments.get(1).getExprId());
+        Assertions.assertEquals(1, arguments.size());
+        Assertions.assertTrue(arguments.get(0).getArrayExpression() instanceof MapEntries);
+        Assertions.assertTrue(arguments.get(0).getName().startsWith("$_map_entry_"));
+        Assertions.assertEquals(1,
+                arrayMap.<MapEntries>collect(child -> child instanceof MapEntries).size());
+        Assertions.assertTrue(arrayMap.<MapKeys>collect(child -> child instanceof MapKeys).isEmpty());
+        Assertions.assertTrue(arrayMap.<MapValues>collect(child -> child instanceof MapValues).isEmpty());
 
-        Assertions.assertTrue(marker.withChildren(marker.children()) instanceof MapEntryArrayMap);
+        Assertions.assertTrue(arrayMap.withChildren(arrayMap.children()) instanceof ArrayMap);
+    }
+
+    private StructType mappedEntryType(Expression mapExpression) {
+        return (StructType) ((ArrayType) mapExpression.child(0).getDataType()).getItemType();
     }
 
 }

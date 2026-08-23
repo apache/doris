@@ -24,16 +24,12 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LambdaType;
-import org.apache.doris.nereids.types.MapType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -42,15 +38,6 @@ import java.util.stream.Collectors;
  * After bind, x -> x : arguments("x") -> children: Expression(x) ArrayItemReference(x)
  */
 public class Lambda extends Expression {
-
-    private static final Set<String> MAP_ENTRY_LAMBDA_FUNCTIONS = ImmutableSet.of(
-            "map_all",
-            "map_apply",
-            "map_exists",
-            "map_filter",
-            "transform_keys",
-            "transform_values");
-
     private final List<String> argumentNames;
 
     /**
@@ -78,28 +65,6 @@ public class Lambda extends Expression {
      */
     public ImmutableList<ArrayItemReference> makeArguments(String functionName, List<Expression> lambdaArgs) {
         Builder<ArrayItemReference> builder = new ImmutableList.Builder<>();
-        String normalizedFunctionName = functionName.toLowerCase(Locale.ROOT);
-        if (MAP_ENTRY_LAMBDA_FUNCTIONS.contains(normalizedFunctionName)) {
-            if (lambdaArgs.size() != 1) {
-                throw new AnalysisException(String.format(
-                        "%s requires exactly one map argument but has %d",
-                        functionName, lambdaArgs.size()));
-            }
-            if (argumentNames.size() != 2) {
-                throw new AnalysisException(String.format(
-                        "lambda of %s requires exactly two arguments but has %d",
-                        functionName, argumentNames.size()));
-            }
-            Expression mapExpression = lambdaArgs.get(0);
-            if (!(mapExpression.getDataType() instanceof MapType)) {
-                throw new AnalysisException(String.format(
-                        "the non-lambda argument of %s must be map but is %s",
-                        functionName, mapExpression.getDataType().toSql()));
-            }
-            builder.add(new ArrayItemReference(argumentNames.get(0), new MapKeys(mapExpression)));
-            builder.add(new ArrayItemReference(argumentNames.get(1), new MapValues(mapExpression)));
-            return builder.build();
-        }
         if (lambdaArgs.size() != argumentNames.size()) {
             // In the lambda expression of array_sort, x and y point to the same slot.
             if (functionName.equalsIgnoreCase("array_sort") && lambdaArgs.size() == 1 && argumentNames.size() == 2) {

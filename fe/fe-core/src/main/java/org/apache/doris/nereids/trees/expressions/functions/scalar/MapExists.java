@@ -40,8 +40,8 @@ import java.util.List;
  *   ->
  * array_match_any(
  *   array_map(
- *     (mapKey, mapValue) -> predicate,
- *     map_keys(inputMap), map_values(inputMap)))
+ *     entry -> predicate(entry[1], entry[2]),
+ *     map_entries(inputMap)))
  * </pre>
  */
 public class MapExists extends ScalarFunction
@@ -52,11 +52,15 @@ public class MapExists extends ScalarFunction
 
     /** Constructor with a bound Lambda argument. */
     public MapExists(Expression arg) {
-        this(MapLambdaValidator.requireLambda("map_exists", arg));
+        this(MapLambdaFunctionUtils.requireLambda("map_exists", arg));
     }
 
     private MapExists(Lambda lambda) {
-        super("map_exists", new MapEntryArrayMap(lambda));
+        this(MapLambdaFunctionUtils.rewrite(lambda, (body, key, value, entry) -> body));
+    }
+
+    private MapExists(MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda) {
+        super("map_exists", rewrittenLambda.toArrayMap());
     }
 
     private MapExists(ScalarFunctionParams functionParams) {

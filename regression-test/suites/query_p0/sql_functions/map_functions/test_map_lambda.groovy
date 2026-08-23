@@ -422,10 +422,7 @@ suite("test_map_lambda", "p0") {
         sql "select map_from_arrays([[1]], [10])"
         exception "MAP key type must be a primitive type"
     }
-    test {
-        sql "select map_from_arrays([1], [[]])"
-        exception "Unsupported data type: map<tinyint,array<null_type>>"
-    }
+    qt_map_from_arrays_nested_empty_array "select map_from_arrays([1], [[]])"
     test {
         sql "select map_from_entries(1)"
         exception "requires an array of structs with exactly two fields"
