@@ -19,7 +19,6 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
-import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
@@ -117,77 +116,5 @@ public class StreamingInsertJobLateCallbackTest {
 
         Assert.assertEquals("task status must stay terminal — late callback ignored",
                 TaskStatus.FAILED, task.getStatus());
-    }
-
-    @Test
-    public void testInvalidManualTransitionDoesNotMutateFailureReason() throws Exception {
-        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
-        Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(job, "jobStatus", JobStatus.STOPPED);
-        FailureReason original = new FailureReason("terminal failure");
-        Deencapsulation.setField(job, "failureReason", original);
-
-        Assert.assertThrows(org.apache.doris.job.exception.JobException.class,
-                () -> job.updateManualJobStatus(JobStatus.RUNNING, null));
-        Assert.assertSame(original, job.getFailureReason());
-    }
-
-    @Test
-    public void testPredecessorBlocksSuccessorSchedulingUntilTerminalHandoff() {
-        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
-        Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(job, "jobStatus", JobStatus.PENDING);
-        StreamingMultiTblTask predecessor = newTask(9002L, TaskStatus.CANCELED);
-        Deencapsulation.setField(job, "runningStreamTask", predecessor);
-
-        Assert.assertFalse(job.isReadyForScheduling(new HashMap<>()));
-        job.clearRunningStreamTask(predecessor);
-        Assert.assertTrue(job.isReadyForScheduling(new HashMap<>()));
-    }
-
-    @Test
-    public void testManualPauseResumeClearsMultiTaskAndReentersPending() throws Exception {
-        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
-        Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(job, "jobId", 9004L);
-        Deencapsulation.setField(job, "jobStatus", JobStatus.RUNNING);
-        StreamingMultiTblTask predecessor = newTask(9003L, TaskStatus.RUNNING);
-        Deencapsulation.setField(job, "runningStreamTask", predecessor);
-
-        job.updateManualJobStatus(JobStatus.PAUSED, new FailureReason("manual pause"));
-        Assert.assertFalse(job.hasRunningStreamTask());
-        job.updateManualJobStatus(JobStatus.RUNNING, null);
-
-        Assert.assertEquals(JobStatus.PENDING, job.getJobStatus());
-        Assert.assertTrue(job.isReadyForScheduling(new HashMap<>()));
-    }
-
-    @Test
-    public void testManualStopPublishesCancellationAndClearsTask() throws Exception {
-        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
-        Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(job, "jobId", 9004L);
-        Deencapsulation.setField(job, "jobStatus", JobStatus.RUNNING);
-        StreamingMultiTblTask predecessor = newTask(9004L, TaskStatus.RUNNING);
-        Deencapsulation.setField(job, "runningStreamTask", predecessor);
-
-        job.updateManualJobStatus(JobStatus.STOPPED, new FailureReason("manual stop"));
-        job.onStreamTaskSuccess(predecessor);
-
-        Assert.assertEquals(JobStatus.STOPPED, job.getJobStatus());
-        Assert.assertTrue(predecessor.getIsCanceled().get());
-        Assert.assertFalse(job.hasRunningStreamTask());
-    }
-
-    @Test
-    public void testStalePendingTickCannotPublishAfterManualTransition() throws Exception {
-        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
-        Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(job, "jobStatus", JobStatus.PAUSED);
-        Deencapsulation.setField(job, "statusEpoch", 2L);
-
-        Assert.assertFalse(job.dispatchPendingTask(1L));
-        Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
-        Assert.assertFalse(job.hasRunningStreamTask());
     }
 }

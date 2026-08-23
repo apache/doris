@@ -29,7 +29,6 @@ import org.apache.doris.qe.StmtExecutor;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 
-import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,34 +42,21 @@ public class PlsqlQueryExecutor implements QueryExecutor {
         // A cursor may correspond to a query, and if the user opens multiple cursors, need to save multiple
         // query states, so here each query constructs a ConnectProcessor and the ConnectContext shares some data.
         ConnectContext context = ConnectContext.get().cloneContext();
-        Closeable statementResources = null;
         try (AutoCloseConnectContext autoCloseCtx = new AutoCloseConnectContext(context)) {
             autoCloseCtx.call();
             context.setRunProcedure(true);
             ConnectProcessor processor = new MysqlConnectProcessor(context);
             processor.executeQuery(sql);
             StmtExecutor executor = context.getExecutor();
-            statementResources = context.getStatementContext().detachStatementResources();
-            DorisRowResult rowResult;
             if (executor.getParsedStmt().getResultExprs() != null) {
-                rowResult = new DorisRowResult(executor.getCoord(), executor.getColumns(),
-                        executor.getReturnTypes(), statementResources);
-                statementResources = null;
-                return new QueryResult(rowResult, () -> metadata(executor), processor, null);
+                return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(),
+                        executor.getReturnTypes()), () -> metadata(executor), processor, null);
             } else {
                 // If ResultExpr is empty, not need to return result in plsql.Stmt.statement()
-                rowResult = new DorisRowResult(executor.getCoord(), executor.getColumns(), null, statementResources);
-                statementResources = null;
-                return new QueryResult(rowResult, null, processor, null);
+                return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(), null),
+                        null, processor, null);
             }
         } catch (Exception e) {
-            if (statementResources != null) {
-                try {
-                    statementResources.close();
-                } catch (Exception closeFailure) {
-                    e.addSuppressed(closeFailure);
-                }
-            }
             return new QueryResult(null, () -> new Metadata(Collections.emptyList()), null, e);
         }
     }
