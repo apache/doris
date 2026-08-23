@@ -24,10 +24,12 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
@@ -130,6 +132,15 @@ public class LancePredicateConverter {
         }
         if (expr instanceof IsNullPredicate) {
             return convertIsNull((IsNullPredicate) expr);
+        }
+        if (expr instanceof LikePredicate) {
+            return convertLike((LikePredicate) expr);
+        }
+        if (expr instanceof FunctionCallExpr) {
+            return convertStringFunction((FunctionCallExpr) expr);
+        }
+        if (expr instanceof SlotRef) {
+            return convertBooleanSlot((SlotRef) expr);
         }
         return Optional.empty();
     }
@@ -255,6 +266,60 @@ public class LancePredicateConverter {
         }
         String function = predicate.isNotNull() ? "is_not_null:any" : "is_null:any";
         return Optional.of(comparisonFunction(function, fieldReference(field)));
+    }
+
+    private Optional<Expression> convertLike(LikePredicate predicate) {
+        if (predicate.getOp() != LikePredicate.Operator.LIKE) {
+            return Optional.empty();
+        }
+        return convertStringPredicate("like:str_str", predicate.getChild(0), predicate.getChild(1), true);
+    }
+
+    private Optional<Expression> convertStringFunction(FunctionCallExpr function) {
+        if (function.getFnName() == null || function.getChildren().size() != 2) {
+            return Optional.empty();
+        }
+        String functionName = function.getFnName().getFunction().toLowerCase(Locale.ROOT);
+        switch (functionName) {
+            case "like":
+                return convertStringPredicate(
+                        "like:str_str", function.getChild(0), function.getChild(1), true);
+            case "starts_with":
+                return convertStringPredicate(
+                        "starts_with:str_str", function.getChild(0), function.getChild(1), false);
+            case "ends_with":
+                return convertStringPredicate(
+                        "ends_with:str_str", function.getChild(0), function.getChild(1), false);
+            default:
+                return Optional.empty();
+        }
+    }
+
+    private Optional<Expression> convertStringPredicate(
+            String function, Expr input, Expr pattern, boolean rejectEscapedPattern) {
+        SlotRef slot = directSlot(input);
+        LiteralExpr literal = directLiteral(pattern);
+        ResolvedField field = slot == null ? null : findField(slot);
+        if (field == null || !isStringType(field.field.getType()) || !(literal instanceof StringLiteral)) {
+            return Optional.empty();
+        }
+        String patternValue = literal.getStringValue();
+        // Doris uses backslash as LIKE's default escape character, while the Substrait function
+        // has no escape argument. Keep escaped LIKE patterns in Doris rather than changing meaning.
+        if (rejectEscapedPattern && patternValue.indexOf('\\') >= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(stringFunction(function, fieldReference(field),
+                ExpressionCreator.string(false, patternValue)));
+    }
+
+    private Optional<Expression> convertBooleanSlot(SlotRef slot) {
+        ResolvedField field = findField(slot);
+        if (field == null || !(field.field.getType() instanceof ArrowType.Bool)) {
+            return Optional.empty();
+        }
+        return Optional.of(comparisonFunction("equal:any_any",
+                fieldReference(field), ExpressionCreator.bool(false, true)));
     }
 
     // convert doris literal to Substrait literal with arrow type
@@ -450,6 +515,10 @@ public class LancePredicateConverter {
                 || type instanceof ArrowType.LargeUtf8;
     }
 
+    private static boolean isStringType(ArrowType type) {
+        return type instanceof ArrowType.Utf8 || type instanceof ArrowType.LargeUtf8;
+    }
+
     // slotref with ordinal index with Substrait Type
     private Expression fieldReference(ResolvedField field) {
         return FieldReference.newRootStructReference(field.ordinal, toSubstraitType(field.field));
@@ -500,6 +569,10 @@ public class LancePredicateConverter {
 
     private static Expression booleanFunction(String key, List<Expression> arguments) {
         return scalarFunction(DefaultExtensionCatalog.FUNCTIONS_BOOLEAN, key, arguments);
+    }
+
+    private static Expression stringFunction(String key, Expression... arguments) {
+        return scalarFunction(DefaultExtensionCatalog.FUNCTIONS_STRING, key, Arrays.asList(arguments));
     }
 
     private static Expression scalarFunction(String uri, String key, List<Expression> arguments) {

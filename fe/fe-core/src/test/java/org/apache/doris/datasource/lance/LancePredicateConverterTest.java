@@ -27,6 +27,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ScalarType;
@@ -213,6 +214,69 @@ public class LancePredicateConverterTest {
         Assertions.assertTrue(result.getSubstraitFilter().length > 0);
         Assertions.assertDoesNotThrow(() -> ExtendedExpression.parseFrom(result.getSubstraitFilter()));
         Assertions.assertEquals(3, result.getPushedConjuncts().size());
+    }
+
+    @Test
+    public void testStringPredicates() {
+        Expr legacyLike = new LikePredicate(LikePredicate.Operator.LIKE,
+                new SlotRef(null, "label"), new StringLiteral("ready%"));
+        Expr like = new FunctionCallExpr("like",
+                Arrays.asList(new SlotRef(null, "label"), new StringLiteral("%ead_")));
+        Expr startsWith = new FunctionCallExpr("starts_with",
+                Arrays.asList(new SlotRef(null, "label"), new StringLiteral("ready")));
+        Expr endsWith = new FunctionCallExpr("ends_with",
+                Arrays.asList(new SlotRef(null, "large_label"), new StringLiteral("done")));
+
+        LancePredicateConverter.ConversionResult result =
+                converter.convert(Arrays.asList(legacyLike, like, startsWith, endsWith));
+
+        ExtendedExpression envelope = Assertions.assertDoesNotThrow(
+                () -> ExtendedExpression.parseFrom(result.getSubstraitFilter()));
+        String serialized = envelope.toString();
+        Assertions.assertTrue(serialized.contains("like:str_str"));
+        Assertions.assertTrue(serialized.contains("starts_with:str_str"));
+        Assertions.assertTrue(serialized.contains("ends_with:str_str"));
+        Assertions.assertEquals(4, result.getPushedConjuncts().size());
+    }
+
+    @Test
+    public void testUnsupportedStringPredicatesRemainResidual() {
+        Expr regexp = new LikePredicate(LikePredicate.Operator.REGEXP,
+                new SlotRef(null, "label"), new StringLiteral("ready.*"));
+        Expr escapedLike = new LikePredicate(LikePredicate.Operator.LIKE,
+                new SlotRef(null, "label"), new StringLiteral("ready\\%"));
+        Expr explicitEscape = new FunctionCallExpr("like", Arrays.asList(
+                new SlotRef(null, "label"), new StringLiteral("ready!%"),
+                new StringLiteral("!")));
+        Expr nonLiteralPattern = new FunctionCallExpr("starts_with",
+                Arrays.asList(new SlotRef(null, "label"), new SlotRef(null, "event-type")));
+        Expr nonStringInput = new FunctionCallExpr("ends_with",
+                Arrays.asList(new SlotRef(null, "row_id"), new StringLiteral("1")));
+
+        LancePredicateConverter.ConversionResult result = converter.convert(
+                Arrays.asList(regexp, escapedLike, explicitEscape, nonLiteralPattern, nonStringInput));
+
+        Assertions.assertEquals(0, result.getSubstraitFilter().length);
+        Assertions.assertTrue(result.getPushedConjuncts().isEmpty());
+    }
+
+    @Test
+    public void testDirectBooleanPredicates() {
+        LancePredicateConverter boolConverter = new LancePredicateConverter(new Schema(
+                Collections.singletonList(Field.nullable("active", ArrowType.Bool.INSTANCE))));
+        Expr active = new SlotRef(null, "active");
+        Expr notActive = new CompoundPredicate(
+                CompoundPredicate.Operator.NOT, new SlotRef(null, "active"), null);
+
+        LancePredicateConverter.ConversionResult result =
+                boolConverter.convert(Arrays.asList(active, notActive));
+
+        ExtendedExpression envelope = Assertions.assertDoesNotThrow(
+                () -> ExtendedExpression.parseFrom(result.getSubstraitFilter()));
+        String serialized = envelope.toString();
+        Assertions.assertTrue(serialized.contains("equal:any_any"));
+        Assertions.assertTrue(serialized.contains("not:bool"));
+        Assertions.assertEquals(2, result.getPushedConjuncts().size());
     }
 
     @Test

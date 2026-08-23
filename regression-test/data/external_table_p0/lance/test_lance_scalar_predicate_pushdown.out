@@ -78,6 +78,56 @@
 9
 10
 
+-- !select_bool_direct --
+5
+6
+7
+9
+10
+
+-- !select_bool_direct_not --
+2
+3
+4
+8
+
+-- !select_utf8_starts_with --
+7
+8
+
+-- !select_utf8_ends_with --
+4
+6
+
+-- !select_utf8_like_prefix --
+2
+4
+10
+
+-- !select_utf8_like_contains --
+3
+7
+10
+
+-- !select_utf8_like_single_wildcard --
+7
+8
+
+-- !select_utf8_not_like --
+2
+3
+4
+5
+6
+9
+10
+
+-- !select_utf8_like_explicit_escape --
+
+-- !select_utf8_regexp_residual --
+7
+8
+
 -- !select_float32_eq --
 7
 8
