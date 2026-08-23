@@ -52,8 +52,8 @@ TabletSchemaSPtr make_tablet_schema() {
 TEST(SegmentIteratorVirtualColumnTest, MaterializationExpandsConstNullableResult) {
     auto tablet_schema = make_tablet_schema();
     auto segment = std::make_shared<Segment>(0, RowsetId(), tablet_schema, InvertedIndexFileInfo());
-    auto schema = std::make_shared<Schema>(tablet_schema->columns(), std::vector<ColumnId> {0});
-    SegmentIterator iterator(segment, schema);
+    auto read_schema = std::make_shared<::doris::ReadSchema>(tablet_schema->columns());
+    SegmentIterator iterator(segment, read_schema);
 
     auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
     auto expr = std::make_shared<VLiteral>(type, Field());
