@@ -540,8 +540,10 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
                 _no_threads_cond.notify_all();
             }
             if (_pool_status.ok()) {
-                // The task was published only because another worker can execute it.
-                DORIS_CHECK_GT(_num_threads + _num_threads_pending_start, 0);
+                // A published task either already ran or still has a live or pending worker.
+                // The last-worker guard in dispatch_thread() keeps this true; a violation is a
+                // pool logic error.
+                DORIS_CHECK(_queue.empty() || _num_threads + _num_threads_pending_start > 0);
                 LOG(WARNING) << "Thread pool " << _name
                              << " failed to create thread: " << status.to_string();
             }
@@ -580,7 +582,12 @@ void ThreadPool::dispatch_thread() {
             break;
         }
 
-        if (_num_threads + _num_threads_pending_start > _max_threads) {
+        // A runtime shrink may leave more live + pending threads than _max_threads. Excess threads
+        // retire here, but the last live worker must stay while tasks are queued: a pending
+        // replacement may still fail to start, and a pool with queued tasks and no worker can only
+        // recover on the next submit. The excess thread retires once the queue drains.
+        if (_num_threads + _num_threads_pending_start > _max_threads &&
+            (_num_threads > 1 || _queue.empty())) {
             break;
         }
 
@@ -704,6 +711,13 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
+    DBUG_EXECUTE_IF("ThreadPool.create_thread.block", {
+        // Hold the caller here until the test removes this debug point. Used to widen the window
+        // between publishing a task and observing the thread-creation result.
+        while (DebugPoints::instance()->is_enable("ThreadPool.create_thread.block")) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
     DBUG_EXECUTE_IF("ThreadPool.create_thread.inject_failure",
                     { return Status::RuntimeError("injected thread creation failure"); });
     return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),

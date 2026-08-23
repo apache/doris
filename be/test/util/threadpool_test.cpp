@@ -169,6 +169,76 @@ TEST_F(ThreadPoolTest, TestRejectNonPositiveMaxThreads) {
     EXPECT_EQ(old_max_threads, _pool->max_threads());
 }
 
+TEST_F(ThreadPoolTest, TestLastWorkerSurvivesShrinkWithQueuedTask) {
+    const bool old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer cleanup = [&] {
+        DebugPoints::instance()->remove("ThreadPool.create_thread.block");
+        DebugPoints::instance()->remove("ThreadPool.create_thread.inject_failure");
+        config::enable_debug_points = old_enable_debug_points;
+    };
+
+    // Build the pool before enabling debug points so the initial worker starts normally.
+    EXPECT_TRUE(rebuild_pool_with_min_max(1, 2).ok());
+    ASSERT_EQ(1, _pool->num_threads());
+
+    // Occupy the only worker so the next submission requests an additional thread.
+    CountDownLatch task_a_started(1);
+    CountDownLatch release_task_a(1);
+    ASSERT_TRUE(_pool->submit_func([&] {
+                         task_a_started.count_down();
+                         release_task_a.wait();
+                     }).ok());
+    task_a_started.wait();
+
+    // The next submission publishes task B, then stalls inside create_thread() so a runtime
+    // shrink can interleave before the creation failure is observed.
+    DebugPoints::instance()->add("ThreadPool.create_thread.block");
+    DebugPoints::instance()->add("ThreadPool.create_thread.inject_failure");
+    std::atomic<int> task_b_runs = 0;
+    CountDownLatch task_b_done(1);
+    Status submit_b_status;
+    std::thread submitter([&] {
+        submit_b_status = _pool->submit_func([&] {
+            ++task_b_runs;
+            task_b_done.count_down();
+        });
+    });
+    auto wait_for = [](const std::function<bool()>& pred) {
+        for (int i = 0; i < 10000; ++i) {
+            if (pred()) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return false;
+    };
+    ASSERT_TRUE(wait_for([&] { return _pool->get_queue_size() == 1; }));
+    ASSERT_EQ(1, _pool->num_threads_pending_start());
+
+    // Shrink below live + pending. The active worker counts the pending replacement, but it must
+    // not retire while it is the last live worker and task B is still queued: the replacement can
+    // still fail to start.
+    ASSERT_TRUE(_pool->set_max_threads(1).ok());
+    release_task_a.count_down();
+    ASSERT_TRUE(task_b_done.wait_for(std::chrono::seconds(10)));
+
+    // Only after B ran does the stalled creation fail; the failure path must tolerate it.
+    DebugPoints::instance()->remove("ThreadPool.create_thread.block");
+    submitter.join();
+
+    EXPECT_TRUE(submit_b_status.ok()) << submit_b_status.to_string();
+    EXPECT_EQ(1, task_b_runs.load());
+    EXPECT_EQ(0, _pool->get_queue_size());
+
+    // The pool stays usable: the next submission recreates a worker if none is left.
+    DebugPoints::instance()->remove("ThreadPool.create_thread.inject_failure");
+    std::atomic<int> task_c_runs = 0;
+    ASSERT_TRUE(_pool->submit_func([&] { ++task_c_runs; }).ok());
+    _pool->wait();
+    EXPECT_EQ(1, task_c_runs.load());
+}
+
 class SlowTask : public Runnable {
 public:
     explicit SlowTask(CountDownLatch* latch) : _latch(latch) {}
