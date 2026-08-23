@@ -34,6 +34,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 class ConnectorRewriteGroupTaskResourceTest {
 
@@ -54,9 +55,21 @@ class ConnectorRewriteGroupTaskResourceTest {
         StatementContext statementContext = new StatementContext(taskContext, null);
         taskContext.setStatementContext(statementContext);
         AtomicBoolean scopeClosed = new AtomicBoolean();
+        AtomicReference<Boolean> callbackObservedClosedScope = new AtomicReference<>();
 
         ConnectorRewriteGroupTask task = new ConnectorRewriteGroupTask(
-                group, 1L, Mockito.mock(ConnectorTransaction.class), table, new ConnectContext(), null) {
+                group, 1L, Mockito.mock(ConnectorTransaction.class), table, new ConnectContext(),
+                new ConnectorRewriteGroupTask.RewriteResultCallback() {
+                    @Override
+                    public void onTaskCompleted(Long taskId) {
+                        callbackObservedClosedScope.set(scopeClosed.get());
+                    }
+
+                    @Override
+                    public void onTaskFailed(Long taskId, Exception error) {
+                        callbackObservedClosedScope.set(scopeClosed.get());
+                    }
+                }) {
             @Override
             protected ConnectContext buildConnectContext() {
                 taskContext.setThreadLocalInfo();
@@ -74,6 +87,7 @@ class ConnectorRewriteGroupTaskResourceTest {
 
         Assertions.assertThrows(JobException.class, task::execute);
         Assertions.assertTrue(scopeClosed.get());
+        Assertions.assertEquals(Boolean.TRUE, callbackObservedClosedScope.get());
         Assertions.assertNull(ConnectContext.get());
     }
 }

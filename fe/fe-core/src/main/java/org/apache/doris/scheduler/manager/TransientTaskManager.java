@@ -57,7 +57,12 @@ public class TransientTaskManager {
     public Long addMemoryTask(TransientTaskExecutor executor) throws JobException {
         Long taskId = executor.getId();
         taskExecutorMap.put(taskId, executor);
-        disruptor.tryPublishTask(taskId);
+        try {
+            disruptor.tryPublishTask(taskId);
+        } catch (JobException e) {
+            taskExecutorMap.remove(taskId, executor);
+            throw e;
+        }
         LOG.info("add memory task, taskId: {}", taskId);
         return taskId;
     }

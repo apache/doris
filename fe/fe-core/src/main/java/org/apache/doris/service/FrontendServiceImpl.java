@@ -396,6 +396,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx =
             new ConcurrentHashMap<>(64);
+    private final Map<TUniqueId, Long> pendingProxyQueryCancels = new ConcurrentHashMap<>(64);
+    private static final long PENDING_PROXY_CANCEL_TTL_MS = 5 * 60 * 1000L;
 
     private static TNetworkAddress getMasterAddress() {
         Env env = Env.getCurrentEnv();
@@ -1244,7 +1246,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         ConnectContext context = proxyQueryIdToConnCtx.get(params.getQueryId());
         if (context != null) {
-            context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+            context.cancelQueryOnExecutorPublication(
+                    new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+        } else {
+            long now = System.currentTimeMillis();
+            pendingProxyQueryCancels.entrySet().removeIf(
+                    entry -> now - entry.getValue() > PENDING_PROXY_CANCEL_TTL_MS);
+            pendingProxyQueryCancels.put(params.getQueryId(), now);
+            context = proxyQueryIdToConnCtx.get(params.getQueryId());
+            if (context != null && pendingProxyQueryCancels.remove(params.getQueryId()) != null) {
+                context.cancelQueryOnExecutorPublication(
+                        new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+            }
         }
         TMasterOpResult result = createForwardResultWithJournalSync();
         result.setStatusCode(0);
@@ -1285,6 +1298,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return () -> {};
         }
         proxyQueryIdToConnCtx.put(params.getQueryId(), context);
+        if (pendingProxyQueryCancels.remove(params.getQueryId()) != null) {
+            context.cancelQueryOnExecutorPublication(
+                    new Status(TStatusCode.CANCELLED, "cancel query before forward registration."));
+        }
         return () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
     }
 

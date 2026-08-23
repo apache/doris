@@ -30,6 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
@@ -40,6 +41,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -829,6 +831,29 @@ public class ConnectContextTest {
                 ctx.addFlightSqlDeferredExecutor(late));
         ctx.closeFlightSqlDeferredExecutors();
         Mockito.verifyNoInteractions(late);
+    }
+
+    @Test
+    public void testFlightSealReplaysCancelWhenExecutorPublishesLate() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.connectType = ConnectContext.ConnectType.ARROW_FLIGHT_SQL;
+        StmtExecutor lateExecutor = Mockito.mock(StmtExecutor.class);
+
+        ctx.sealFlightSqlDeferredExecutors();
+        ctx.setExecutor(lateExecutor);
+
+        Mockito.verify(lateExecutor).cancel(Mockito.any(), Mockito.eq(false));
+    }
+
+    @Test
+    public void testForwardCancelReplayedWhenExecutorPublishesLate() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor lateExecutor = Mockito.mock(StmtExecutor.class);
+
+        ctx.cancelQueryOnExecutorPublication(new Status(TStatusCode.CANCELLED, "forward cancel"));
+        ctx.setExecutor(lateExecutor);
+
+        Mockito.verify(lateExecutor).cancel(Mockito.any(Status.class));
     }
 
     @Test
