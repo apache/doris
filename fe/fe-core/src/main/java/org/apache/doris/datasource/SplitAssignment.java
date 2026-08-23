@@ -191,11 +191,16 @@ public class SplitAssignment {
     }
 
     public void stop() {
-        if (isStop()) {
-            return;
+        List<Closeable> resources;
+        synchronized (closeableResources) {
+            if (isStop()) {
+                return;
+            }
+            isStopped.set(true);
+            resources = new ArrayList<>(closeableResources);
+            closeableResources.clear();
         }
-        isStopped.set(true);
-        closeableResources.forEach((closeable) -> {
+        resources.forEach((closeable) -> {
             try {
                 closeable.close();
             } catch (Exception e) {
@@ -214,6 +219,16 @@ public class SplitAssignment {
     }
 
     public void addCloseable(Closeable resource) {
-        closeableResources.add(resource);
+        synchronized (closeableResources) {
+            if (!isStop()) {
+                closeableResources.add(resource);
+                return;
+            }
+        }
+        try {
+            resource.close();
+        } catch (Exception e) {
+            LOG.warn("close resource registered after stop error:{}", e.getMessage(), e);
+        }
     }
 }
