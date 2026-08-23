@@ -457,6 +457,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a"), path("s", "data", "*", "VALUES", "b")),
                 ImmutableList.of()
         );
+
+        assertColumn("select array_map(m -> array_map(x -> element_at(map_values(m)[0], 'a'), [1]), "
+                        + "element_at(s, 'data')) from tbl",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
     }
 
     @Test

@@ -87,7 +87,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     private boolean bottomPredicate;
     private boolean skipMetaPath;
     private Multimap<Integer, CollectAccessPathResult> slotToAccessPaths;
-    private Stack<Map<String, Expression>> nameToLambdaArguments = new Stack<>();
+    private Stack<Map<ExprId, Expression>> exprIdToLambdaArguments = new Stack<>();
 
     public AccessPathExpressionCollector(
             StatementContext statementContext, Multimap<Integer, CollectAccessPathResult> slotToAccessPaths,
@@ -272,15 +272,17 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitArrayItemSlot(ArrayItemSlot arrayItemSlot, CollectorContext context) {
-        if (nameToLambdaArguments.isEmpty()) {
+        if (exprIdToLambdaArguments.isEmpty()) {
             return null;
         }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-        Expression argument = nameToLambdaArguments.peek().get(arrayItemSlot.getName());
-        if (argument == null) {
-            return null;
+        for (int i = exprIdToLambdaArguments.size() - 1; i >= 0; i--) {
+            Expression argument = exprIdToLambdaArguments.get(i).get(arrayItemSlot.getExprId());
+            if (argument != null) {
+                return continueCollectAccessPath(argument, context);
+            }
         }
-        return continueCollectAccessPath(argument, context);
+        return null;
     }
 
     @Override
@@ -685,10 +687,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     private Void collectArrayPathInLambda(Lambda lambda, CollectorContext context) {
         List<Expression> arguments = lambda.getArguments();
-        Map<String, Expression> nameToArray = Maps.newLinkedHashMap();
+        Map<ExprId, Expression> exprIdToArray = Maps.newLinkedHashMap();
         for (Expression argument : arguments) {
             if (argument instanceof ArrayItemReference) {
-                nameToArray.put(((ArrayItemReference) argument).getName(), argument.child(0));
+                exprIdToArray.put(((ArrayItemReference) argument).getExprId(), argument.child(0));
             }
         }
 
@@ -697,11 +699,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             context.accessPathBuilder.removePrefix();
         }
 
-        nameToLambdaArguments.push(nameToArray);
+        exprIdToLambdaArguments.push(exprIdToArray);
         try {
             continueCollectAccessPath(arguments.get(0), context);
         } finally {
-            nameToLambdaArguments.pop();
+            exprIdToLambdaArguments.pop();
         }
 
         // After visiting the lambda body, for any bound array whose lambda variable
@@ -712,7 +714,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // the complex column to null-only / offset-only instead of reading full data.
         //
         // Detect usage by scanning the lambda body for ArrayItemSlots matching the
-        // argument name, which is more reliable than getInputSlots() that deliberately
+        // argument ExprId, which is more reliable than getInputSlots() that deliberately
         // excludes ArrayItemSlot and may falsely match outer slots.
         //
         // Must use a fresh context: when the body DOES reference some variables
