@@ -186,12 +186,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
-        Preconditions.checkState(null != connectContext);
-        Preconditions.checkState(!query.isEmpty());
-        boolean resultPublisher = connectContext.beginFlightSqlResultPublication();
-        Preconditions.checkState(resultPublisher,
-                "Arrow Flight SQL session already has an active result publisher or is torn down");
         try {
+            Preconditions.checkState(null != connectContext);
+            Preconditions.checkState(!query.isEmpty());
             // Finalize the previous query's coordinator on this connection whose close was
             // deferred (Arrow Flight keeps it alive across GetFlightInfo -> DoGet so the BE can
             // fetch external-table splits during DoGet). By now the previous DoGet is done. #62259
@@ -215,11 +212,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + queryId);
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        FlightInfo flightInfo = getFlightInfoForSchema(ticketStatement, descriptor,
+                        return getFlightInfoForSchema(ticketStatement, descriptor,
                                 connectContext.getFlightSqlChannel().getResult(queryId).getVectorSchemaRoot()
                                         .getSchema());
-                        resultPublisher = false;
-                        return publishFlightInfo(connectContext, flightInfo);
                     } else {
                         // A Flight Sql request can only contain one statement that returns result,
                         // otherwise expected thrown exception during execution.
@@ -233,12 +228,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                                 peerIdentity + ":" + DebugUtil.printId(connectContext.queryId()));
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        FlightInfo flightInfo = getFlightInfoForSchema(ticketStatement, descriptor,
-                                connectContext.getFlightSqlChannel()
-                                        .getResult(DebugUtil.printId(connectContext.queryId())).getVectorSchemaRoot()
-                                        .getSchema());
-                        resultPublisher = false;
-                        return publishFlightInfo(connectContext, flightInfo);
+                        return getFlightInfoForSchema(ticketStatement, descriptor, connectContext.getFlightSqlChannel()
+                                .getResult(DebugUtil.printId(connectContext.queryId())).getVectorSchemaRoot()
+                                .getSchema());
                     }
                 } else {
                     // Now only query stmt will pull results from BE.
@@ -288,10 +280,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         endpoints.add(new FlightEndpoint(ticket, location));
                     }
                     // TODO Set in BE callback after query end, Client will not callback.
-                    FlightInfo flightInfo = new FlightInfo(
-                            flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
-                    resultPublisher = false;
-                    return publishFlightInfo(connectContext, flightInfo);
+                    return new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
                 }
             }
         } catch (Throwable e) {
@@ -309,17 +298,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
         } finally {
-            if (resultPublisher) {
-                connectContext.endFlightSqlResultPublication();
-            }
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }
-    }
-
-    private FlightInfo publishFlightInfo(ConnectContext connectContext, FlightInfo flightInfo) {
-        Preconditions.checkState(connectContext.endFlightSqlResultPublication(),
-                "Arrow Flight SQL session was torn down before GetFlightInfo completed");
-        return flightInfo;
     }
 
     @Override

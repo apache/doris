@@ -65,13 +65,13 @@ public class BackendServiceClient {
         return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
     }
 
-    public ListenableFuture<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
                 .execPlanFragment(request);
     }
 
-    public ListenableFuture<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
                 .execPlanFragmentPrepare(request);
