@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SplitAssignmentTest {
 
@@ -79,6 +80,16 @@ public class SplitAssignmentTest {
                 pathPartitionKeys,
                 true
         );
+    }
+
+    @Test
+    void testCloseableRegisteredAfterStopIsClosedImmediately() {
+        splitAssignment.stop();
+        AtomicBoolean closed = new AtomicBoolean();
+
+        splitAssignment.addCloseable(() -> closed.set(true));
+
+        Assertions.assertTrue(closed.get());
     }
 
     // ==================== init() method tests ====================

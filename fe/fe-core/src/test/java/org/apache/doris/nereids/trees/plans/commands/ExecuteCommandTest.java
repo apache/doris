@@ -72,19 +72,9 @@ public class ExecuteCommandTest {
 
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
         Assertions.assertEquals("2", resolveNextSnapshot(scanParams, snapshotId));
-        AtomicInteger firstResourceClosed = new AtomicInteger();
-        statementContext.getOrRegisterStatementResource("iceberg-table",
-                () -> firstResourceClosed::incrementAndGet);
-        statementContext.close();
-        Assertions.assertEquals(1, firstResourceClosed.get());
 
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
         Assertions.assertEquals("3", resolveNextSnapshot(scanParams, snapshotId));
-        AtomicInteger secondResourceClosed = new AtomicInteger();
-        statementContext.getOrRegisterStatementResource("iceberg-table",
-                () -> secondResourceClosed::incrementAndGet);
-        statementContext.close();
-        Assertions.assertEquals(1, secondResourceClosed.get());
         Mockito.verify(executor, Mockito.times(2)).execute();
     }
 

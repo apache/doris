@@ -960,29 +960,6 @@ public class StatementContext implements Closeable {
         return resource;
     }
 
-    /** Start a new execution-scoped resource generation for a retained prepared statement context. */
-    public synchronized void beginStatementResourceGeneration() {
-        if (!statementResources.isEmpty()) {
-            throw new IllegalStateException("Previous statement resources are still active");
-        }
-        statementResourcesClosed = false;
-    }
-
-    /**
-     * Transfers the current statement resources to a later completion boundary. The returned handle owns
-     * exactly this generation and is idempotent, while {@link #close()} will no longer release the resources.
-     */
-    public synchronized Closeable detachStatementResources() {
-        if (statementResourcesClosed || statementResources.isEmpty()) {
-            statementResourcesClosed = true;
-            return () -> { };
-        }
-        statementResourcesClosed = true;
-        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
-        statementResources.clear();
-        return new DetachedStatementResources(resources);
-    }
-
     private synchronized void releaseStatementResources() {
         if (statementResourcesClosed) {
             return;
@@ -1003,40 +980,6 @@ public class StatementContext implements Closeable {
         if (throwable != null) {
             Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
             throw new IllegalStateException("Release statement resource failed", throwable);
-        }
-    }
-
-    private static class DetachedStatementResources implements Closeable {
-        private final List<CloseableResource> resources;
-        private boolean closed;
-
-        private DetachedStatementResources(List<CloseableResource> resources) {
-            this.resources = resources;
-        }
-
-        @Override
-        public synchronized void close() {
-            if (closed) {
-                return;
-            }
-            closed = true;
-            Throwable throwable = null;
-            for (int i = resources.size() - 1; i >= 0; i--) {
-                try {
-                    resources.get(i).close();
-                } catch (Throwable t) {
-                    if (throwable == null) {
-                        throwable = t;
-                    } else {
-                        throwable.addSuppressed(t);
-                    }
-                }
-            }
-            resources.clear();
-            if (throwable != null) {
-                Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
-                throw new IllegalStateException("Release detached statement resource failed", throwable);
-            }
         }
     }
 
