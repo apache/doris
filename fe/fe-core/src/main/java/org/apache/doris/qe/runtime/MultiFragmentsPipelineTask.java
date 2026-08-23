@@ -39,6 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,7 +47,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -64,6 +64,9 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
     private ByteString serializeFragments;
     private final AtomicBoolean hasCancelled;
     private final AtomicBoolean cancelInProcess;
+    private final AtomicBoolean cancelRequested;
+    private ListenableFuture<PExecPlanFragmentResult> phaseOneFuture;
+    private boolean deferredCancelScheduled;
 
     public MultiFragmentsPipelineTask(
             CoordinatorContext coordinatorContext, Backend backend, BackendServiceProxy backendClientProxy,
@@ -78,15 +81,23 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         );
         this.hasCancelled = new AtomicBoolean();
         this.cancelInProcess = new AtomicBoolean();
+        this.cancelRequested = new AtomicBoolean();
     }
 
-    public Future<PExecPlanFragmentResult> sendPhaseOneRpc(boolean twoPhaseExecution) {
-        return execRemoteFragmentsAsync(
+    public synchronized Future<PExecPlanFragmentResult> sendPhaseOneRpc(boolean twoPhaseExecution) {
+        if (cancelRequested.get()) {
+            return futureWithStatus(TStatusCode.CANCELLED, "Query cancelled before fragment dispatch");
+        }
+        phaseOneFuture = execRemoteFragmentsAsync(
                 backendClientProxy, serializeFragments, backend.getBrpcAddress(), twoPhaseExecution
         );
+        return phaseOneFuture;
     }
 
-    public Future<PExecPlanFragmentResult> sendPhaseTwoRpc() {
+    public synchronized Future<PExecPlanFragmentResult> sendPhaseTwoRpc() {
+        if (cancelRequested.get()) {
+            return futureWithStatus(TStatusCode.CANCELLED, "Query cancelled before fragment start");
+        }
         return execPlanFragmentStartAsync(backendClientProxy, backend.getBrpcAddress());
     }
 
@@ -102,13 +113,42 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
     }
 
     public synchronized void cancelExecute(Status cancelReason) {
+        cancelRequested.set(true);
+        scheduleCancelAfterPhaseOne(cancelReason);
+        cancelExecuteInternal(cancelReason, false);
+    }
+
+    private void scheduleCancelAfterPhaseOne(Status cancelReason) {
+        if (phaseOneFuture == null || deferredCancelScheduled) {
+            return;
+        }
+        deferredCancelScheduled = true;
+        Futures.addCallback(phaseOneFuture, new FutureCallback<PExecPlanFragmentResult>() {
+            @Override
+            public void onSuccess(PExecPlanFragmentResult result) {
+                replayCancelAfterPhaseOne(cancelReason);
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                LOG.debug("Phase-one fragment dispatch completed exceptionally before deferred cancel", t);
+                replayCancelAfterPhaseOne(cancelReason);
+            }
+        }, MoreExecutors.directExecutor());
+    }
+
+    private synchronized void replayCancelAfterPhaseOne(Status cancelReason) {
+        cancelExecuteInternal(cancelReason, true);
+    }
+
+    private void cancelExecuteInternal(Status cancelReason, boolean force) {
         TUniqueId queryId = coordinatorContext.queryId;
         if (LOG.isDebugEnabled()) {
             LOG.debug("cancelRemoteFragments backend: {}, query={}, reason: {}",
                     backend, DebugUtil.printId(queryId), cancelReason.toString());
         }
 
-        if (this.hasCancelled.get() || this.cancelInProcess.get()) {
+        if (!force && (this.hasCancelled.get() || this.cancelInProcess.get())) {
             LOG.info("Fragment has already been cancelled. Query {} backend: {}",
                     DebugUtil.printId(queryId), backend);
             return;
@@ -160,7 +200,7 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         return backend;
     }
 
-    private Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync(
+    private ListenableFuture<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync(
             BackendServiceProxy proxy, ByteString serializedFragments, TNetworkAddress brpcAddr,
             boolean twoPhaseExecution) {
         Preconditions.checkNotNull(serializedFragments);
@@ -191,35 +231,14 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         }
     }
 
-    private Future<PExecPlanFragmentResult> futureWithException(RpcException e) {
-        return new Future<PExecPlanFragmentResult>() {
-            @Override
-            public boolean cancel(boolean mayInterruptIfRunning) {
-                return false;
-            }
+    private ListenableFuture<PExecPlanFragmentResult> futureWithException(RpcException e) {
+        return futureWithStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
+    }
 
-            @Override
-            public boolean isCancelled() {
-                return false;
-            }
-
-            @Override
-            public boolean isDone() {
-                return true;
-            }
-
-            @Override
-            public PExecPlanFragmentResult get() {
-                PExecPlanFragmentResult result = PExecPlanFragmentResult.newBuilder().setStatus(
-                        Types.PStatus.newBuilder().addErrorMsgs(e.getMessage())
-                                .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue()).build()).build();
-                return result;
-            }
-
-            @Override
-            public PExecPlanFragmentResult get(long timeout, TimeUnit unit) {
-                return get();
-            }
-        };
+    private ListenableFuture<PExecPlanFragmentResult> futureWithStatus(TStatusCode statusCode, String message) {
+        PExecPlanFragmentResult result = PExecPlanFragmentResult.newBuilder().setStatus(
+                Types.PStatus.newBuilder().addErrorMsgs(message)
+                        .setStatusCode(statusCode.getValue()).build()).build();
+        return Futures.immediateFuture(result);
     }
 }
