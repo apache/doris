@@ -92,11 +92,14 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
 
     @Override
     public void execute() throws Exception {
-        sendAndWaitPhaseOneRpc();
-        if (coordinatorContext.twoPhaseExecution()) {
-            sendAndWaitPhaseTwoRpc();
-        }
-        coordinatorContext.getJobProcessor().markFragmentDispatchCompleted();
+        coordinatorContext.withLock(() -> {
+            sendAndWaitPhaseOneRpc();
+            if (coordinatorContext.twoPhaseExecution()) {
+                sendAndWaitPhaseTwoRpc();
+            }
+            coordinatorContext.getJobProcessor().markFragmentDispatchCompleted();
+            return null;
+        });
     }
 
     @Override

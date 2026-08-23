@@ -206,7 +206,6 @@ public class ConnectorRewriteDriver {
     private void runGroups(List<ConnectorRewriteGroup> groups, long txnId, ConnectorTransaction connectorTx)
             throws UserException {
         List<ConnectorRewriteGroupTask> tasks = Lists.newArrayList();
-        List<ConnectorRewriteGroupTask> submittedTasks = Lists.newArrayList();
         RewriteResultCollector collector = new RewriteResultCollector(groups.size(), tasks);
 
         for (ConnectorRewriteGroup group : groups) {
@@ -228,10 +227,8 @@ public class ConnectorRewriteDriver {
         try {
             for (TransientTaskExecutor task : tasks) {
                 Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(task);
-                submittedTasks.add((ConnectorRewriteGroupTask) task);
             }
         } catch (JobException e) {
-            cancelAndAwaitTasks(submittedTasks);
             throw new UserException("Failed to submit rewrite tasks: " + e.getMessage(), e);
         }
 
@@ -239,7 +236,6 @@ public class ConnectorRewriteDriver {
         try {
             boolean completed = collector.await(maxWaitTime, TimeUnit.SECONDS);
             if (!completed) {
-                cancelAndAwaitTasks(tasks);
                 throw new UserException("Rewrite tasks did not complete within timeout");
             }
             if (collector.getFirstError() != null) {
@@ -247,33 +243,8 @@ public class ConnectorRewriteDriver {
                         collector.getFirstError());
             }
         } catch (InterruptedException e) {
-            cancelAndAwaitTasks(tasks);
             Thread.currentThread().interrupt();
             throw new UserException("Wait for rewrite tasks completion was interrupted", e);
-        }
-    }
-
-    private void cancelAndAwaitTasks(List<ConnectorRewriteGroupTask> tasks) {
-        for (ConnectorRewriteGroupTask task : tasks) {
-            try {
-                task.cancel();
-            } catch (Exception e) {
-                LOG.warn("Failed to cancel rewrite task {}: {}", task.getId(), e.getMessage());
-            }
-        }
-        boolean interrupted = false;
-        for (ConnectorRewriteGroupTask task : tasks) {
-            while (true) {
-                try {
-                    task.awaitTerminal();
-                    break;
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                }
-            }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
         }
     }
 

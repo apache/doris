@@ -34,7 +34,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
@@ -54,9 +53,8 @@ import java.util.Optional;
 @Log4j2
 @Getter
 public class StreamingInsertTask extends AbstractStreamingTask {
-    private static final long CANCEL_WAIT_TIMEOUT_MS = 1000;
     private String sql;
-    private volatile StmtExecutor stmtExecutor;
+    private StmtExecutor stmtExecutor;
     private InsertIntoTableCommand taskCommand;
     private String currentDb;
     private ConnectContext ctx;
@@ -151,10 +149,11 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         if (getIsCanceled().get()) {
             return false;
         }
+        this.status = TaskStatus.SUCCESS;
+        this.finishTimeMs = System.currentTimeMillis();
         if (!isCallable()) {
             return false;
         }
-        this.finishTimeMs = System.currentTimeMillis();
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         if (null == job) {
             log.info("job is null, job id is {}", jobId);
@@ -163,7 +162,6 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
         StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
         streamingInsertJob.onStreamTaskSuccess(this);
-        this.status = TaskStatus.SUCCESS;
         return true;
     }
 
@@ -175,66 +173,24 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     @Override
     public void cancel(boolean needWaitCancelComplete) {
         super.cancel(needWaitCancelComplete);
-        StmtExecutor executor = stmtExecutor;
-        if (null != executor) {
+        if (null != stmtExecutor) {
             log.info("cancelling streaming insert task, job id is {}, task id is {}",
                     getJobId(), getTaskId());
-            executor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"), false);
-        }
-        if (needWaitCancelComplete) {
-            // Planning may still be blocked before stmtExecutor is published. Do not let PAUSE wait
-            // forever; the scheduler owner remains responsible for exact-once cleanup in execute().
-            awaitExecutionCompletion(CANCEL_WAIT_TIMEOUT_MS);
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
+                    needWaitCancelComplete);
         }
     }
 
     @Override
-    public synchronized void closeOrReleaseResources() {
-        ConnectContext taskContext = ctx;
-        RuntimeException cleanupFailure = null;
-        try {
-            if (taskContext != null) {
-                if (taskContext.queryId() != null) {
-                    // Planning can register query-finish callbacks before a coordinator exists. Always run the
-                    // registry teardown so Hive read transactions do not survive a failed/cancelled attempt.
-                    try {
-                        QeProcessorImpl.INSTANCE.unregisterQuery(taskContext.queryId());
-                    } catch (RuntimeException e) {
-                        cleanupFailure = e;
-                    }
-                }
-                if (taskContext.getStatementContext() != null) {
-                    try {
-                        taskContext.getStatementContext().close();
-                    } catch (RuntimeException e) {
-                        if (cleanupFailure == null) {
-                            cleanupFailure = e;
-                        } else {
-                            cleanupFailure.addSuppressed(e);
-                        }
-                    }
-                }
-            }
-        } finally {
+    public void closeOrReleaseResources() {
+        if (null != stmtExecutor) {
             stmtExecutor = null;
+        }
+        if (null != taskCommand) {
             taskCommand = null;
+        }
+        if (null != ctx) {
             ctx = null;
-            // before() installs this attempt's context on the scheduler worker. Remove only that exact
-            // context: cancellation may invoke cleanup from a different thread while the worker is unwinding.
-            if (ConnectContext.get() == taskContext) {
-                ConnectContext.remove();
-            }
-        }
-        if (cleanupFailure != null) {
-            throw cleanupFailure;
-        }
-    }
-
-    @Override
-    protected void onExecutionFinished() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        if (job instanceof StreamingInsertJob) {
-            ((StreamingInsertJob) job).clearRunningStreamTask(this);
         }
     }
 

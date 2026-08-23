@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.ConnectorRewriteExec
 import org.apache.doris.nereids.trees.plans.commands.insert.RewriteTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.scheduler.exception.JobException;
@@ -51,7 +50,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -76,8 +74,6 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
-    private final AtomicBoolean isStarted = new AtomicBoolean(false);
-    private final CountDownLatch terminal = new CountDownLatch(1);
 
     // for canceling the task
     private StmtExecutor stmtExecutor;
@@ -110,19 +106,17 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
 
     @Override
     public void execute() throws JobException {
-        if (!isStarted.compareAndSet(false, true)) {
+        if (isCanceled.get()) {
+            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+        }
+        if (isFinished.get()) {
             return;
         }
 
-        ConnectContext taskConnectContext = null;
-        Exception taskFailure = null;
         try {
-            if (isCanceled.get()) {
-                throw new JobException("Rewrite task has been canceled, task id: " + taskId);
-            }
             // Step 1: Build a fresh ConnectContext for this group and stash the per-group scan scope + the
             // shared connector transaction (read back during planning by pinRewriteFileScope / finalizeSink).
-            taskConnectContext = buildConnectContext();
+            ConnectContext taskConnectContext = buildConnectContext();
             StatementContext stmtCtx = taskConnectContext.getStatementContext();
             stmtCtx.setRewriteSourceFilePaths(new ArrayList<>(group.getDataFilePaths()));
             stmtCtx.setRewriteSharedTransaction(sharedTransaction);
@@ -135,36 +129,17 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
             // Step 3: Execute the rewrite write for this group.
             executeGroup(taskConnectContext, taskLogicalPlan, taskParsedStmt);
 
+            if (resultCallback != null) {
+                resultCallback.onTaskCompleted(taskId);
+            }
         } catch (Exception e) {
             LOG.warn("Failed to execute connector rewrite group: {}", e.getMessage(), e);
-            taskFailure = e;
+            if (resultCallback != null) {
+                resultCallback.onTaskFailed(taskId, e);
+            }
             throw new JobException("Rewrite group execution failed: " + e.getMessage(), e);
         } finally {
-            Exception terminalError = taskFailure;
-            try {
-                if (taskConnectContext != null && taskConnectContext.getStatementContext() != null) {
-                    taskConnectContext.getStatementContext().close();
-                }
-            } catch (Exception e) {
-                if (terminalError == null) {
-                    terminalError = e;
-                } else {
-                    terminalError.addSuppressed(e);
-                }
-            } finally {
-                if (ConnectContext.get() == taskConnectContext) {
-                    ConnectContext.remove();
-                }
-                isFinished.set(true);
-                terminal.countDown();
-                if (resultCallback != null) {
-                    if (terminalError == null) {
-                        resultCallback.onTaskCompleted(taskId);
-                    } else {
-                        resultCallback.onTaskFailed(taskId, terminalError);
-                    }
-                }
-            }
+            isFinished.set(true);
         }
     }
 
@@ -180,18 +155,10 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         LOG.info("[Connector Rewrite Task] taskId: {} cancelled", taskId);
     }
 
-    void awaitTerminal() throws InterruptedException {
-        terminal.await();
-    }
-
-    protected void executeGroup(ConnectContext taskConnectContext,
+    private void executeGroup(ConnectContext taskConnectContext,
             RewriteTableCommand taskLogicalPlan,
             StatementBase taskParsedStmt) throws Exception {
         stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
-        if (isCanceled.get()) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
-            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
-        }
 
         // initPlan finalizes the sink (ConnectorRewriteExecutor.finalizeSink binds the shared transaction
         // onto the sink session BEFORE planWrite reads it).
@@ -202,13 +169,8 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         // Stamp the shared transaction id onto the coordinator so the BE-reported commit fragments
         // accumulate on the one rewrite transaction (mirrors legacy RewriteGroupTask).
         insertExecutor.getCoordinator().setTxnId(transactionId);
-        stmtExecutor.setCoord(insertExecutor.getCoordinator());
 
         insertExecutor.executeSingleInsert(stmtExecutor);
-        if (taskConnectContext.getState().getStateType() == MysqlStateType.ERR) {
-            throw new JobException("Rewrite insert failed: "
-                    + taskConnectContext.getState().getErrorMessage());
-        }
     }
 
     private RewriteTableCommand buildRewriteLogicalPlan() {
@@ -249,7 +211,7 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         );
     }
 
-    protected ConnectContext buildConnectContext() {
+    private ConnectContext buildConnectContext() {
         ConnectContext taskContext = new ConnectContext();
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
         taskContext.setEnv(Env.getCurrentEnv());

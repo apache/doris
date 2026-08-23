@@ -153,9 +153,6 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void exec() throws Exception {
-        if (isQueryCancelled()) {
-            throw new UserException("Query was cancelled before execution");
-        }
         enqueue(coordinatorContext.connectContext);
 
         processTopSink(coordinatorContext, coordinatorContext.topDistributedPlan);
@@ -164,14 +161,7 @@ public class NereidsCoordinator extends Coordinator {
 
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragments
                 = ThriftPlansBuilder.plansToThrift(coordinatorContext);
-        executionTask = coordinatorContext.withLock(() -> {
-            if (coordinatorContext.readCloneStatus().isCancelled()) {
-                throw new UserException("Query was cancelled before fragment dispatch");
-            }
-            // Publish under the cancel monitor. Per-backend task admission then linearizes each RPC with cancel,
-            // without holding the context monitor while waiting for a remote response.
-            return PipelineExecutionTaskBuilder.build(coordinatorContext, workerToFragments);
-        });
+        executionTask = PipelineExecutionTaskBuilder.build(coordinatorContext, workerToFragments);
         executionTask.execute();
     }
 

@@ -55,27 +55,33 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     }
 
     private void handlePendingState() throws JobException {
-        long expectedEpoch = streamingInsertJob.getStatusEpoch();
-        if (streamingInsertJob.hasRunningStreamTask()) {
-            // PAUSE has published cancellation, but the owner may still be unwinding a transaction.
-            // Keep the PENDING job idle until that exact predecessor performs its terminal handoff.
-            if (!streamingInsertJob.tryCompleteCanceledPredecessor()) {
-                return;
-            }
-        }
         if (Config.isCloudMode()) {
             try {
                 streamingInsertJob.replayOnCloudMode();
             } catch (JobException e) {
-                streamingInsertJob.pauseForInternalFailure(
-                        new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()), expectedEpoch);
+                streamingInsertJob.setFailureReason(
+                    new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()));
+                streamingInsertJob.updateJobStatus(JobStatus.PAUSED);
                 return;
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
         // Pre-advance one batch so the first task has splits to consume
         streamingInsertJob.advanceSplitsIfNeed();
-        streamingInsertJob.dispatchPendingTask(expectedEpoch);
+        if (streamingInsertJob.getJobStatus() == JobStatus.PAUSED) {
+            // advanceSplits failed and paused the job; skip task dispatch this tick.
+            return;
+        }
+        if (streamingInsertJob.hasReachedEnd()) {
+            // Source already fully consumed (e.g. snapshot-only mode recovered after FE restart).
+            // Transition directly to FINISHED without creating a new task.
+            streamingInsertJob.updateJobStatus(JobStatus.FINISHED);
+            streamingInsertJob.logUpdateOperation();
+            return;
+        }
+        streamingInsertJob.createStreamingTask();
+        streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
+        streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
     }
 
     private void handleRunningState() throws JobException {
