@@ -264,7 +264,7 @@ public class IcebergExternalTableTest {
         IcebergExternalTable spy = createSpyTable();
         Map<String, String> properties = Maps.newHashMap();
         properties.put("comment", "my-table-comment");
-        Mockito.when(icebergTable.properties()).thenReturn(properties);
+        Mockito.doReturn(properties).when(spy).properties();
 
         Assertions.assertEquals("my-table-comment", spy.getComment());
 

@@ -92,13 +92,10 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
 
     @Override
     public void execute() throws Exception {
-        coordinatorContext.withLock(() -> {
-            sendAndWaitPhaseOneRpc();
-            if (coordinatorContext.twoPhaseExecution()) {
-                sendAndWaitPhaseTwoRpc();
-            }
-            return null;
-        });
+        sendAndWaitPhaseOneRpc();
+        if (coordinatorContext.twoPhaseExecution()) {
+            sendAndWaitPhaseTwoRpc();
+        }
     }
 
     @Override

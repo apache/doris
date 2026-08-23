@@ -85,6 +85,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long filteredRows = 0L;
     private long loadedRows = 0L;
     private volatile long runningBackendId;
+    private volatile boolean remoteReaderReleased;
     long lastScannedRows = -1;
     long lastProgressMs = 0;
 
@@ -283,12 +284,19 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         if (getIsCanceled().get()) {
             return;
         }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        if (null == job) {
+            log.info("job is null, job id is {}", jobId);
+            return;
+        }
+        StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
+        streamingInsertJob.onStreamTaskSuccess(this, () -> applySuccessCallback(offsetRequest));
+    }
+
+    private void applySuccessCallback(CommitOffsetRequest offsetRequest) {
         this.status = TaskStatus.SUCCESS;
         this.finishTimeMs = System.currentTimeMillis();
         JdbcOffset runOffset = (JdbcOffset) this.runningOffset;
-        if (!isCallable()) {
-            return;
-        }
         // set end offset to running offset
         // binlogSplit : [{"splitId":"binlog-split"}]  only 1 element
         // snapshotSplit:[{"splitId":"table-0"},...],...}]
@@ -327,19 +335,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.loadBytes = offsetRequest.getLoadBytes();
         this.filteredRows = offsetRequest.getFilteredRows();
         this.loadedRows = offsetRequest.getLoadedRows();
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        if (null == job) {
-            log.info("job is null, job id is {}", jobId);
-            return;
-        }
-        StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
-        streamingInsertJob.onStreamTaskSuccess(this);
     }
 
     @Override
     protected void onFail(String errMsg) throws JobException {
-        // Stop a possibly still-running reader now, so the PG slot frees before auto-resume re-acquires it.
-        releaseRemoteReader();
+        // The job owns the acknowledged reader-release handoff before it allows auto resume.
         super.onFail(errMsg);
     }
 
@@ -353,6 +353,18 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     @Override
     public void closeOrReleaseResources() {
         // No-op: the reader is async and reused; releasing here (per-iteration finally) would kill it.
+    }
+
+    @Override
+    protected void onExecutionFinished() {
+        if (!getIsCanceled().get() || (runningBackendId > 0 && !remoteReaderReleased)) {
+            return;
+        }
+        try {
+            getStreamingJob().clearRunningStreamTask(this);
+        } catch (JobException e) {
+            log.info("Skip terminal handoff for removed streaming job {}, task {}", getJobId(), getTaskId());
+        }
     }
 
     @Override
@@ -387,6 +399,39 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     backend.getHost(), backend.getBrpcPort(), getJobId(), getTaskId());
         } catch (Exception ex) {
             log.warn("Release remote reader request failed for job {} task {}: ", getJobId(), getTaskId(), ex);
+        }
+    }
+
+    /** Wait for the BE to acknowledge reader release before allowing a successor to reuse the source. */
+    boolean releaseRemoteReaderAndWait() {
+        if (runningBackendId <= 0) {
+            return true;
+        }
+        Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
+        if (backend == null) {
+            return false;
+        }
+        try {
+            JobBaseConfig releaseParams = new JobBaseConfig(
+                    String.valueOf(getJobId()), dataSourceType.name(), sourceProperties, getFrontendAddress());
+            InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                    .setApi("/api/releaseReader/" + getTaskId())
+                    .setParams(new Gson().toJson(releaseParams)).build();
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            PRequestCdcClientResult result = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec)
+                    .get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
+            ResponseBody<String> response = objectMapper.readValue(
+                    result.getResponse(), new TypeReference<ResponseBody<String>>() {});
+            remoteReaderReleased = TStatusCode.findByValue(result.getStatus().getStatusCode()) == TStatusCode.OK
+                    && response.getCode() == RestApiStatusCode.OK.code;
+            return remoteReaderReleased;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            log.warn("Wait for reader release failed, job {} task {}", getJobId(), getTaskId(), e);
+            return false;
         }
     }
 

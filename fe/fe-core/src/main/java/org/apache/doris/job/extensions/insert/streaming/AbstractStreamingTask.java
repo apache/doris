@@ -201,6 +201,13 @@ public abstract class AbstractStreamingTask {
         }
     }
 
+    /** True when cancellation can hand off the job slot without overlapping the execution owner. */
+    boolean canHandoffAfterCancellation() {
+        synchronized (executionCompletion) {
+            return !executionStarted || executionFinished;
+        }
+    }
+
     protected void onFail(String errMsg) throws JobException {
         if (getIsCanceled().get()) {
             return;
@@ -226,7 +233,8 @@ public abstract class AbstractStreamingTask {
         return false;
     }
 
-    public void cancel(boolean needWaitCancelComplete) {
+    /** Publishes cancellation without performing task-specific RPCs or waits. */
+    public void publishCancellation() {
         // Flip isCanceled even on terminal states so late BE callbacks short-circuit.
         if (getIsCanceled().getAndSet(true)) {
             return;
@@ -237,6 +245,10 @@ public abstract class AbstractStreamingTask {
         }
         status = TaskStatus.CANCELED;
         this.errMsg = "task cancelled";
+    }
+
+    public void cancel(boolean needWaitCancelComplete) {
+        publishCancellation();
     }
 
     /**
