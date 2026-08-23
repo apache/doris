@@ -59,10 +59,6 @@ public abstract class AbstractStreamingTask {
     protected Long finishTimeMs;
     @Getter
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
-    private final Object executionCompletion = new Object();
-    private boolean executionStarted;
-    private boolean executionFinished;
-    private Thread executionOwner;
 
     public AbstractStreamingTask(long jobId, long taskId, UserIdentity userIdentity) {
         this.jobId = jobId;
@@ -98,113 +94,34 @@ public abstract class AbstractStreamingTask {
     }
 
     public void execute() throws JobException {
-        synchronized (executionCompletion) {
-            executionStarted = true;
-            executionOwner = Thread.currentThread();
-        }
-        try {
-            while (retryCount <= MAX_RETRY) {
-                Exception attemptFailure = null;
-                boolean executionSucceeded = false;
-                try {
-                    before();
-                    run();
-                    executionSucceeded = true;
-                } catch (Exception e) {
-                    attemptFailure = e;
-                } finally {
-                    // Only the scheduler worker that created this attempt's ConnectContext may tear it down.
-                    // A cancelling thread waits for this handoff instead of racing before() and clearing fields
-                    // while planning is still publishing them.
-                    try {
-                        closeOrReleaseResources();
-                    } catch (RuntimeException cleanupFailure) {
-                        if (attemptFailure == null) {
-                            attemptFailure = cleanupFailure;
-                        } else {
-                            attemptFailure.addSuppressed(cleanupFailure);
-                        }
-                    }
-                }
-                // A completed insert must never be replayed merely because teardown failed. Likewise,
-                // successor-publication failures belong to the job state machine, not to the insert retry loop.
-                if (executionSucceeded) {
-                    if (attemptFailure != null) {
-                        failCompletedAttempt(attemptFailure);
-                        return;
-                    }
-                    try {
-                        onSuccess();
-                    } catch (Exception completionFailure) {
-                        failCompletedAttempt(completionFailure);
-                    }
-                    return;
-                }
-                if (attemptFailure == null) {
-                    return;
-                }
+        while (retryCount <= MAX_RETRY) {
+            try {
+                before();
+                run();
+                onSuccess();
+                return;
+            } catch (Exception e) {
                 if (TaskStatus.CANCELED.equals(status)) {
                     return;
                 }
-                this.errMsg = attemptFailure.getMessage();
+                this.errMsg = e.getMessage();
                 retryCount++;
                 if (noRetry || retryCount > MAX_RETRY) {
                     log.error("Task execution failed, job id {}, task id {}, noRetry {}, retry {}.",
-                            jobId, taskId, noRetry, retryCount, attemptFailure);
-                    onFail(attemptFailure.getMessage());
+                            jobId, taskId, noRetry, retryCount, e);
+                    onFail(e.getMessage());
                     return;
                 }
                 log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
-                        jobId, taskId, retryCount, MAX_RETRY, attemptFailure.getMessage());
-            }
-        } finally {
-            synchronized (executionCompletion) {
-                executionFinished = true;
-                executionOwner = null;
-                executionCompletion.notifyAll();
-            }
-            onExecutionFinished();
-        }
-    }
-
-    protected void onExecutionFinished() {
-    }
-
-    private void failCompletedAttempt(Exception failure) throws JobException {
-        this.errMsg = failure.getMessage();
-        log.error("Completed streaming task could not publish its terminal state, job id {}, task id {}.",
-                jobId, taskId, failure);
-        onFail(failure.getMessage());
-    }
-
-    protected void awaitExecutionCompletion(long timeoutMs) {
-        boolean interrupted = false;
-        synchronized (executionCompletion) {
-            if (Thread.currentThread() == executionOwner) {
-                return;
-            }
-            long deadline = System.currentTimeMillis() + timeoutMs;
-            while (executionStarted && !executionFinished) {
-                long remaining = deadline - System.currentTimeMillis();
-                if (remaining <= 0) {
-                    break;
-                }
-                try {
-                    executionCompletion.wait(remaining);
-                } catch (InterruptedException e) {
-                    interrupted = true;
+                        jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
+            } finally {
+                // The cancel logic will call the closeOrReleased Resources method by itself.
+                // If it is also called here,
+                // it may result in the inability to obtain relevant information when canceling the task
+                if (!TaskStatus.CANCELED.equals(status)) {
+                    closeOrReleaseResources();
                 }
             }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /** True when cancellation can hand off the job slot without overlapping the execution owner. */
-    boolean canHandoffAfterCancellation() {
-        synchronized (executionCompletion) {
-            return !executionStarted || executionFinished;
         }
     }
 
@@ -233,8 +150,7 @@ public abstract class AbstractStreamingTask {
         return false;
     }
 
-    /** Publishes cancellation without performing task-specific RPCs or waits. */
-    public void publishCancellation() {
+    public void cancel(boolean needWaitCancelComplete) {
         // Flip isCanceled even on terminal states so late BE callbacks short-circuit.
         if (getIsCanceled().getAndSet(true)) {
             return;
@@ -245,10 +161,6 @@ public abstract class AbstractStreamingTask {
         }
         status = TaskStatus.CANCELED;
         this.errMsg = "task cancelled";
-    }
-
-    public void cancel(boolean needWaitCancelComplete) {
-        publishCancellation();
     }
 
     /**

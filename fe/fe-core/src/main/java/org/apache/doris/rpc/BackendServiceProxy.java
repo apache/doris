@@ -174,7 +174,7 @@ public class BackendServiceProxy {
         }
     }
 
-    public ListenableFuture<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
@@ -192,7 +192,7 @@ public class BackendServiceProxy {
         return execPlanFragmentsAsync(address, builder.build(), twoPhaseExecution);
     }
 
-    public ListenableFuture<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             ByteString serializedFragments, boolean twoPhaseExecution) throws RpcException {
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
@@ -203,7 +203,7 @@ public class BackendServiceProxy {
         return execPlanFragmentsAsync(address, builder.build(), twoPhaseExecution);
     }
 
-    public ListenableFuture<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             InternalService.PExecPlanFragmentRequest pRequest, boolean twoPhaseExecution)
             throws RpcException {
         MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);

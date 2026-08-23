@@ -198,7 +198,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 AuditLogHelper.updateMetrics(ctx);
             }
         } finally {
-            prepCtx.statementContext.close();
+            prepCtx.statementContext.clearExternalScanTasks();
         }
     }
 

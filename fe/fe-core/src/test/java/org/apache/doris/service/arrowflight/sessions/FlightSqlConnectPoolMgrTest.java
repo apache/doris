@@ -22,7 +22,6 @@ import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 public class FlightSqlConnectPoolMgrTest {
@@ -44,14 +43,7 @@ public class FlightSqlConnectPoolMgrTest {
         // The deferred coordinators must be released on teardown even though this connection was
         // never registered in the pool (an abandoned connection is still cleaned up, not leaked).
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).sealFlightSqlDeferredExecutors();
-        Mockito.verify(ctx).cancelQuery(Mockito.any());
-        Mockito.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
-        InOrder teardownOrder = Mockito.inOrder(ctx, channel);
-        teardownOrder.verify(ctx).sealFlightSqlDeferredExecutors();
-        teardownOrder.verify(ctx).cancelQuery(Mockito.any());
-        teardownOrder.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
-        teardownOrder.verify(channel).close();
+        Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
     }
 
     // Cleanup must run before the connection bookkeeping (closeTxn / map removal), so that a failure
@@ -71,14 +63,7 @@ public class FlightSqlConnectPoolMgrTest {
         poolMgr.unregisterConnection(ctx);
 
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).sealFlightSqlDeferredExecutors();
-        Mockito.verify(ctx).cancelQuery(Mockito.any());
-        Mockito.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
-        InOrder teardownOrder = Mockito.inOrder(ctx, channel);
-        teardownOrder.verify(ctx).sealFlightSqlDeferredExecutors();
-        teardownOrder.verify(ctx).cancelQuery(Mockito.any());
-        teardownOrder.verify(ctx).awaitAndCloseFlightSqlDeferredExecutors();
-        teardownOrder.verify(channel).close();
+        Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
         Assert.assertNull(poolMgr.getConnectionMap().get(7));
     }
 }

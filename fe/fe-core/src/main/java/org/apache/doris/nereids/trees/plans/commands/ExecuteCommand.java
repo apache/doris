@@ -73,9 +73,6 @@ public class ExecuteCommand extends Command {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         StatementContext statementContext = ctx.getStatementContext();
-        // PREPARE retains this StatementContext, but ConnectProcessor closes the resources from each
-        // COM_STMT_EXECUTE. Reopen an empty generation before the next execution starts planning.
-        statementContext.beginStatementResourceGeneration();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
         statementContext.resetMvccSnapshots();

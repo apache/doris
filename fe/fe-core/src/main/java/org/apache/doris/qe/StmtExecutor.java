@@ -144,13 +144,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TSerializer;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -188,17 +188,13 @@ public class StmtExecutor {
     private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
+    @Setter
     private volatile Coordinator coord = null;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
     private volatile boolean deferredForArrowFlight = false;
-    private Closeable deferredArrowFlightStatementResources;
-    private volatile MasterOpExecutor masterOpExecutor = null;
-    // Cancellation can arrive after executor publication but before execution resources exist.
-    // Retain it so execution admission and later coordinator publication cannot lose the signal.
-    private volatile Status pendingCancelReason = null;
-    private final Object executionAdmissionLock = new Object();
+    private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
     private boolean isProxy;
@@ -507,12 +503,6 @@ public class StmtExecutor {
 
     // query with a random sql
     public void execute() throws Exception {
-        synchronized (executionAdmissionLock) {
-            if (pendingCancelReason != null) {
-                context.getState().setError(pendingCancelReason.getErrorMsg());
-                return;
-            }
-        }
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         if (Config.enable_print_request_before_execution) {
@@ -982,71 +972,16 @@ public class StmtExecutor {
         return deferredForArrowFlight;
     }
 
-    void deferArrowFlightQuery() {
-        Closeable resources = statementContext.detachStatementResources();
-        deferredArrowFlightStatementResources = resources;
-        deferredForArrowFlight = true;
-        boolean registered;
-        try {
-            registered = context.addFlightSqlDeferredExecutor(this);
-        } catch (RuntimeException | Error t) {
-            deferredForArrowFlight = false;
-            deferredArrowFlightStatementResources = null;
-            try {
-                resources.close();
-            } catch (Throwable closeFailure) {
-                t.addSuppressed(closeFailure);
-            }
-            throw t;
-        }
-        if (!registered) {
-            // Session teardown sealed and drained the registry between detachment and registration. Finalize
-            // directly: no later owner can reach this executor, and the deferred flag keeps the statement's
-            // ordinary finally block from closing the same coordinator a second time.
-            finalizeArrowFlightQuery();
-        }
-    }
-
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
     // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
     // SplitSources and the query queue slot) and then unregister the query. See #62259.
     public void finalizeArrowFlightQuery() {
-        Throwable failure = null;
         try {
             if (coord != null) {
                 coord.close();
             }
-        } catch (Throwable t) {
-            failure = t;
-        }
-        try {
-            if (deferredArrowFlightStatementResources != null) {
-                deferredArrowFlightStatementResources.close();
-            }
-        } catch (Throwable t) {
-            if (failure == null) {
-                failure = t;
-            } else {
-                failure.addSuppressed(t);
-            }
-        }
-        try {
+        } finally {
             finalizeQuery();
-        } catch (Throwable t) {
-            if (failure == null) {
-                failure = t;
-            } else {
-                failure.addSuppressed(t);
-            }
-        }
-        if (failure != null) {
-            if (failure instanceof RuntimeException) {
-                throw (RuntimeException) failure;
-            }
-            if (failure instanceof Error) {
-                throw (Error) failure;
-            }
-            throw new IllegalStateException("Failed to finalize Arrow Flight query", failure);
         }
     }
 
@@ -1220,11 +1155,6 @@ public class StmtExecutor {
 
     private void forwardToMaster() throws Exception {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
-        if (pendingCancelReason != null) {
-            masterOpExecutor.cancel();
-            context.getState().setError(pendingCancelReason.getErrorMsg());
-            return;
-        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
@@ -1259,9 +1189,6 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
-        synchronized (executionAdmissionLock) {
-            pendingCancelReason = cancelReason;
-        }
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1290,14 +1217,6 @@ public class StmtExecutor {
 
     public void cancel(Status cancelReason) {
         cancel(cancelReason, true);
-    }
-
-    public void setCoord(Coordinator coordinator) {
-        this.coord = coordinator;
-        Status cancelReason = pendingCancelReason;
-        if (coordinator != null && cancelReason != null) {
-            coordinator.cancel(cancelReason);
-        }
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
@@ -1469,15 +1388,15 @@ public class StmtExecutor {
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            setCoord(new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator()));
+            coord = new NereidsCoordinator(context,
+                    (NereidsPlanner) planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
-            setCoord(EnvFactory.getInstance().createCoordinator(
-                    context, planner, context.getStatsErrorEstimator()));
+            coord = EnvFactory.getInstance().createCoordinator(
+                    context, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
@@ -1515,7 +1434,8 @@ public class StmtExecutor {
                 // at the end of GetFlightInfo. Point queries use a different coordBase (not
                 // deferred). See #62259.
                 if (coordBase == coord) {
-                    deferArrowFlightQuery();
+                    deferredForArrowFlight = true;
+                    context.addFlightSqlDeferredExecutor(this);
                 }
                 return;
             }
@@ -2177,8 +2097,8 @@ public class StmtExecutor {
             if (Config.enable_collect_internal_query_profile) {
                 context.getSessionVariable().enableProfile = true;
             }
-            setCoord(EnvFactory.getInstance().createCoordinator(context,
-                    planner, context.getStatsErrorEstimator()));
+            coord = EnvFactory.getInstance().createCoordinator(context,
+                    planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
