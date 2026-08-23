@@ -578,23 +578,21 @@ public class ProfileManager extends MasterDaemon {
     // string will contain profile id and its storage timestamp
     protected List<String> getOnStorageProfileInfos() {
         List<String> res = Lists.newArrayList();
-        try {
-            File profileDir = new File(PROFILE_STORAGE_PATH);
-            if (!profileDir.exists()) {
-                LOG.warn("Profile storage directory {} does not exist", PROFILE_STORAGE_PATH);
-                return res;
-            }
+        File profileDir = new File(PROFILE_STORAGE_PATH);
+        if (!profileDir.exists()) {
+            LOG.warn("Profile storage directory {} does not exist", PROFILE_STORAGE_PATH);
+            return res;
+        }
 
-            File[] files = profileDir.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isFile()) {
-                        res.add(file.getAbsolutePath());
-                    }
+        File[] files = profileDir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    res.add(file.getAbsolutePath());
                 }
             }
-        } catch (Exception e) {
-            LOG.error("Failed to get profile meta from storage", e);
+        } else {
+            throw new IllegalStateException("Failed to list profile storage directory: " + PROFILE_STORAGE_PATH);
         }
 
         return res;

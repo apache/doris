@@ -845,24 +845,19 @@ class ProfileManagerTest {
     }
 
     @Test
-    public void testProfileLoaderCanRetryAfterFailure() {
-        AtomicInteger scanCount = new AtomicInteger();
-        ProfileManager manager = new ProfileManager() {
-            @Override
-            protected List<String> getOnStorageProfileInfos() {
-                if (scanCount.incrementAndGet() == 1) {
-                    throw new RuntimeException("injected load failure");
-                }
-                return Lists.newArrayList();
-            }
-        };
+    public void testProfileLoaderCanRetryAfterFailure() throws IOException {
+        File invalidProfileStorage = new File(tempDir, "not_a_directory");
+        Assertions.assertTrue(invalidProfileStorage.createNewFile());
+        ProfileManager.PROFILE_STORAGE_PATH = invalidProfileStorage.getAbsolutePath();
+        ProfileManager manager = new ProfileManager();
 
         manager.loadProfilesFromStorageIfFirstTime(true);
         Assertions.assertEquals(ProfileLoadStatus.UNLOADED, manager.profileLoadStatus.get());
 
+        Assertions.assertTrue(invalidProfileStorage.delete());
+        ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
         manager.loadProfilesFromStorageIfFirstTime(true);
         Assertions.assertEquals(ProfileLoadStatus.LOADED, manager.profileLoadStatus.get());
-        Assertions.assertEquals(2, scanCount.get());
     }
 
     @Test
