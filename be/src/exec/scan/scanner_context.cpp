@@ -641,8 +641,24 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
     // 1. An adaptive or low-memory limit can temporarily reduce effective concurrency to zero.
     // 2. If there are no completed or in-flight tasks, no worker can publish a block or EOS.
     // 3. Admit one scanner in that case so the query can make progress and cannot stall.
+    // This must stay ahead of the shared LIMIT check below. Another instance can exhaust the
+    // limit while this Context's runnable is still queued with nothing in flight; the operator is
+    // then blocked on the dependency, and only the admitted scanner's EOS can wake it so
+    // get_block_from_queue() observes termination.
     const bool has_progressing_task = current_concurrency > 0;
-    return !has_progressing_task || current_concurrency < effective_max_concurrency;
+    if (!has_progressing_task) {
+        return true;
+    }
+
+    // A progressing task will publish a result and wake the operator. Once shared LIMIT is
+    // exhausted, any additional scanner would only complete as EOS, so admitting more is pure
+    // thread-pool round trips. get_block_from_queue() finishes the Context when the last result
+    // is consumed with nothing in flight.
+    if (is_shared_scan_limit_exhausted()) {
+        return false;
+    }
+
+    return current_concurrency < effective_max_concurrency;
 }
 
 std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(

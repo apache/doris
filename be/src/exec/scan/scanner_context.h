@@ -219,9 +219,12 @@ public:
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
 
-    // This is checked by ScannerScheduler::_scanner_scan(), rather than task admission, so an
-    // already queued scanner can finish as EOS and release its in-flight slot after shared LIMIT
-    // is reached. The limit is atomic and can therefore be read without _transfer_lock.
+    // Checked in two places after shared LIMIT is reached:
+    // 1. ScannerScheduler::_scanner_scan() finishes an admitted scanner as EOS without opening it,
+    //    so it releases its in-flight slot and wakes the operator.
+    // 2. can_admit_scan_task() stops admitting more scanners while another task is still
+    //    progressing, because the only outcome would be further EOS round trips.
+    // The limit is atomic and can therefore be read without _transfer_lock.
     bool is_shared_scan_limit_exhausted() const;
 
     std::string debug_string();
@@ -285,7 +288,9 @@ public:
 
     // Return whether a Context worker can currently admit one pending scanner. This check has no
     // side effects, so the scheduler can avoid submitting a runnable that would immediately exit.
-    // The caller must hold _transfer_lock.
+    // It always admits one scanner when nothing is progressing, even after shared LIMIT is
+    // exhausted, because that scanner's EOS is what wakes the operator. The caller must hold
+    // _transfer_lock.
     bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const;
 
     // Atomically check whether this context can start another scan task, move one task from
