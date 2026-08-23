@@ -19,13 +19,11 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -48,21 +46,24 @@ import java.util.List;
  * map_apply((mapKey, mapValue) -> struct(newKey, newValue), inputMap)
  *   ->
  * map_from_entries(array_map(
- *   (mapKey, mapValue) -> struct(newKey, newValue),
- *   map_keys(inputMap), map_values(inputMap)))
+ *   entry -> struct(newKey(entry[1], entry[2]), newValue(entry[1], entry[2])),
+ *   map_entries(inputMap)))
  * </pre>
  */
 public class MapApply extends ScalarFunction
-        implements UnaryExpression, CustomSignature, PropagateNullable, PreferPushDownProject,
+        implements CustomSignature, PropagateNullable, PreferPushDownProject,
         RewriteWhenAnalyze {
 
     public MapApply(Expression arg) {
-        this(MapLambdaValidator.requireLambda("map_apply", arg));
+        this(MapLambdaFunctionUtils.requireLambda("map_apply", arg));
     }
 
     private MapApply(Lambda lambda) {
-        super("map_apply", new MapEntryArrayMap(lambda));
-        validateLambdaReturn(lambda);
+        this(validateAndRewrite(lambda));
+    }
+
+    private MapApply(MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda) {
+        super("map_apply", rewrittenLambda.getMapExpression(), rewrittenLambda.toArrayMap());
     }
 
     private MapApply(ScalarFunctionParams functionParams) {
@@ -71,7 +72,7 @@ public class MapApply extends ScalarFunction
 
     @Override
     public FunctionSignature customSignature() {
-        DataType mappedEntriesType = getArgument(0).getDataType();
+        DataType mappedEntriesType = getArgument(1).getDataType();
         if (!(mappedEntriesType instanceof ArrayType)
                 || !(((ArrayType) mappedEntriesType).getItemType() instanceof StructType)) {
             throw invalidReturnType();
@@ -80,23 +81,23 @@ public class MapApply extends ScalarFunction
         if (structType.getFields().size() != 2) {
             throw invalidReturnType();
         }
-        MapType inputMapType = extractInputMapType(getEntryLambda(getArgument(0)));
+        MapType inputMapType = (MapType) getArgument(0).getDataType();
         StructType resolvedStructType = resolveNullFieldTypes(structType, inputMapType);
         List<StructField> fields = resolvedStructType.getFields();
         MapType resultType = MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType());
         resultType.validateDataType();
-        return FunctionSignature.ret(resultType).args(ArrayType.of(resolvedStructType));
+        return FunctionSignature.ret(resultType).args(inputMapType, ArrayType.of(resolvedStructType));
     }
 
     @Override
     public MapApply withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 2);
         return new MapApply(getFunctionParams(children));
     }
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        return new MapFromEntries(getArgument(0));
+        return new MapFromEntries(getArgument(1));
     }
 
     @Override
@@ -104,7 +105,14 @@ public class MapApply extends ScalarFunction
         return visitor.visitMapApply(this, context);
     }
 
-    private static void validateLambdaReturn(Lambda lambda) {
+    private static MapLambdaFunctionUtils.RewrittenMapLambda validateAndRewrite(Lambda lambda) {
+        MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda = MapLambdaFunctionUtils.rewrite(
+                lambda, (body, key, value, entry) -> body);
+        validateLambdaReturn(lambda, (MapType) rewrittenLambda.getMapExpression().getDataType());
+        return rewrittenLambda;
+    }
+
+    private static void validateLambdaReturn(Lambda lambda, MapType inputMapType) {
         Expression lambdaBody = lambda.getLambdaFunction();
         if (!(lambdaBody.getDataType() instanceof StructType)
                 || ((StructType) lambdaBody.getDataType()).getFields().size() != 2
@@ -112,24 +120,9 @@ public class MapApply extends ScalarFunction
             throw invalidReturnType();
         }
         StructType structType = (StructType) lambdaBody.getDataType();
-        StructType resolvedStructType = resolveNullFieldTypes(structType, extractInputMapType(lambda));
+        StructType resolvedStructType = resolveNullFieldTypes(structType, inputMapType);
         MapType.of(resolvedStructType.getFields().get(0).getDataType(),
                 resolvedStructType.getFields().get(1).getDataType()).validateDataType();
-    }
-
-    private static MapType extractInputMapType(Lambda lambda) {
-        return (MapType) MapLambdaValidator.extractMapExpression("map_apply", lambda).getDataType();
-    }
-
-    private static Lambda getEntryLambda(Expression mappedEntries) {
-        while (mappedEntries instanceof Cast) {
-            mappedEntries = mappedEntries.child(0);
-        }
-        if (!(mappedEntries instanceof MapEntryArrayMap)
-                || !(mappedEntries.child(0) instanceof Lambda)) {
-            throw invalidReturnType();
-        }
-        return (Lambda) mappedEntries.child(0);
     }
 
     // Resolve only untyped fields in the two-field struct returned by the lambda. For
@@ -140,9 +133,9 @@ public class MapApply extends ScalarFunction
         List<StructField> fields = structType.getFields();
         StructField keyField = fields.get(0);
         StructField valueField = fields.get(1);
-        keyField = keyField.withDataType(MapLambdaValidator.mergeNestedNullTypes(
+        keyField = keyField.withDataType(MapLambdaFunctionUtils.mergeNestedNullTypes(
                 keyField.getDataType(), inputMapType.getKeyType()));
-        valueField = valueField.withDataType(MapLambdaValidator.mergeNestedNullTypes(
+        valueField = valueField.withDataType(MapLambdaFunctionUtils.mergeNestedNullTypes(
                 valueField.getDataType(), inputMapType.getValueType()));
         return new StructType(ImmutableList.of(keyField, valueField));
     }

@@ -100,9 +100,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntryArrayMap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFilter;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MapLambdaValidator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -535,9 +532,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitArrayMap(ArrayMap arrayMap, PlanTranslatorContext context) {
         Lambda lambda = (Lambda) arrayMap.child(0);
-        if (arrayMap instanceof MapEntryArrayMap) {
-            MapLambdaValidator.validateStablePhysicalInputs(arrayMap.getName(), lambda);
-        }
         List<Expr> arguments = new ArrayList<>(arrayMap.children().size());
         arguments.add(null);
         int columnId = 0;
@@ -727,10 +721,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
-        if (function instanceof MapFilter && ((MapFilter) function).shouldValidateMapLambdaInput()) {
-            MapLambdaValidator.validateOuterMapConsumer(
-                    function.getName(), function.getArgument(1));
-        }
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());

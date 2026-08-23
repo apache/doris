@@ -27,8 +27,11 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -37,13 +40,17 @@ public class TransformKeys extends ScalarFunction
         implements CustomSignature, PropagateNullable, PreferPushDownProject, RewriteWhenAnalyze {
 
     public TransformKeys(Expression arg) {
-        this(MapLambdaValidator.requireLambda("transform_keys", arg));
+        this(MapLambdaFunctionUtils.requireLambda("transform_keys", arg));
     }
 
     private TransformKeys(Lambda lambda) {
+        this(MapLambdaFunctionUtils.rewrite(lambda,
+                (body, key, value, entry) -> new CreateStruct(body, value)));
+    }
+
+    private TransformKeys(MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda) {
         super("transform_keys",
-                MapLambdaValidator.extractMapExpression("transform_keys", lambda),
-                new MapEntryArrayMap(lambda));
+                rewrittenLambda.getMapExpression(), rewrittenLambda.toArrayMap());
     }
 
     private TransformKeys(ScalarFunctionParams functionParams) {
@@ -53,15 +60,18 @@ public class TransformKeys extends ScalarFunction
     @Override
     public FunctionSignature customSignature() {
         MapType inputMapType = (MapType) getArgument(0).getDataType();
-        ArrayType transformedKeysType = (ArrayType) getArgument(1).getDataType();
+        ArrayType mappedEntriesType = (ArrayType) getArgument(1).getDataType();
+        StructType entryType = (StructType) mappedEntriesType.getItemType();
+        List<StructField> fields = entryType.getFields();
         // transform_keys((k, v) -> null, map(1, 10))
         // res_type should be: MAP<TINYINT,TINYINT> instead of MAP<NULL,TINYINT>
-        DataType resultKeyType = MapLambdaValidator.mergeNestedNullTypes(
-                transformedKeysType.getItemType(), inputMapType.getKeyType());
-        transformedKeysType = ArrayType.of(resultKeyType);
+        DataType resultKeyType = MapLambdaFunctionUtils.mergeNestedNullTypes(
+                fields.get(0).getDataType(), inputMapType.getKeyType());
+        StructType resolvedEntryType = new StructType(ImmutableList.of(
+                fields.get(0).withDataType(resultKeyType), fields.get(1)));
         MapType resultType = MapType.of(resultKeyType, inputMapType.getValueType());
         resultType.validateDataType();
-        return FunctionSignature.ret(resultType).args(inputMapType, transformedKeysType);
+        return FunctionSignature.ret(resultType).args(inputMapType, ArrayType.of(resolvedEntryType));
     }
 
     @Override
@@ -72,7 +82,7 @@ public class TransformKeys extends ScalarFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        return new MapFromArrays(getArgument(1), new MapValues(getArgument(0)));
+        return new MapFromEntries(getArgument(1));
     }
 
     @Override

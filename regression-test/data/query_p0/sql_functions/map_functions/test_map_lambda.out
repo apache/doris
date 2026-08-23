@@ -139,3 +139,6 @@ x:a	y:b
 -- !array_map_nested_map_apply_single_evaluation --
 1
 
+-- !map_from_arrays_nested_empty_array --
+{1:[]}
+

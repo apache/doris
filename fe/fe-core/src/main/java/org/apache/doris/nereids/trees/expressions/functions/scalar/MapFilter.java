@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -34,30 +36,33 @@ import java.util.List;
 /**
  * Scalar function map_filter.
  *
- * <p>The Map lambda is evaluated by an ArrayMap over the Map's key and value arrays:
+ * <p>The Map lambda is evaluated by an ArrayMap over the Map's entry array:
  *
  * <pre>
  * map_filter((mapKey, mapValue) -> predicate, inputMap)
  *   ->
- * map_filter(
- *   inputMap,
+ * %map_from_filtered_entries_unique%(
  *   array_map(
- *     (mapKey, mapValue) -> predicate,
- *     map_keys(inputMap), map_values(inputMap)))
+ *     entry -> if(predicate(entry[1], entry[2]), entry, null),
+ *     map_entries(inputMap)))
  * </pre>
  */
 public class MapFilter extends ScalarFunction
-        implements HighOrderFunction, PropagateNullable {
+        implements HighOrderFunction, PropagateNullable, RewriteWhenAnalyze {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0).args(
                     MapType.of(new AnyDataType(0), new AnyDataType(1)),
                     ArrayType.of(BooleanType.INSTANCE)));
+    private static final List<FunctionSignature> MAP_LAMBDA_SIGNATURES = ImmutableList.of(
+            FunctionSignature.retArgType(0).args(
+                    MapType.of(new AnyDataType(0), new AnyDataType(1)),
+                    ArrayType.of(new AnyDataType(2))));
 
     private final boolean validateMapLambdaInput;
 
     // The argument is a bound Lambda.
     public MapFilter(Expression arg) {
-        this(MapLambdaValidator.requireLambda("map_filter", arg));
+        this(MapLambdaFunctionUtils.requireLambda("map_filter", arg));
     }
 
     public MapFilter(Expression map, Expression filter) {
@@ -66,19 +71,20 @@ public class MapFilter extends ScalarFunction
     }
 
     private MapFilter(Lambda lambda) {
+        this(MapLambdaFunctionUtils.rewrite(lambda,
+                (body, key, value, entry) -> new If(
+                        body, entry, new NullLiteral(entry.getDataType()))));
+    }
+
+    private MapFilter(MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda) {
         super("map_filter",
-                MapLambdaValidator.extractMapExpression("map_filter", lambda),
-                new MapEntryArrayMap(lambda));
+                rewrittenLambda.getMapExpression(), rewrittenLambda.toArrayMap());
         validateMapLambdaInput = true;
     }
 
     private MapFilter(ScalarFunctionParams functionParams, boolean validateMapLambdaInput) {
         super(functionParams);
         this.validateMapLambdaInput = validateMapLambdaInput;
-    }
-
-    public boolean shouldValidateMapLambdaInput() {
-        return validateMapLambdaInput;
     }
 
     @Override
@@ -89,7 +95,14 @@ public class MapFilter extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getImplSignature() {
-        return SIGNATURES;
+        return validateMapLambdaInput ? MAP_LAMBDA_SIGNATURES : SIGNATURES;
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        return validateMapLambdaInput
+                ? new MapFromFilteredEntriesUnique(getArgument(1))
+                : this;
     }
 
     @Override

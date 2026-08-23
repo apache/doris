@@ -51,6 +51,16 @@ MutableColumnPtr make_nullable_int_column(const std::vector<std::optional<int32_
     return ColumnNullable::create(std::move(nested), std::move(null_map));
 }
 
+MutableColumnPtr make_nullable_bool_column(const std::vector<std::optional<bool>>& values) {
+    auto nested = ColumnUInt8::create();
+    auto null_map = ColumnUInt8::create();
+    for (const auto& value : values) {
+        nested->insert_value(value.value_or(false));
+        null_map->insert_value(value.has_value() ? 0 : 1);
+    }
+    return ColumnNullable::create(std::move(nested), std::move(null_map));
+}
+
 MutableColumnPtr make_offsets(const std::vector<size_t>& offsets) {
     auto result = ColumnArray::ColumnOffsets::create();
     for (size_t offset : offsets) {
@@ -59,9 +69,21 @@ MutableColumnPtr make_offsets(const std::vector<size_t>& offsets) {
     return result;
 }
 
+ColumnPtr make_int_map(const std::vector<std::optional<int32_t>>& keys,
+                       const std::vector<std::optional<int32_t>>& values,
+                       const std::vector<size_t>& offsets) {
+    return ColumnMap::create(make_nullable_int_column(keys), make_nullable_int_column(values),
+                             make_offsets(offsets));
+}
+
 ColumnPtr make_int_array(const std::vector<std::optional<int32_t>>& values,
                          const std::vector<size_t>& offsets) {
     return ColumnArray::create(make_nullable_int_column(values), make_offsets(offsets));
+}
+
+ColumnPtr make_bool_array(const std::vector<std::optional<bool>>& values,
+                          const std::vector<size_t>& offsets) {
+    return ColumnArray::create(make_nullable_bool_column(values), make_offsets(offsets));
 }
 
 ColumnPtr make_int_entry_array(const std::vector<std::optional<int32_t>>& keys,
@@ -391,5 +413,206 @@ TEST(FunctionMapTest, map_from_entries_nullable) {
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_FALSE(result.is_null_at(0));
     EXPECT_TRUE(result.is_null_at(1));
+}
+
+TEST(FunctionMapTest, map_filter) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+    auto nullable_map_type = make_nullable(map_type);
+    auto bool_array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeBool>()));
+
+    {
+        Block block;
+        block.insert({make_int_map({1, 2, 3}, {10, 20, 30}, {2, 3}), map_type, "map"});
+        block.insert({make_bool_array({true, std::nullopt, false}, {2, 3}), bool_array_type,
+                      "predicate"});
+        block.insert({nullptr, map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("map_filter", block, {0, 1}, 2, map_type).ok());
+        const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(2).column);
+        ASSERT_EQ(result.get_offsets()[0], 1);
+        ASSERT_EQ(result.get_offsets()[1], 1);
+        ASSERT_EQ(get_nullable_int(result.get_keys(), 0), 1);
+        ASSERT_EQ(get_nullable_int(result.get_values(), 0), 10);
+    }
+
+    {
+        Block block;
+        block.insert(
+                {ColumnConst::create(make_int_map({1, 2}, {10, 20}, {2}), 3), map_type, "map"});
+        block.insert({make_bool_array({true, true, true, false, false, true}, {2, 4, 6}),
+                      bool_array_type, "predicate"});
+        block.insert({nullptr, map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("map_filter", block, {0, 1}, 2, map_type).ok());
+        const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(2).column);
+        ASSERT_EQ(result.get_offsets()[0], 2);
+        ASSERT_EQ(result.get_offsets()[1], 3);
+        ASSERT_EQ(result.get_offsets()[2], 4);
+        EXPECT_EQ(get_nullable_int(result.get_keys(), 2), 1);
+        EXPECT_EQ(get_nullable_int(result.get_keys(), 3), 2);
+    }
+
+    {
+        auto map_null_map = ColumnUInt8::create();
+        map_null_map->insert_value(0);
+        map_null_map->insert_value(1);
+        Block block;
+        block.insert({ColumnNullable::create(make_int_map({1, 2}, {10, 20}, {1, 2}),
+                                             std::move(map_null_map)),
+                      nullable_map_type, "map"});
+        block.insert({make_bool_array({true, true}, {1, 2}), bool_array_type, "predicate"});
+        block.insert({nullptr, nullable_map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("map_filter", block, {0, 1}, 2, nullable_map_type).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        const auto& nested = assert_cast<const ColumnMap&>(result.get_nested_column());
+        EXPECT_EQ(nested.get_offsets()[0], 1);
+        EXPECT_EQ(nested.get_offsets()[1], 1);
+    }
+
+    {
+        Block block;
+        block.insert({make_int_map({}, {}, {0, 0}), map_type, "map"});
+        block.insert({make_bool_array({}, {0, 0}), bool_array_type, "predicate"});
+        block.insert({nullptr, map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("map_filter", block, {0, 1}, 2, map_type).ok());
+        const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(2).column);
+        EXPECT_EQ(result.get_keys().size(), 0);
+        EXPECT_EQ(result.get_offsets()[0], 0);
+        EXPECT_EQ(result.get_offsets()[1], 0);
+    }
+
+    {
+        Block block;
+        block.insert({make_int_map({1, 2, 3, 4}, {10, 20, 30, 40}, {2, 4}), map_type, "map"});
+        block.insert({ColumnConst::create(make_bool_array({true, false}, {2}), 2), bool_array_type,
+                      "predicate"});
+        block.insert({nullptr, map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("map_filter", block, {0, 1}, 2, map_type).ok());
+        const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(2).column);
+        ASSERT_EQ(result.get_offsets()[0], 1);
+        ASSERT_EQ(result.get_offsets()[1], 2);
+        EXPECT_EQ(get_nullable_int(result.get_keys(), 0), 1);
+        EXPECT_EQ(get_nullable_int(result.get_keys(), 1), 3);
+    }
+
+    {
+        Block block;
+        block.insert({make_int_map({1, 2}, {10, 20}, {1, 2}), map_type, "map"});
+        block.insert({make_bool_array({true}, {1, 1}), bool_array_type, "predicate"});
+        block.insert({nullptr, map_type, "result"});
+
+        auto status = execute_map_function("map_filter", block, {0, 1}, 2, map_type);
+        ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status.to_string();
+        EXPECT_NE(status.to_string().find("The map and lambda result offsets of function "
+                                          "map_filter must be identical"),
+                  std::string::npos);
+    }
+
+    {
+        auto nullable_bool_array_type = make_nullable(bool_array_type);
+        auto predicate_null_map = ColumnUInt8::create();
+        predicate_null_map->insert_value(0);
+        predicate_null_map->insert_value(1);
+
+        Block block;
+        block.insert({make_int_map({1, 2, 3}, {10, 20, 30}, {1, 3}), map_type, "map"});
+        block.insert({ColumnNullable::create(make_bool_array({true, true}, {1, 2}),
+                                             std::move(predicate_null_map)),
+                      nullable_bool_array_type, "predicate"});
+        block.insert({nullptr, nullable_map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("map_filter", block, {0, 1}, 2, nullable_map_type).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        const auto& nested = assert_cast<const ColumnMap&>(result.get_nested_column());
+        EXPECT_EQ(nested.get_offsets()[0], 1);
+        EXPECT_EQ(nested.get_offsets()[1], 1);
+        ASSERT_EQ(nested.get_keys().size(), 1);
+        EXPECT_EQ(get_nullable_int(nested.get_keys(), 0), 1);
+    }
+}
+
+TEST(FunctionMapTest, map_from_entries_unique_skips_deduplication) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto entry_struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int, nullable_int}, Strings {"key", "value"});
+    auto entry_array_type = std::make_shared<DataTypeArray>(make_nullable(entry_struct_type));
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+
+    Block block;
+    block.insert({make_int_entry_array({1, 1}, {10, 20}, {2}), entry_array_type, "entries"});
+    block.insert({nullptr, map_type, "result"});
+
+    ASSERT_TRUE(execute_map_function("%map_from_entries_unique%", block, {0}, 1, map_type).ok());
+    const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(1).column);
+    EXPECT_EQ(result.get_keys().size(), 2);
+    EXPECT_EQ(result.get_values().size(), 2);
+}
+
+TEST(FunctionMapTest, map_from_filtered_entries_unique) {
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto entry_struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int, nullable_int}, Strings {"key", "value"});
+    auto entry_array_type = std::make_shared<DataTypeArray>(make_nullable(entry_struct_type));
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+
+    {
+        Block block;
+        block.insert({make_int_entry_array({1, 2, std::nullopt, 4}, {10, 20, 30, std::nullopt},
+                                           {2, 4}, {false, true, false, false}),
+                      entry_array_type, "entries"});
+        block.insert({nullptr, map_type, "result"});
+
+        ASSERT_TRUE(
+                execute_map_function("%map_from_filtered_entries_unique%", block, {0}, 1, map_type)
+                        .ok());
+        const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(1).column);
+        ASSERT_EQ(result.get_offsets()[0], 1);
+        ASSERT_EQ(result.get_offsets()[1], 3);
+        ASSERT_EQ(result.get_keys().size(), 3);
+        EXPECT_EQ(get_nullable_int(result.get_keys(), 0), 1);
+        EXPECT_TRUE(assert_cast<const ColumnNullable&>(result.get_keys()).is_null_at(1));
+        EXPECT_EQ(get_nullable_int(result.get_values(), 1), 30);
+        EXPECT_TRUE(assert_cast<const ColumnNullable&>(result.get_values()).is_null_at(2));
+    }
+
+    {
+        auto outer_null_map = ColumnUInt8::create();
+        outer_null_map->insert_value(0);
+        outer_null_map->insert_value(1);
+        outer_null_map->insert_value(0);
+        auto nullable_entry_array_type = make_nullable(entry_array_type);
+        auto nullable_map_type = make_nullable(map_type);
+
+        Block block;
+        block.insert({ColumnNullable::create(
+                              make_int_entry_array({1, 98, 99, 4}, {10, 980, 990, 40}, {1, 3, 4},
+                                                   {false, false, true, false}),
+                              std::move(outer_null_map)),
+                      nullable_entry_array_type, "entries"});
+        block.insert({nullptr, nullable_map_type, "result"});
+
+        ASSERT_TRUE(execute_map_function("%map_from_filtered_entries_unique%", block, {0}, 1,
+                                         nullable_map_type)
+                            .ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_FALSE(result.is_null_at(2));
+        const auto& result_map = assert_cast<const ColumnMap&>(result.get_nested_column());
+        ASSERT_EQ(result_map.get_offsets()[0], 1);
+        ASSERT_EQ(result_map.get_offsets()[1], 1);
+        ASSERT_EQ(result_map.get_offsets()[2], 2);
+        EXPECT_EQ(get_nullable_int(result_map.get_keys(), 0), 1);
+        EXPECT_EQ(get_nullable_int(result_map.get_keys(), 1), 4);
+    }
 }
 } // namespace doris

@@ -202,84 +202,40 @@ public:
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [unpacked_predicate_column, predicate_is_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        ColumnPtr map_column = unpacked_map_column;
-        ColumnPtr predicate_column = unpacked_predicate_column;
 
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& result_null_map_data = result_null_map->get_data();
-        auto merge_null_map = [&](ColumnPtr& column, bool is_const) {
+        auto merge_null_map = [&](const ColumnPtr& column, bool is_const) -> const IColumn& {
             if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
                 VectorizedUtils::update_null_map(result_null_map_data,
                                                  nullable->get_null_map_data(), is_const);
-                column = nullable->get_nested_column_ptr();
+                return nullable->get_nested_column();
             }
+            return *column;
         };
-        merge_null_map(map_column, map_is_const);
-        merge_null_map(predicate_column, predicate_is_const);
 
-        const auto& map = assert_cast<const ColumnMap&>(*map_column);
-        const auto& predicate = assert_cast<const ColumnArray&>(*predicate_column);
-        if ((!map_is_const && map.size() != input_rows_count) ||
-            (!predicate_is_const && predicate.size() != input_rows_count)) {
-            return Status::InvalidArgument(
-                    "The map and lambda result offsets of function {} must be identical", name);
-        }
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            if (!result_null_map_data[row] &&
-                map.size_at(index_check_const(row, map_is_const)) !=
-                        predicate.size_at(index_check_const(row, predicate_is_const))) {
-                return Status::InvalidArgument(
-                        "The map and lambda result offsets of function {} must be identical", name);
-            }
-        }
-
-        const IColumn* predicate_data = &predicate.get_data();
-        const UInt8* predicate_null_map = nullptr;
-        if (const auto* nullable_predicate = check_and_get_column<ColumnNullable>(predicate_data)) {
-            predicate_null_map = nullable_predicate->get_null_map_data().data();
-            predicate_data = &nullable_predicate->get_nested_column();
-        }
-        const auto& predicate_values = assert_cast<const ColumnUInt8&>(*predicate_data).get_data();
+        const auto& map =
+                assert_cast<const ColumnMap&>(merge_null_map(unpacked_map_column, map_is_const));
+        const auto& predicate = assert_cast<const ColumnArray&>(
+                merge_null_map(unpacked_predicate_column, predicate_is_const));
+        RETURN_IF_ERROR(check_arguments(map, map_is_const, predicate, predicate_is_const,
+                                        result_null_map_data));
 
         IColumn::Selector selector;
-        if (!map_is_const) {
-            selector.reserve(map.get_keys().size());
-        }
+        auto result_offsets = ColumnArray::ColumnOffsets::create();
+        build_selector_and_offsets(map, map_is_const, predicate, predicate_is_const,
+                                   result_null_map_data, selector, *result_offsets);
+
         auto result_keys = map.get_keys().clone_empty();
         auto result_values = map.get_values().clone_empty();
-        auto result_offsets = ColumnArray::ColumnOffsets::create();
-        result_offsets->reserve(input_rows_count);
-
-        size_t output_offset = 0;
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            if (!result_null_map_data[row]) {
-                const size_t map_row = index_check_const(row, map_is_const);
-                const size_t map_begin = map.get_offsets()[map_row - 1];
-                const size_t predicate_begin =
-                        predicate.get_offsets()[index_check_const(row, predicate_is_const) - 1];
-                const size_t entry_count = map.size_at(map_row);
-                for (size_t entry = 0; entry < entry_count; ++entry) {
-                    const size_t predicate_entry = predicate_begin + entry;
-                    const bool selected = (predicate_null_map == nullptr ||
-                                           predicate_null_map[predicate_entry] == 0) &&
-                                          predicate_values[predicate_entry] != 0;
-                    if (selected) {
-                        const size_t map_entry = map_begin + entry;
-                        selector.push_back(map_entry);
-                        ++output_offset;
-                    }
-                }
-            }
-            result_offsets->insert_value(output_offset);
-        }
-        if (map_is_const && !selector.empty()) {
+        if (!map_is_const) {
+            map.get_keys().append_data_by_selector(result_keys, selector);
+            map.get_values().append_data_by_selector(result_values, selector);
+        } else if (!selector.empty()) {
             result_keys->insert_indices_from(map.get_keys(), selector.data(),
                                              selector.data() + selector.size());
             result_values->insert_indices_from(map.get_values(), selector.data(),
                                                selector.data() + selector.size());
-        } else if (!map_is_const) {
-            map.get_keys().append_data_by_selector(result_keys, selector);
-            map.get_values().append_data_by_selector(result_values, selector);
         }
         auto result_map = ColumnMap::create(std::move(result_keys), std::move(result_values),
                                             std::move(result_offsets));
@@ -288,6 +244,56 @@ public:
                                                                      std::move(result_null_map)));
         } else {
             block.replace_by_position(result, std::move(result_map));
+        }
+        return Status::OK();
+    }
+
+private:
+    static void build_selector_and_offsets(const ColumnMap& map, bool map_is_const,
+                                           const ColumnArray& predicate, bool predicate_is_const,
+                                           const NullMap& result_null_map,
+                                           IColumn::Selector& selector,
+                                           ColumnArray::ColumnOffsets& result_offsets) {
+        const auto& nullable_predicate = assert_cast<const ColumnNullable&>(predicate.get_data());
+        const auto& predicate_null_map = nullable_predicate.get_null_map_data();
+        const auto& predicate_values =
+                assert_cast<const ColumnUInt8&>(nullable_predicate.get_nested_column()).get_data();
+
+        if (!map_is_const) {
+            selector.reserve(map.get_keys().size());
+        }
+        result_offsets.reserve(result_null_map.size());
+
+        for (size_t row = 0; row < result_null_map.size(); ++row) {
+            if (!result_null_map[row]) {
+                const size_t map_row = index_check_const(row, map_is_const);
+                const size_t map_begin = map.get_offsets()[map_row - 1];
+                const size_t predicate_begin =
+                        predicate.get_offsets()[index_check_const(row, predicate_is_const) - 1];
+                const size_t entry_count = map.size_at(map_row);
+                for (size_t entry = 0; entry < entry_count; ++entry) {
+                    const size_t predicate_entry = predicate_begin + entry;
+                    const bool selected = predicate_null_map[predicate_entry] == 0 &&
+                                          predicate_values[predicate_entry] != 0;
+                    if (selected) {
+                        selector.push_back(map_begin + entry);
+                    }
+                }
+            }
+            result_offsets.insert_value(selector.size());
+        }
+    }
+
+    static Status check_arguments(const ColumnMap& map, bool map_is_const,
+                                  const ColumnArray& predicate, bool predicate_is_const,
+                                  const NullMap& result_null_map) {
+        for (size_t row = 0; row < result_null_map.size(); ++row) {
+            if (!result_null_map[row] &&
+                map.size_at(index_check_const(row, map_is_const)) !=
+                        predicate.size_at(index_check_const(row, predicate_is_const))) {
+                return Status::InvalidArgument(
+                        "The map and lambda result offsets of function {} must be identical", name);
+            }
         }
         return Status::OK();
     }
@@ -569,9 +575,10 @@ public:
     }
 };
 
+template <bool keys_are_unique>
 class FunctionMapFromEntries : public IFunction {
 public:
-    static constexpr auto name = "map_from_entries";
+    static constexpr auto name = keys_are_unique ? "%map_from_entries_unique%" : "map_from_entries";
     static FunctionPtr create() { return std::make_shared<FunctionMapFromEntries>(); }
 
     String get_name() const override { return name; }
@@ -608,7 +615,9 @@ public:
         auto result_map = ColumnMap::create(make_nullable(entry_struct.get_column_ptr(0)),
                                             make_nullable(entry_struct.get_column_ptr(1)),
                                             entries.get_offsets_ptr());
-        RETURN_IF_ERROR(result_map->deduplicate_keys());
+        if constexpr (!keys_are_unique) {
+            RETURN_IF_ERROR(result_map->deduplicate_keys());
+        }
         if (nullable_array != nullptr) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(result_map),
@@ -640,6 +649,100 @@ private:
             }
         }
         return Status::OK();
+    }
+};
+
+/// Internal conversion used by map-filter rewrites. Each non-null input row is converted from
+/// ARRAY<Nullable<STRUCT<key, value>>> to MAP by dropping null struct entries. Null outer arrays
+/// produce null maps, while null key or value fields inside retained entries remain valid.
+/// The input entries come from an existing map, so their keys are already unique and no key
+/// deduplication is needed here.
+class FunctionMapFromFilteredEntries : public IFunction {
+public:
+    static constexpr auto name = "%map_from_filtered_entries_unique%";
+    static FunctionPtr create() { return std::make_shared<FunctionMapFromFilteredEntries>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        const auto& array_type = assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0]));
+        const auto& struct_type =
+                assert_cast<const DataTypeStruct&>(*remove_nullable(array_type.get_nested_type()));
+        DCHECK_EQ(struct_type.get_elements().size(), 2);
+        auto map_type = std::make_shared<DataTypeMap>(make_nullable(struct_type.get_element(0)),
+                                                      make_nullable(struct_type.get_element(1)));
+        return arguments[0]->is_nullable() ? make_nullable(std::move(map_type)) : map_type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        ColumnPtr entries_column = block.get_by_position(arguments[0]).column;
+        const auto* nullable_array = check_and_get_column<ColumnNullable>(entries_column.get());
+        if (nullable_array != nullptr) {
+            entries_column = nullable_array->get_nested_column_ptr();
+        }
+
+        const auto& entries = assert_cast<const ColumnArray&>(*entries_column);
+        const auto& nullable_entries = assert_cast<const ColumnNullable&>(entries.get_data());
+        const auto& entry_struct =
+                assert_cast<const ColumnStruct&>(nullable_entries.get_nested_column());
+        DCHECK_EQ(entry_struct.get_columns().size(), 2);
+
+        ColumnPtr result_keys = entry_struct.get_column_ptr(0);
+        ColumnPtr result_values = entry_struct.get_column_ptr(1);
+        ColumnPtr result_offsets = entries.get_offsets_ptr();
+
+        if (nullable_entries.has_null()) {
+            IColumn::Selector selector;
+            auto filtered_offsets = ColumnArray::ColumnOffsets::create();
+            build_selector_and_offsets(entries, nullable_entries, nullable_array, selector,
+                                       *filtered_offsets);
+
+            auto filtered_keys = entry_struct.get_column(0).clone_empty();
+            auto filtered_values = entry_struct.get_column(1).clone_empty();
+            entry_struct.get_column(0).append_data_by_selector(filtered_keys, selector);
+            entry_struct.get_column(1).append_data_by_selector(filtered_values, selector);
+            result_keys = std::move(filtered_keys);
+            result_values = std::move(filtered_values);
+            result_offsets = std::move(filtered_offsets);
+        }
+
+        auto result_map =
+                ColumnMap::create(make_nullable(result_keys), make_nullable(result_values),
+                                  std::move(result_offsets));
+        if (nullable_array != nullptr) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(result_map),
+                                                   nullable_array->get_null_map_column_ptr()));
+        } else {
+            block.replace_by_position(result, std::move(result_map));
+        }
+        return Status::OK();
+    }
+
+private:
+    static void build_selector_and_offsets(const ColumnArray& entries,
+                                           const ColumnNullable& nullable_entries,
+                                           const ColumnNullable* nullable_array,
+                                           IColumn::Selector& selector,
+                                           ColumnArray::ColumnOffsets& filtered_offsets) {
+        selector.reserve(nullable_entries.size());
+        filtered_offsets.reserve(entries.size());
+
+        for (size_t row = 0; row < entries.size(); ++row) {
+            if (nullable_array == nullptr || !nullable_array->is_null_at(row)) {
+                const size_t begin = row == 0 ? 0 : entries.get_offsets()[row - 1];
+                const size_t end = entries.get_offsets()[row];
+                for (size_t entry = begin; entry < end; ++entry) {
+                    if (!nullable_entries.is_null_at(entry)) {
+                        selector.push_back(static_cast<uint32_t>(entry));
+                    }
+                }
+            }
+            filtered_offsets.insert_value(selector.size());
+        }
     }
 };
 
@@ -1104,7 +1207,9 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMapKeysOrValues<true>>();
     factory.register_function<FunctionMapKeysOrValues<false>>();
     factory.register_function<FunctionMapEntries>();
-    factory.register_function<FunctionMapFromEntries>();
+    factory.register_function<FunctionMapFromEntries<false>>();
+    factory.register_function<FunctionMapFromEntries<true>>();
+    factory.register_function<FunctionMapFromFilteredEntries>();
     factory.register_function<FunctionStrToMap>();
     factory.register_function<FunctionMapContainsEntry>();
     factory.register_function<FunctionDeduplicateMap>();

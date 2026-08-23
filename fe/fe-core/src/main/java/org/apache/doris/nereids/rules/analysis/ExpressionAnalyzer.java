@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -68,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -80,9 +82,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregat
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -96,6 +100,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
@@ -117,12 +122,16 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -143,6 +152,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }.analyze(expr, ctx);
         }
     };
+
+    private static final Set<String> MAP_ENTRY_LAMBDA_FUNCTIONS = ImmutableSet.of(
+            "map_all",
+            "map_apply",
+            "map_exists",
+            "map_filter",
+            "transform_keys",
+            "transform_values");
 
     private final Plan currentPlan;
     /*
@@ -438,12 +455,93 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // bindLambdaFunction
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
+        if (MAP_ENTRY_LAMBDA_FUNCTIONS.contains(unboundFunction.getName().toLowerCase(Locale.ROOT))) {
+            return bindMapLambdaFunction(unboundFunction, lambda, lambdaFunction, subChildren, context);
+        }
         List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(unboundFunction.getName(), subChildren);
 
         List<Slot> boundedSlots = arrayItemReferences.stream()
                 .map(ArrayItemReference::toSlot)
                 .collect(ImmutableList.toImmutableList());
 
+        lambdaFunction = analyzeLambdaFunction(lambda, lambdaFunction, boundedSlots, context);
+
+        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
+
+        // We don't add the ArrayExpression in high order function at all
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+    }
+
+    private UnboundFunction bindMapLambdaFunction(UnboundFunction unboundFunction, Lambda lambda,
+            Expression lambdaFunction, List<Expression> lambdaInputs, ExpressionRewriteContext context) {
+        String functionName = unboundFunction.getName();
+        if (lambdaInputs.size() != 1) {
+            throw new AnalysisException(String.format(
+                    "%s requires exactly one map argument but has %d", functionName, lambdaInputs.size()));
+        }
+        if (lambda.getLambdaArgumentNames().size() != 2) {
+            throw new AnalysisException(String.format(
+                    "lambda of %s requires exactly two arguments but has %d",
+                    functionName, lambda.getLambdaArgumentNames().size()));
+        }
+
+        Expression mapExpression = lambdaInputs.get(0);
+        if (!(mapExpression.getDataType() instanceof MapType)) {
+            throw new AnalysisException(String.format(
+                    "the non-lambda argument of %s must be map but is %s",
+                    functionName, mapExpression.getDataType().toSql()));
+        }
+
+        MapType mapType = (MapType) mapExpression.getDataType();
+        ExprId keyExprId = StatementScopeIdGenerator.newExprId();
+        ExprId valueExprId = StatementScopeIdGenerator.newExprId();
+        ArrayItemSlot keySlot = new ArrayItemSlot(
+                keyExprId, lambda.getLambdaArgumentName(0), mapType.getKeyType(), true);
+        ArrayItemSlot valueSlot = new ArrayItemSlot(
+                valueExprId, lambda.getLambdaArgumentName(1), mapType.getValueType(), true);
+        lambdaFunction = analyzeLambdaFunction(
+                lambda, lambdaFunction, ImmutableList.of(keySlot, valueSlot), context);
+
+        Set<String> occupiedNames = Sets.newHashSet(lambda.getLambdaArgumentNames());
+        for (Slot slot : lambdaFunction.<Slot>collect(expression -> expression instanceof Slot)) {
+            occupiedNames.add(slot.getName());
+        }
+        for (Lambda nestedLambda : lambdaFunction.<Lambda>collect(expression -> expression instanceof Lambda)) {
+            occupiedNames.addAll(nestedLambda.getLambdaArgumentNames());
+        }
+
+        ExprId entryExprId;
+        String entryName;
+        do {
+            entryExprId = StatementScopeIdGenerator.newExprId();
+            entryName = "$_map_entry_" + entryExprId.asInt() + "_$";
+        } while (occupiedNames.contains(entryName));
+
+        ArrayItemReference entryArgument = new ArrayItemReference(
+                entryExprId, entryName, new MapEntries(mapExpression));
+        Slot entrySlot = entryArgument.toSlot();
+        Expression key = new ElementAt(entrySlot, new IntegerLiteral(1));
+        Expression value = new ElementAt(entrySlot, new IntegerLiteral(2));
+        Expression rewrittenLambdaFunction = lambdaFunction.rewriteDownShortCircuit(expression -> {
+            if (expression instanceof ArrayItemSlot) {
+                ExprId exprId = ((ArrayItemSlot) expression).getExprId();
+                if (exprId.equals(keyExprId)) {
+                    return key;
+                }
+                if (exprId.equals(valueExprId)) {
+                    return value;
+                }
+            }
+            return expression;
+        });
+
+        Lambda lambdaClosure = new Lambda(
+                ImmutableList.of(entryName), rewrittenLambdaFunction, ImmutableList.of(entryArgument));
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+    }
+
+    private Expression analyzeLambdaFunction(Lambda lambda, Expression lambdaFunction,
+            List<Slot> boundedSlots, ExpressionRewriteContext context) {
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
                 true, true) {
@@ -454,12 +552,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         + " in lambda arguments" + lambda.getLambdaArgumentNames());
             }
         };
-        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
-
-        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
-
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+        return lambdaAnalyzer.analyze(lambdaFunction, context);
     }
 
     UnboundFunction preProcessUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
