@@ -97,12 +97,14 @@ public class ScannerLoader {
     //   2) rebuilding a fresh URLClassLoader on every eviction produced multiple coexisting
     //      ClassLoaders for the same UDF, which broke lazy class resolution and reflective
     //      lookups inside user UDF code.
+    // Cache by function id so a recreated function with the same signature does not reuse
+    // the previous function's class loader.
     // NOTE: a cache miss in BaseExecutor.getClassCache() is NOT only reachable after
-    // cleanUdfClassLoader() — concurrent first-time loads of the same signature can also
+    // cleanUdfClassLoader() — concurrent first-time loads of the same function can also
     // both observe a miss. cacheClassLoader() must therefore insert atomically via
     // putIfAbsent and must never close a cache that was already published to the map,
     // because another executor may already be holding it.
-    private static final Map<String, UdfClassCache> udfLoadedClasses = new ConcurrentHashMap<>();
+    private static final Map<Long, UdfClassCacheEntry> udfLoadedClasses = new ConcurrentHashMap<>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
 
@@ -126,15 +128,26 @@ public class ScannerLoader {
         LOG.info("Finished loading scanner JARs");
     }
 
-    public static UdfClassCache getUdfClassLoader(String functionSignature) {
-        return udfLoadedClasses.get(functionSignature);
+    private static class UdfClassCacheEntry {
+        private final String functionSignature;
+        private final UdfClassCache classCache;
+
+        UdfClassCacheEntry(String functionSignature, UdfClassCache classCache) {
+            this.functionSignature = functionSignature;
+            this.classCache = classCache;
+        }
+    }
+
+    public static UdfClassCache getUdfClassLoader(long functionId) {
+        UdfClassCacheEntry entry = udfLoadedClasses.get(functionId);
+        return entry == null ? null : entry.classCache;
     }
 
     /**
-     * Cache the UDF class metadata for the given function signature.
+     * Cache the UDF class metadata for the given catalog function id.
      *
-     * <p>Insertion is atomic via {@link Map#putIfAbsent}: if another executor thread has
-     * already published a cache entry for {@code functionSignature}, the {@code classCache}
+     * <p>Insertion is atomic via {@link Map#putIfAbsent}: if another executor
+     * thread has already published a cache entry for {@code functionId}, the {@code classCache}
      * argument is treated as a redundant build and closed here (it has not yet been handed
      * to any executor, so closing its URLClassLoader is safe). The already-published entry
      * is returned to the caller so the current executor can switch to it.</p>
@@ -142,33 +155,44 @@ public class ScannerLoader {
      * <p>The {@code expirationTime} parameter is kept for backward compatibility with the
      * existing call sites and DDL property {@code expiration_time}, but is no longer used:
      * cached entries are not evicted by time. Removal happens only via
-     * {@link #cleanUdfClassLoader(String)} on DROP FUNCTION.</p>
+     * {@link #cleanUdfClassLoader(String, long)} on DROP FUNCTION.</p>
      *
      * @return the {@link UdfClassCache} actually held in the map after this call —
      *         either {@code classCache} (we won the race) or the pre-existing entry
      *         (another thread won; {@code classCache} has been closed and must not be used).
      */
-    public static UdfClassCache cacheClassLoader(String functionSignature, UdfClassCache classCache,
-            long expirationTime) {
-        LOG.info("Cache UDF for: " + functionSignature);
-        UdfClassCache existing = udfLoadedClasses.putIfAbsent(functionSignature, classCache);
+    public static UdfClassCache cacheClassLoader(String functionSignature, long functionId,
+            UdfClassCache classCache, long expirationTime) {
+        LOG.info("Cache UDF for function signature: {}, function id: {}", functionSignature, functionId);
+        UdfClassCacheEntry newEntry = new UdfClassCacheEntry(functionSignature, classCache);
+        UdfClassCacheEntry existing = udfLoadedClasses.putIfAbsent(functionId, newEntry);
         if (existing == null) {
             return classCache;
         }
         // Lost the race against a concurrent first-time load. The cache we just built has
         // never been exposed to any executor, so closing its URLClassLoader here cannot
         // affect anyone. Do NOT touch `existing` — another executor may already be using it.
-        try {
-            classCache.close();
-        } catch (Exception e) {
-            LOG.warn("Failed to close redundant UdfClassCache for " + functionSignature, e);
-        }
-        return existing;
+        closeUdfClassLoader(functionId, newEntry);
+        return existing.classCache;
     }
 
-    public void cleanUdfClassLoader(String functionSignature) {
-        LOG.info("cleanUdfClassLoader for: " + functionSignature);
-        UdfClassCache removed = udfLoadedClasses.remove(functionSignature);
+    public void cleanUdfClassLoader(String functionSignature, long functionId) {
+        boolean dropByFunctionId = functionId > 0;
+        LOG.info("cleanUdfClassLoader for function signature: {}, function id: {}, drop by function id: {}",
+                functionSignature, functionId, dropByFunctionId);
+        if (dropByFunctionId) {
+            closeUdfClassLoader(functionId, udfLoadedClasses.remove(functionId));
+            return;
+        }
+        udfLoadedClasses.forEach((cachedFunctionId, entry) -> {
+            if (entry.functionSignature.equals(functionSignature)
+                    && udfLoadedClasses.remove(cachedFunctionId, entry)) {
+                closeUdfClassLoader(cachedFunctionId, entry);
+            }
+        });
+    }
+
+    private static void closeUdfClassLoader(long functionId, UdfClassCacheEntry removed) {
         if (removed != null) {
             // Immediately close the URLClassLoader. NOTE: any in-flight query still holding a
             // reference to this cache (e.g. via JNIContext.executor) will fail with
@@ -176,9 +200,10 @@ public class ScannerLoader {
             // accepted semantic of DROP FUNCTION: the function is gone, queries against it
             // are expected to fail.
             try {
-                removed.close();
+                removed.classCache.close();
             } catch (Exception e) {
-                LOG.warn("Failed to close UdfClassCache for " + functionSignature, e);
+                LOG.warn("Failed to close UdfClassCache for function signature: {}, function id: {}",
+                        removed.functionSignature, functionId, e);
             }
         }
     }
