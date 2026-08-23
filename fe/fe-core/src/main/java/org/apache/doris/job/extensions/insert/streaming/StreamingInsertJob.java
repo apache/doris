@@ -195,6 +195,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @Setter
     private transient volatile boolean needRebuildReader = true;
+    private transient volatile long statusEpoch;
 
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
@@ -561,7 +562,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     && status != getJobStatus()) {
                 taskToCancel = runningStreamTask;
             }
+            JobStatus previousStatus = getJobStatus();
             super.updateJobStatus(status);
+            if (previousStatus != getJobStatus()) {
+                statusEpoch++;
+            }
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
@@ -578,6 +583,111 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // The task owner can need this job's write lock while finishing transaction callbacks.
             // Cancel and wait only after publishing the status and releasing the job lock.
             taskToCancel.cancel(waitForTask);
+        }
+    }
+
+    /** Applies a validated manual transition while reason, status, and cancellation share one job lock. */
+    public void updateManualJobStatus(JobStatus status, FailureReason reason) throws JobException {
+        AbstractStreamingTask taskToWait = null;
+        AbstractStreamingTask taskToRelease = null;
+        JobStatus publishedStatus = JobStatus.RUNNING.equals(status) ? JobStatus.PENDING : status;
+        lock.writeLock().lock();
+        try {
+            validateManualStatusTransition(status);
+            resetFailureInfo(reason);
+            if (JobStatus.PAUSED.equals(status) && runningStreamTask != null) {
+                needRebuildReader = true;
+                taskToRelease = runningStreamTask;
+            }
+            if (JobStatus.PAUSED.equals(status) || JobStatus.STOPPED.equals(status)) {
+                taskToWait = runningStreamTask;
+                if (taskToWait != null) {
+                    // Linearize manual termination with callbacks before publishing the new job status.
+                    // Task-specific RPCs and waits remain outside the job lock.
+                    taskToWait.publishCancellation();
+                }
+            }
+            // RESUME must re-enter PENDING so the scheduler creates a successor before publishing RUNNING.
+            super.updateJobStatus(publishedStatus);
+            statusEpoch++;
+            if (isFinalStatus()) {
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
+            }
+            log.info("Streaming insert job {} manually updated status to {}", getJobId(), getJobStatus());
+        } finally {
+            lock.writeLock().unlock();
+        }
+        boolean readerReleased = true;
+        if (taskToRelease != null) {
+            readerReleased = !(taskToRelease instanceof StreamingMultiTblTask)
+                    || ((StreamingMultiTblTask) taskToRelease).releaseRemoteReaderAndWait();
+            if (!(taskToRelease instanceof StreamingMultiTblTask)) {
+                taskToRelease.releaseRemoteReader();
+            }
+        }
+        if (taskToWait != null) {
+            taskToWait.cancel(true);
+            if (readerReleased && taskToWait.canHandoffAfterCancellation()) {
+                clearRunningStreamTask(taskToWait);
+            }
+        }
+    }
+
+    /** Atomically preserves a manual pause or publishes an internally-triggered pause. */
+    public boolean pauseForInternalFailure(FailureReason reason, long expectedEpoch) throws JobException {
+        AbstractStreamingTask taskToRelease = null;
+        lock.writeLock().lock();
+        try {
+            if (statusEpoch != expectedEpoch || (getFailureReason() != null
+                    && InternalErrorCode.MANUAL_PAUSE_ERR.equals(getFailureReason().getCode()))) {
+                return false;
+            }
+            if (isFinalStatus()) {
+                return false;
+            }
+            taskToRelease = runningStreamTask;
+            needRebuildReader = taskToRelease != null;
+            resetFailureInfo(reason);
+            super.updateJobStatus(JobStatus.PAUSED);
+            statusEpoch++;
+        } finally {
+            lock.writeLock().unlock();
+        }
+        if (taskToRelease != null) {
+            boolean readerReleased = !(taskToRelease instanceof StreamingMultiTblTask)
+                    || ((StreamingMultiTblTask) taskToRelease).releaseRemoteReaderAndWait();
+            if (!(taskToRelease instanceof StreamingMultiTblTask)) {
+                taskToRelease.releaseRemoteReader();
+            }
+            taskToRelease.cancel(true);
+            if (readerReleased && taskToRelease.canHandoffAfterCancellation()) {
+                clearRunningStreamTask(taskToRelease);
+            }
+        }
+        return true;
+    }
+
+    private void validateManualStatusTransition(JobStatus newStatus) throws JobException {
+        if (newStatus == null) {
+            throw new IllegalArgumentException("jobStatus cannot be null");
+        }
+        if (newStatus.equals(getJobStatus())) {
+            throw new JobException("Can't change job status to the same status");
+        }
+        if (JobStatus.STOPPED.equals(getJobStatus())
+                && (JobStatus.PENDING.equals(newStatus)
+                        || JobStatus.RUNNING.equals(newStatus)
+                        || JobStatus.PAUSED.equals(newStatus))) {
+            throw new JobException("Can't update stopped job status to " + newStatus);
+        }
+        if (JobStatus.RUNNING.equals(newStatus)
+                && !JobStatus.PAUSED.equals(getJobStatus())
+                && !JobStatus.PENDING.equals(getJobStatus())) {
+            throw new JobException("Can't update job " + getJobStatus() + " status to RUNNING");
+        }
+        if (JobStatus.RUNNING.equals(getJobStatus())
+                && JobStatus.isRunning(newStatus)) {
+            throw new JobException("Can't change job status to the same status, job already running");
         }
     }
 
@@ -633,7 +743,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public boolean isReadyForScheduling(Map<Object, Object> taskContext) {
-        return CollectionUtils.isEmpty(getRunningTasks()) && !isFinalStatus();
+        return CollectionUtils.isEmpty(getRunningTasks()) && runningStreamTask == null && !isFinalStatus();
     }
 
     @Override
@@ -655,18 +765,90 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected AbstractStreamingTask createStreamingTask() throws JobException {
-        if (tvfType != null) {
-            this.runningStreamTask = createStreamingInsertTask();
-        } else {
-            this.runningStreamTask = createStreamingMultiTblTask();
+        lock.writeLock().lock();
+        try {
+            if (runningStreamTask != null) {
+                throw new JobException("Previous streaming task is still terminating, task id: "
+                        + runningStreamTask.getTaskId());
+            }
+            if (tvfType != null) {
+                this.runningStreamTask = createStreamingInsertTask();
+            } else {
+                this.runningStreamTask = createStreamingMultiTblTask();
+            }
+            this.runningStreamTask.setStatus(TaskStatus.PENDING);
+            Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
+            log.info("create new streaming insert task for job {}, task {} ",
+                    getJobId(), runningStreamTask.getTaskId());
+            recordTasks(runningStreamTask);
+            return runningStreamTask;
+        } finally {
+            lock.writeLock().unlock();
         }
-        // Set PENDING before registering, else the scheduler thread may set RUNNING first and we clobber it.
-        this.runningStreamTask.setStatus(TaskStatus.PENDING);
-        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
-        log.info("create new streaming insert task for job {}, task {} ",
-                getJobId(), runningStreamTask.getTaskId());
-        recordTasks(runningStreamTask);
-        return runningStreamTask;
+    }
+
+    /**
+     * Publishes the result of one PENDING scheduler tick only while that exact tick still owns the state.
+     * Task registration and the RUNNING transition share the job write lock, so a concurrent manual
+     * PAUSE/STOP cannot be overwritten or leave a task registered on a terminal job.
+     */
+    boolean dispatchPendingTask(long expectedEpoch) throws JobException {
+        boolean finished = false;
+        lock.writeLock().lock();
+        try {
+            if (statusEpoch != expectedEpoch || !JobStatus.PENDING.equals(getJobStatus())
+                    || runningStreamTask != null) {
+                return false;
+            }
+            if (hasReachedEnd()) {
+                super.updateJobStatus(JobStatus.FINISHED);
+                statusEpoch++;
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
+                finished = true;
+            } else {
+                createStreamingTask();
+                setSampleStartTime(System.currentTimeMillis());
+                super.updateJobStatus(JobStatus.RUNNING);
+                statusEpoch++;
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+        if (finished) {
+            logUpdateOperation();
+        }
+        return true;
+    }
+
+    boolean hasRunningStreamTask() {
+        lock.readLock().lock();
+        try {
+            return runningStreamTask != null;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    long getStatusEpoch() {
+        return statusEpoch;
+    }
+
+    boolean tryCompleteCanceledPredecessor() {
+        AbstractStreamingTask predecessor;
+        lock.readLock().lock();
+        try {
+            predecessor = runningStreamTask;
+        } finally {
+            lock.readLock().unlock();
+        }
+        if (!(predecessor instanceof StreamingMultiTblTask) || !predecessor.getIsCanceled().get()) {
+            return predecessor == null;
+        }
+        if (((StreamingMultiTblTask) predecessor).releaseRemoteReaderAndWait()
+                && predecessor.canHandoffAfterCancellation()) {
+            clearRunningStreamTask(predecessor);
+        }
+        return !hasRunningStreamTask();
     }
 
     /** Create a task for a FROM source TO DATABASE streaming job. */
@@ -750,6 +932,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     protected void fetchMeta() throws JobException {
         long start = System.currentTimeMillis();
+        long expectedEpoch = statusEpoch;
         try {
             // when fe restart, offsetProvider.jobId may be null
             Map<String, String> props = getProviderProps();
@@ -757,16 +940,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.fetchRemoteMeta(props);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
-            if (this.getFailureReason() == null
-                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                // When a job is manually paused, it does not need to be set again,
-                // otherwise, it may be woken up by auto resume.
-                this.setFailureReason(
-                        new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                                "Failed to fetch meta, " + ex.getMessage()));
-                // Publish the non-resumable reason before PAUSED becomes scheduler-visible.
-                this.updateJobStatus(JobStatus.PAUSED);
-
+            if (pauseForInternalFailure(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to fetch meta, " + ex.getMessage()), expectedEpoch)) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
                 }
@@ -785,6 +960,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * Called by scheduler each tick (PENDING/RUNNING). Mirrors fetchMeta error handling.
      */
     public void advanceSplitsIfNeed() throws JobException {
+        long expectedEpoch = statusEpoch;
         if (offsetProvider.noMoreSplits()) {
             return;
         }
@@ -804,13 +980,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         } catch (Exception ex) {
             log.warn("advance splits failed, job id: {}", getJobId(), ex);
-            if (this.getFailureReason() == null
-                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                this.setFailureReason(new FailureReason(
-                        InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                        "Failed to advance splits, " + ex.getMessage()));
-                this.updateJobStatus(JobStatus.PAUSED);
-            }
+            pauseForInternalFailure(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to advance splits, " + ex.getMessage()), expectedEpoch);
         }
     }
 
@@ -844,28 +1015,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    // Command entry for a manual status change: reset the failure/retry budget, and on manual pause
-    // release the reader (keep slot). "Manual" is decided by the caller, never by reading failureReason.
-    public void onManualStatusAltered(JobStatus newStatus, FailureReason reason) {
-        AbstractStreamingTask taskToRelease = null;
-        lock.writeLock().lock();
-        try {
-            resetFailureInfo(reason);
-            if (JobStatus.PAUSED.equals(newStatus) && runningStreamTask != null) {
-                // Force resume to swap in a fresh reader, in case the release RPC races or fails.
-                this.needRebuildReader = true;
-                taskToRelease = runningStreamTask;
-            }
-        } finally {
-            lock.writeLock().unlock();
-        }
-        // Release outside the write lock: the RPC may block on first brpc connect and this is
-        // best-effort (needRebuildReader already forces a fresh reader; a stale release is a no-op).
-        if (taskToRelease != null) {
-            taskToRelease.releaseRemoteReader();
-        }
-    }
-
     public boolean hasMoreDataToConsume() {
         return offsetProvider.hasMoreDataToConsume();
     }
@@ -886,7 +1035,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void onStreamTaskFail(AbstractStreamingTask task) throws JobException {
+        if (!lock.writeLock().isHeldByCurrentThread()) {
+            writeLock();
+        }
         try {
+            if (runningStreamTask != task) {
+                log.info("Ignore stale failure callback for streaming job {}, task {}", getJobId(), task.getTaskId());
+                return;
+            }
+            if (!(task instanceof StreamingMultiTblTask)) {
+                runningStreamTask = null;
+            }
             this.needRebuildReader = true;
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
@@ -898,14 +1057,38 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_TASK_FAILED_COUNT.increase(1L);
             }
+            updateJobStatus(JobStatus.PAUSED);
         } finally {
             writeUnlock();
         }
-        updateJobStatus(JobStatus.PAUSED);
+        if (task instanceof StreamingMultiTblTask
+                && ((StreamingMultiTblTask) task).releaseRemoteReaderAndWait()) {
+            clearRunningStreamTask(task);
+        }
     }
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
+        onStreamTaskSuccess(task, null);
+    }
+
+    void onStreamTaskSuccess(AbstractStreamingTask task, Runnable beforeHandoff) throws JobException {
+        // TVF transaction callbacks transfer one write-lock hold from beforeCommitted() to this
+        // terminal callback. Multi-table callbacks arrive without that hold and acquire it here.
+        if (!lock.writeLock().isHeldByCurrentThread()) {
+            writeLock();
+        }
         try {
+            if (runningStreamTask != task || !JobStatus.RUNNING.equals(getJobStatus())
+                    || task.getIsCanceled().get()) {
+                log.info("Ignore stale success callback for streaming job {}, task {}", getJobId(), task.getTaskId());
+                return;
+            }
+            if (beforeHandoff != null) {
+                beforeHandoff.run();
+            }
+            // The success callback is the exact terminal handoff. Clear the predecessor before creating
+            // its successor; the execution owner's later finally block uses identity and cannot clear the new task.
+            runningStreamTask = null;
             this.needRebuildReader = false;
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
@@ -926,7 +1109,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 return;
             }
             AbstractStreamingTask nextTask = createStreamingTask();
-            this.runningStreamTask = nextTask;
             log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
                     getJobId(), nextTask.getTaskId(), task.getTaskId());
         } finally {

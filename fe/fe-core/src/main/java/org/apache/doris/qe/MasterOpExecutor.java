@@ -35,6 +35,9 @@ import org.apache.logging.log4j.Logger;
 public class MasterOpExecutor extends FEOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
     private final int journalWaitTimeoutMs;
+    private final Object executionAdmissionLock = new Object();
+    private boolean executionStarted;
+    private boolean cancellationRequested;
 
     public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
         super(new TNetworkAddress(ctx.getEnv().getMasterHost(), ctx.getEnv().getMasterRpcPort()),
@@ -55,12 +58,25 @@ public class MasterOpExecutor extends FEOpExecutor {
 
     @Override
     public void execute() throws Exception {
+        synchronized (executionAdmissionLock) {
+            if (cancellationRequested) {
+                ctx.getState().setError("forward operation cancelled");
+                return;
+            }
+            executionStarted = true;
+        }
         super.execute();
         waitOnReplaying();
     }
 
     @Override
     public void cancel() throws Exception {
+        synchronized (executionAdmissionLock) {
+            cancellationRequested = true;
+            if (!executionStarted) {
+                return;
+            }
+        }
         super.cancel();
         waitOnReplaying();
     }

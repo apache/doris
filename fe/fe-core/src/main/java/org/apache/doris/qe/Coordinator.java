@@ -143,6 +143,7 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
@@ -784,6 +785,9 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        if (isQueryCancelled()) {
+            throw new UserException("Query was cancelled before execution");
+        }
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
@@ -916,7 +920,13 @@ public class Coordinator implements CoordInterface {
 
     protected void sendPipelineCtx() throws Exception {
         lock();
+        boolean lockHeld = true;
         try {
+            // Linearize fragment dispatch with cancel(): cancel either publishes its status before this
+            // admission check, or waits for dispatch publication and then cancels the remote fragments.
+            if (queryStatus.isCancelled()) {
+                throw new UserException("Query was cancelled before fragment dispatch");
+            }
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
             for (FragmentExecParams params : fragmentExecParamsMap.values()) {
                 for (FInstanceExecParam fi : params.instanceExecParams) {
@@ -1047,6 +1057,11 @@ public class Coordinator implements CoordInterface {
             updateProfileIfPresent(profile -> profile.updateFragmentCompressedSize(compressedSize.get()));
             updateProfileIfPresent(profile -> profile.setFragmentSerializeTime());
 
+            // All cancel-visible per-backend contexts are now published. Do not retain the coordinator lock
+            // while waiting for remote RPCs: each PipelineExecContexts linearizes its own send with cancel.
+            unlock();
+            lockHeld = false;
+
             // 4.2 send fragments rpc
             List<Pair<Long, Triple<PipelineExecContexts, BackendServiceProxy,
                     Future<InternalService.PExecPlanFragmentResult>>>> futures = Lists.newArrayList();
@@ -1080,7 +1095,9 @@ public class Coordinator implements CoordInterface {
                 updateProfileIfPresent(profile -> profile.setRpcPhase2Latency(rpcPhase2Latency));
             }
         } finally {
-            unlock();
+            if (lockHeld) {
+                unlock();
+            }
         }
     }
 
@@ -3162,6 +3179,9 @@ public class Coordinator implements CoordInterface {
         ByteString serializedFragments = null;
         boolean hasCancelled = false;
         boolean cancelInProcess = false;
+        boolean cancelRequested = false;
+        ListenableFuture<InternalService.PExecPlanFragmentResult> phaseOneFuture;
+        boolean deferredCancelScheduled = false;
 
         public PipelineExecContexts(TUniqueId queryId,
                 Backend backend, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
@@ -3206,11 +3226,16 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync(BackendServiceProxy proxy)
+        public synchronized Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync(
+                BackendServiceProxy proxy)
                 throws TException {
+            if (cancelRequested) {
+                throw new TException("Query cancelled before fragment dispatch");
+            }
             Preconditions.checkNotNull(serializedFragments);
             try {
-                return proxy.execPlanFragmentsAsync(brpcAddr, serializedFragments, twoPhaseExecution);
+                phaseOneFuture = proxy.execPlanFragmentsAsync(brpcAddr, serializedFragments, twoPhaseExecution);
+                return phaseOneFuture;
             } catch (RpcException e) {
                 // DO NOT throw exception here, return a complete future with error code,
                 // so that the following logic will cancel the fragment.
@@ -3218,8 +3243,12 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(BackendServiceProxy proxy)
+        public synchronized Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
+                BackendServiceProxy proxy)
                 throws TException {
+            if (cancelRequested) {
+                throw new TException("Query cancelled before fragment start");
+            }
             try {
                 PExecPlanFragmentStartRequest.Builder builder = PExecPlanFragmentStartRequest.newBuilder();
                 PUniqueId qid = PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
@@ -3296,12 +3325,41 @@ public class Coordinator implements CoordInterface {
         // Just send the cancel message to BE, not care about the result, because there is no retry
         // logic in upper logic.
         private synchronized void cancelQuery(Status cancelReason) {
+            cancelRequested = true;
+            scheduleCancelAfterPhaseOne(cancelReason);
+            cancelQueryInternal(cancelReason, false);
+        }
+
+        private void scheduleCancelAfterPhaseOne(Status cancelReason) {
+            if (phaseOneFuture == null || deferredCancelScheduled) {
+                return;
+            }
+            deferredCancelScheduled = true;
+            Futures.addCallback(phaseOneFuture, new FutureCallback<PExecPlanFragmentResult>() {
+                @Override
+                public void onSuccess(PExecPlanFragmentResult result) {
+                    replayCancelAfterPhaseOne(cancelReason);
+                }
+
+                @Override
+                public void onFailure(Throwable t) {
+                    LOG.debug("Phase-one fragment dispatch completed exceptionally before deferred cancel", t);
+                    replayCancelAfterPhaseOne(cancelReason);
+                }
+            }, MoreExecutors.directExecutor());
+        }
+
+        private synchronized void replayCancelAfterPhaseOne(Status cancelReason) {
+            cancelQueryInternal(cancelReason, true);
+        }
+
+        private void cancelQueryInternal(Status cancelReason, boolean force) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("cancelRemoteFragments backend: {}, query={}, reason: {}",
                         backend, DebugUtil.printId(queryId), cancelReason.toString());
             }
 
-            if (this.hasCancelled || this.cancelInProcess) {
+            if (!force && (this.hasCancelled || this.cancelInProcess)) {
                 return;
             }
 

@@ -959,7 +959,46 @@ public class ConnectContext {
     }
 
     public void setExecutor(StmtExecutor executor) {
-        this.executor = executor;
+        boolean cancelAfterPublication = false;
+        Status deferredCancelReason;
+        synchronized (executorPublicationLock) {
+            if (connectType == ConnectType.ARROW_FLIGHT_SQL) {
+                synchronized (flightSqlDeferredExecutors) {
+                    this.executor = executor;
+                    cancelAfterPublication = flightSqlDeferredExecutorsSealed;
+                }
+            } else {
+                this.executor = executor;
+            }
+            deferredCancelReason = pendingExecutorCancelReason;
+            pendingExecutorCancelReason = null;
+        }
+        if (executor != null) {
+            if (deferredCancelReason != null) {
+                executor.cancel(deferredCancelReason);
+            }
+            if (cancelAfterPublication) {
+                executor.cancel(new Status(TStatusCode.CANCELLED, "arrow flight connection closed"), false);
+            }
+        }
+    }
+
+    private final Object executorPublicationLock = new Object();
+    private Status pendingExecutorCancelReason;
+
+    /** Preserve a forwarded-query cancel until proxyExecute publishes its StmtExecutor. */
+    public void cancelQueryOnExecutorPublication(Status cancelReason) {
+        StmtExecutor executorRef;
+        synchronized (executorPublicationLock) {
+            executorRef = executor;
+            if (executorRef == null) {
+                if (pendingExecutorCancelReason == null) {
+                    pendingExecutorCancelReason = cancelReason;
+                }
+                return;
+            }
+        }
+        executorRef.cancel(cancelReason);
     }
 
     public StmtExecutor getExecutor() {
