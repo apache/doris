@@ -106,6 +106,7 @@ final class IcebergManifestCache {
             return Objects.hash(tableLocation, snapshotId);
         }
     }
+
     // Per-scan manifest-cache access tally, keyed by the statement's stable queryId
     // (ConnectorSession.getQueryId()), so VERBOSE EXPLAIN can report THIS scan's hits/misses/failures (the
     // "manifest cache:" line). The provider that PLANS the scan and the (transient, fresh-per-call) provider that

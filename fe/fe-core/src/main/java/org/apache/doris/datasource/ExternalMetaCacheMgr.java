@@ -485,6 +485,11 @@ public class ExternalMetaCacheMgr {
         return new LinkedHashSet<>(cacheTypes.values());
     }
 
+    void replaceEngineCachesForTest(List<? extends ExternalMetaCache> caches) {
+        cacheTypes.clear();
+        caches.forEach(this::registerCacheType);
+    }
+
     /**
      * Fallback implementation of {@link ExternalCatalogMetaCache} for engines that do not
      * provide dedicated cache entries.

@@ -194,12 +194,19 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             }
             try {
                 afterLoadElection.run();
-                synchronized (lease.keyNode) {
-                    VersionedValue<K, V> present = currentVersionedValue(key, path);
-                    if (present != null) {
-                        ownLoad.complete(present.value);
-                        return present.value;
+                AtomicReference<VersionedValue<K, V>> electedValue = new AtomicReference<>();
+                boolean electedValuePresent = deferRemovals(() -> {
+                    VersionedValue<K, V> present;
+                    synchronized (lease.keyNode) {
+                        present = currentVersionedValue(key, path);
                     }
+                    electedValue.set(present);
+                    return present != null;
+                });
+                if (electedValuePresent) {
+                    VersionedValue<K, V> present = electedValue.get();
+                    ownLoad.complete(present.value);
+                    return present.value;
                 }
                 V loaded = loadAndRecord(key, loadFunction);
                 if (loaded != null) {
@@ -262,10 +269,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return;
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
-            synchronized (lease.keyNode) {
+            guardedCommit(lease, () -> {
                 lease.keyNode.loadPublicationState.set(new Object());
-                publishCommitted(lease, key, value);
-            }
+                return publishCommitted(lease, key, value) != null;
+            });
         }
     }
 
@@ -382,14 +389,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return false;
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, actualScope, false)) {
-            synchronized (lease.keyNode) {
-                VersionedValue<K, V> staged = newVersionedValue(lease, key, value);
-                afterBulkStage.run();
-                if (handle.tryCommit(key, lease, staged)) {
-                    return true;
-                }
-                return false;
-            }
+            VersionedValue<K, V> staged = newVersionedValue(lease, key, value);
+            afterBulkStage.run();
+            return handle.tryCommit(key, lease, staged);
         }
     }
 
@@ -625,12 +627,14 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             }
             return handle.scopeLease.commitIfPublicationCurrent(
                     handle.scopePublicationState, () -> {
-                        if (!lease.isCurrent()) {
-                            return false;
+                        synchronized (lease.keyNode) {
+                            if (!lease.isCurrent()) {
+                                return false;
+                            }
+                            lease.keyNode.loadPublicationState.set(new Object());
+                            install(staged, lease);
+                            return true;
                         }
-                        lease.keyNode.loadPublicationState.set(new Object());
-                        install(staged, lease);
-                        return true;
                     });
         }));
     }

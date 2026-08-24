@@ -625,6 +625,135 @@ public class ScopedMetaCacheConcurrencyTest {
     }
 
     @Test
+    public void directPutReplacementRemovalRunsAfterPublicationLocks() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AtomicBoolean reentered = new AtomicBoolean(false);
+        AtomicReference<Throwable> reentryFailure = new AtomicReference<>();
+        AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    (key, value) -> {
+                        if (!"old".equals(value) || !reentered.compareAndSet(false, true)) {
+                            return;
+                        }
+                        try {
+                            Future<Boolean> guardedPublication = executor.submit(
+                                    () -> cacheReference.get().compareAndSet(key, TABLE, "new", "guarded"));
+                            guardedPublication.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                            Future<?> invalidation = executor.submit(() -> registry.invalidate(TABLE));
+                            invalidation.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                        } catch (Throwable throwable) {
+                            reentryFailure.set(throwable);
+                        }
+                    });
+            cacheReference.set(cache);
+            cache.put("key", TABLE, "old");
+
+            cache.put("key", TABLE, "new");
+
+            Assertions.assertTrue(reentered.get());
+            Assertions.assertNull(reentryFailure.get());
+            Assertions.assertNull(cache.getIfPresent("key", TABLE));
+            assertEmpty(registry, cache);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void bulkStagingDoesNotHoldPublicationKey() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        AtomicReference<Throwable> guardedFailure = new AtomicReference<>();
+        AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    null,
+                    () -> {
+                        try {
+                            Future<String> guardedPublication = executor.submit(
+                                    () -> cacheReference.get().get("key", TABLE, ignored -> "guarded"));
+                            Assertions.assertEquals(
+                                    "guarded", guardedPublication.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+                        } catch (Throwable throwable) {
+                            guardedFailure.set(throwable);
+                        }
+                    });
+            cacheReference.set(cache);
+
+            try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                Assertions.assertTrue(cache.publish(handle, "key", TABLE, "bulk"));
+            }
+
+            Assertions.assertNull(guardedFailure.get());
+            Assertions.assertEquals("bulk", cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals(1, registry.metrics().getRegistrationCount());
+            Assertions.assertEquals(1, cache.metrics().getKeyNodeCount());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void electedLoaderStaleRemovalRunsAfterPublicationKey() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        CountDownLatch stateReplaced = new CountDownLatch(1);
+        CountDownLatch startCleanup = new CountDownLatch(1);
+        AtomicBoolean reentered = new AtomicBoolean(false);
+        AtomicReference<Throwable> reentryFailure = new AtomicReference<>();
+        AtomicReference<Future<?>> cleanupReference = new AtomicReference<>();
+        AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    (key, value) -> {
+                        if (!"old".equals(value) || !reentered.compareAndSet(false, true)) {
+                            return;
+                        }
+                        try {
+                            Future<Boolean> guardedPublication = executor.submit(
+                                    () -> cacheReference.get().compareAndSet(key, TABLE, null, "guarded"));
+                            guardedPublication.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                            Future<?> invalidation = executor.submit(() -> registry.invalidate(TABLE));
+                            invalidation.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                        } catch (Throwable throwable) {
+                            reentryFailure.set(throwable);
+                        }
+                    },
+                    () -> {
+                        cacheReference.get().put("key", TABLE, "old");
+                        cleanupReference.set(executor.submit(() -> registry.invalidate(TABLE, () -> {
+                            stateReplaced.countDown();
+                            await(startCleanup);
+                        })));
+                        await(stateReplaced);
+                    },
+                    () -> {
+                    });
+            cacheReference.set(cache);
+
+            Assertions.assertEquals("loaded", cache.get("key", TABLE, ignored -> "loaded"));
+            startCleanup.countDown();
+            cleanupReference.get().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            Assertions.assertTrue(reentered.get());
+            Assertions.assertNull(reentryFailure.get());
+            Assertions.assertNull(cache.getIfPresent("key", TABLE));
+            assertEmpty(registry, cache);
+        } finally {
+            startCleanup.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void compareAndSetReplacementRemovalCanReenterInvalidation() {
         AtomicBoolean reentered = new AtomicBoolean(false);
         AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
