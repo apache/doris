@@ -129,4 +129,21 @@ suite("test_timestamptz_partition_mtmv_preserve_creation_timezone","mtmv") {
         Assert.assertTrue("expected 2024-01-01 00:00:00.000000+00:00, got " + crossRewriteOn[0][1],
                 crossRewriteOn[0][1].toString().contains("2024-01-01 00:00:00.000000+00:00"))
     }
+
+    // The cross-zone cache guards only the zone-sensitive day_str column. A query that selects a subset
+    // made of the zone-invariant outputs (the raw ts instant and v) has the same row set and never reads
+    // a guarded value, so its projection-subset rewrite IS allowed and must return the direct-query rows.
+    sql "SET time_zone = '${crossTz}'"
+    sql "SET enable_materialized_view_rewrite=false"
+    def subsetRewriteOff = sql "SELECT ts, v FROM ${tableName} ORDER BY 1"
+    sql "SET enable_materialized_view_rewrite=true"
+    mv_rewrite_success("SELECT ts, v FROM ${tableName}", mvName)
+    def subsetRewriteOn = sql "SELECT ts, v FROM ${tableName} ORDER BY 1"
+    Assert.assertEquals("projection-subset cross-zone rewrite must return the same rows",
+            subsetRewriteOff, subsetRewriteOn)
+
+    // A cross-zone query that reads the guarded day_str output must NOT be rewritten by the
+    // creation-zone materialization (the materialized day boundary was computed in the creation zone).
+    sql "SET time_zone = '${crossTz}'"
+    mv_rewrite_fail("SELECT CAST(date_trunc(ts, 'day') AS STRING), v FROM ${tableName}", mvName)
 }
