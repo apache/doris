@@ -3268,10 +3268,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "倒排索引默认存储格式",
-            "Default storage format of inverted index, the default value is V3."
-    })
+    @ConfField(mutable = true, masterOnly = true,
+            callback = InvertedIndexStorageFormatValidator.RuntimeConfigHandler.class,
+            description = {
+                "倒排索引默认存储格式",
+                "Default storage format of inverted index, the default value is V3."
+            })
     public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {
