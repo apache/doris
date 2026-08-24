@@ -159,4 +159,36 @@ suite("bucketed_hash_agg") {
     GROUP BY grp
     ORDER BY grp;
     """
+
+    // ============================================================
+    // Test 6: DISTINCT stddev/var mixed with a non-distinct aggregate.
+    //         3-phase DISTINCT plans build a one-phase GLOBAL(INPUT_TO_RESULT)
+    //         dedup aggregate whose non-distinct functions run in
+    //         INPUT_TO_BUFFER mode (Varchar output slots). Such an aggregate
+    //         must NOT be fused into BucketedAggregationNode — the bucketed
+    //         node always finalizes into the tuple slot types, so writing the
+    //         final DOUBLE result into the Varchar slot fails the BE
+    //         result-type check ("Column type String is not compatible with
+    //         data type DOUBLE").
+    //         parallel_pipeline_task_num=1 makes the single-execution-instance
+    //         path pick the 3-phase plan deterministically.
+    // ============================================================
+    sql "set be_number_for_test=1"
+    sql "set enable_bucketed_hash_agg = true;"
+    sql "set parallel_pipeline_task_num=1"
+
+    order_qt_distinct_stddev_pop_result """
+    SELECT STDDEV_POP(DISTINCT val), STDDEV_POP(id)
+    FROM bucketed_agg_reg_test;
+    """
+
+    order_qt_distinct_stddev_samp_result """
+    SELECT STDDEV_SAMP(DISTINCT val), STDDEV_SAMP(id)
+    FROM bucketed_agg_reg_test;
+    """
+
+    order_qt_distinct_var_pop_result """
+    SELECT VAR_POP(DISTINCT val), VAR_POP(id)
+    FROM bucketed_agg_reg_test;
+    """
 }
