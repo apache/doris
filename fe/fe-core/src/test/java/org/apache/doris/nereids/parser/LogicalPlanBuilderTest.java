@@ -20,9 +20,9 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.trees.expressions.BracketArray;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -269,11 +269,12 @@ public class LogicalPlanBuilderTest {
         // outer cast: CAST(array_expr AS ARRAY<TIMESTAMPTZ>)
         Assertions.assertInstanceOf(Cast.class, expr);
         Expression child = ((Cast) expr).child();
-        // non-literal elements -> built as array() function instead of ArrayLiteral
-        Assertions.assertInstanceOf(Array.class, child);
-        Array array = (Array) child;
-        Assertions.assertEquals(2, array.arity());
-        array.getArguments().forEach(arg -> Assertions.assertInstanceOf(Cast.class, arg));
+        // non-literal elements are kept as a bracket array, which is later lowered to the
+        // array() function during analysis after the bound items are validated to be constant
+        Assertions.assertInstanceOf(BracketArray.class, child);
+        BracketArray bracketArray = (BracketArray) child;
+        Assertions.assertEquals(2, bracketArray.arity());
+        bracketArray.children().forEach(arg -> Assertions.assertInstanceOf(Cast.class, arg));
     }
 
     @Test
@@ -302,5 +303,43 @@ public class LogicalPlanBuilderTest {
         String sql = "SELECT [(SELECT 1)]";
         ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
         Assertions.assertTrue(exception.getMessage().contains("constant"));
+    }
+
+    @Test
+    public void testMapLiteralWithArrayOfCastThrowsParseException() {
+        // a nested bracket array with a cast item is a constant expression, but map literal
+        // consumes its children as literal only, so it must be rejected with a controlled error
+        // instead of failing with an internal runtime cast error
+        String sql = "SELECT {1: [CAST(2 AS INT)]}";
+        ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("literal"));
+    }
+
+    @Test
+    public void testStructLiteralWithCastThrowsParseException() {
+        // a struct literal only supports literal fields, a nested bracket array whose items are
+        // expressions must be rejected with a controlled error instead of failing with an
+        // internal runtime cast error
+        String sql = "SELECT {[CAST(1 AS INT)], 2}";
+        ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("literal"));
+    }
+
+    @Test
+    public void testOutFileWithArrayExpressionThrowsParseException() {
+        // OUTFILE consumes the file path constant as literal only, a non-literal constant
+        // expression must be rejected with a controlled error
+        String sql = "SELECT 1 INTO OUTFILE [CAST('x' AS CHAR)]";
+        ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("literal"));
+    }
+
+    @Test
+    public void testSetVarHintWithArrayExpressionThrowsParseException() {
+        // SET_VAR hint consumes the constant value as literal only, a non-literal constant
+        // expression must be rejected with a controlled error
+        String sql = "SELECT /*+ SET_VAR(parallel_fragment_exec_instance_num=[CAST(1 AS INT)]) */ 1";
+        ParseException exception = Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("literal"));
     }
 }

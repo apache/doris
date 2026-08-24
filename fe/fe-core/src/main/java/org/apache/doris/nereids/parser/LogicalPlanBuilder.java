@@ -533,6 +533,7 @@ import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
+import org.apache.doris.nereids.trees.expressions.BracketArray;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Default;
@@ -3809,8 +3810,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<Literal> literals = items.stream().map(Literal.class::cast).collect(Collectors.toList());
             return new ArrayLiteral(typeCoercionItems(literals));
         }
-        // array literal contains constant but non-literal expressions (e.g. cast), build array function instead
-        return new Array(items);
+        // array literal contains constant but non-literal expressions (e.g. cast), preserve the
+        // bracket-array origin through analysis: unbound function calls look constant at parse time,
+        // so bound items are re-validated before lowering to the array function (see BracketArray).
+        return new BracketArray(items);
     }
 
     private String displaySql(Expression item) {
@@ -3822,17 +3825,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public MapLiteral visitMapLiteral(MapLiteralContext ctx) {
-        List<Literal> items = ctx.items.stream().<Literal>map(this::typedVisit).collect(Collectors.toList());
+        List<Expression> items = ctx.items.stream().<Expression>map(this::typedVisit).collect(Collectors.toList());
         if (items.size() % 2 != 0) {
             throw new ParseException("map can't be odd parameters, need even parameters", ctx);
         }
+        for (Expression item : items) {
+            if (!(item instanceof Literal)) {
+                throw new ParseException("Map literal '{...}' only supports literal key and value, "
+                        + "but got non-literal expression: " + item.toSql(), ctx);
+            }
+        }
+        List<Literal> literalItems = items.stream().map(Literal.class::cast).collect(Collectors.toList());
         List<Literal> keys = Lists.newArrayList();
         List<Literal> values = Lists.newArrayList();
-        for (int i = 0; i < items.size(); i++) {
+        for (int i = 0; i < literalItems.size(); i++) {
             if (i % 2 == 0) {
-                keys.add(items.get(i));
+                keys.add(literalItems.get(i));
             } else {
-                values.add(items.get(i));
+                values.add(literalItems.get(i));
             }
         }
         List<Literal> castKeys = typeCoercionItems(keys);
@@ -3845,8 +3855,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Object visitStructLiteral(StructLiteralContext ctx) {
-        List<Literal> fields = ctx.items.stream().<Literal>map(this::typedVisit).collect(Collectors.toList());
-        return new StructLiteral(fields);
+        List<Expression> fields = ctx.items.stream().<Expression>map(this::typedVisit).collect(Collectors.toList());
+        for (Expression field : fields) {
+            if (!(field instanceof Literal)) {
+                throw new ParseException("Struct literal '{...}' only supports literal fields, "
+                        + "but got non-literal expression: " + field.toSql(), ctx);
+            }
+        }
+        return new StructLiteral(fields.stream().map(Literal.class::cast).collect(Collectors.toList()));
     }
 
     @Override
@@ -4494,7 +4510,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.propertyClause() != null) {
             properties = visitPropertyClause(ctx.propertyClause());
         }
-        Literal filePath = (Literal) visit(ctx.filePath);
+        Object filePathObj = visit(ctx.filePath);
+        if (!(filePathObj instanceof Literal)) {
+            throw new ParseException("OUTFILE only supports a literal file path, "
+                    + "but got expression: " + ctx.filePath.getText(), ctx.filePath);
+        }
+        Literal filePath = (Literal) filePathObj;
         return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);
     }
 
@@ -4819,7 +4840,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                     String parameterName = visitIdentifierOrText(kv.key);
                                     Optional<String> value = Optional.empty();
                                     if (kv.constantValue != null) {
-                                        Literal literal = (Literal) visit(kv.constantValue);
+                                        Object constant = visit(kv.constantValue);
+                                        if (!(constant instanceof Literal)) {
+                                            throw new ParseException("SET_VAR hint only supports a literal value, "
+                                                    + "but got expression: " + kv.constantValue.getText(),
+                                                    kv.constantValue);
+                                        }
+                                        Literal literal = (Literal) constant;
                                         value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
                                     } else if (kv.identifierValue != null) {
                                         // maybe we should throw exception when the identifierValue is quoted identifier

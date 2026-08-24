@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.BracketArray;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -78,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -614,6 +616,26 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             return castFunction;
         }
+    }
+
+    @Override
+    public Expression visitBracketArray(BracketArray bracketArray, ExpressionRewriteContext context) {
+        // at parse time the items may still be UnboundFunction, which defaults to deterministic and
+        // is neither an aggregate nor a table generating function, so they look constant. Bind the
+        // items first, then re-validate constantness, e.g. [random()] becomes volatile and [sum(1)]
+        // becomes an aggregate after binding, and both must be rejected before lowering to array().
+        List<Expression> boundItems = bracketArray.children().stream()
+                .map(item -> item.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
+        for (Expression item : boundItems) {
+            if (!item.isConstant()) {
+                throw new AnalysisException("Array literal '[...]' only supports constant expressions, "
+                        + "but got non-constant expression: " + item.toSql());
+            }
+        }
+        Array array = new Array(boundItems);
+        array.checkLegalityBeforeTypeCoercion();
+        return array;
     }
 
     @Override

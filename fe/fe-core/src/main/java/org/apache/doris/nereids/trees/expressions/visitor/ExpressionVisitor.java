@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.BracketArray;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -351,6 +352,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
         return visitLiteral(arrayLiteral, context);
+    }
+
+    public R visitBracketArray(BracketArray bracketArray, C context) {
+        return visit(bracketArray, context);
     }
 
     public R visitMapLiteral(MapLiteral mapLiteral, C context) {
