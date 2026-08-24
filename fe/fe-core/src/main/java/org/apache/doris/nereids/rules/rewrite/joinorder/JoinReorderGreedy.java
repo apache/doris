@@ -78,7 +78,7 @@ public class JoinReorderGreedy extends JoinOrder {
         if (curLevel.level == 1) {
             return groupInfos;
         } else {
-            Set<GroupInfo> bestGroupInfos = Sets.newHashSet();
+            Set<GroupInfo> bestGroupInfos = Sets.newLinkedHashSet();
             // Get join level 1 used atoms
             List<BitSet> levelOneGroups = Lists.newArrayList();
             getGroupForLevel(1).forEach(groupInfo -> levelOneGroups.add(groupInfo.atoms));

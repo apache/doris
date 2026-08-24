@@ -19,8 +19,8 @@ package org.apache.doris.nereids.rules.rewrite.joinorder;
 
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**JoinOrder*/
 public abstract class JoinOrder {
@@ -79,7 +80,7 @@ public abstract class JoinOrder {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof JoinOrder)) {
+            if (!(obj instanceof ExpressionInfo)) {
                 return false;
             }
 
@@ -156,13 +157,15 @@ public abstract class JoinOrder {
     //Get reorder result
     public abstract List<Plan> getResult();
 
-    public void reorder(List<Plan> atoms, List<Expression> predicates) {
-        init(atoms, predicates);
+    public boolean reorder(List<Plan> atoms, List<Expression> predicates) {
+        if (!init(atoms, predicates)) {
+            return false;
+        }
         enumerate();
+        return true;
     }
 
-    void init(List<Plan> atoms, List<Expression> predicates) {
-
+    protected boolean init(List<Plan> atoms, List<Expression> predicates) {
         // 1. calculate statistics for each atom expression
         for (Plan atom : atoms) {
             atom.accept(new StatsDerive(false), new DeriveContext());
@@ -174,7 +177,9 @@ public abstract class JoinOrder {
             edges.add(new Edge(predicate));
         }
         edgeSize = edges.size();
-        computeEdgeCover(atoms);
+        if (!computeEdgeCover(atoms)) {
+            return false;
+        }
 
         // 3. init join levels
         // For human read easily, the join level start with 1, not 0.
@@ -195,6 +200,7 @@ public abstract class JoinOrder {
             groupInfo.lowestExprCost = atomExprInfo.cost;
             atomLevel.groups.add(groupInfo);
         }
+        return true;
     }
 
     void computeCost(ExpressionInfo exprInfo) {
@@ -217,18 +223,34 @@ public abstract class JoinOrder {
         exprInfo.cost = cost;
     }
 
-    protected void computeEdgeCover(List<Plan> atoms) {
-        for (int i = 0; i < edgeSize; ++i) {
-            Expression predicate = edges.get(i).predicate;
-            Set<Slot> predicateSlots = predicate.getInputSlots();
-            for (int j = 0; j < atomSize; ++j) {
-                Plan atom = atoms.get(j);
-                Set<Slot> outputSlots = atom.getOutputSet();
-                if (!Collections.disjoint(predicateSlots, outputSlots)) {
-                    edges.get(i).vertexes.set(j);
+    protected boolean computeEdgeCover(List<Plan> atoms) {
+        Set<ExprId> allAtomOutputIds = atoms.stream()
+                .flatMap(atom -> atom.getOutputExprIdSet().stream())
+                .collect(Collectors.toSet());
+
+        for (Edge edge : edges) {
+            Set<ExprId> predicateInputIds = edge.predicate.getInputSlotExprIds();
+
+            // Some predicate inputs cannot be produced by this join cluster.
+            if (!allAtomOutputIds.containsAll(predicateInputIds)) {
+                return false;
+            }
+
+            for (int i = 0; i < atoms.size(); i++) {
+                if (!Collections.disjoint(
+                        predicateInputIds, atoms.get(i).getOutputExprIdSet())) {
+                    edge.vertexes.set(i);
                 }
             }
+
+            // The greedy enumerator only handles predicates connecting
+            // at least two atoms. Constants and atom-local predicates
+            // should have been handled by predicate pushdown.
+            if (edge.vertexes.cardinality() < 2) {
+                return false;
+            }
         }
+        return true;
     }
 
     protected List<Expression> buildInnerJoinPredicate(BitSet left, BitSet right) {
@@ -238,6 +260,7 @@ public abstract class JoinOrder {
         joinBitSet.or(right);
         for (int i = 0; i < edgeSize; ++i) {
             Edge edge = edges.get(i);
+            // The join can compute predicates, but neither side can compute them independently.
             if (contains(joinBitSet, edge.vertexes) && left.intersects(edge.vertexes)
                     && right.intersects(edge.vertexes)) {
                 onPredicates.add(edge.predicate);
