@@ -43,31 +43,28 @@ public abstract class JoinOrder {
 
     protected int atomSize;
     protected int edgeSize;
-    protected List<JoinLevel> joinLevels = Lists.newArrayList();
-    protected List<Edge> edges = Lists.newArrayList();
+    protected final List<JoinLevel> joinLevels = Lists.newArrayList();
+    protected final List<Edge> edges = Lists.newArrayList();
     protected final Map<BitSet, GroupInfo> bitSetToGroupInfo = Maps.newHashMap();
 
+    /**ExpressionInfo*/
     static class ExpressionInfo {
-        Plan expr;
+        final Plan expr;
         GroupInfo leftChild;
         GroupInfo rightChild;
         double cost = -1L;
         double rowCount = -1L;
 
-        public ExpressionInfo(Plan expr) {
+        ExpressionInfo(Plan expr) {
             this.expr = expr;
         }
 
-        public ExpressionInfo(Plan expr,
+        ExpressionInfo(Plan expr,
                 GroupInfo leftChild,
                 GroupInfo rightChild) {
             this.expr = expr;
             this.leftChild = leftChild;
             this.rightChild = rightChild;
-        }
-
-        public double getCost() {
-            return cost;
         }
 
         @Override
@@ -91,12 +88,13 @@ public abstract class JoinOrder {
         }
     }
 
+    /**GroupInfo*/
     static class GroupInfo {
         final BitSet atoms;
         ExpressionInfo bestExprInfo = null;
         double lowestExprCost = Double.MAX_VALUE;
 
-        public GroupInfo(BitSet atoms) {
+        GroupInfo(BitSet atoms) {
             this.atoms = atoms;
         }
 
@@ -129,9 +127,9 @@ public abstract class JoinOrder {
      */
     static class JoinLevel {
         final int level;
-        List<GroupInfo> groups = Lists.newArrayList();
+        final List<GroupInfo> groups = Lists.newArrayList();
 
-        public JoinLevel(int level) {
+        JoinLevel(int level) {
             this.level = level;
         }
     }
@@ -146,7 +144,7 @@ public abstract class JoinOrder {
         final BitSet vertexes = new BitSet();
         final Expression predicate;
 
-        public Edge(Expression predicate) {
+        Edge(Expression predicate) {
             this.predicate = predicate;
         }
     }
@@ -165,7 +163,7 @@ public abstract class JoinOrder {
         return true;
     }
 
-    protected boolean init(List<Plan> atoms, List<Expression> predicates) {
+    private boolean init(List<Plan> atoms, List<Expression> predicates) {
         // 1. calculate statistics for each atom expression
         for (Plan atom : atoms) {
             atom.accept(new StatsDerive(false), new DeriveContext());
@@ -203,7 +201,7 @@ public abstract class JoinOrder {
         return true;
     }
 
-    void computeCost(ExpressionInfo exprInfo) {
+    protected void computeCost(ExpressionInfo exprInfo) {
         double cost = exprInfo.expr.getStats().getRowCount();
         exprInfo.rowCount = cost;
         if (exprInfo.leftChild != null) {
@@ -223,7 +221,7 @@ public abstract class JoinOrder {
         exprInfo.cost = cost;
     }
 
-    protected boolean computeEdgeCover(List<Plan> atoms) {
+    private boolean computeEdgeCover(List<Plan> atoms) {
         Set<ExprId> allAtomOutputIds = atoms.stream()
                 .flatMap(atom -> atom.getOutputExprIdSet().stream())
                 .collect(Collectors.toSet());

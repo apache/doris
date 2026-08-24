@@ -119,8 +119,6 @@ public class JoinReorderGreedy extends JoinOrder {
         List<GroupInfo> bestLeftGroups = getBestGroupList(leftGroupInfos, curLevel);
         for (GroupInfo leftGroup : bestLeftGroups) {
             BitSet leftBitset = leftGroup.atoms;
-            double bestCost = Double.MAX_VALUE;
-
             for (GroupInfo rightGroup : rightGroupInfos) {
                 BitSet rightBitset = rightGroup.atoms;
                 if (leftBitset.intersects(rightBitset)) {
@@ -139,10 +137,6 @@ public class JoinReorderGreedy extends JoinOrder {
 
                 computeCost(joinExpr.get());
                 getOrCreateGroupInfo(curLevel, joinBitSet, joinExpr.get());
-                double joinCost = joinExpr.get().cost;
-                if (joinCost < bestCost) {
-                    bestCost = joinCost;
-                }
             }
         }
     }
@@ -176,7 +170,7 @@ public class JoinReorderGreedy extends JoinOrder {
                 : new ExpressionInfo(join, leftGroup, rightGroup));
     }
 
-    protected GroupInfo getOrCreateGroupInfo(JoinLevel joinLevel, BitSet atoms,
+    protected void getOrCreateGroupInfo(JoinLevel joinLevel, BitSet atoms,
             ExpressionInfo exprInfo) {
         GroupInfo groupInfo;
         if (bitSetToGroupInfo.containsKey(atoms)) {
@@ -192,7 +186,6 @@ public class JoinReorderGreedy extends JoinOrder {
         if (groupInfo.bestExprInfo == null || groupInfo.bestExprInfo != exprInfo) {
             addExprToGroup(groupInfo, exprInfo);
         }
-        return groupInfo;
     }
 
     protected void addExprToGroup(GroupInfo groupInfo, ExpressionInfo expr) {
