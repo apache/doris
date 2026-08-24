@@ -31,6 +31,7 @@
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
@@ -116,6 +117,42 @@ Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
 // Binlog meta columns map to themselves.
 uint32_t BlockReader::_resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const {
     return use_before ? _read_schema->before_column_ordinal(ordinal) : ordinal;
+}
+
+bool BlockReader::_min_delta_values_equal(size_t last_row) {
+    const auto& value_column_pairs = _read_schema->row_binlog_value_column_pairs();
+    if (!_read_schema->row_binlog_value_pairs_complete() || value_column_pairs.empty() ||
+        _min_delta_value_compare_unsupported) {
+        return false;
+    }
+    bool before_image_available = false;
+    for (const auto& [after_idx, before_idx] : value_column_pairs) {
+        const auto* before_column = _stored_data_columns[before_idx].get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*before_column)) {
+            before_image_available |= !nullable->is_null_at(0);
+        } else {
+            before_image_available = true;
+        }
+        try {
+            if (_stored_data_columns[before_idx]->compare_at(
+                        0, last_row, *_stored_data_columns[after_idx], -1) != 0) {
+                return false;
+            }
+        } catch (const Exception& e) {
+            if (e.code() != ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                throw;
+            }
+            // Column types are stable for the lifetime of this reader. Once one value column
+            // reports that compare_at is unsupported, no row can be proven to be a no-op. Cache
+            // that capability result so BITMAP-like columns pay the exception cost at most once.
+            _min_delta_value_compare_unsupported = true;
+            return false;
+        }
+    }
+    // Historical lookup and the compatibility writer both represent an unavailable BEFORE image
+    // as an all-NULL row. Without a persisted validity bit, retaining the UPDATE is the only safe
+    // choice; otherwise a missing-key DELETE followed by an all-NULL INSERT would disappear.
+    return before_image_available;
 }
 
 void BlockReader::_init_pending_row_columns(const Block& block) {
@@ -243,6 +280,11 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             output_row_count++;
             break;
         case binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
+            if (binlog::is_valid_row_binlog_op(first_op) &&
+                binlog::is_valid_row_binlog_op(last_op) &&
+                _min_delta_values_equal(group_size - 1)) {
+                break;
+            }
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[ordinal],
@@ -496,6 +538,14 @@ Status BlockReader::init(const ReaderParams& read_params) {
         auto read_schema = std::make_shared<ReadSchema>(*_read_schema);
         RETURN_IF_ERROR(read_schema->init_sequence_map(*_tablet_schema));
         _read_schema = std::move(read_schema);
+    }
+
+    if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
+        read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
+        auto read_schema = std::make_shared<ReadSchema>(*_read_schema);
+        read_schema->init_row_binlog_column_mappings(*_tablet_schema);
+        _read_schema = std::move(read_schema);
+        _min_delta_value_compare_unsupported = false;
     }
 
     // Every merge and caller Block has the exact read-schema layout. Cache only

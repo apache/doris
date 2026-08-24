@@ -29,6 +29,25 @@
 
 namespace doris {
 
+namespace {
+
+bool row_binlog_value_columns_have_same_type(const TabletColumn& lhs, const TabletColumn& rhs) {
+    if (lhs.type() != rhs.type() || lhs.is_nullable() != rhs.is_nullable() ||
+        lhs.length() != rhs.length() || lhs.precision() != rhs.precision() ||
+        lhs.frac() != rhs.frac() || lhs.get_subtype_count() != rhs.get_subtype_count()) {
+        return false;
+    }
+    for (uint32_t i = 0; i < lhs.get_subtype_count(); ++i) {
+        if (!row_binlog_value_columns_have_same_type(lhs.get_sub_column(i),
+                                                     rhs.get_sub_column(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 std::vector<TabletColumnPtr> project_columns_by_ordinal(
         const std::vector<TabletColumnPtr>& columns,
         const std::vector<ColumnId>& source_column_ordinals) {
@@ -97,6 +116,72 @@ void ReadSchema::_init_before_column_ordinals() {
         _before_column_ordinals[ordinal] =
                 before == name_to_ordinal.end() ? ordinal : before->second;
     }
+}
+
+void ReadSchema::init_row_binlog_column_mappings(const TabletSchema& tablet_schema) {
+    DORIS_CHECK_GE(_op_ordinal, 0);
+    DORIS_CHECK_EQ(_before_column_ordinals.size(), _num_block_columns);
+
+    _row_binlog_value_column_pairs.clear();
+    _row_binlog_value_pairs_complete = false;
+
+    std::vector<ColumnId> value_column_ids;
+    value_column_ids.reserve(tablet_schema.num_columns() - tablet_schema.num_key_columns());
+    for (ColumnId cid = 0; cid < tablet_schema.num_columns(); ++cid) {
+        if (static_cast<int32_t>(cid) == tablet_schema.binlog_tso_col_idx() ||
+            static_cast<int32_t>(cid) == tablet_schema.binlog_lsn_col_idx() ||
+            static_cast<int32_t>(cid) == tablet_schema.binlog_op_col_idx() ||
+            tablet_schema.column(cid).is_key()) {
+            continue;
+        }
+        value_column_ids.push_back(cid);
+    }
+
+    if (value_column_ids.empty() || value_column_ids.size() % 2 != 0) {
+        return;
+    }
+
+    const size_t value_column_count = value_column_ids.size() / 2;
+    for (size_t i = 0; i < value_column_count; ++i) {
+        const auto& after = tablet_schema.column(value_column_ids[i]);
+        const auto& before = tablet_schema.column(value_column_ids[i + value_column_count]);
+        if (before.name() != binlog::build_before_column_name(after.name()) ||
+            !row_binlog_value_columns_have_same_type(after, before)) {
+            return;
+        }
+    }
+
+    // A valid physical row-binlog layout starts from an identity mapping. Only AFTER value
+    // columns map to their BEFORE companions; keys, metadata and BEFORE columns map to themselves.
+    for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
+        _before_column_ordinals[ordinal] = ordinal;
+    }
+
+    bool complete = true;
+    _row_binlog_value_column_pairs.reserve(value_column_count);
+    for (size_t i = 0; i < value_column_count; ++i) {
+        const auto after_cid = value_column_ids[i];
+        const auto before_cid = value_column_ids[i + value_column_count];
+        const int32_t after_ordinal = ordinal_by_uid(tablet_schema.column(after_cid).unique_id());
+        const int32_t before_ordinal = ordinal_by_uid(tablet_schema.column(before_cid).unique_id());
+        if (after_ordinal < 0 || before_ordinal < 0 ||
+            static_cast<size_t>(after_ordinal) >= _num_block_columns ||
+            static_cast<size_t>(before_ordinal) >= _num_block_columns) {
+            complete = false;
+            continue;
+        }
+
+        const auto after = cast_set<ColumnId>(after_ordinal);
+        const auto before = cast_set<ColumnId>(before_ordinal);
+        _before_column_ordinals[after] = before;
+        if (!_read_types[after]->equals(*_read_types[before])) {
+            complete = false;
+            continue;
+        }
+        _row_binlog_value_column_pairs.emplace_back(after, before);
+    }
+    _row_binlog_value_pairs_complete =
+            complete && _row_binlog_value_column_pairs.size() == value_column_count;
 }
 
 Block ReadSchema::create_read_block() const {
