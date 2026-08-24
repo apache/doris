@@ -6043,6 +6043,16 @@ public class Env {
             Column column = entry.getValue().getColumnByName(colName);
             if (column != null) {
                 column.setName(newColName);
+                if (column.hasBeforeColumn()) {
+                    Column beforeColumn = entry.getValue().getSchema().stream()
+                            .filter(candidate -> candidate.getUniqueId() == column.getBeforeColumnUniqueId())
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "row-binlog before column does not exist: "
+                                            + column.getBeforeColumnUniqueId()));
+                    beforeColumn.setName(Column.generateBeforeColName(newColName));
+                    beforeColumn.setComment("before value (" + newColName + ")");
+                }
                 hasColumn = true;
                 Env.getCurrentEnv().getQueryStats()
                         .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
@@ -6128,6 +6138,10 @@ public class Env {
         }
 
         table.rebuildFullSchema();
+        if (table.needRowBinlog() && table.getRowBinlogMeta() != null) {
+            OlapTable.validateRowBinlogSchema(table.getRowBinlogMeta().getSchema(true),
+                    table.getBinlogConfig().getNeedHistoricalValue());
+        }
 
         if (!isReplay) {
             // log

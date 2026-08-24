@@ -25,11 +25,14 @@
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -454,6 +457,7 @@ void TabletColumn::init_from_thrift(const TColumn& tcolumn) {
 
 void TabletColumn::init_from_pb(const ColumnPB& column) {
     _unique_id = column.unique_id();
+    _before_column_unique_id = column.before_column_unique_id();
     _col_name = column.name();
     _col_name_lower_case = to_lower(_col_name);
     _type = TabletColumn::get_field_type_by_string(column.type());
@@ -559,6 +563,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
 
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
+    column->set_before_column_unique_id(_before_column_unique_id);
     column->set_name(_col_name);
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
@@ -1164,6 +1169,81 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     update_metadata_size();
 }
 
+void TabletSchema::validate_row_binlog_before_columns(bool need_historical_value) const {
+    const std::array<int32_t, 3> internal_column_ordinals = {
+            _binlog_tso_col_idx, _binlog_lsn_col_idx, _binlog_op_col_idx};
+    std::unordered_set<int32_t> internal_ordinals;
+    for (const auto ordinal : internal_column_ordinals) {
+        DORIS_CHECK_GE(ordinal, 0) << "row-binlog internal column is absent";
+        DORIS_CHECK_LT(ordinal, _num_columns) << "invalid row-binlog internal column ordinal";
+        DORIS_CHECK(internal_ordinals.emplace(ordinal).second)
+                << "duplicate row-binlog internal column ordinal " << ordinal;
+    }
+
+    std::unordered_map<int32_t, const TabletColumn*> columns_by_uid;
+    columns_by_uid.reserve(_cols.size());
+    for (const auto& column : _cols) {
+        DORIS_CHECK_GE(column->unique_id(), 0)
+                << "row-binlog column " << column->name() << " has no unique id";
+        DORIS_CHECK_GE(column->before_column_unique_id(), -1)
+                << "row-binlog column " << column->name()
+                << " has invalid before-column unique id " << column->before_column_unique_id();
+        DORIS_CHECK(columns_by_uid.emplace(column->unique_id(), column.get()).second)
+                << "duplicate row-binlog column unique id " << column->unique_id();
+    }
+
+    std::unordered_set<int32_t> referenced_before_column_uids;
+    for (size_t ordinal = 0; ordinal < _cols.size(); ++ordinal) {
+        const auto& column = *_cols[ordinal];
+        const bool is_internal = internal_ordinals.contains(cast_set<int32_t>(ordinal));
+        if (is_internal || column.is_key()) {
+            DORIS_CHECK_LT(column.before_column_unique_id(), 0)
+                    << "row-binlog key/internal column " << column.name()
+                    << " cannot reference a before column";
+            continue;
+        }
+        if (column.before_column_unique_id() < 0) {
+            continue;
+        }
+
+        const auto before = columns_by_uid.find(column.before_column_unique_id());
+        DORIS_CHECK(before != columns_by_uid.end())
+                << "before column unique id " << column.before_column_unique_id()
+                << " referenced by column " << column.name() << " does not exist";
+        const auto* before_column = before->second;
+        const auto before_ordinal = field_index(before_column->unique_id());
+        DORIS_CHECK(!before_column->is_key() && !internal_ordinals.contains(before_ordinal))
+                << "before column unique id " << before_column->unique_id()
+                << " must identify a row-binlog before-image column";
+        DORIS_CHECK_LT(before_column->before_column_unique_id(), 0)
+                << "before column unique id " << before_column->unique_id()
+                << " cannot reference another before column";
+        DORIS_CHECK(column.get_vec_type()->equals(*before_column->get_vec_type()))
+                << "row-binlog after column " << column.name()
+                << " and before column unique id " << before_column->unique_id()
+                << " have different types";
+        DORIS_CHECK(referenced_before_column_uids.emplace(before_column->unique_id()).second)
+                << "before column unique id " << before_column->unique_id()
+                << " is referenced more than once";
+    }
+
+    for (size_t ordinal = 0; ordinal < _cols.size(); ++ordinal) {
+        const auto& column = *_cols[ordinal];
+        if (column.is_key() || internal_ordinals.contains(cast_set<int32_t>(ordinal))) {
+            continue;
+        }
+        const bool is_before_column = referenced_before_column_uids.contains(column.unique_id());
+        if (is_before_column) {
+            DORIS_CHECK_LT(column.before_column_unique_id(), 0);
+        } else {
+            DORIS_CHECK_EQ(column.before_column_unique_id() >= 0, need_historical_value)
+                    << "row-binlog value column " << column.name()
+                    << (need_historical_value ? " has no before column"
+                                              : " unexpectedly references a before column");
+        }
+    }
+}
+
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
@@ -1723,6 +1803,7 @@ Block TabletSchema::create_storage_block() const {
 
 bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._unique_id != b._unique_id) return false;
+    if (a._before_column_unique_id != b._before_column_unique_id) return false;
     if (a._col_name != b._col_name) return false;
     if (a._type != b._type) return false;
     if (a._is_key != b._is_key) return false;

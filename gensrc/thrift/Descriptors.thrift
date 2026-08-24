@@ -100,6 +100,7 @@ struct TColumn {
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
+  30: optional i32 before_column_unique_id = -1
 }
 
 struct TSlotDescriptor {

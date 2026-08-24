@@ -33,7 +33,9 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -49,6 +51,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -302,6 +306,26 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 cols.indexOf(Column.generateBeforeColName("v5")));
         Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v6")));
+
+        Column afterV5 = tbl.getRowBinlogMeta().getSchema(true).stream()
+                .filter(column -> column.getName().equals("v5"))
+                .findFirst()
+                .orElseThrow();
+        int afterV5UniqueId = afterV5.getUniqueId();
+        int beforeV5UniqueId = afterV5.getBeforeColumnUniqueId();
+        alterTable("ALTER TABLE test." + tableName + " RENAME COLUMN v5 v5_renamed", connectContext);
+
+        Column renamedAfterV5 = tbl.getRowBinlogMeta().getSchema(true).stream()
+                .filter(column -> column.getName().equals("v5_renamed"))
+                .findFirst()
+                .orElseThrow();
+        Column renamedBeforeV5 = tbl.getRowBinlogMeta().getSchema(true).stream()
+                .filter(column -> column.getUniqueId() == beforeV5UniqueId)
+                .findFirst()
+                .orElseThrow();
+        Assert.assertEquals(afterV5UniqueId, renamedAfterV5.getUniqueId());
+        Assert.assertEquals(beforeV5UniqueId, renamedAfterV5.getBeforeColumnUniqueId());
+        Assert.assertEquals(Column.generateBeforeColName("v5_renamed"), renamedBeforeV5.getName());
 
         // drop column
         alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
@@ -903,6 +927,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         rowBinlogSchema.add(new Column(Column.BINLOG_TSO_COL, PrimitiveType.BIGINT));
         rowBinlogSchema.add(new Column(Column.BINLOG_LSN_COL, PrimitiveType.BIGINT));
         rowBinlogSchema.add(new Column(Column.BINLOG_OPERATION_COL, PrimitiveType.BIGINT));
+        for (int i = 0; i < rowBinlogSchema.size(); i++) {
+            rowBinlogSchema.get(i).setUniqueId(i);
+        }
 
         Column hiddenKey = new Column("__DORIS_TEST_HIDDEN_KEY__", PrimitiveType.BIGINT);
         hiddenKey.setIsKey(true);
@@ -928,6 +955,65 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 Sets.newHashSet(hiddenValue.getName()), false, uniqueIdSupplier);
         columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
+
+        Column value = new Column("v1", PrimitiveType.INT);
+        addColumnRowBinlog.invoke(schemaChangeHandler, rowBinlogSchema, value, null,
+                Sets.newHashSet(value.getName(), Column.generateBeforeColName(value.getName())),
+                true, uniqueIdSupplier);
+        Column afterColumn = rowBinlogSchema.stream()
+                .filter(column -> column.getName().equals("v1"))
+                .findFirst()
+                .orElseThrow();
+        Column beforeColumn = rowBinlogSchema.stream()
+                .filter(column -> column.getUniqueId() == afterColumn.getBeforeColumnUniqueId())
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals(-1, beforeColumn.getBeforeColumnUniqueId());
+
+        int afterUniqueId = afterColumn.getUniqueId();
+        int beforeUniqueId = beforeColumn.getUniqueId();
+        beforeColumn.setName("arbitrary_before_storage_name");
+        Method dropColumnRowBinlog = SchemaChangeHandler.class.getDeclaredMethod(
+                "dropColumnRowBinlog", List.class, DropColumnOp.class);
+        dropColumnRowBinlog.setAccessible(true);
+        dropColumnRowBinlog.invoke(schemaChangeHandler, rowBinlogSchema,
+                new DropColumnOp("v1", null, Collections.emptyMap()));
+
+        Assertions.assertTrue(rowBinlogSchema.stream().noneMatch(
+                column -> column.getUniqueId() == afterUniqueId || column.getUniqueId() == beforeUniqueId));
+    }
+
+    @Test
+    public void testReplayRejectsInvalidRowBinlogBeforeMutation() throws Exception {
+        String tableName = "binlog_invalid_replay";
+        createTable("CREATE TABLE IF NOT EXISTS test." + tableName + " (k1 INT NOT NULL, v1 INT) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true','binlog.enable'='true',"
+                + "'binlog.format'='ROW','binlog.need_historical_value'='true')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Map<Long, LinkedList<Column>> replaySchemas = Maps.newHashMap();
+        table.getIndexIdToMeta(true).forEach((indexId, indexMeta) -> replaySchemas.put(indexId,
+                indexMeta.getSchema(true).stream().map(Column::new)
+                        .collect(Collectors.toCollection(LinkedList::new))));
+
+        long rowBinlogIndexId = table.getBaseIndexMeta().getRowBinlogIndexId();
+        Column invalidAfterColumn = replaySchemas.get(rowBinlogIndexId).stream()
+                .filter(Column::hasBeforeColumn)
+                .findFirst()
+                .orElseThrow();
+        invalidAfterColumn.setBeforeColumnUniqueId(-1);
+        int baseSchemaVersion = table.getBaseIndexMeta().getSchemaVersion();
+        TableAddOrDropColumnsInfo replayInfo = new TableAddOrDropColumnsInfo(
+                "", db.getId(), table.getId(), table.getBaseIndexId(), replaySchemas,
+                table.getCopiedIndexIdToSchema(true, true), Collections.emptyMap(), table.getIndexes(), 10001L);
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> Env.getCurrentEnv().getSchemaChangeHandler().replayModifyTableLightSchemaChange(replayInfo));
+        Assertions.assertEquals(baseSchemaVersion, table.getBaseIndexMeta().getSchemaVersion());
+        OlapTable.validateRowBinlogSchema(table.getRowBinlogMeta().getSchema(true), true);
     }
 
     @Test

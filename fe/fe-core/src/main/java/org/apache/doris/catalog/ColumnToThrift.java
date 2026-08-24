@@ -66,6 +66,7 @@ public class ColumnToThrift {
         toChildrenThrift(column, tColumn);
 
         tColumn.setColUniqueId(column.getUniqueId());
+        tColumn.setBeforeColumnUniqueId(column.getBeforeColumnUniqueId());
 
         if (column.getType().isAggStateType()) {
             AggStateType aggState = (AggStateType) column.getType();

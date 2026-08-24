@@ -38,6 +38,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 
 public class ColumnTest {
 
@@ -81,6 +82,7 @@ public class ColumnTest {
         Column column4 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
                                     "");
+        column4.setBeforeColumnUniqueId(11);
         Text.writeString(dos, GsonUtils.GSON.toJson(column4));
 
         dos.flush();
@@ -110,6 +112,7 @@ public class ColumnTest {
 
         Column rColumn4 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals(rColumn4, column4);
+        Assert.assertEquals(11, rColumn4.getBeforeColumnUniqueId());
 
         Assert.assertEquals(rColumn2.toString(), column2.toString());
         Assert.assertEquals(column1, column1);
@@ -117,6 +120,19 @@ public class ColumnTest {
         // 4. delete files
         dis.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testBeforeColumnUniqueIdPropagation() throws DdlException {
+        Column after = new Column("v1", Type.INT);
+        after.setUniqueId(7);
+        after.setBeforeColumnUniqueId(11);
+
+        Assert.assertEquals(11, new Column(after).getBeforeColumnUniqueId());
+        Assert.assertEquals(11, ColumnToThrift.toThrift(after).getBeforeColumnUniqueId());
+        Assert.assertEquals(11,
+                ColumnToProtobuf.toPb(after, Collections.emptySet(), Collections.emptyList())
+                        .getBeforeColumnUniqueId());
     }
 
     @Test(expected = DdlException.class)

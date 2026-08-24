@@ -71,13 +71,11 @@ protected:
         return assert_cast<const ColumnInt64&>(*col).get_data()[row];
     }
 
-    // A row-binlog DUP schema WITH __BEFORE__* mirror columns for the binlog
-    // source `create_binlog_pu_source_schema()` (k1 key, v1, v2, hidden
-    // delete_sign). Layout matches resolve_binlog_context's before_col_start =
-    // normal_col_start + normal_col_num: the visible source columns first, then
-    // one BEFORE column per visible value column, then TSO/LSN/OP.
-    //   [k1(0), v1(1), v2(2), __BEFORE__v1__(3), __BEFORE__v2__(4),
-    //    __DORIS_BINLOG_TSO__(5), __DORIS_BINLOG_LSN__(6), __DORIS_BINLOG_OP__(7)]
+    // A row-binlog DUP schema WITH before-image columns for the binlog source
+    // `create_binlog_pu_source_schema()` (k1 key, v1, v2, hidden delete_sign).
+    // Before and system columns are deliberately interleaved and the before
+    // names are arbitrary: only after.before_column_unique_id defines the pairs.
+    //   [k1(0), before-v2(1), TSO(2), v1(3), LSN(4), v2(5), OP(6), before-v1(7)]
     // The fixture's create_binlog_tablet builds a binlog schema with no BEFORE
     // columns, so this variant is defined locally for the write_before=true path.
     TabletSchemaSPtr create_binlog_before_schema() {
@@ -89,9 +87,10 @@ protected:
         pb.set_next_column_unique_id(20);
 
         auto add_col = [&](int uid, const std::string& name, const std::string& type, bool is_key,
-                           bool nullable) {
+                           bool nullable, int before_uid = -1) {
             ColumnPB* c = pb.add_column();
             c->set_unique_id(uid);
+            c->set_before_column_unique_id(before_uid);
             c->set_name(name);
             c->set_type(type);
             c->set_is_key(is_key);
@@ -109,19 +108,27 @@ protected:
             c->set_aggregation("NONE");
         };
         add_col(0, "k1", "INT", true, false);
-        add_col(1, "v1", "INT", false, true);
-        add_col(2, "v2", "INT", false, true);
-        // BEFORE mirror columns -- always nullable (NULL when no historical row).
-        add_col(3, "__BEFORE__v1__", "INT", false, true);
-        add_col(4, "__BEFORE__v2__", "INT", false, true);
+        add_col(4, "arbitrary_before_v2", "INT", false, true);
         add_col(5, BINLOG_TSO_COL, "BIGINT", false, true);
+        add_col(1, "v1", "INT", false, true, 3);
         add_col(6, BINLOG_LSN_COL, "BIGINT", false, false);
+        add_col(2, "v2", "INT", false, true, 4);
         add_col(7, BINLOG_OP_COL, "BIGINT", false, false);
-        // init_from_pb reads this straight from the PB (it is not inferred from
-        // the column name). [k1,v1,v2,__BEFORE__v1__,__BEFORE__v2__,TSO,LSN,OP]
-        pb.set_binlog_tso_col_idx(5);
-        pb.set_binlog_lsn_col_idx(6);
-        pb.set_binlog_op_col_idx(7);
+        add_col(3, "arbitrary_before_v1", "INT", false, true);
+        pb.set_binlog_tso_col_idx(2);
+        pb.set_binlog_lsn_col_idx(4);
+        pb.set_binlog_op_col_idx(6);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        schema->validate_row_binlog_before_columns(true);
+        return schema;
+    }
+
+    TabletSchemaSPtr create_reordered_binlog_pu_source_schema() {
+        TabletSchemaPB pb;
+        create_binlog_pu_source_schema()->to_schema_pb(&pb);
+        pb.mutable_column()->SwapElements(1, 2);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -378,6 +385,48 @@ TEST_F(RowBinlogDeriveTest, PlainAppendAndDeleteWithAfterAndLsn) {
     // per-row LSN == the injected make_seg_lsn ids (1000, 1001)
     EXPECT_EQ(read_lsn(block, lsn_idx, 0), 1000);
     EXPECT_EQ(read_lsn(block, lsn_idx, 1), 1001);
+}
+
+TEST_F(RowBinlogDeriveTest, PlainDeriveMapsReorderedSourceColumnsByName) {
+    auto tablet =
+            create_binlog_tablets(/*tablet_id=*/8008, TKeysType::DUP_KEYS, /*mow=*/false).binlog;
+    ASSERT_TRUE(tablet != nullptr);
+    auto binlog_schema = tablet->tablet_schema(); // k1,v1,v2,TSO,LSN,OP
+    auto source_schema = create_reordered_binlog_pu_source_schema(); // k1,v2,v1,delete_sign
+
+    RowsetWriterContext rwc;
+    rwc.tablet = tablet;
+    rwc.tablet_schema = binlog_schema;
+    rwc.write_type = DataWriteType::TYPE_DIRECT;
+    rwc.write_binlog_opt().enable = true;
+    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+    cfg.source.tablet_schema = source_schema;
+    cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+    cfg.source.is_transient_rowset_writer = false;
+    cfg.write_before = false;
+    cfg.insert_seg_lsn(0, make_seg_lsn(1));
+
+    auto chain = build_transform_chain(rwc);
+    TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
+    ctx.tablet = tablet;
+
+    Block block = source_schema->create_storage_block();
+    {
+        auto guard = block.mutate_columns_scoped();
+        auto& columns = guard.mutable_columns();
+        int32_t key = 1;
+        int32_t v2 = 222;
+        int32_t v1 = 111;
+        int8_t delete_sign = 0;
+        columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+        columns[1]->insert_data(reinterpret_cast<const char*>(&v2), sizeof(v2));
+        columns[2]->insert_data(reinterpret_cast<const char*>(&v1), sizeof(v1));
+        columns[3]->insert_data(reinterpret_cast<const char*>(&delete_sign), sizeof(delete_sign));
+    }
+
+    ASSERT_TRUE(chain.apply(ctx, &block).ok());
+    EXPECT_EQ(read_int(block, binlog_schema->field_index("v1"), 0), 111);
+    EXPECT_EQ(read_int(block, binlog_schema->field_index("v2"), 0), 222);
 }
 
 // B6: a DUP source with no delete-sign column has read_delete_signs()==nullptr,
@@ -830,17 +879,17 @@ TEST_F(RowBinlogDeriveTest, MowPartialUpdateWithBeforeImage) {
     EXPECT_EQ(read_op(block, op_idx, 0), ROW_BINLOG_UPDATE); // key 1 existed
     EXPECT_EQ(read_op(block, op_idx, 1), ROW_BINLOG_APPEND); // key 99 is new
     // AFTER: provided v1 kept, missing v2 rebuilt from history for the old key
-    EXPECT_EQ(read_int(block, 1, 0), 10);
-    EXPECT_EQ(read_int(block, 2, 0), 777);
-    EXPECT_EQ(read_int(block, 1, 1), 20);
-    EXPECT_EQ(read_int(block, 2, 1), 0); // brand-new key -> column default
+    EXPECT_EQ(read_int(block, 3, 0), 10);
+    EXPECT_EQ(read_int(block, 5, 0), 777);
+    EXPECT_EQ(read_int(block, 3, 1), 20);
+    EXPECT_EQ(read_int(block, 5, 1), 0); // brand-new key -> column default
     // BEFORE mirrors the row that was there, and is NULL for the new key
-    EXPECT_FALSE(read_is_null(block, 3, 0));
-    EXPECT_EQ(read_int(block, 3, 0), 100);
-    EXPECT_FALSE(read_is_null(block, 4, 0));
-    EXPECT_EQ(read_int(block, 4, 0), 777);
-    EXPECT_TRUE(read_is_null(block, 3, 1));
-    EXPECT_TRUE(read_is_null(block, 4, 1));
+    EXPECT_FALSE(read_is_null(block, 7, 0));
+    EXPECT_EQ(read_int(block, 7, 0), 100);
+    EXPECT_FALSE(read_is_null(block, 1, 0));
+    EXPECT_EQ(read_int(block, 1, 0), 777);
+    EXPECT_TRUE(read_is_null(block, 7, 1));
+    EXPECT_TRUE(read_is_null(block, 1, 1));
 }
 
 // An insert whose old row is a tombstone is an APPEND, not an UPDATE: the probe
@@ -1096,9 +1145,10 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
 // __BEFORE__* columns; the APPEND row (no history) has BEFORE == NULL. BEFORE
 // covers value columns only (not the key, not delete_sign).
 TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
-    auto source_schema = create_binlog_pu_source_schema(); // k1,v1,v2,delete_sign(3 hidden)
+    auto source_schema =
+            create_reordered_binlog_pu_source_schema(); // k1,v2,v1,delete_sign(3 hidden)
     auto binlog_schema = create_binlog_before_schema();    // + __BEFORE__v1__/v2__ + TSO/LSN/OP
-    ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 6);
+    ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 4);
     ASSERT_EQ(binlog_schema->num_columns(), 8U);
 
     // history: key 1 -> (v1=100, v2=0); key 2 -> (v1=300, v2=400). key 98 new.
@@ -1114,8 +1164,8 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
                 int8_t ds = 0;
                 for (int i = 0; i < 2; ++i) {
                     cols[0]->insert_data(reinterpret_cast<const char*>(&ks[i]), sizeof(int32_t));
-                    cols[1]->insert_data(reinterpret_cast<const char*>(&v1s[i]), sizeof(int32_t));
-                    cols[2]->insert_data(reinterpret_cast<const char*>(&v2s[i]), sizeof(int32_t));
+                    cols[1]->insert_data(reinterpret_cast<const char*>(&v2s[i]), sizeof(int32_t));
+                    cols[2]->insert_data(reinterpret_cast<const char*>(&v1s[i]), sizeof(int32_t));
                     cols[3]->insert_data(reinterpret_cast<const char*>(&ds), sizeof(int8_t));
                 }
             },
@@ -1156,7 +1206,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    // full-width upsert source block (k1,v1,v2,delete_sign):
+    // full-width upsert source block (k1,v2,v1,delete_sign):
     //   r0 key1 (11,1) delete 0 -> UPDATE; r1 key2 (0,0) delete 1 -> DELETE;
     //   r2 key98 (50,5) delete 0 -> APPEND.
     Block block = source_schema->create_storage_block();
@@ -1169,8 +1219,8 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
         int8_t ds[] = {0, 1, 0};
         for (int i = 0; i < 3; ++i) {
             cols[0]->insert_data(reinterpret_cast<const char*>(&ks[i]), sizeof(int32_t));
-            cols[1]->insert_data(reinterpret_cast<const char*>(&v1s[i]), sizeof(int32_t));
-            cols[2]->insert_data(reinterpret_cast<const char*>(&v2s[i]), sizeof(int32_t));
+            cols[1]->insert_data(reinterpret_cast<const char*>(&v2s[i]), sizeof(int32_t));
+            cols[2]->insert_data(reinterpret_cast<const char*>(&v1s[i]), sizeof(int32_t));
             cols[3]->insert_data(reinterpret_cast<const char*>(&ds[i]), sizeof(int8_t));
         }
     }
@@ -1181,8 +1231,8 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     ASSERT_EQ(block.rows(), 3);
     const int lsn_idx = binlog_schema->binlog_lsn_col_idx();
     const int op_idx = binlog_schema->binlog_op_col_idx();
-    const int before_v1 = 3;
-    const int before_v2 = 4;
+    const int before_v1 = 7;
+    const int before_v2 = 1;
 
     // op
     EXPECT_EQ(read_op(block, op_idx, 0), ROW_BINLOG_UPDATE);
@@ -1190,10 +1240,10 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     EXPECT_EQ(read_op(block, op_idx, 2), ROW_BINLOG_APPEND);
 
     // AFTER carries the source values
-    EXPECT_EQ(read_int(block, 1, 0), 11);
-    EXPECT_EQ(read_int(block, 2, 0), 1);
-    EXPECT_EQ(read_int(block, 1, 2), 50);
-    EXPECT_EQ(read_int(block, 2, 2), 5);
+    EXPECT_EQ(read_int(block, 3, 0), 11);
+    EXPECT_EQ(read_int(block, 5, 0), 1);
+    EXPECT_EQ(read_int(block, 3, 2), 50);
+    EXPECT_EQ(read_int(block, 5, 2), 5);
 
     // BEFORE of UPDATE row 0 == history (v1=100, v2=0), not NULL
     EXPECT_FALSE(read_is_null(block, before_v1, 0));

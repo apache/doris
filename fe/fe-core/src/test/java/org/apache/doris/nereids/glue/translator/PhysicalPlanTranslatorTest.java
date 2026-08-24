@@ -229,32 +229,50 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Test
     public void testBinlogPhysicalScanSchemaDependencies() throws Exception {
-        OlapScanNode scanNode = getFirstOlapScanNode(
-                "select v1 from test_db.binlog_scan_schema_t"
-                        + "@incr(\"incrementType\" = \"MIN_DELTA\")");
-        List<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
-                .map(slot -> slot.getColumn().getName())
-                .collect(Collectors.toList());
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
+        OlapTable table = (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t");
+        Column afterV1 = table.getRowBinlogMeta().getColumnByName("v1");
+        Column beforeV1 = table.getRowBinlogMeta().getSchema(true).stream()
+                .filter(column -> column.getUniqueId() == afterV1.getBeforeColumnUniqueId())
+                .findFirst()
+                .orElseThrow();
+        String originalBeforeName = beforeV1.getName();
+        beforeV1.setName("arbitrary_before_storage_name");
+        try {
+            OlapScanNode scanNode = getFirstOlapScanNode(
+                    "select v1 from test_db.binlog_scan_schema_t"
+                            + "@incr(\"incrementType\" = \"MIN_DELTA\")");
+            List<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
+                    .map(slot -> slot.getColumn().getName())
+                    .collect(Collectors.toList());
 
-        Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
-                "k1", "k2", "v1", Column.generateBeforeColName("v1"),
-                Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
-        Assertions.assertFalse(scanColumns.contains("v2"));
-        Assertions.assertFalse(scanColumns.contains(Column.generateBeforeColName("v2")));
-        Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
+            Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
+                    "k1", "k2", "v1", "arbitrary_before_storage_name",
+                    Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
+            Assertions.assertFalse(scanColumns.contains("v2"));
+            Assertions.assertFalse(scanColumns.contains(Column.generateBeforeColName("v2")));
+            Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
+            Assertions.assertEquals(afterV1.getBeforeColumnUniqueId(), scanNode.getTupleDesc().getSlots().stream()
+                    .filter(slot -> slot.getColumn().getName().equals("arbitrary_before_storage_name"))
+                    .findFirst()
+                    .orElseThrow()
+                    .getColumn().getUniqueId());
 
-        Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
-        Assertions.assertEquals(ImmutableList.of("v1"), scanNode.getOutputTupleDesc().getSlots().stream()
-                .map(slot -> slot.getColumn().getName())
-                .collect(Collectors.toList()));
+            Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
+            Assertions.assertEquals(ImmutableList.of("v1"), scanNode.getOutputTupleDesc().getSlots().stream()
+                    .map(slot -> slot.getColumn().getName())
+                    .collect(Collectors.toList()));
 
-        TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
-        Set<Integer> dependencyUniqueIds = scanNode.getTupleDesc().getSlots().stream()
-                .filter(slot -> !slot.getColumn().getName().equals("v1"))
-                .map(slot -> slot.getColumn().getUniqueId())
-                .collect(Collectors.toSet());
-        Assertions.assertTrue(dependencyUniqueIds.stream()
-                .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+            TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+            Set<Integer> dependencyUniqueIds = scanNode.getTupleDesc().getSlots().stream()
+                    .filter(slot -> !slot.getColumn().getName().equals("v1"))
+                    .map(slot -> slot.getColumn().getUniqueId())
+                    .collect(Collectors.toSet());
+            Assertions.assertTrue(dependencyUniqueIds.stream()
+                    .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+        } finally {
+            beforeV1.setName(originalBeforeName);
+        }
     }
 
     @Test

@@ -133,6 +133,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         // otherwise, we only need to get the schema without hidden columns
         List<Column> baseSchema = table.getBaseSchema(readMode == StreamReadMode.RESET);
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
+        Set<Integer> beforeColumnUniqueIds = Column.getBeforeColumnUniqueIds(baseSchema);
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -140,7 +141,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             // skip binlog before column
             final int index = i;
             Column col = baseSchema.get(i);
-            if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+            if (beforeColumnUniqueIds.contains(col.getUniqueId())) {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());

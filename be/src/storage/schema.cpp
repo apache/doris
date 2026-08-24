@@ -25,7 +25,6 @@
 #include "core/column/column_dictionary.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
-#include "storage/binlog.h"
 
 namespace doris {
 
@@ -77,25 +76,26 @@ void ReadSchema::append_dropped_columns(std::vector<TabletColumn> columns) {
     }
 }
 
-void ReadSchema::_init_before_column_ordinals() {
-    std::unordered_map<std::string_view, ColumnId> name_to_ordinal;
-    name_to_ordinal.reserve(_num_block_columns);
-    for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
-        name_to_ordinal.emplace(_read_columns[ordinal]->name(), ordinal);
-    }
-
+void ReadSchema::init_row_binlog_before_column_ordinals() {
     _before_column_ordinals.resize(_num_block_columns);
     for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
-        auto read_ordinal = static_cast<int32_t>(ordinal);
-        if (read_ordinal == _tso_ordinal || read_ordinal == _lsn_ordinal ||
-            read_ordinal == _op_ordinal) {
+        const auto before_column_unique_id =
+                _read_columns[ordinal]->before_column_unique_id();
+        if (before_column_unique_id < 0) {
             _before_column_ordinals[ordinal] = ordinal;
             continue;
         }
-        auto before_name = binlog::build_before_column_name(_read_columns[ordinal]->name());
-        auto before = name_to_ordinal.find(before_name);
-        _before_column_ordinals[ordinal] =
-                before == name_to_ordinal.end() ? ordinal : before->second;
+
+        const auto before_ordinal = ordinal_by_uid(before_column_unique_id);
+        DORIS_CHECK_GE(before_ordinal, 0)
+                << "before column unique id " << before_column_unique_id
+                << " referenced by column " << _read_columns[ordinal]->name()
+                << " is absent from the row-binlog ReadSchema";
+        DORIS_CHECK_LT(before_ordinal, _num_block_columns)
+                << "before column unique id " << before_column_unique_id
+                << " referenced by column " << _read_columns[ordinal]->name()
+                << " is not materialized in the row-binlog Block";
+        _before_column_ordinals[ordinal] = before_ordinal;
     }
 }
 

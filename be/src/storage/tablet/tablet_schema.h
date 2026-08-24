@@ -99,6 +99,8 @@ public:
 
     int32_t unique_id() const { return _unique_id; }
     void set_unique_id(int32_t id) { _unique_id = id; }
+    int32_t before_column_unique_id() const { return _before_column_unique_id; }
+    void set_before_column_unique_id(int32_t id) { _before_column_unique_id = id; }
     const std::string& name() const { return _col_name; }
     const std::string& name_lower_case() const { return _col_name_lower_case; }
     void set_name(std::string col_name) {
@@ -283,6 +285,7 @@ public:
 
 private:
     int32_t _unique_id = -1;
+    int32_t _before_column_unique_id = -1;
     std::string _col_name;
     std::string _col_name_lower_case;
     // the field _type will change from TPrimitiveType
@@ -418,6 +421,7 @@ public:
     // reuse_cached_column: reuse the cached column in the schema if they are the same, to reduce memory usage
     void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false,
                       bool reuse_cached_column = false);
+    void validate_row_binlog_before_columns(bool need_historical_value) const;
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
     template <class PbType>

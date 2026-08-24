@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <unordered_set>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -40,6 +41,40 @@ class TabletSchemaTest : public testing::Test {
 protected:
     void SetUp() override {}
 };
+
+TabletSchemaPB create_row_binlog_schema_pb(
+        const std::vector<std::pair<int32_t, int32_t>>& value_to_before_uids) {
+    TabletSchemaPB schema_pb;
+    auto add_column = [&](int32_t unique_id, std::string name, bool is_key,
+                          int32_t before_column_unique_id = -1) {
+        auto* column = schema_pb.add_column();
+        column->set_unique_id(unique_id);
+        column->set_name(std::move(name));
+        column->set_type("BIGINT");
+        column->set_is_key(is_key);
+        column->set_is_nullable(false);
+        column->set_length(sizeof(int64_t));
+        column->set_before_column_unique_id(before_column_unique_id);
+    };
+
+    add_column(0, "key", true);
+    for (const auto& [value_uid, before_uid] : value_to_before_uids) {
+        add_column(value_uid, "value_" + std::to_string(value_uid), false, before_uid);
+    }
+    std::unordered_set<int32_t> added_before_uids;
+    for (const auto& [_, before_uid] : value_to_before_uids) {
+        if (added_before_uids.emplace(before_uid).second) {
+            add_column(before_uid, "arbitrary_before_" + std::to_string(before_uid), false);
+        }
+    }
+    schema_pb.set_binlog_tso_col_idx(schema_pb.column_size());
+    add_column(100, std::string(BINLOG_TSO_COL), false);
+    schema_pb.set_binlog_lsn_col_idx(schema_pb.column_size());
+    add_column(101, std::string(BINLOG_LSN_COL), false);
+    schema_pb.set_binlog_op_col_idx(schema_pb.column_size());
+    add_column(102, std::string(BINLOG_OP_COL), false);
+    return schema_pb;
+}
 
 TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_append_column) {
     TabletSchema tablet_schema;
@@ -86,6 +121,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     column_pb.set_variant_max_subcolumns_count(100);
     column_pb.set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
     column_pb.set_variant_enable_typed_paths_to_sparse(true);
+    column_pb.set_before_column_unique_id(23);
 
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
@@ -104,6 +140,32 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     EXPECT_EQ(100, tablet_column.variant_max_subcolumns_count());
     EXPECT_EQ(PatternTypePB::MATCH_NAME_GLOB, tablet_column.pattern_type());
     EXPECT_TRUE(tablet_column.variant_enable_typed_paths_to_sparse());
+    EXPECT_EQ(23, tablet_column.before_column_unique_id());
+}
+
+TEST_F(TabletSchemaTest, test_validate_row_binlog_before_columns) {
+    TabletSchema schema;
+    schema.init_from_pb(create_row_binlog_schema_pb({{1, 11}, {2, 12}}));
+
+    schema.validate_row_binlog_before_columns(true);
+}
+
+TEST_F(TabletSchemaTest, test_reject_duplicate_row_binlog_before_column_reference) {
+    TabletSchema schema;
+    schema.init_from_pb(create_row_binlog_schema_pb({{1, 11}, {2, 11}}));
+
+    EXPECT_DEATH(schema.validate_row_binlog_before_columns(true),
+                 "before column unique id 11 is referenced more than once");
+}
+
+TEST_F(TabletSchemaTest, test_reject_invalid_negative_before_column_unique_id) {
+    auto schema_pb = create_row_binlog_schema_pb({{1, 11}});
+    schema_pb.mutable_column(1)->set_before_column_unique_id(-2);
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    EXPECT_DEATH(schema.validate_row_binlog_before_columns(false),
+                 "invalid before-column unique id -2");
 }
 
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
@@ -122,6 +184,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     tcolumn.__set_default_value("default_test");
     tcolumn.__set_variant_enable_typed_paths_to_sparse(false);
     tcolumn.__set_pattern_type(TPatternType::MATCH_NAME_GLOB);
+    tcolumn.__set_before_column_unique_id(23);
 
     TabletColumn tablet_column;
     tablet_column.init_from_thrift(tcolumn);
@@ -137,6 +200,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     EXPECT_TRUE(tablet_column.has_default_value());
     EXPECT_EQ("default_test", tablet_column.default_value());
     EXPECT_FALSE(tablet_column.variant_enable_typed_paths_to_sparse());
+    EXPECT_EQ(23, tablet_column.before_column_unique_id());
 }
 
 TEST_F(TabletSchemaTest, test_tablet_index_init_from_pb) {
@@ -354,6 +418,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_protobuf_roundtrip) {
     original.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     original.set_is_nullable(true);
     original.set_variant_max_subcolumns_count(500);
+    original.set_before_column_unique_id(23);
 
     ColumnPB column_pb;
     original.to_schema_pb(&column_pb);
@@ -369,6 +434,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_protobuf_roundtrip) {
     EXPECT_EQ(original.pattern_type(), deserialized.pattern_type());
     EXPECT_EQ(original.variant_enable_typed_paths_to_sparse(),
               deserialized.variant_enable_typed_paths_to_sparse());
+    EXPECT_EQ(23, deserialized.before_column_unique_id());
 }
 
 // remove_index() rebuilds the (index_type, col_uid, suffix) -> position lookup

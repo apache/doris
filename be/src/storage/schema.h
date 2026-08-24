@@ -87,9 +87,12 @@ public:
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
 
-    // Return the matching before-image ordinal for a Row Binlog value column. For example, in
-    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
-    // before image, including TSO/LSN/OP, map to themselves.
+    // Cache before-image ordinals for Row Binlog modes that materialize historical values.
+    // Every referenced before column must be present in this projected ReadSchema.
+    void init_row_binlog_before_column_ordinals();
+
+    // Return the before-image ordinal identified by the current column's before-column unique id.
+    // Columns without a before image, including TSO/LSN/OP, map to themselves.
     ColumnId before_column_ordinal(ColumnId ordinal) const {
         DCHECK_LT(ordinal, _before_column_ordinals.size());
         return _before_column_ordinals[ordinal];
@@ -111,8 +114,9 @@ public:
     size_t num_key_columns() const { return _num_key_columns; }
 
     // All special-column ordinals below address the caller-visible Block prefix and are -1 when
-    // absent. A Row Binlog layout may be [k1, v1, __BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
-    // may instead contain COMMIT_TSO.
+    // absent. A Row Binlog layout contains keys, values, before-image columns, TSO, LSN, and OP;
+    // their physical positions are not part of the before-image association. A snapshot layout may
+    // instead contain COMMIT_TSO.
     // Logical-delete marker used by unique-key reads.
     int32_t delete_sign_ordinal() const { return _delete_sign_ordinal; }
     // Sequence column used to choose the winning row during merge.
@@ -138,7 +142,6 @@ public:
 
 private:
     void _init_read_types();
-    void _init_before_column_ordinals();
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
@@ -189,9 +192,6 @@ private:
             if (col.name() == COMMIT_TSO_COL) {
                 _commit_tso_ordinal = i;
             }
-        }
-        if (_op_ordinal >= 0) {
-            _init_before_column_ordinals();
         }
     }
 

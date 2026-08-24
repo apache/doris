@@ -343,10 +343,13 @@ public class SchemaChangeHandler extends AlterHandler {
         } else {
             // after value
             Column afterBinlogColumn = Column.generateAfterValueColumn(newColumn);
+            int afterColumnUniqueId = columnUniqueIdSupplier.getAsInt();
+            int beforeColumnUniqueId = needHistoricalValue ? columnUniqueIdSupplier.getAsInt() : -1;
+            afterBinlogColumn.setBeforeColumnUniqueId(beforeColumnUniqueId);
             ColumnPosition afterBinlogColumnPos =
                     convertToRowBinlogPosition(rowBinlogSchema, columnPos, false, false);
             checkAndAddColumn(rowBinlogSchema, afterBinlogColumn, afterBinlogColumnPos, newColNameSet, false,
-                    columnUniqueIdSupplier.getAsInt());
+                    afterColumnUniqueId);
 
             // before value: only exist when table needs historical value.
             if (needHistoricalValue) {
@@ -354,9 +357,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 ColumnPosition beforeBinlogColumnPos =
                         convertToRowBinlogPosition(rowBinlogSchema, columnPos, false, true);
                 checkAndAddColumn(rowBinlogSchema, beforeBinlogColumn, beforeBinlogColumnPos, newColNameSet, false,
-                        columnUniqueIdSupplier.getAsInt());
+                        beforeColumnUniqueId);
             }
         }
+        OlapTable.validateRowBinlogSchema(rowBinlogSchema, needHistoricalValue);
     }
 
     private ColumnPosition convertToRowBinlogPosition(List<Column> rowBinlogSchema, ColumnPosition columnPosition,
@@ -364,15 +368,15 @@ public class SchemaChangeHandler extends AlterHandler {
         String lastKeyCol = "";
         String lastValueCol = "";
         String lastBeforeValueCol = "";
+        Set<Integer> beforeColumnUniqueIds = Column.getBeforeColumnUniqueIds(rowBinlogSchema);
         for (Column column : rowBinlogSchema) {
             String columnName = column.getName();
             if (column.isKey()) {
                 lastKeyCol = columnName;
             } else {
-                if (columnName.contains(Column.BINLOG_BEFORE_PREFIX)) {
+                if (beforeColumnUniqueIds.contains(column.getUniqueId())) {
                     lastBeforeValueCol = columnName;
-                } else if (columnName.equals(Column.BINLOG_TSO_COL) || columnName.equals(Column.BINLOG_LSN_COL)
-                        || columnName.equals(Column.BINLOG_OPERATION_COL)) {
+                } else if (column.isRowBinlogInternalColumn()) {
                     continue;
                 } else {
                     lastValueCol = columnName;
@@ -402,7 +406,21 @@ public class SchemaChangeHandler extends AlterHandler {
         if (lastCol.equals(lastKeyCol)) {
             return new ColumnPosition(before ? lastValueCol : lastKeyCol);
         }
-        return new ColumnPosition(before ? Column.generateBeforeColName(lastCol) : lastCol);
+        if (!before) {
+            return new ColumnPosition(lastCol);
+        }
+        Column afterColumn = rowBinlogSchema.stream()
+                .filter(column -> column.getName().equalsIgnoreCase(lastCol))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("row-binlog after column does not exist: " + lastCol));
+        Preconditions.checkState(afterColumn.hasBeforeColumn(),
+                "row-binlog after column %s has no before-column mapping", lastCol);
+        Column beforeColumn = rowBinlogSchema.stream()
+                .filter(column -> column.getUniqueId() == afterColumn.getBeforeColumnUniqueId())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "row-binlog before column does not exist: " + afterColumn.getBeforeColumnUniqueId()));
+        return new ColumnPosition(beforeColumn.getName());
     }
 
     private void processAddSequenceMapping(Map<String, List<String>> sequenceMapping, OlapTable olapTable,
@@ -810,38 +828,25 @@ public class SchemaChangeHandler extends AlterHandler {
 
             LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
             dropColumnRowBinlog(rowBinlogSchema, dropColumnOp);
+            OlapTable.validateRowBinlogSchema(rowBinlogSchema,
+                    olapTable.getBinlogConfig().getNeedHistoricalValue());
         }
         return lightSchemaChange;
     }
 
     private void dropColumnRowBinlog(List<Column> rowBinlogSchema, DropColumnOp dropColumnOp) throws DdlException {
         String dropColName = dropColumnOp.getColName();
-        Iterator<Column> rowBinlogIter = rowBinlogSchema.iterator();
-        boolean foundKey = false;
-        boolean foundAfter = false;
-        boolean foundBefore = false;
-        while (rowBinlogIter.hasNext()) {
-            Column column = rowBinlogIter.next();
-            if (column.getName().equalsIgnoreCase(dropColName)) {
-                rowBinlogIter.remove();
-                if (column.isKey()) {
-                    foundKey = true;
-                    // key column only exists once
-                    continue;
-                } else {
-                    // value(after) column
-                    foundAfter = true;
-                }
-            }
-            if (column.getName().equalsIgnoreCase(Column.generateBeforeColName(dropColName))) {
-                rowBinlogIter.remove();
-                foundBefore = true;
-                continue;
-            }
-        }
-        if (!foundKey && !foundAfter && !foundBefore) {
+        Column droppedColumn = rowBinlogSchema.stream()
+                .filter(column -> column.getName().equalsIgnoreCase(dropColName))
+                .findFirst()
+                .orElse(null);
+        if (droppedColumn == null) {
             throw new DdlException("Column does not exists in binlog<Row>: " + dropColName);
         }
+        int droppedColumnUniqueId = droppedColumn.getUniqueId();
+        int beforeColumnUniqueId = droppedColumn.getBeforeColumnUniqueId();
+        rowBinlogSchema.removeIf(column -> column.getUniqueId() == droppedColumnUniqueId
+                || column.getUniqueId() == beforeColumnUniqueId);
     }
 
     private void processDropSequenceMapping(Map<String, List<String>> sequenceMapping, String colName)
@@ -3517,7 +3522,7 @@ public class SchemaChangeHandler extends AlterHandler {
         Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
-        } catch (Exception e) {
+        } catch (IOException e) {
             throw new DdlException(e.getMessage());
         }
 
@@ -3717,6 +3722,8 @@ public class SchemaChangeHandler extends AlterHandler {
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
         long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
         if (rowBinlogIndexId > 0 && indexSchemaMap.containsKey(rowBinlogIndexId)) {
+            OlapTable.validateRowBinlogSchema(indexSchemaMap.get(rowBinlogIndexId),
+                    olapTable.getBinlogConfig().getNeedHistoricalValue());
             indexIds.add(rowBinlogIndexId);
         }
         for (int i = 0; i < indexIds.size(); i++) {

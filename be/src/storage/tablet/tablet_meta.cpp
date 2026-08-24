@@ -284,6 +284,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
     column->set_unique_id(unique_id);
+    column->set_before_column_unique_id(tcolumn.before_column_unique_id);
     column->set_name(tcolumn.column_name);
     column->set_is_auto_increment(tcolumn.is_auto_increment);
     if (tcolumn.__isset.is_on_update_current_timestamp) {
@@ -824,6 +825,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // init _schema
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     schema->init_from_pb(tablet_meta_pb.schema());
+    if (tablet_meta_pb.tablet_role() == TabletRolePB::TABLET_ROLE_ROW_BINLOG) {
+        schema->validate_row_binlog_before_columns(
+                tablet_meta_pb.binlog_config().need_historical_value());
+    }
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }

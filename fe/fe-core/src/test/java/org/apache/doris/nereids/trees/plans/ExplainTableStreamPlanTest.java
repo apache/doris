@@ -71,6 +71,8 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * UTs for table stream query plan, including
@@ -538,6 +540,32 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertEquals(baseK1Nullable, k1.nullable(),
                 "key column k1 must keep its original nullability (not force-nullable)");
         Assertions.assertTrue(k2.nullable(), "non-key value column k2 must be forced nullable");
+    }
+
+    @Test
+    public void testIncrementalStreamScanHidesBeforeColumnByUniqueId() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable base = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        List<Column> rowBinlogSchema = base.getRowBinlogMeta().getSchema(true);
+        Set<Integer> beforeColumnUniqueIds = Column.getBeforeColumnUniqueIds(rowBinlogSchema);
+        Column beforeColumn = rowBinlogSchema.stream()
+                .filter(column -> beforeColumnUniqueIds.contains(column.getUniqueId()))
+                .findFirst()
+                .orElseThrow();
+        String originalName = beforeColumn.getName();
+        beforeColumn.setName("arbitrary_before_storage_name");
+        try {
+            Plan analyzedPlan = PlanChecker.from(connectContext)
+                    .analyze("select * from test_stream.s2")
+                    .getCascadesContext()
+                    .getRewritePlan();
+            LogicalOlapTableStreamScan streamScan = findFirstLogicalStreamScan(analyzedPlan);
+            Assertions.assertNotNull(streamScan);
+            Set<String> outputNames = streamScan.getOutput().stream().map(Slot::getName).collect(Collectors.toSet());
+            Assertions.assertFalse(outputNames.contains("arbitrary_before_storage_name"));
+        } finally {
+            beforeColumn.setName(originalName);
+        }
     }
 
     @Test

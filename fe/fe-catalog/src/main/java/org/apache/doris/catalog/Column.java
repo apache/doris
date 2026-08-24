@@ -90,6 +90,16 @@ public class Column implements GsonPostProcessable {
         return BINLOG_BEFORE_PREFIX + colName + "__";
     }
 
+    public static Set<Integer> getBeforeColumnUniqueIds(List<Column> schema) {
+        Set<Integer> beforeColumnUniqueIds = new HashSet<>();
+        for (Column column : schema) {
+            if (column.hasBeforeColumn()) {
+                beforeColumnUniqueIds.add(column.getBeforeColumnUniqueId());
+            }
+        }
+        return beforeColumnUniqueIds;
+    }
+
     public static Column generateRowBinlogKeyColumn(Column column) {
         Column keyColumn = new Column(column);
         keyColumn.setComment("key (" + column.getName() + ")");
@@ -182,6 +192,9 @@ public class Column implements GsonPostProcessable {
 
     @SerializedName(value = "uniqueId")
     private int uniqueId;
+
+    @SerializedName(value = "beforeColumnUniqueId")
+    private int beforeColumnUniqueId = -1;
 
     @SerializedName(value = "clusterKeyId")
     private int clusterKeyId = -1;
@@ -394,6 +407,7 @@ public class Column implements GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.beforeColumnUniqueId = column.getBeforeColumnUniqueId();
         this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getRealDefineName();
@@ -1031,6 +1045,23 @@ public class Column implements GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public int getBeforeColumnUniqueId() {
+        return beforeColumnUniqueId;
+    }
+
+    public void setBeforeColumnUniqueId(int beforeColumnUniqueId) {
+        this.beforeColumnUniqueId = beforeColumnUniqueId;
+    }
+
+    public boolean hasBeforeColumn() {
+        return beforeColumnUniqueId >= 0;
+    }
+
+    public boolean isRowBinlogInternalColumn() {
+        return name.equals(BINLOG_TSO_COL) || name.equals(BINLOG_LSN_COL)
+                || name.equals(BINLOG_OPERATION_COL);
     }
 
     public boolean isReservedPassthrough() {

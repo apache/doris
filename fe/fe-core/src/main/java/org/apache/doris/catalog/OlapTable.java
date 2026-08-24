@@ -2131,6 +2131,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
+        if (needRowBinlog() && getRowBinlogMeta() != null) {
+            validateRowBinlogSchema(getRowBinlogMeta().getSchema(true),
+                    getBinlogConfig().getNeedHistoricalValue());
+        }
 
         if (tableProperty != null && tableProperty.hasInvalidDynamicPartition()) {
             LOG.warn("Table [{}-{}] has incomplete dynamic partition properties {}, "
@@ -2398,7 +2402,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     this.getBaseSchemaVersion(), Util.generateSchemaHash(),
                     this.getBaseIndexMeta().getShortKeyColumnCount(), TStorageType.COLUMN,
                     KeysType.DUP_KEYS, null, null, getQualifiedDbName(), null);
-            rowBinlogMeta.initSchemaColumnUniqueId();
+            rowBinlogMeta.setMaxColUniqueId(schema.get(schema.size() - 1).getUniqueId());
+            validateRowBinlogSchema(rowBinlogMeta.getSchema(true),
+                    getBinlogConfig().getNeedHistoricalValue());
             rowBinlogMeta.setRowBinlogIndexId(indexId);
             this.setRowBinlogMeta(rowBinlogMeta, BinlogUtils.wrapBinlogName(this.name));
 
@@ -2444,6 +2450,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public List<Column> generateTableRowBinlogSchema() {
         List<Column> tableRowBinlogSchema = new ArrayList<>();
         boolean needHistoricalValue = getBinlogConfig().getNeedHistoricalValue();
+        List<Column> afterColumns = new ArrayList<>();
         List<Column> beforeColumns = new ArrayList<>();
 
         for (Column column : getBaseSchema(true)) {
@@ -2457,8 +2464,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (column.isKey()) {
                 tableRowBinlogSchema.add(Column.generateRowBinlogKeyColumn(column));
             } else {
-                tableRowBinlogSchema.add(Column.generateAfterValueColumn(column));
+                Column afterColumn = Column.generateAfterValueColumn(column);
+                tableRowBinlogSchema.add(afterColumn);
                 if (needHistoricalValue) {
+                    afterColumns.add(afterColumn);
                     beforeColumns.add(Column.generateBeforeValueColumn(column));
                 }
             }
@@ -2486,7 +2495,68 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 column.setAggregationTypeImplicit(true);
             }
         }
+        int nextUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+        for (Column column : tableRowBinlogSchema) {
+            column.setUniqueId(++nextUniqueId);
+        }
+        Preconditions.checkState(afterColumns.size() == beforeColumns.size());
+        for (int i = 0; i < afterColumns.size(); i++) {
+            afterColumns.get(i).setBeforeColumnUniqueId(beforeColumns.get(i).getUniqueId());
+        }
+        validateRowBinlogSchema(tableRowBinlogSchema, needHistoricalValue);
         return tableRowBinlogSchema;
+    }
+
+    public static void validateRowBinlogSchema(List<Column> schema, boolean needHistoricalValue) {
+        Map<Integer, Column> columnsByUniqueId = new HashMap<>();
+        for (Column column : schema) {
+            Preconditions.checkState(column.getUniqueId() >= 0,
+                    "row-binlog column %s has no unique id", column.getName());
+            Preconditions.checkState(column.getBeforeColumnUniqueId() >= -1,
+                    "row-binlog column %s has invalid before-column unique id %s",
+                    column.getName(), column.getBeforeColumnUniqueId());
+            Preconditions.checkState(columnsByUniqueId.put(column.getUniqueId(), column) == null,
+                    "duplicate row-binlog column unique id %s", column.getUniqueId());
+        }
+
+        Set<Integer> beforeColumnUniqueIds = Column.getBeforeColumnUniqueIds(schema);
+        Set<Integer> referencedBeforeColumnUniqueIds = Sets.newHashSet();
+        for (Column afterColumn : schema) {
+            if (!afterColumn.hasBeforeColumn()) {
+                continue;
+            }
+            Column beforeColumn = columnsByUniqueId.get(afterColumn.getBeforeColumnUniqueId());
+            Preconditions.checkState(beforeColumn != null,
+                    "before column unique id %s for %s does not exist",
+                    afterColumn.getBeforeColumnUniqueId(), afterColumn.getName());
+            Preconditions.checkState(!beforeColumn.isKey() && !beforeColumn.isRowBinlogInternalColumn(),
+                    "before column %s cannot be a key or internal column", beforeColumn.getName());
+            Preconditions.checkState(!beforeColumn.hasBeforeColumn(),
+                    "before column %s cannot reference another before column", beforeColumn.getName());
+            Preconditions.checkState(afterColumn.getType().equals(beforeColumn.getType())
+                            && afterColumn.isAllowNull() == beforeColumn.isAllowNull(),
+                    "after column %s and before column %s have incompatible types",
+                    afterColumn.getName(), beforeColumn.getName());
+            Preconditions.checkState(referencedBeforeColumnUniqueIds.add(beforeColumn.getUniqueId()),
+                    "before column %s is referenced more than once", beforeColumn.getName());
+        }
+
+        for (Column column : schema) {
+            if (column.isKey() || column.isRowBinlogInternalColumn()) {
+                Preconditions.checkState(!column.hasBeforeColumn(),
+                        "key or internal column %s cannot reference a before column", column.getName());
+                continue;
+            }
+            if (beforeColumnUniqueIds.contains(column.getUniqueId())) {
+                Preconditions.checkState(!column.hasBeforeColumn(),
+                        "before column %s cannot reference another before column", column.getName());
+            } else {
+                Preconditions.checkState(column.hasBeforeColumn() == needHistoricalValue,
+                        "after column %s has invalid before-column mapping", column.getName());
+            }
+        }
+        Preconditions.checkState(referencedBeforeColumnUniqueIds.equals(beforeColumnUniqueIds),
+                "row-binlog before-column targets are inconsistent");
     }
 
     @Override

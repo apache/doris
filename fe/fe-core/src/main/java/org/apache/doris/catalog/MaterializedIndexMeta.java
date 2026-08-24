@@ -40,6 +40,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -357,6 +359,22 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     }
 
     public void initSchemaColumnUniqueId() {
+        Map<Integer, Column> columnsByUniqueId = new HashMap<>();
+        for (Column column : schema) {
+            if (column.getUniqueId() >= 0) {
+                columnsByUniqueId.put(column.getUniqueId(), column);
+            }
+        }
+        Map<Column, Column> beforeColumnsByAfter = new IdentityHashMap<>();
+        for (Column column : schema) {
+            if (column.hasBeforeColumn()) {
+                Column beforeColumn = columnsByUniqueId.get(column.getBeforeColumnUniqueId());
+                Preconditions.checkState(beforeColumn != null,
+                        "before column unique id %s does not exist", column.getBeforeColumnUniqueId());
+                beforeColumnsByAfter.put(column, beforeColumn);
+            }
+        }
+
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {
             column.setUniqueId(incAndGetMaxColUniqueId());
@@ -365,6 +383,8 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                         indexId, column, column.getUniqueId());
             }
         });
+        beforeColumnsByAfter.forEach(
+                (afterColumn, beforeColumn) -> afterColumn.setBeforeColumnUniqueId(beforeColumn.getUniqueId()));
     }
 
     public void initColumnNameMap() {

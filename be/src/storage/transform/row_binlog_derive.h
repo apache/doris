@@ -25,10 +25,10 @@ struct RowsetWriterContext;
 namespace segment_v2 {
 
 // The binlog<Row> derive stages rebuild the load block into a full-width block
-// over the binlog schema -- key + AFTER values, optional __BEFORE__* values, and
-// the TSO / LSN / op columns -- so the ordinary segment writers can write
-// it like any DUP_KEYS block. build_transform_chain picks Plain (no historical
-// probe) or Mow (with probe) via binlog_needs_historical_lookup().
+// over the binlog schema containing keys, AFTER values, optional before images,
+// and the TSO / LSN / op columns, so ordinary segment writers can write it like
+// any DUP_KEYS block. build_transform_chain picks Plain (no historical probe)
+// or Mow (with probe) via binlog_needs_historical_lookup().
 
 // Whether the flush needs the historical key probe: a direct partial update
 // (flexible is rejected later) or a requested BEFORE image. Decided per flush.
@@ -36,7 +36,7 @@ bool binlog_needs_historical_lookup(const RowsetWriterContext& context);
 
 // Context for each flush that the base stage works out once and passes to
 // derive(): the binlog/source schemas, the consumed LSN range, row count, and
-// column layout [keys..., AFTER..., (BEFORE...), TSO, LSN, OP].
+// source/destination column mappings.
 struct BinlogDeriveContext {
     TabletSchemaSPtr binlog_schema;
     TabletSchemaSPtr source_schema;
@@ -45,10 +45,10 @@ struct BinlogDeriveContext {
     uint32_t binlog_tso_cid = 0;
     uint32_t binlog_lsn_cid = 0;
     uint32_t binlog_op_cid = 0;
-    uint32_t normal_col_start = 0;
-    uint32_t before_col_start = 0;
     std::vector<uint32_t> normal_source_cids;
     std::vector<uint32_t> value_source_cids;
+    std::vector<uint32_t> normal_binlog_cids;
+    std::vector<uint32_t> before_binlog_cids;
     bool write_before = false;
 };
 

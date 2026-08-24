@@ -3102,6 +3102,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .filter(slot -> slot.getColumn() != null)
                 .collect(Collectors.toMap(
                         slot -> slot.getColumn().getName(), slot -> slot, (left, right) -> left));
+        Map<Integer, SlotDescriptor> slotByUniqueId = scanSlots.stream()
+                .filter(slot -> slot.getColumn() != null && slot.getColumn().getUniqueId() >= 0)
+                .collect(Collectors.toMap(
+                        slot -> slot.getColumn().getUniqueId(), slot -> slot, (left, right) -> left));
+        Set<Integer> beforeColumnUniqueIds = scanSlots.stream()
+                .filter(slot -> slot.getColumn() != null && slot.getColumn().hasBeforeColumn())
+                .map(slot -> slot.getColumn().getBeforeColumnUniqueId())
+                .collect(Collectors.toSet());
 
         preserveStorageSlot(slotByName.get(Column.BINLOG_TSO_COL), requiredSlotIds);
         preserveStorageSlot(slotByName.get(Column.BINLOG_OPERATION_COL), requiredSlotIds);
@@ -3124,20 +3132,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
             if (column == null || column.isKey() || !requiredSlotIds.contains(slot.getId())
-                    || isRowBinlogInternalColumn(column)) {
+                    || isRowBinlogInternalColumn(column, beforeColumnUniqueIds)) {
                 continue;
             }
-            preserveStorageSlot(slotByName.get(Column.generateBeforeColName(column.getName())),
-                    requiredSlotIds);
+            Preconditions.checkState(column.hasBeforeColumn(),
+                    "row-binlog after column %s has no before-column mapping", column.getName());
+            SlotDescriptor beforeSlot = slotByUniqueId.get(column.getBeforeColumnUniqueId());
+            Preconditions.checkState(beforeSlot != null,
+                    "row-binlog before column unique id %s is missing from scan tuple",
+                    column.getBeforeColumnUniqueId());
+            preserveStorageSlot(beforeSlot, requiredSlotIds);
         }
     }
 
-    private boolean isRowBinlogInternalColumn(Column column) {
-        String columnName = column.getName();
-        return columnName.startsWith(Column.BINLOG_BEFORE_PREFIX)
-                || columnName.equals(Column.BINLOG_LSN_COL)
-                || columnName.equals(Column.BINLOG_OPERATION_COL)
-                || columnName.equals(Column.BINLOG_TSO_COL);
+    private boolean isRowBinlogInternalColumn(Column column, Set<Integer> beforeColumnUniqueIds) {
+        return beforeColumnUniqueIds.contains(column.getUniqueId()) || column.isRowBinlogInternalColumn();
     }
 
     /**

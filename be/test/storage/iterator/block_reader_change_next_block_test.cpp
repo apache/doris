@@ -156,10 +156,12 @@ private:
 // Read schema mirroring the merged binlog block layout above.
 ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
                                         "key", "val", binlog::build_before_column_name("val"),
-                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL},
+                                int before_ordinal = 2) {
     std::vector<TabletColumnPtr> cols;
     auto add_bigint = [&](const std::string& name) {
         auto col = std::make_shared<TabletColumn>();
+        col->set_unique_id(cols.size());
         col->set_name(name);
         col->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
         cols.push_back(std::move(col));
@@ -167,7 +169,12 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
     for (const auto& name : names) {
         add_bigint(name);
     }
-    return std::make_shared<ReadSchema>(std::move(cols));
+    if (before_ordinal >= 0) {
+        cols[VAL_IDX]->set_before_column_unique_id(cols[before_ordinal]->unique_id());
+    }
+    auto read_schema = std::make_shared<ReadSchema>(std::move(cols));
+    read_schema->init_row_binlog_before_column_ordinals();
+    return read_schema;
 }
 
 TabletSchemaSPtr make_tablet_schema(const ReadSchemaSPtr& schema) {
@@ -253,7 +260,7 @@ protected:
 };
 
 TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaWithoutBeforeUsesCurrentColumn) {
-    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL});
+    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL}, -1);
 
     EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
 }
@@ -264,6 +271,30 @@ TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
 
     EXPECT_EQ(-1, read_schema->lsn_ordinal());
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaUsesBeforeUniqueIdWithArbitraryName) {
+    auto read_schema = make_read_schema(
+            {"key", "val", BINLOG_TSO_COL, "arbitrary_before_storage_name", BINLOG_OP_COL}, 3);
+
+    EXPECT_EQ(3, read_schema->before_column_ordinal(VAL_IDX));
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, BinlogMergeSchemaRejectsMissingBeforeUniqueId) {
+    std::vector<TabletColumnPtr> columns;
+    for (const auto& name : std::vector<std::string> {"key", "val", BINLOG_TSO_COL,
+                                                      BINLOG_OP_COL}) {
+        auto column = std::make_shared<TabletColumn>();
+        column->set_unique_id(columns.size());
+        column->set_name(name);
+        column->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+        columns.emplace_back(std::move(column));
+    }
+    columns[VAL_IDX]->set_before_column_unique_id(99);
+    ReadSchema read_schema(std::move(columns));
+
+    EXPECT_DEATH(read_schema.init_row_binlog_before_column_ordinals(),
+                 "before column unique id 99.*is absent");
 }
 
 // ============================================================================

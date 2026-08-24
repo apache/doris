@@ -41,6 +41,7 @@ public class ColumnToProtobuf {
                 ? name.substring(Column.SHADOW_NAME_PREFIX.length()) : name);
 
         builder.setUniqueId(column.getUniqueId());
+        builder.setBeforeColumnUniqueId(column.getBeforeColumnUniqueId());
         builder.setType(column.getDataType().toThrift().name());
         builder.setIsKey(column.isKey());
         if (column.getFieldPatternType() != null) {

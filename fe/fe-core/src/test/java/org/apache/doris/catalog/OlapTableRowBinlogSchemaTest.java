@@ -25,6 +25,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class OlapTableRowBinlogSchemaTest {
@@ -83,6 +85,7 @@ public class OlapTableRowBinlogSchemaTest {
         Assertions.assertNull(afterColumnWithoutBefore.getDefaultValue());
         Assertions.assertNull(afterColumnWithoutBefore.getDefaultValueExprDef());
         Assertions.assertNull(afterColumnWithoutBefore.getRealDefaultValue());
+        Assertions.assertEquals(-1, afterColumnWithoutBefore.getBeforeColumnUniqueId());
 
         OlapTable tableWithBefore = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true));
         Assertions.assertTrue(tableWithBefore.needRowBinlog());
@@ -108,6 +111,8 @@ public class OlapTableRowBinlogSchemaTest {
         Assertions.assertNull(beforeColumn.getDefaultValue());
         Assertions.assertNull(beforeColumn.getDefaultValueExprDef());
         Assertions.assertNull(beforeColumn.getRealDefaultValue());
+        Assertions.assertEquals(beforeColumn.getUniqueId(), afterColumnWithBefore.getBeforeColumnUniqueId());
+        Assertions.assertEquals(-1, beforeColumn.getBeforeColumnUniqueId());
     }
 
     @Test
@@ -164,5 +169,64 @@ public class OlapTableRowBinlogSchemaTest {
         Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
         Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_TSO_COL));
         Assertions.assertEquals(3, columnNames.indexOf(Column.BINLOG_LSN_COL));
+    }
+
+    @Test
+    public void testRowBinlogSchemaMapsMultipleBeforeColumnsByUniqueId() {
+        Column key = new Column("k1", PrimitiveType.INT);
+        key.setIsKey(true);
+        Column value1 = new Column("v1", PrimitiveType.INT);
+        Column value2 = new Column("v2", PrimitiveType.BIGINT);
+
+        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true),
+                Lists.newArrayList(key, value1, value2));
+        List<Column> schema = table.getRowBinlogMeta().getSchema(true);
+        Map<Integer, Column> columnByUniqueId = schema.stream()
+                .collect(Collectors.toMap(Column::getUniqueId, Function.identity()));
+
+        Column after1 = schema.stream().filter(column -> column.getName().equals("v1")).findFirst().orElseThrow();
+        Column after2 = schema.stream().filter(column -> column.getName().equals("v2")).findFirst().orElseThrow();
+        Column before1 = columnByUniqueId.get(after1.getBeforeColumnUniqueId());
+        Column before2 = columnByUniqueId.get(after2.getBeforeColumnUniqueId());
+
+        Assertions.assertEquals(Column.generateBeforeColName("v1"), before1.getName());
+        Assertions.assertEquals(Column.generateBeforeColName("v2"), before2.getName());
+        Assertions.assertNotEquals(before1.getUniqueId(), before2.getUniqueId());
+        Assertions.assertEquals(
+                Lists.newArrayList(before1.getUniqueId(), before2.getUniqueId()).stream().collect(Collectors.toSet()),
+                Column.getBeforeColumnUniqueIds(schema));
+    }
+
+    @Test
+    public void testRowBinlogSchemaRejectsInvalidBeforeMappings() {
+        Column after1 = new Column("v1", PrimitiveType.INT);
+        after1.setUniqueId(1);
+        Column after2 = new Column("v2", PrimitiveType.INT);
+        after2.setUniqueId(2);
+        Column before = new Column("arbitrary_before", PrimitiveType.INT);
+        before.setUniqueId(3);
+
+        after1.setBeforeColumnUniqueId(-2);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> OlapTable.validateRowBinlogSchema(Lists.newArrayList(after1), false));
+
+        after1.setBeforeColumnUniqueId(99);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> OlapTable.validateRowBinlogSchema(Lists.newArrayList(after1, before), true));
+
+        after1.setBeforeColumnUniqueId(3);
+        after2.setBeforeColumnUniqueId(3);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> OlapTable.validateRowBinlogSchema(Lists.newArrayList(after1, after2, before), true));
+
+        after2.setBeforeColumnUniqueId(-1);
+        before.setBeforeColumnUniqueId(1);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> OlapTable.validateRowBinlogSchema(Lists.newArrayList(after1, before), true));
+
+        before.setBeforeColumnUniqueId(-1);
+        before.setType(Type.BIGINT);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> OlapTable.validateRowBinlogSchema(Lists.newArrayList(after1, before), true));
     }
 }

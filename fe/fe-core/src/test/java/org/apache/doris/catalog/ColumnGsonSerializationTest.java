@@ -71,6 +71,7 @@ public class ColumnGsonSerializationTest {
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
+        c1.setBeforeColumnUniqueId(11);
 
         String c1Json = GsonUtils.GSON.toJson(c1);
         Text.writeString(out, c1Json);
@@ -84,6 +85,7 @@ public class ColumnGsonSerializationTest {
         Column readC1 = GsonUtils.GSON.fromJson(readJson, Column.class);
 
         Assert.assertEquals(c1, readC1);
+        Assert.assertEquals(11, readC1.getBeforeColumnUniqueId());
         // 3.close
         in.close();
     }

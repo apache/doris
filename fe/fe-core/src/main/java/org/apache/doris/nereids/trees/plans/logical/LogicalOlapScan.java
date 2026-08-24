@@ -932,9 +932,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         List<String> qualified = qualified();
         SlotReference[] slots = new SlotReference[columns.size()];
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
+        Set<Integer> beforeColumnUniqueIds = scanParams.isPresent() && scanParams.get().incrementalRead()
+                ? Column.getBeforeColumnUniqueIds(columns) : Collections.emptySet();
         for (int i = 0; i < columns.size(); i++) {
             ExprId nextId = exprIdGenerator.getNextId();
-            slots[i] = SlotReference.fromColumn(nextId, table, getOutputColumn(columns.get(i)), qualified);
+            slots[i] = SlotReference.fromColumn(
+                    nextId, table, getOutputColumn(columns.get(i), beforeColumnUniqueIds), qualified);
         }
         return Arrays.asList(slots);
     }
@@ -945,9 +948,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * not the mirrors behind them. The flag is set on a copy because these Column instances belong
      * to the table's persisted metadata and are shared across statements.
      */
-    private Column getOutputColumn(Column column) {
+    private Column getOutputColumn(Column column, Set<Integer> beforeColumnUniqueIds) {
         if (scanParams.isPresent() && scanParams.get().incrementalRead()
-                && column.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+                && beforeColumnUniqueIds.contains(column.getUniqueId())) {
             Column outputColumn = new Column(column);
             outputColumn.setIsVisible(false);
             return outputColumn;
