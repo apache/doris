@@ -460,7 +460,8 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
                 dynamic_cast<ConstantColumnReader*>(reader.get()) != nullptr &&
                 (col.name() == VERSION_COL || col.name() == BINLOG_TSO_COL ||
                  col.name() == COMMIT_TSO_COL);
-        const bool can_drop_predicate = !is_read_time_constant;
+        const bool can_drop_predicate =
+                !is_read_time_constant && read_options.io_ctx.reader_type == ReaderType::READER_QUERY;
         if (!can_apply_predicate_safely(column_id, *schema,
                                         read_options.target_cast_type_for_variants, read_options)) {
             continue;

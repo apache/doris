@@ -485,6 +485,68 @@ TEST_F(SegmentIteratorExprZonemapTest, CountStillUsesStatisticsIteratorWithoutZo
     EXPECT_NE(nullptr, dynamic_cast<VStatisticsIterator*>(iter.get()));
 }
 
+// A conjunct the segment zone map proves true for every row cannot remove anything, so it is
+// handed to the iterator without it. The conjuncts the zone map cannot settle must stay.
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorDropsConjunctsProvedTrueForEveryRow) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    // Column 1 holds 0 in the first half of the rows and 1000 in the second, so its segment zone
+    // map is [0, 1000] with no NULL row.
+    auto always_true = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 0));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(always_true));
+    auto may_match = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 500));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(may_match));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.common_expr_ctxs_push_down = {always_true, may_match};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_FALSE(iter->empty());
+    EXPECT_EQ(0, _stats.filtered_segment_number);
+
+    auto* segment_iter = dynamic_cast<SegmentIterator*>(iter.get());
+    ASSERT_NE(nullptr, segment_iter);
+    const auto& kept = segment_iter->_opts.common_expr_ctxs_push_down;
+    ASSERT_EQ(1, kept.size());
+    EXPECT_EQ(may_match.get(), kept[0].get());
+
+    // The caller's own list is untouched: the next segment still has to judge both conjuncts.
+    ASSERT_EQ(2, read_options.common_expr_ctxs_push_down.size());
+}
+
+// Mirror of the test above: with nothing proved always true, the iterator gets every conjunct.
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsConjunctsItCannotProve) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto may_match = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 500));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(may_match));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.common_expr_ctxs_push_down = {may_match};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    auto* segment_iter = dynamic_cast<SegmentIterator*>(iter.get());
+    ASSERT_NE(nullptr, segment_iter);
+    const auto& kept = segment_iter->_opts.common_expr_ctxs_push_down;
+    ASSERT_EQ(1, kept.size());
+    EXPECT_EQ(may_match.get(), kept[0].get());
+}
+
 TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
