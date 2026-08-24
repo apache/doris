@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoinProject.ContainsType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.qe.ConnectContext;
@@ -44,6 +45,15 @@ public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
                         || topJoin.left().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.left().hasDistributeHint())
                 .whenNot(topJoin -> topJoin.isLeadingJoin() || topJoin.left().isLeadingJoin())
+                // the transpose moves the top semi join's conjuncts (with the A-C match) below the
+                // bottom join, and the bottom join's conjuncts above the semi join: a
+                // NoneMovableFunction (e.g. assert_true) or volatile expression owned by either
+                // join would be evaluated on a different (superset or pruned) row set, changing its
+                // error behavior or results. reject the transpose.
+                .whenNot(topJoin -> topJoin.getExpressions().stream()
+                        .anyMatch(Expression::containsNoneMovableOrVolatile)
+                        || topJoin.left().getExpressions().stream()
+                        .anyMatch(Expression::containsNoneMovableOrVolatile))
                 .then(topSemiJoin -> {
                     LogicalJoin<Plan, Plan> bottomJoin = topSemiJoin.left();
                     Plan a = bottomJoin.left();

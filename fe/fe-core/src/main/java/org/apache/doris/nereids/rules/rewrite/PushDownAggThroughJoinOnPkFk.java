@@ -80,6 +80,12 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                                 .when(j -> !j.isMarkJoin()
                                         && j.getOtherJoinConjuncts().isEmpty()))
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance))
+                        // the push-down evaluates the aggregate (and its arguments) on the foreign
+                        // side BEFORE the join removes unmatched rows: a NoneMovableFunction (e.g.
+                        // assert_true) or volatile expression there would then run on rows the join
+                        // removes, turning a successful query into an error. reject the push-down.
+                        .whenNot(agg -> agg.getExpressions().stream()
+                                .anyMatch(Expression::containsNoneMovableOrVolatile))
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child()))
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK),
                 logicalAggregate(
@@ -90,6 +96,9 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                                                 && j.getOtherJoinConjuncts().isEmpty()))
                                 .when(Project::isAllSlots))
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance))
+                        // same as above: reject when the aggregate expressions are sensitive.
+                        .whenNot(agg -> agg.getExpressions().stream()
+                                .anyMatch(Expression::containsNoneMovableOrVolatile))
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child().child()))
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK)
         );

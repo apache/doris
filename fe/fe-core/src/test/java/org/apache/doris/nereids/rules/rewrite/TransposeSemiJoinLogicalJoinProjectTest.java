@@ -18,6 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -63,6 +69,64 @@ class TransposeSemiJoinLogicalJoinProjectTest implements MemoPatternMatchSupport
                                         ),
                                         logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
                                 )
+                        )
+                );
+    }
+
+    @Test
+    void rejectSensitiveTopSemiConjunct() {
+        /*
+         * the transpose must be rejected when the top semi join owns a NoneMovableFunction
+         * (assert_true) conjunct: the A-C match would evaluate the assertion on rows the
+         * original bottom inner join removed, turning a successful query into an error.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(1), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .project(ImmutableList.of(0))
+                .join(scan3, JoinType.LEFT_SEMI_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0))),
+                        ImmutableList.of(assertTrueExpr))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+                .applyTopDown(new TransposeSemiJoinLogicalJoinProject())
+                .matchesFromRoot(
+                        leftSemiLogicalJoin(
+                                logicalProject(innerLogicalJoin(
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t1")),
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t2"))
+                                )),
+                                logicalOlapScan().when(s -> s.getTable().getName().equals("t3"))
+                        )
+                );
+    }
+
+    @Test
+    void rejectSensitiveBottomJoinConjunct() {
+        /*
+         * the transpose must be rejected when the bottom join owns a NoneMovableFunction
+         * (assert_true) conjunct: the transpose moves it above the semi join, so rows pruned by
+         * the semi join no longer reach it and its required error is suppressed.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(1), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        ImmutableList.of(assertTrueExpr))
+                .project(ImmutableList.of(0))
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t3.id
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+                .applyTopDown(new TransposeSemiJoinLogicalJoinProject())
+                .matchesFromRoot(
+                        leftSemiLogicalJoin(
+                                logicalProject(innerLogicalJoin(
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t1")),
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t2"))
+                                )),
+                                logicalOlapScan().when(s -> s.getTable().getName().equals("t3"))
                         )
                 );
     }
