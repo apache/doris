@@ -29,10 +29,12 @@
 #include <string_view>
 #include <vector>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "storage/binlog.h"
 #include "storage/olap_define.h"
 #include "storage/olap_meta.h"
+#include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
 
@@ -63,7 +65,7 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     } else if (!s.ok()) {
         return Status::Error<IO_ERROR>("load rowset id: {} failed.", key);
     }
-    bool ret = rowset_meta->init(value);
+    bool ret = rowset_meta->init(value, meta);
     if (!ret) {
         return Status::Error<SERIALIZE_PROTOBUF_ERROR>("parse rowset meta failed. rowset id: {}",
                                                        key);
@@ -72,9 +74,12 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
 }
 
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                               const RowsetMetaPB& rowset_meta_pb,
+                               const RowsetMeta& rowset_meta,
                                std::optional<BinlogFormatPB> binlog_format,
-                               const std::optional<RowsetMetaPB>& attach_row_binlog_rowset_meta) {
+                               const RowsetMeta* attach_row_binlog_rowset_meta) {
+    const auto& tablet_schema = rowset_meta.tablet_schema();
+    DORIS_CHECK(tablet_schema != nullptr);
+    RowsetMetaPB rowset_meta_pb = rowset_meta.get_rowset_pb(true);
     if (rowset_meta_pb.partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << rowset_meta_pb.partition_id() << " tablet "
                      << rowset_meta_pb.tablet_id();
@@ -84,21 +89,108 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
     }
     DBUG_EXECUTE_IF("RowsetMetaManager::save::zero_partition_id", {
         long partition_id = rowset_meta_pb.partition_id();
-        auto& rs_pb = const_cast<std::decay_t<decltype(rowset_meta_pb)>&>(rowset_meta_pb);
-        rs_pb.set_partition_id(0);
+        rowset_meta_pb.set_partition_id(0);
         LOG(WARNING) << "set debug point RowsetMetaManager::save::zero_partition_id old="
                      << partition_id << " new=" << rowset_meta_pb.DebugString();
     });
+    if (rowset_meta.need_persist_schema()) {
+        RETURN_IF_ERROR(save_schema(meta, rowset_meta.tablet_id(), tablet_uid,
+                                    rowset_meta.tablet_schema_hash(), tablet_schema));
+    }
     if (!binlog_format.has_value()) {
         return _save(meta, tablet_uid, rowset_id, rowset_meta_pb);
     }
     if (*binlog_format == BinlogFormatPB::STATEMENT_AND_SNAPSHOT) {
         return _save_with_ccr_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
     }
-    DCHECK_EQ(*binlog_format, BinlogFormatPB::ROW);
-    DCHECK(attach_row_binlog_rowset_meta.has_value());
+    DORIS_CHECK(*binlog_format == BinlogFormatPB::ROW);
+    DORIS_CHECK(attach_row_binlog_rowset_meta != nullptr);
+    const auto& attach_row_binlog_tablet_schema = attach_row_binlog_rowset_meta->tablet_schema();
+    DORIS_CHECK(attach_row_binlog_tablet_schema != nullptr);
+    if (attach_row_binlog_rowset_meta->need_persist_schema()) {
+        RETURN_IF_ERROR(save_schema(meta, attach_row_binlog_rowset_meta->tablet_id(),
+                                    attach_row_binlog_rowset_meta->tablet_uid(),
+                                    attach_row_binlog_rowset_meta->tablet_schema_hash(),
+                                    attach_row_binlog_tablet_schema));
+    }
+    RowsetMetaPB attach_row_binlog_rowset_pb = attach_row_binlog_rowset_meta->get_rowset_pb(true);
     return _save_with_row_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb,
-                                 *attach_row_binlog_rowset_meta);
+                                 attach_row_binlog_rowset_pb);
+}
+
+bool RowsetMetaManager::schema_exists(OlapMeta* meta, TabletUid tablet_uid, int32_t schema_hash,
+                                      int32_t schema_version) {
+    std::string schema_key = fmt::format("{}{}_{}_{}", ROWSET_SCHEMA_PREFIX, tablet_uid.to_string(),
+                                         schema_hash, schema_version);
+    std::string value;
+    return meta->key_may_exist(META_COLUMN_FAMILY_INDEX, schema_key, &value) &&
+           meta->get(META_COLUMN_FAMILY_INDEX, schema_key, &value).ok();
+}
+
+Status RowsetMetaManager::save_schema(OlapMeta* meta, TTabletId tablet_id, TabletUid tablet_uid,
+                                      int32_t schema_hash, const TabletSchemaSPtr& schema) {
+    DORIS_CHECK(schema != nullptr);
+    // Variant rowsets keep their rowset-specific schemas inline.
+    if (schema->num_variant_columns() > 0) {
+        return Status::OK();
+    }
+    const int32_t schema_version = schema->schema_version();
+    std::string schema_key = fmt::format("{}{}_{}_{}", ROWSET_SCHEMA_PREFIX, tablet_uid.to_string(),
+                                         schema_hash, schema_version);
+    if (schema_exists(meta, tablet_uid, schema_hash, schema_version)) {
+        return Status::OK();
+    }
+
+    TabletSchemaPB schema_pb;
+    schema->to_schema_pb(&schema_pb);
+    std::string schema_binary = TabletSchema::deterministic_string_serialize(schema_pb);
+    Status status = meta->put(META_COLUMN_FAMILY_INDEX, schema_key, schema_binary);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to save rowset schema. tablet=" << tablet_id
+                     << ", key=" << schema_key << ", status=" << status;
+    }
+    return status;
+}
+
+Status RowsetMetaManager::get_rowset_schema(OlapMeta* meta, TTabletId tablet_id,
+                                            TabletUid tablet_uid, int32_t schema_hash,
+                                            int32_t schema_version,
+                                            std::string* binary_rowset_schema) {
+    std::string schema_key = fmt::format("{}{}_{}_{}", ROWSET_SCHEMA_PREFIX, tablet_uid.to_string(),
+                                         schema_hash, schema_version);
+    Status status = meta->get(META_COLUMN_FAMILY_INDEX, schema_key, binary_rowset_schema);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to get rowset schema. tablet=" << tablet_id
+                     << ", key=" << schema_key << ", status=" << status;
+    }
+    return status;
+}
+
+Status RowsetMetaManager::remove_schemas(OlapMeta* meta, TTabletId tablet_id, TabletUid tablet_uid,
+                                         int32_t schema_hash) {
+    const std::string schema_key_prefix =
+            fmt::format("{}{}_{}_", ROWSET_SCHEMA_PREFIX, tablet_uid.to_string(), schema_hash);
+    std::vector<std::string> schema_keys;
+    RETURN_IF_ERROR(
+            meta->iterate(META_COLUMN_FAMILY_INDEX, schema_key_prefix,
+                          [&schema_keys](std::string_view key, std::string_view /* value */) {
+                              schema_keys.emplace_back(key);
+                              return true;
+                          }));
+    if (schema_keys.empty()) {
+        return Status::OK();
+    }
+
+    Status status = meta->remove(META_COLUMN_FAMILY_INDEX, schema_keys);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to remove rowset schemas. tablet=" << tablet_id
+                     << ", tablet_uid=" << tablet_uid << ", schema_hash=" << schema_hash
+                     << ", status=" << status;
+        return status;
+    }
+    LOG(INFO) << "removed rowset schemas. tablet=" << tablet_id << ", tablet_uid=" << tablet_uid
+              << ", schema_hash=" << schema_hash << ", count=" << schema_keys.size();
+    return Status::OK();
 }
 
 Status RowsetMetaManager::_save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
@@ -125,7 +217,6 @@ Status RowsetMetaManager::_save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet
         return Status::Error<SERIALIZE_PROTOBUF_ERROR>("serialize rowset pb failed. rowset id:{}",
                                                        rowset_key);
     }
-
     // create binlog write data
     // binlog_meta_key format: {kBinlogPrefix}meta_{tablet_uid}_{version}_{rowset_id}
     // binlog_data_key format: {kBinlogPrefix}data_{tablet_uid}_{version}_{rowset_id}
@@ -298,7 +389,7 @@ std::string RowsetMetaManager::get_rowset_binlog_meta(OlapMeta* meta, TabletUid 
     VLOG_DEBUG << fmt::format("get binlog_meta_key:{}", binlog_data_key);
 
     std::string binlog_meta_value;
-    Status status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_meta_value);
+    Status status = _get_binlog_data_with_schema(meta, binlog_data_key, &binlog_meta_value);
     if (!status.ok()) {
         LOG(WARNING) << fmt::format(
                 "fail to get binlog meta. tablet uid:{}, binlog version:{}, "
@@ -307,6 +398,39 @@ std::string RowsetMetaManager::get_rowset_binlog_meta(OlapMeta* meta, TabletUid 
         return "";
     }
     return binlog_meta_value;
+}
+
+Status RowsetMetaManager::_get_binlog_data_with_schema(OlapMeta* meta,
+                                                       const std::string& binlog_data_key,
+                                                       std::string* binlog_data) {
+    RETURN_IF_ERROR(meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, binlog_data));
+
+    RowsetMetaPB rowset_meta_pb;
+    if (!rowset_meta_pb.ParseFromString(*binlog_data)) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("failed to parse binlog rowset meta. key={}",
+                                                       binlog_data_key);
+    }
+    if (rowset_meta_pb.has_tablet_schema()) {
+        return Status::OK();
+    }
+    if (!rowset_meta_pb.has_schema_version()) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
+                "schema version is missing from binlog rowset meta. key={}", binlog_data_key);
+    }
+
+    std::string schema_binary;
+    RETURN_IF_ERROR(get_rowset_schema(
+            meta, rowset_meta_pb.tablet_id(), TabletUid(rowset_meta_pb.tablet_uid()),
+            rowset_meta_pb.tablet_schema_hash(), rowset_meta_pb.schema_version(), &schema_binary));
+    if (!rowset_meta_pb.mutable_tablet_schema()->ParseFromString(schema_binary)) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
+                "failed to parse schema for binlog rowset meta. key={}", binlog_data_key);
+    }
+    if (!rowset_meta_pb.SerializeToString(binlog_data)) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
+                "failed to serialize binlog rowset meta. key={}", binlog_data_key);
+    }
+    return Status::OK();
 }
 
 Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
@@ -353,7 +477,7 @@ Status RowsetMetaManager::_get_rowset_binlog_metas(OlapMeta* meta, const TabletU
         auto binlog_data_key =
                 make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
         std::string binlog_data;
-        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        status = _get_binlog_data_with_schema(meta, binlog_data_key, &binlog_data);
         if (!status.ok()) {
             LOG(WARNING) << status.to_string();
             return false;
@@ -420,7 +544,7 @@ Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, TabletUid tabl
         auto binlog_data_key =
                 make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
         std::string binlog_data;
-        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        status = _get_binlog_data_with_schema(meta, binlog_data_key, &binlog_data);
         if (!status.ok()) {
             LOG(WARNING) << status.to_string();
             return false;
@@ -480,7 +604,7 @@ Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const Tab
         auto binlog_data_key =
                 make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
         std::string binlog_data;
-        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        status = _get_binlog_data_with_schema(meta, binlog_data_key, &binlog_data);
         if (!status.ok()) {
             LOG(WARNING) << status;
             return false;

@@ -154,6 +154,8 @@ const std::string TABLE_ID_KEY = "table_id";
 const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
+const std::string TABLET_SCHEMA_PREFIX = "ts_";
+const std::string ROWSET_SCHEMA_PREFIX = "rs_";
 const std::string REMOTE_ROWSET_GC_PREFIX = "gc_";
 const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
 

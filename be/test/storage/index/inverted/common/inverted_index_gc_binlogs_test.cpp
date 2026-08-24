@@ -163,8 +163,8 @@ TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
         EXPECT_TRUE(rowset->add_to_binlog().ok());
         EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
         EXPECT_TRUE(RowsetMetaManager::save(_data_dir->get_meta(), _tablet->tablet_uid(),
-                                            rowset->rowset_id(),
-                                            rowset->rowset_meta()->get_rowset_pb(), true)
+                                            rowset->rowset_id(), *rowset->rowset_meta(),
+                                            BinlogFormatPB::STATEMENT_AND_SNAPSHOT)
                             .ok());
         _tablet->save_meta();
         _tablet->gc_binlogs(0);

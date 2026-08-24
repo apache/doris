@@ -378,15 +378,14 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     // it is under a single txn lock
     if (!is_recovery) {
         std::optional<BinlogFormatPB> binlog_format;
-        std::optional<RowsetMetaPB> attach_row_binlog_rowset_meta;
+        const RowsetMeta* attach_row_binlog_rowset_meta = nullptr;
         if (attach_row_binlog.rowset != nullptr) {
-            attach_row_binlog_rowset_meta =
-                    attach_row_binlog.rowset->rowset_meta()->get_rowset_pb();
+            attach_row_binlog_rowset_meta = attach_row_binlog.rowset->rowset_meta().get();
             binlog_format = BinlogFormatPB::ROW;
         }
         Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
-                                                     rowset_ptr->rowset_meta()->get_rowset_pb(),
-                                                     binlog_format, attach_row_binlog_rowset_meta);
+                                                     *rowset_ptr->rowset_meta(), binlog_format,
+                                                     attach_row_binlog_rowset_meta);
         DBUG_EXECUTE_IF("TxnManager.RowsetMetaManager.save_wait", {
             if (auto wait = dp->param<int>("duration", 0); wait > 0) {
                 LOG_WARNING("TxnManager.RowsetMetaManager.save_wait")
@@ -628,18 +627,18 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         }
     }
 
-    std::optional<RowsetMetaPB> attach_row_binlog_rowset_meta;
+    const RowsetMeta* attach_row_binlog_rowset_meta = nullptr;
     if (tablet_txn_info->attach_row_binlog.rowset != nullptr) {
         attach_row_binlog_rowset_meta =
-                tablet_txn_info->attach_row_binlog.rowset->rowset_meta()->get_rowset_pb();
+                tablet_txn_info->attach_row_binlog.rowset->rowset_meta().get();
         binlog_format = BinlogFormatPB::ROW;
     }
 
     /// Step 4: save meta
     int64_t t5 = MonotonicMicros();
-    auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(),
-                                          rowset->rowset_meta()->get_rowset_pb(), binlog_format,
-                                          attach_row_binlog_rowset_meta);
+    auto status =
+            RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(), *rowset->rowset_meta(),
+                                    binlog_format, attach_row_binlog_rowset_meta);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
         status.append(fmt::format(", txn id: {}", transaction_id));

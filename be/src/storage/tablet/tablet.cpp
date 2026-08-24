@@ -276,6 +276,12 @@ bool Tablet::set_tablet_schema_into_rowset_meta() {
             flag = true;
         }
     }
+    for (const auto& [_, rowset_meta] : _tablet_meta->all_stale_rs_metas()) {
+        if (!rowset_meta->tablet_schema()) {
+            rowset_meta->set_tablet_schema(_tablet_meta->tablet_schema());
+            flag = true;
+        }
+    }
     return flag;
 }
 
@@ -475,6 +481,12 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         }
     }
 
+    for (const auto& rowset : to_add) {
+        RETURN_IF_ERROR(RowsetMetaManager::save_schema(data_dir()->get_meta(), tablet_id(),
+                                                       tablet_uid(), schema_hash(),
+                                                       rowset->rowset_meta()->tablet_schema()));
+    }
+
     // clear stale rowset
     for (auto& [v, rs] : _stale_rs_version_map) {
         _engine.add_unused_rowset(rs);
@@ -564,6 +576,12 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                         it->second->rowset_id().to_string());
             }
         }
+    }
+
+    for (const auto& rowset : to_add) {
+        RETURN_IF_ERROR(RowsetMetaManager::save_schema(data_dir()->get_meta(), tablet_id(),
+                                                       tablet_uid(), schema_hash(),
+                                                       rowset->rowset_meta()->tablet_schema()));
     }
 
     bool same_version = true;

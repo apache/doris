@@ -265,6 +265,14 @@ Status RowsetBuilder::init() {
 Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& context) {
     _tablet = DORIS_TRY(ExecEnv::get_tablet(_req.tablet_id));
 
+    // Persist the request schema while migrating a legacy tablet or before building with a newer
+    // schema, because building can update the tablet's maximum schema version.
+    if (!_tablet->tablet_meta()->tablet_schema_saved() ||
+        _req.table_schema_param->version() > _tablet->tablet_schema()->schema_version() ||
+        _req.table_schema_param->version() == 0) {
+        context.persist_current_schema = true;
+    }
+
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
     context.db_id = _req.table_schema_param->db_id();

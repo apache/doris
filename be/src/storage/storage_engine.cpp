@@ -50,6 +50,7 @@
 
 #include "agent/task_worker_pool.h"
 #include "cloud/cloud_storage_engine.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -939,11 +940,14 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
 void StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
-    auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
-                                                           std::string_view meta_str) -> bool {
+    OlapMeta* current_meta = nullptr;
+    auto clean_rowset_func = [this, &invalid_rowset_metas, &current_meta](
+                                     TabletUid tablet_uid, RowsetId rowset_id,
+                                     std::string_view meta_str) -> bool {
         // return false will break meta iterator, return true to skip this error
+        DORIS_CHECK(current_meta != nullptr);
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
-        bool parsed = rowset_meta->init(meta_str);
+        bool parsed = rowset_meta->init(meta_str, current_meta);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
             rowset_meta->set_rowset_id(rowset_id);
@@ -995,8 +999,9 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
+        current_meta = data_dir->get_meta();
         static_cast<void>(
-                RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
+                RowsetMetaManager::traverse_rowset_metas(current_meta, clean_rowset_func));
         // 1. delete delete_bitmap
         std::set<int64_t> tablets_to_save_meta;
         for (auto& rowset_meta : invalid_rowset_metas) {

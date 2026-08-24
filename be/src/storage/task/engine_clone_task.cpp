@@ -748,6 +748,10 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     auto cloned_tablet_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet->tablet_id());
     auto cloned_tablet_meta = std::make_shared<TabletMeta>();
     RETURN_IF_ERROR(cloned_tablet_meta->create_from_file(cloned_tablet_meta_file));
+    if (cloned_tablet_meta->tablet_schema_saved()) {
+        return Status::Error<ENGINE_LOAD_INDEX_TABLE_ERROR>(
+                "cloned tablet header is not self-contained. tablet={}", tablet->tablet_id());
+    }
 
     // remove the cloned meta file
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(cloned_tablet_meta_file));

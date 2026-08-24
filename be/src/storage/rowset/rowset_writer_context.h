@@ -131,6 +131,8 @@ struct RowsetWriterContext {
 
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
+    bool persist_current_schema = false;
+
     bool is_transient_rowset_writer = false;
 
     segment_v2::HistoricalRowRetrieverContext make_historical_row_retriever_context();

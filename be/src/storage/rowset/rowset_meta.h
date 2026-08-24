@@ -24,6 +24,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,16 +44,19 @@
 
 namespace doris {
 
+class OlapMeta;
+
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
     ~RowsetMeta();
 
-    bool init(std::string_view pb_rowset_meta);
+    bool init(std::string_view pb_rowset_meta, OlapMeta* meta = nullptr);
 
     bool init(const RowsetMeta* rowset_meta);
 
-    bool init_from_pb(const RowsetMetaPB& rowset_meta_pb);
+    bool init_from_pb(const RowsetMetaPB& rowset_meta_pb,
+                      const std::map<int32_t, std::string>* version_to_schema = nullptr);
 
     bool init_from_json(const std::string& json_rowset_meta);
 
@@ -430,6 +434,10 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() const { return _schema; }
 
+    void set_persist_schema(bool persist) { _persist_current_schema = persist; }
+
+    bool need_persist_schema() const { return _persist_current_schema; }
+
     void set_txn_expiration(int64_t expiration) { _rowset_meta_pb.set_txn_expiration(expiration); }
 
     void set_compaction_level(int64_t compaction_level) {
@@ -512,7 +520,9 @@ public:
     }
 
 private:
-    bool _deserialize_from_pb(std::string_view value);
+    void _set_tablet_schema_from_binary(const std::string& schema_binary);
+
+    bool _deserialize_from_pb(std::string_view value, OlapMeta* meta);
 
     bool _serialize_to_pb(std::string* value);
 
@@ -529,6 +539,7 @@ private:
     RowsetId _rowset_id;
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
+    bool _persist_current_schema = true;
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
     std::atomic<int64_t> _stale_at_s {0};
 };
