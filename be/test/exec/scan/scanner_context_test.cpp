@@ -746,6 +746,14 @@ TEST_F(ScannerContextTest, thread_pool_admission_state) {
             state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
             scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
+    // An idle pool: admission is bounded only by the per-Context limit.
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
+    scanner_context->_scanner_scheduler = scheduler.get();
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+
     std::unique_lock<std::mutex> context_transfer_lock(scanner_context->transfer_lock());
     scanner_context->_pending_tasks = std::stack<std::shared_ptr<ScanTask>>();
     scanner_context->_completed_tasks.clear();
@@ -818,6 +826,12 @@ TEST_F(ScannerContextTest, thread_pool_admission_refreshes_adaptive_limit) {
     auto scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
             scan_dependency, &shared_limit, arbitrator, limiter, 1, true, parallel_tasks);
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
+    scanner_context->_scanner_scheduler = scheduler.get();
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
 
     std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
     ASSERT_TRUE(scanner_context->_enable_adaptive_scanners);
@@ -834,6 +848,178 @@ TEST_F(ScannerContextTest, thread_pool_admission_refreshes_adaptive_limit) {
     // next scanner even though _max_scan_concurrency would still allow it.
     EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
     EXPECT_EQ(scanner_context->try_get_next_scan_task(transfer_lock), nullptr);
+}
+
+TEST_F(ScannerContextTest, thread_pool_admission_keeps_zero_adaptive_allocation) {
+    const int parallel_tasks = 2;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = -1;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < 5; ++i) {
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    TUniqueId query_id = state->get_query_ctx()->query_id();
+    const int64_t query_mem_limit = 1024LL * 1024 * 1024;
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
+    // 100MB budget with 100MB estimated blocks: max_count = 1 for two instances, so instance 1
+    // is legitimately allocated zero scanners by the node-wide budget.
+    limiter->update_open_tasks_count(1);
+    limiter->update_mem_limit(100LL * 1024 * 1024);
+    limiter->reestimated_block_mem_bytes(100LL * 1024 * 1024);
+
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, arbitrator, limiter, 1, true, parallel_tasks);
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
+    scanner_context->_scanner_scheduler = scheduler.get();
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+
+    std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+    ASSERT_LT(1, scanner_context->_max_scan_concurrency);
+
+    // Nothing is progressing, so one scanner is admitted even though the refreshed allocation
+    // is zero.
+    auto first_task = scanner_context->try_get_next_scan_task(transfer_lock);
+    ASSERT_NE(first_task, nullptr);
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, 0);
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 1);
+
+    // Zero is the real ceiling: with one task in flight nothing else may be admitted, matching
+    // the single progress task the TaskExecutor margin keeps. It must not fall back to
+    // _max_scan_concurrency.
+    EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
+    EXPECT_EQ(scanner_context->try_get_next_scan_task(transfer_lock), nullptr);
+}
+
+TEST_F(ScannerContextTest, thread_pool_admission_holds_minimum_when_pool_saturated) {
+    const int parallel_tasks = 4;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = -1;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+
+    // A single-worker pool whose worker is parked: active + queued == 1, i.e. the pool has no
+    // slack once the scheduler-wide budget is 1.
+    ThreadPoolSimplifiedScanScheduler scheduler("saturated_pool_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 4, 1).ok());
+    CountDownLatch task_started(1);
+    CountDownLatch release_task(1);
+    Defer cleanup = [&] {
+        release_task.count_down();
+        scheduler.stop();
+    };
+    ASSERT_TRUE(scheduler
+                        .submit_scan_task(SimplifiedScanTask(
+                                [&] {
+                                    task_started.count_down();
+                                    release_task.wait();
+                                    return true;
+                                },
+                                nullptr, nullptr))
+                        .ok());
+    ASSERT_TRUE(task_started.wait_for(std::chrono::seconds(5)));
+    ASSERT_EQ(scheduler.get_active_threads(), 1);
+    ASSERT_EQ(scheduler.get_queue_size(), 0);
+
+    // Two Contexts share the saturated pool; each may have up to four scanners outstanding when
+    // the pool has slack.
+    std::vector<std::shared_ptr<ScannerContext>> contexts;
+    for (int i = 0; i < 2; ++i) {
+        std::list<std::shared_ptr<ScannerDelegate>> scanners;
+        for (int j = 0; j < 4; ++j) {
+            scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+        }
+        auto scanner_context = ScannerContext::create_shared(
+                state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+                scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+        scanner_context->_scanner_scheduler = &scheduler;
+        scanner_context->_min_scan_concurrency = 1;
+        contexts.push_back(scanner_context);
+    }
+
+    for (const auto& scanner_context : contexts) {
+        std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+        ASSERT_EQ(scanner_context->_max_scan_concurrency, parallel_tasks);
+
+        // Saturated: one outstanding scanner is the ceiling, as _get_margin() enforces on the
+        // TaskExecutor path.
+        scanner_context->_min_scan_concurrency_of_scan_scheduler = 1;
+        scanner_context->_in_flight_tasks_num = 0;
+        EXPECT_TRUE(scanner_context->can_admit_scan_task(transfer_lock));
+        scanner_context->_in_flight_tasks_num = 1;
+        EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
+
+        // A larger minimum raises the saturated ceiling accordingly.
+        scanner_context->_min_scan_concurrency = 2;
+        EXPECT_TRUE(scanner_context->can_admit_scan_task(transfer_lock));
+        scanner_context->_in_flight_tasks_num = 2;
+        EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
+
+        // With slack the Context may ramp to its maximum again.
+        scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+        EXPECT_TRUE(scanner_context->can_admit_scan_task(transfer_lock));
+        scanner_context->_in_flight_tasks_num = parallel_tasks;
+        EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
+    }
+}
+
+TEST_F(ScannerContextTest, debug_string_reports_distinguishable_fields) {
+    const int parallel_tasks = 3;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = -1;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::list<std::shared_ptr<ScannerDelegate>> scanners {
+            std::make_shared<ScannerDelegate>(scanner)};
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, 7,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+
+    // Every value is distinct so a misplaced placeholder is visible in the output.
+    shared_limit.store(100);
+    scanner_context->_in_flight_tasks_num = 2;
+    scanner_context->_is_context_queued = true;
+    scanner_context->_num_finished_scanners = 5;
+
+    const std::string debug = scanner_context->debug_string();
+    EXPECT_NE(debug.find("limit: 7, remaining_limit: 100, _in_flight_tasks_num: 2, "
+                         "_is_context_queued: true, _num_finished_scanners: 5, "
+                         "_max_scan_concurrency: 3, expected_scanners: -1,"),
+              std::string::npos)
+            << debug;
 }
 
 TEST_F(ScannerContextTest, thread_pool_submit_failure_policy) {
@@ -1004,6 +1190,8 @@ TEST_F(ScannerContextTest, thread_pool_context_chain_runs_all_scanners) {
     ASSERT_TRUE(scheduler.start(2, 2, 16, 1).ok());
     Defer cleanup = [&] { scheduler.stop(); };
     scanner_context->_scanner_scheduler = &scheduler;
+    // The two-thread pool never reaches this budget, so the Context may ramp to its maximum.
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
     ASSERT_EQ(scanner_context->_max_scan_concurrency, parallel_tasks);
 
     // init() performs the bootstrap submission of the first Context runnable.
@@ -1084,6 +1272,7 @@ TEST_F(ScannerContextTest, thread_pool_context_runnable_is_deduplicated) {
                         .ok());
     ASSERT_TRUE(task_started.wait_for(std::chrono::seconds(5)));
     scanner_context->_scanner_scheduler = &scheduler;
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
 
     auto completed_task = std::make_shared<ScanTask>(scanners.front());
     {

@@ -281,8 +281,9 @@ public:
 
     // Return whether a Context worker can currently admit one pending scanner. This check has no
     // side effects, so the scheduler can avoid submitting a runnable that would immediately exit.
-    // It always admits one scanner when nothing is progressing so the operator can be woken. The
-    // caller must hold _transfer_lock.
+    // It always admits one scanner when nothing is progressing so the operator can be woken, and it
+    // holds the Context at max(1, _min_scan_concurrency) while the scheduler pool has no slack,
+    // like _get_margin() on the TaskExecutor path. The caller must hold _transfer_lock.
     bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const;
 
     // Atomically check whether this context can start another scan task, move one task from

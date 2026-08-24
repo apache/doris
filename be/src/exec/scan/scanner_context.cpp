@@ -544,8 +544,8 @@ std::string ScannerContext::debug_string() {
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, remaining_limit: {}, "
-            "_num_running_scanners: {}, _max_thread_num: {}, expected_scanners: {},"
+            " limit: {}, remaining_limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
+            "_num_finished_scanners: {}, _max_scan_concurrency: {}, expected_scanners: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
@@ -606,20 +606,31 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
 
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
-        effective_max_concurrency = _adaptive_processor->expected_scanners > 0
-                                            ? _adaptive_processor->expected_scanners
-                                            : _max_scan_concurrency;
+        // expected_scanners is the adaptive ceiling as refreshed by _available_pickup_scanner_count().
+        // Zero is a real allocation: MemLimiter::available_scanner_count() hands nothing to a later
+        // instance when the node-wide scanner budget is smaller than the operator parallelism. It
+        // is not a "not initialized" marker, so it must not fall back to _max_scan_concurrency;
+        // the escape below still lets one task make progress.
+        effective_max_concurrency = _adaptive_processor->expected_scanners;
     }
     if (low_memory_mode()) {
         effective_max_concurrency = std::min(effective_max_concurrency, low_memory_mode_scanners());
+    }
+    // Mirror the scheduler-wide budget of _get_margin(): once the pool has no slack, a Context is
+    // held at its minimum outstanding scanners instead of ramping to its maximum. Both counters are
+    // read here under _transfer_lock exactly as the TaskExecutor path reads them.
+    if (_scanner_scheduler->get_active_threads() + _scanner_scheduler->get_queue_size() >=
+        _min_scan_concurrency_of_scan_scheduler) {
+        effective_max_concurrency =
+                std::min(effective_max_concurrency, std::max(1, _min_scan_concurrency));
     }
 
     // Completed blocks still occupy a concurrency slot until the operator consumes them. Counting
     // both collections prevents a fast producer from exceeding the per-Context scanner limit.
     const int32_t current_concurrency =
             cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num;
-    // Keep one task progressing even if an adaptive limit temporarily reaches zero. Otherwise no
-    // worker can publish a result and wake the operator to make another scheduling decision.
+    // Keep one task progressing even if an adaptive limit reaches zero. Otherwise no worker can
+    // publish a result and wake the operator to make another scheduling decision.
     return current_concurrency == 0 || current_concurrency < effective_max_concurrency;
 }
 
