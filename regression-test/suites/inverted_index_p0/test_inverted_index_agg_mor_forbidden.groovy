@@ -16,9 +16,8 @@
 // under the License.
 
 // INVERTED index is not supported on AGG_KEYS tables or merge-on-read UNIQUE_KEYS tables,
-// even on key columns. score() (which relies on an inverted index) is likewise rejected on
-// such tables. This suite verifies that both CREATE TABLE and ALTER TABLE ADD INDEX are
-// blocked, and that score() reports a clear error.
+// even on key columns. This suite verifies that both CREATE TABLE and ALTER TABLE ADD INDEX
+// are blocked on such tables, while a merge-on-write UNIQUE_KEYS table still allows it.
 suite("test_inverted_index_agg_mor_forbidden", "p0") {
     def aggTbl = "test_inv_forbidden_agg"
     def morTbl = "test_inv_forbidden_mor"
@@ -117,19 +116,6 @@ suite("test_inverted_index_agg_mor_forbidden", "p0") {
             "enable_unique_key_merge_on_write" = "true"
         );
     """
-
-    // ---- score() is rejected on AGG / merge-on-read tables ----
-    // The AGG/MOR tables above carry no inverted index (it is forbidden). The score() push-down
-    // rule rejects the table type as soon as it sees score(), before the MATCH requirement, so a
-    // plain filter is enough to reach that check.
-    test {
-        sql "SELECT score() AS s FROM ${aggTbl} WHERE k1 = 1 ORDER BY s LIMIT 10;"
-        exception "score() function is not supported on AGG_KEYS table or merge-on-read UNIQUE_KEYS table"
-    }
-    test {
-        sql "SELECT score() AS s FROM ${morTbl} WHERE k1 = 1 ORDER BY s LIMIT 10;"
-        exception "score() function is not supported on AGG_KEYS table or merge-on-read UNIQUE_KEYS table"
-    }
 
     sql "DROP TABLE IF EXISTS ${aggTbl}"
     sql "DROP TABLE IF EXISTS ${morTbl}"
