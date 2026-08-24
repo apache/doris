@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <memory>
+#include <roaring/roaring.hh>
+
 #include "storage/compaction/collection_similarity.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
 
@@ -29,6 +32,7 @@ struct IndexQueryContext {
 
     CollectionStatisticsPtr collection_statistics;
     CollectionSimilarityPtr collection_similarity;
+    std::shared_ptr<const roaring::Roaring> delete_bitmap;
 
     size_t query_limit = 0;
     bool is_asc = false;

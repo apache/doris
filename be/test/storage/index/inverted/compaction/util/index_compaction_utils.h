@@ -674,7 +674,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(res.has_value()) << res.error();
             const auto& rowset_writer = res.value();
 
-            Block block = schema->create_block();
+            Block block = schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (const auto& row : data[i]) {
                 if constexpr (std::is_same_v<T, DataRow>) {

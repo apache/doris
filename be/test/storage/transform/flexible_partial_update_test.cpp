@@ -345,7 +345,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleFillFromHistoryAndDefault) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const int32_t v_uid = schema->column(1).unique_id();
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -393,7 +393,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleProvidedCellKeptSkippedFilled) {
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto ds_uid = static_cast<uint64_t>(schema->column(2).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -439,7 +439,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleDeleteSign) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -484,7 +484,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleDeleteSignNewKey) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -523,7 +523,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleNewKeyErrorPolicyRejected) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(2).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -570,7 +570,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleNewKeyAppendRequiredColumnMissing) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -607,7 +607,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleInsertAfterDeleteNewKey) {
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto ds_uid = static_cast<uint64_t>(schema->column(2).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -657,7 +657,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleInsertAfterDeleteExistingKeyNoResurrec
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -715,7 +715,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleSeqColumnDedupHigherWinsFoundArm) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -766,7 +766,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleSeqLoserSelfMarkAfterShrink) {
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -833,7 +833,7 @@ TEST_F(FlexiblePartialUpdateTest, AggFoundStaleFirstRowSkipped) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -874,7 +874,7 @@ TEST_F(FlexiblePartialUpdateTest, AggFoundFirstRowWithSeqBecomesStart) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -917,7 +917,7 @@ TEST_F(FlexiblePartialUpdateTest, AggFoundFirstRowWithoutSeqInheritsBaseline) {
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto seq_uid = static_cast<uint64_t>(schema->column(2).unique_id());
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -968,7 +968,7 @@ TEST_F(FlexiblePartialUpdateTest, AggNotFoundFirstRowWithSeq) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1012,7 +1012,7 @@ TEST_F(FlexiblePartialUpdateTest, AggNotFoundFirstRowWithoutSeqDefaultSeq) {
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto seq_uid = static_cast<uint64_t>(schema->column(2).unique_id());
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1065,7 +1065,7 @@ TEST_F(FlexiblePartialUpdateTest, AggMainLoopThreeArms) {
 
     const auto seq_uid = static_cast<uint64_t>(schema->column(2).unique_id());
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1127,7 +1127,7 @@ TEST_F(FlexiblePartialUpdateTest, AggAllRowsStaleKeyVanishes) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1180,7 +1180,7 @@ TEST_F(FlexiblePartialUpdateTest, AggDeleteInsideSeqGroupClearsState) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1235,7 +1235,7 @@ TEST_F(FlexiblePartialUpdateTest, AggInsertAfterDeleteSeqInheritance) {
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1298,7 +1298,7 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleRowStoreReadPath) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     const auto v_uid = static_cast<uint64_t>(schema->column(1).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1346,7 +1346,7 @@ TEST_F(FlexiblePartialUpdateTest, FlushCountsAggregatedAwayRows) {
     auto pui = make_flexible_pui(schema);
 
     const auto ds_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1398,7 +1398,7 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsFilledRows) {
 
     const auto value_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& columns = guard.mutable_columns();
@@ -1480,7 +1480,7 @@ TEST_F(FlexiblePartialUpdateTest, HorizontalWriterPersistsFilledRows) {
 
     const auto value_uid = static_cast<uint64_t>(schema->column(1).unique_id());
     const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& columns = guard.mutable_columns();
@@ -1563,7 +1563,7 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {
     const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
     auto make_block = [&](const std::vector<std::tuple<int32_t, int32_t, int32_t>>& rows,
                           bool skip_value = false) {
-        Block block = schema->create_block();
+        Block block = schema->create_storage_block();
         {
             auto guard = block.mutate_columns_scoped();
             auto& columns = guard.mutable_columns();

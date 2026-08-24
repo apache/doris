@@ -95,7 +95,7 @@ protected:
 
     // A block holding the key column and the sequence column, in that order.
     static Block key_seq_block(const TabletSchemaSPtr& schema, int32_t key, int32_t seq) {
-        Block block = schema->create_block_by_cids(
+        Block block = schema->create_storage_block(
                 {0, static_cast<uint32_t>(schema->sequence_col_idx())});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&key), sizeof(int32_t));
@@ -106,7 +106,7 @@ protected:
 
     // A block holding only the key column, plus the full-width block the AFTER image is built into.
     static Block key_block(const TabletSchemaSPtr& schema, const std::vector<int32_t>& keys) {
-        Block block = schema->create_block_by_cids({0});
+        Block block = schema->create_storage_block({0});
         auto* column = block.get_by_position(0).column->assert_mutable().get();
         for (int32_t k : keys) {
             column->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -142,7 +142,7 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
     // a read-only probe: the load's delete bitmap must stay untouched
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U);
 
-    Block after_block = schema->create_block();
+    Block after_block = schema->create_storage_block();
     after_block.replace_by_position(0, input.get_by_position(0).column);
     st = retriever.build_after_block(&after_block, 0, 2);
     ASSERT_TRUE(st.ok()) << st;
@@ -177,7 +177,7 @@ TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted
         ASSERT_EQ(retriever.get_operators().size(), 1);
         EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_DELETE);
 
-        Block before_block = schema->create_block_by_cids({1});
+        Block before_block = schema->create_storage_block({1});
         st = retriever.build_before_block(&before_block, {1}, 0, 1);
         ASSERT_TRUE(st.ok()) << st;
         ASSERT_EQ(before_block.rows(), 1);
@@ -217,7 +217,7 @@ TEST_F(HistoricalRowRetrieverTest, RowLosingOnSequenceStillReadsTheStoredRow) {
     EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_UPDATE);
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U); // MarkDeleted::NONE: nothing is marked
 
-    Block before_block = schema->create_block_by_cids({1});
+    Block before_block = schema->create_storage_block({1});
     ASSERT_TRUE(retriever.build_before_block(&before_block, {1}, 0, 1).ok());
     ASSERT_EQ(before_block.rows(), 1);
     EXPECT_FALSE(read_is_null(before_block, 0, 0));
@@ -250,12 +250,12 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
         ASSERT_EQ(retriever.get_operators().size(), 1);
         EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_UPDATE);
 
-        Block after_block = schema->create_block();
+        Block after_block = schema->create_storage_block();
         after_block.replace_by_position(0, first.get_by_position(0).column);
         ASSERT_TRUE(retriever.build_after_block(&after_block, 0, 1).ok());
         EXPECT_EQ(read_int(after_block, 1, 0), 11);
         // the same plan still serves the BEFORE image after the AFTER image consumed it
-        Block before_block = schema->create_block_by_cids({1});
+        Block before_block = schema->create_storage_block({1});
         ASSERT_TRUE(retriever.build_before_block(&before_block, {1}, 0, 1).ok());
         ASSERT_EQ(before_block.rows(), 1);
         EXPECT_FALSE(read_is_null(before_block, 0, 0));
@@ -274,13 +274,13 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
     ASSERT_EQ(next_retriever.get_operators().size(), 1);
     EXPECT_EQ(next_retriever.get_operators()[0], ROW_BINLOG_APPEND);
 
-    Block before_block = schema->create_block_by_cids({1});
+    Block before_block = schema->create_storage_block({1});
     ASSERT_TRUE(next_retriever.build_before_block(&before_block, {1}, 0, 1).ok());
     ASSERT_EQ(before_block.rows(), 1);
     // key 1's plan entry would land here, since both blocks plan destination position 0
     EXPECT_TRUE(read_is_null(before_block, 0, 0));
 
-    Block after_block = schema->create_block();
+    Block after_block = schema->create_storage_block();
     after_block.replace_by_position(0, second.get_by_position(0).column);
     ASSERT_TRUE(next_retriever.build_after_block(&after_block, 0, 1).ok());
     ASSERT_EQ(after_block.rows(), 1);

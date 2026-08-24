@@ -458,7 +458,7 @@ const TypeCase& key_type_from_column_name(std::string_view name) {
 
 Result<Block> create_wide_key_block(const TabletSchemaSPtr& schema,
                                     const WideKeySchemaOptions& options, int segment_ordinal) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < 3; ++row) {
         const size_t aggregate_value_index = options.keys_type == AGG_KEYS && row == 1 ? 0 : row;
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
@@ -527,7 +527,7 @@ TabletSchemaSPtr create_all_scalar_value_schema(TabletStorageFormatPB storage_fo
 }
 
 Result<Block> create_all_scalar_value_block(const TabletSchemaSPtr& schema, int segment_ordinal) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < 3; ++row) {
         RETURN_IF_ERROR_RESULT(append_text_value(
                 &block, 0, std::to_string(segment_ordinal * 10 + static_cast<int>(row))));
@@ -593,7 +593,7 @@ TabletSchemaSPtr create_embedded_index_schema(TabletStorageFormatPB storage_form
 Result<Block> create_embedded_index_block(const TabletSchemaSPtr& schema, int segment_ordinal) {
     constexpr size_t kRows = 180;
     constexpr size_t kPayloadSize = 96;
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < kRows; ++row) {
         RETURN_IF_ERROR_RESULT(
                 append_text_value(&block, 0, std::to_string(segment_ordinal * kRows + row)));
@@ -643,7 +643,7 @@ TabletSchemaSPtr create_external_inverted_index_schema(InvertedIndexStorageForma
 
 Result<Block> create_external_inverted_index_block(const TabletSchemaSPtr& schema,
                                                    int segment_ordinal) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < kExternalIndexRows; ++row) {
         RETURN_IF_ERROR_RESULT(append_text_value(
                 &block, 0, std::to_string(segment_ordinal * kExternalIndexRows + row)));
@@ -697,7 +697,7 @@ std::array<float, kAnnDimensions> ann_vector(int segment_ordinal, size_t row) {
 }
 
 Result<Block> create_ann_index_block(const TabletSchemaSPtr& schema, int segment_ordinal) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < kExternalIndexRows; ++row) {
         RETURN_IF_ERROR_RESULT(append_text_value(
                 &block, 0, std::to_string(segment_ordinal * kExternalIndexRows + row)));
@@ -800,7 +800,7 @@ Result<Block> create_complex_value_block(const TabletSchemaSPtr& schema, int seg
             R"({"a":1,"nested":{"x":"one"}})", R"({"a":2,"array":[1,2]})",
             R"({"different":true,"nested":{"x":"three","y":3.5}})"};
 
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < 3; ++row) {
         const auto value_index = (row + segment_ordinal) % 3;
         RETURN_IF_ERROR_RESULT(append_text_value(
@@ -962,8 +962,8 @@ Result<Block> create_complex_row_binlog_block(
     const std::array<std::string_view, 3> structs {R"({"f_int":10,"f_text":"ten"})", "{}",
                                                    R"({"f_int":30,"f_text":"thirty"})"};
     Block block = partial_update_info == nullptr
-                          ? schema->create_block()
-                          : schema->create_block_by_cids(partial_update_info->update_cids);
+                          ? schema->create_storage_block()
+                          : schema->create_storage_block(partial_update_info->update_cids);
     for (size_t row = 0; row < 3; ++row) {
         const auto value_index = (row + segment_ordinal) % arrays.size();
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
@@ -1020,7 +1020,7 @@ TabletSchemaSPtr create_row_store_schema(KeysType keys_type = DUP_KEYS, bool ena
 
 Result<Block> create_row_store_block(const TabletSchemaSPtr& schema, int segment_ordinal,
                                      size_t rows = 3, size_t value_size = 40) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < rows; ++row) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
             const auto& name = block.get_by_position(column_index).name;
@@ -1074,7 +1074,7 @@ Result<Block> create_variant_row_store_block(const TabletSchemaSPtr& schema, int
     const std::array<std::string_view, 3> variants {
             R"({"a":1,"nested":{"x":"one"}})", R"({"a":2,"array":[1,2]})",
             R"({"different":true,"nested":{"x":"three","y":3.5}})"};
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (size_t row = 0; row < rows; ++row) {
         RETURN_IF_ERROR_RESULT(append_text_value(
                 &block, 0, std::to_string(segment_ordinal * 100 + static_cast<int>(row))));
@@ -1174,7 +1174,7 @@ Result<Block> create_fixed_partial_update_block(const TabletSchemaSPtr& schema,
     const std::array<std::string_view, 3> variants {
             R"({"a":1,"nested":{"x":"one"}})", R"({"a":2,"array":[1,2]})",
             R"({"different":true,"nested":{"x":"three","y":3.5}})"};
-    Block block = schema->create_block_by_cids(partial_update_info.update_cids);
+    Block block = schema->create_storage_block(partial_update_info.update_cids);
     for (int row = 0; row < 3; ++row) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
             const auto& name = block.get_by_position(column_index).name;
@@ -1204,7 +1204,7 @@ Result<Block> create_fixed_partial_update_block(const TabletSchemaSPtr& schema,
 Result<Block> create_flexible_partial_update_block(const TabletSchemaSPtr& schema,
                                                    int segment_ordinal) {
     DORIS_CHECK_EQ(schema->num_variant_columns(), 0);
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     auto* skip_bitmap = assert_cast<ColumnBitmap*>(
             block.get_by_position(schema->skip_bitmap_col_idx()).column->assert_mutable().get());
     constexpr std::array<int, 4> key_offsets {0, 0, 1, 2};
@@ -1261,7 +1261,7 @@ struct IntegerTabletBlockOptions {
 
 Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int segment_ordinal,
                                           IntegerTabletBlockOptions options = {}) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (int row = 0; row < 3; ++row) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
             const auto& name = block.get_by_position(column_index).name;
@@ -1307,7 +1307,7 @@ Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
                                                  const PartialUpdateInfo& partial_update_info,
                                                  int segment_ordinal,
                                                  bool stale_first_existing_sequence = false) {
-    Block block = schema->create_block_by_cids(partial_update_info.update_cids);
+    Block block = schema->create_storage_block(partial_update_info.update_cids);
     for (int row = 0; row < 3; ++row) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
             const auto& name = block.get_by_position(column_index).name;
@@ -1333,7 +1333,7 @@ Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
 
 Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
     constexpr std::array<int, 4> primary_key_order {0, 1, 10, 11};
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (const int key : primary_key_order) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
             const auto& name = block.get_by_position(column_index).name;
@@ -2139,9 +2139,7 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
             }));
     std::sort(physical_column_metadata.begin(), physical_column_metadata.end());
 
-    std::vector<ColumnId> column_ids(schema->num_columns());
-    std::iota(column_ids.begin(), column_ids.end(), 0);
-    auto read_schema = std::make_shared<Schema>(schema->columns(), column_ids);
+    auto read_schema = std::make_shared<ReadSchema>(schema->columns());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -2149,9 +2147,9 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
     std::unique_ptr<RowwiseIterator> iterator;
     RETURN_IF_ERROR_RESULT(segment->new_iterator(read_schema, read_options, &iterator));
 
-    MutableBlock contents(schema->create_block());
+    MutableBlock contents(schema->create_storage_block());
     while (true) {
-        Block batch = schema->create_block();
+        Block batch = schema->create_storage_block();
         auto status = iterator->next_batch(&batch);
         if (status.is<ErrorCode::END_OF_FILE>()) {
             break;

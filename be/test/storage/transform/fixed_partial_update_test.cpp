@@ -127,7 +127,7 @@ TEST_F(FixedPartialUpdateTest, FixedFillFromHistoryAndDefault) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     // narrow input: only the key column, rows = existing 1, 3 and brand-new 99
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     for (int32_t k : {1, 3, 99}) {
         kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -181,7 +181,7 @@ TEST_F(FixedPartialUpdateTest, FixedSeqColumnHigherSeqWins) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     // narrow input {k, seq} in update_cids order: key 1 with seq 10 > old seq 5
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -226,7 +226,7 @@ TEST_F(FixedPartialUpdateTest, FixedSeqColumnEqualSeqNewWins) {
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -268,7 +268,7 @@ TEST_F(FixedPartialUpdateTest, FixedSeqColumnLowerSeqLoses) {
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -318,7 +318,7 @@ TEST_F(FixedPartialUpdateTest, SelfMarkUsesSegmentIdAndRowPosition) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
     ctx.segment_id = 1; // this block lands in segment 1 of the new rowset
 
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -361,7 +361,7 @@ TEST_F(FixedPartialUpdateTest, SentinelMarkAddedWhenCorrectnessCheckOn) {
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     int32_t k = 1;
     block.get_by_position(0).column->assert_mutable()->insert_data(
             reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -400,7 +400,7 @@ TEST_F(FixedPartialUpdateTest, FixedDeleteSignExistingKey) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     // narrow input {k, delete_sign}: delete the existing key 1
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -449,7 +449,7 @@ TEST_F(FixedPartialUpdateTest, FixedDeleteSignSeqTableReadsOldRow) {
 
     // narrow input {k, seq, delete_sign} in cid order: delete key 1 with seq 9 (>= old 7
     // so FOUND, not FOUND_NEWER).
-    Block block = schema->create_block_by_cids({0, 2, 3});
+    Block block = schema->create_storage_block({0, 2, 3});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -498,7 +498,7 @@ TEST_F(FixedPartialUpdateTest, FixedDeleteSignNewKey) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     // delete a key that is not in the table; ERROR policy must NOT fire for a delete
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -542,7 +542,7 @@ TEST_F(FixedPartialUpdateTest, FixedProvidedValueKept) {
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
     // narrow input {k, v}: provide a new v for the existing key 1
-    Block block = schema->create_block_by_cids({0, 1});
+    Block block = schema->create_storage_block({0, 1});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -580,7 +580,7 @@ TEST_F(FixedPartialUpdateTest, FixedNewKeyErrorPolicyRejected) {
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     int32_t k = 99; // not in the table
     block.get_by_position(0).column->assert_mutable()->insert_data(
             reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -609,7 +609,7 @@ TEST_F(FixedPartialUpdateTest, FixedNewKeyAppendRequiredColumnMissing) {
     fill_rowset_ctx(&rwc, schema, tablet, pui, new_rsid);
     TransformExecContext ctx = make_exec_ctx(schema, tablet, mow, pui, &rwc, new_rsid);
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     int32_t k = 99; // brand-new key; v is not in the update list, NOT NULL, no default
     block.get_by_position(0).column->assert_mutable()->insert_data(
             reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -644,7 +644,7 @@ TEST_F(FixedPartialUpdateTest, FixedRowStoreReadPath) {
     // narrow input {k}: two existing keys -- both read v back through the row
     // column. (No brand-new key here: the non-nullable hidden row-store column
     // cannot be defaulted for a newly inserted row under non-strict append.)
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     for (int32_t k : {1, 2}) {
         kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -691,7 +691,7 @@ TEST_F(FixedPartialUpdateTest, FixedRowStoreReadPath) {
         TransformExecContext cs_ctx =
                 make_exec_ctx(cs_schema, cs_tablet, cs_mow, cs_pui, &cs_rwc, cs_new_rsid);
 
-        Block cs_block = cs_schema->create_block_by_cids({0});
+        Block cs_block = cs_schema->create_storage_block({0});
         IColumn* cs_kc = cs_block.get_by_position(0).column->assert_mutable().get();
         for (int32_t k : {1, 2}) {
             cs_kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -718,7 +718,7 @@ TEST_F(FixedPartialUpdateTest, VerticalWriterPersistsFilledRows) {
                           "UTC", "")
                         .ok());
 
-    Block block = schema->create_block_by_cids({0, 2});
+    Block block = schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& columns = guard.mutable_columns();
@@ -792,7 +792,7 @@ TEST_F(FixedPartialUpdateTest, VerticalWriterPersistsRebuiltRowStore) {
     ASSERT_TRUE(pui->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
                           PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0, "UTC", "")
                         .ok());
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     auto* keys = block.get_by_position(0).column->assert_mutable().get();
     for (const int32_t key : {1, 2}) {
         keys->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));

@@ -364,7 +364,8 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         if (_output_tuple_id == -1) {
-            RETURN_IF_ERROR(VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+            RETURN_IF_ERROR(VExpr::prepare(_tablet_sink_expr_ctxs, state,
+                                           _child->operator_row_desc_after_projection()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
             auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc));
