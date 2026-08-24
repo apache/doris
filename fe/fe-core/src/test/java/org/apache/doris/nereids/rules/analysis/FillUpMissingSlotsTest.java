@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -163,6 +164,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(sumA2.toSlot()))));
+    }
+
+    @Test
+    public void testCombineCombinatorBindsArgumentsInAggregateInputScope() {
+        String sql = "SELECT pk, sum(a1 + 1) AS a1 FROM t1 GROUP BY pk "
+                + "HAVING avg_combine(a1) IS NOT NULL "
+                + "ORDER BY avg_combine(a1) IS NULL";
+        PlanChecker.from(connectContext).analyze(sql)
+                .nonMatch(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(Expression::hasUnbound)));
     }
 
     @Test

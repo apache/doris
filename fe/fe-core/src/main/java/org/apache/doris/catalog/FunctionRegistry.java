@@ -109,21 +109,34 @@ public class FunctionRegistry {
 
     public boolean isAggregateFunction(String dbName, String name) {
         name = name.toLowerCase();
-        Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
-        if (StringUtils.isEmpty(dbName)) {
-            List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
-            if (functionBuilders != null) {
-                for (FunctionBuilder functionBuilder : functionBuilders) {
-                    if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
-                        return true;
-                    }
-                }
+        boolean preferUdfOverBuiltin = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().preferUdfOverBuiltin;
+        if (preferUdfOverBuiltin) {
+            List<FunctionBuilder> udfBuilders = findUdfBuilder(dbName, name);
+            if (!udfBuilders.isEmpty()) {
+                return containsAggregateFunction(udfBuilders);
             }
         }
 
-        List<FunctionBuilder> udfBuilders = findUdfBuilder(dbName, name);
-        for (FunctionBuilder udfBuilder : udfBuilders) {
-            if (aggClass.isAssignableFrom(udfBuilder.functionClass())) {
+        if (StringUtils.isEmpty(dbName)) {
+            List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
+            if (CollectionUtils.isEmpty(functionBuilders)
+                    && name.endsWith(AggCombinerFunctionBuilder.COMBINE_SUFFIX)) {
+                functionBuilders = name2BuiltinBuilders.get(
+                        AggCombinerFunctionBuilder.getNestedName(name).toLowerCase());
+            }
+            if (!CollectionUtils.isEmpty(functionBuilders)) {
+                return containsAggregateFunction(functionBuilders);
+            }
+        }
+
+        return containsAggregateFunction(findUdfBuilder(dbName, name));
+    }
+
+    private boolean containsAggregateFunction(List<FunctionBuilder> functionBuilders) {
+        Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
+        for (FunctionBuilder functionBuilder : functionBuilders) {
+            if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
                 return true;
             }
         }

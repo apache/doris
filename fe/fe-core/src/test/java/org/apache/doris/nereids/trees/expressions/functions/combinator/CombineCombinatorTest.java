@@ -107,8 +107,19 @@ class CombineCombinatorTest {
     @Test
     void testScalarFunctionDoesNotSupportCombine() {
         SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, false);
-        Assertions.assertTrue(new FunctionRegistry()
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        Assertions.assertTrue(functionRegistry
                 .findBuiltinFunctionBuilder("abs_combine", ImmutableList.of(argument)).isEmpty());
+        Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "abs_combine"));
+        Assertions.assertTrue(functionRegistry.isAggregateFunction(null, "avg_combine"));
+    }
+
+    @Test
+    void testCombineDoesNotSupportAggStateCast() {
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze("select cast(topn_combine('x', 10, 100) "
+                                + "as agg_state<topn(varchar, int)>)"));
     }
 
     @Test
