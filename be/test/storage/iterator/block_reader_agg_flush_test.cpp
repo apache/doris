@@ -24,11 +24,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
-#define protected public
 #include "storage/iterator/block_reader.h"
-#undef private
-#undef protected
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

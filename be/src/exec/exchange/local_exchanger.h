@@ -78,6 +78,7 @@ public:
         BlockWrapper(Block&& data_block, LocalExchangeSharedState* shared_state, int channel_id)
                 : _data_block(std::move(data_block)),
                   _shared_state(shared_state),
+                  _exchanger(shared_state ? shared_state->exchanger.get() : nullptr),
                   _allocated_bytes(_data_block.allocated_bytes()) {
             if (_shared_state) {
                 _shared_state->add_total_mem_usage(_allocated_bytes);
@@ -89,14 +90,16 @@ public:
                 // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
                 // not used by `sub_total_mem_usage`. So we just pass -1 here.
                 _shared_state->sub_total_mem_usage(_allocated_bytes);
-                if (_shared_state->exchanger->_free_block_limit == 0 ||
-                    _shared_state->exchanger->_free_blocks.size_approx() <
-                            _shared_state->exchanger->_free_block_limit *
-                                    _shared_state->exchanger->_num_sources) {
+                // Keep using the exchanger that created this wrapper. A unique_ptr implementation
+                // may clear LocalExchangeSharedState::exchanger before deleting the exchanger, while
+                // queued wrappers are released by the exchanger's member destructors.
+                if (_exchanger->_free_block_limit == 0 ||
+                    _exchanger->_free_blocks.size_approx() <
+                            _exchanger->_free_block_limit * _exchanger->_num_sources) {
                     _data_block.clear_column_data();
                     // Free blocks is used to improve memory efficiency. Failure during pushing back
                     // free block will not incur any bad result so just ignore the return value.
-                    _shared_state->exchanger->_free_blocks.enqueue(std::move(_data_block));
+                    _exchanger->_free_blocks.enqueue(std::move(_data_block));
                 }
             };
         }
@@ -119,6 +122,7 @@ public:
 
         Block _data_block;
         LocalExchangeSharedState* _shared_state;
+        ExchangerBase* _exchanger;
         std::vector<int> _channel_ids;
         const size_t _allocated_bytes;
     };

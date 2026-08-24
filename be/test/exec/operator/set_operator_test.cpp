@@ -433,6 +433,9 @@ TEST_F(ExceptOperatorTest, test_mem_reuse_with_shared_output_column) {
 }
 
 TEST_F(IntersectOperatorTest, test_sink_large_string_data_over_4g) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "The sanitizer macOS runner has insufficient memory for the >4GB case";
+#endif
     // Test that SetSinkOperatorX can handle string data exceeding 4GB total size.
     // This exercises the convert_column_if_overflow path in _process_build_block.
     init_op(2, {std::make_shared<DataTypeString>()});
@@ -510,6 +513,9 @@ TEST_F(IntersectOperatorTest, test_sink_large_string_data_over_4g) {
 }
 
 TEST_F(ExceptOperatorTest, test_sink_large_string_data_over_4g) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "The sanitizer macOS runner has insufficient memory for the >4GB case";
+#endif
     // Test that SetSinkOperatorX (EXCEPT) can handle string data exceeding 4GB total size.
     init_op(2, {std::make_shared<DataTypeString>()});
 

@@ -190,7 +190,8 @@ public:
             return Status::InvalidArgument("JSONB destination is not a string column");
         }
 
-        const size_t produced = std::min(*rows, ROWS - _state->current_ordinal);
+        const size_t produced =
+                std::min(*rows, static_cast<size_t>(ROWS - _state->current_ordinal));
         auto serde = std::make_shared<doris::DataTypeJsonb>()->get_serde();
         doris::DataTypeSerDe::FormatOptions options;
         for (size_t row = 0; row < produced; ++row) {
@@ -241,7 +242,8 @@ public:
             return Status::InvalidArgument("sparse destination is not a map");
         }
 
-        const size_t produced = std::min(*rows, ROWS - _state->current_ordinal);
+        const size_t produced =
+                std::min(*rows, static_cast<size_t>(ROWS - _state->current_ordinal));
         auto& keys = assert_cast<ColumnString&>(map->get_keys());
         auto& values = assert_cast<ColumnString&>(map->get_values());
         auto& map_offsets = map->get_offsets();
@@ -297,7 +299,7 @@ public:
             return Status::InvalidArgument("JSONB sparse destination is not a map");
         }
 
-        const size_t produced = std::min(*rows, ROWS - _current_ordinal);
+        const size_t produced = std::min(*rows, static_cast<size_t>(ROWS - _current_ordinal));
         auto& keys = assert_cast<ColumnString&>(map->get_keys());
         auto& values = assert_cast<ColumnString&>(map->get_values());
         auto& offsets = map->get_offsets();

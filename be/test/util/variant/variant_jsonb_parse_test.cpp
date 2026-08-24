@@ -221,7 +221,7 @@ TEST(VariantJsonbTest, AllJsonbTypesMapToCanonicalVariant) {
     ASSERT_TRUE(writer.writeInt128(power_of_ten_128(20)));
     ASSERT_TRUE(writer.writeFloat(1.5F));
     ASSERT_TRUE(writer.writeDecimal(Decimal32 {123}, 3, 38));
-    ASSERT_TRUE(writer.writeDecimal(Decimal64 {12'345'678'901}, 11, 38));
+    ASSERT_TRUE(writer.writeDecimal(Decimal64 {int64_t(12'345'678'901)}, 11, 38));
     ASSERT_TRUE(writer.writeDecimal(Decimal128V3 {power_of_ten_128(20)}, 21, 6));
     ASSERT_TRUE(writer.writeEndArray());
 
