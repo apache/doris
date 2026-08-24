@@ -125,16 +125,12 @@ TEST_F(S3AccessorMockTest, container_provider_uses_pod_identity_full_uri_and_tok
     env.set_pod_identity("http://127.0.0.1:65000/creds", token_path);
 
     ProviderProbe probe;
-    EXPECT_NE(
-            as_valid_http_provider(probe.container_provider()),
-            nullptr)
+    EXPECT_NE(as_valid_http_provider(probe.container_provider()), nullptr)
             << "CONTAINER did not yield a usable container credentials provider for "
                "AWS_CONTAINER_CREDENTIALS_FULL_URI";
 
     ASSERT_EQ(std::remove(token_path.c_str()), 0);
-    EXPECT_EQ(
-            as_valid_http_provider(probe.container_provider()),
-            nullptr)
+    EXPECT_EQ(as_valid_http_provider(probe.container_provider()), nullptr)
             << "CONTAINER ignored AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE: the provider stayed "
                "valid "
                "with the token file removed, so the path was never forwarded";
@@ -147,9 +143,7 @@ TEST_F(S3AccessorMockTest, container_provider_still_honours_ecs_relative_uri) {
     env.set_ecs_task_role("/v2/credentials/mock");
 
     ProviderProbe probe;
-    EXPECT_NE(
-            as_valid_http_provider(probe.container_provider()),
-            nullptr)
+    EXPECT_NE(as_valid_http_provider(probe.container_provider()), nullptr)
             << "CONTAINER did not yield a usable container credentials provider for "
                "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
 }

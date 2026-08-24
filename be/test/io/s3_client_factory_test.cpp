@@ -820,7 +820,8 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeStillHonoursEcsRelativeUri) {
 
     S3ClientConf conf;
     conf.cred_provider_type = CredProviderType::Container;
-    EXPECT_NE(as_valid_http_provider(factory.create_aws_credentials_provider(conf).provider), nullptr)
+    EXPECT_NE(as_valid_http_provider(factory.create_aws_credentials_provider(conf).provider),
+              nullptr)
             << "CONTAINER did not yield a usable container credentials provider for "
                "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
 }
