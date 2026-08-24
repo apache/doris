@@ -245,22 +245,41 @@ public class CloudGlobalTransactionMgrTest {
             CloudOlapTableStreamUpdate update = new CloudOlapTableStreamUpdate(identity,
                     java.util.Map.of(50L, partitionUpdate));
             TableStreamUpdateInfo updateInfo = new TableStreamUpdateInfo(30L, 40L, update);
+            Cloud.TableStreamIdentityPB secondIdentity = Cloud.TableStreamIdentityPB.newBuilder()
+                    .setBaseDbId(11)
+                    .setBaseTableId(21)
+                    .setStreamDbId(31)
+                    .setStreamId(41)
+                    .build();
+            Cloud.TableStreamPartitionUpdatePB secondPartitionUpdate =
+                    Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                            .setPartitionId(51)
+                            .setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN)
+                            .setNextOffsetTso(71)
+                            .build();
+            CloudOlapTableStreamUpdate secondUpdate = new CloudOlapTableStreamUpdate(secondIdentity,
+                    java.util.Map.of(51L, secondPartitionUpdate));
+            TableStreamUpdateInfo secondUpdateInfo = new TableStreamUpdateInfo(31L, 41L, secondUpdate);
             Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
 
             masterTransMgr.commitAndPublishTransaction(
                     masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
                     Lists.newArrayList(table), 123533, Lists.newArrayList(), 10_000, null,
-                    Lists.newArrayList(updateInfo));
+                    Lists.newArrayList(updateInfo, secondUpdateInfo));
 
             ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
             Assert.assertTrue(requestCaptor.getValue().hasCommitTso());
-            Assert.assertEquals(1, requestCaptor.getValue().getTableStreamUpdatesCount());
+            Assert.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
             Assert.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
             Assert.assertEquals(partitionUpdate,
                     requestCaptor.getValue().getTableStreamUpdates(0).getPartitionUpdates(0));
+            Assert.assertEquals(secondIdentity,
+                    requestCaptor.getValue().getTableStreamUpdates(1).getIdentity());
+            Assert.assertEquals(secondPartitionUpdate,
+                    requestCaptor.getValue().getTableStreamUpdates(1).getPartitionUpdates(0));
         }
     }
 
