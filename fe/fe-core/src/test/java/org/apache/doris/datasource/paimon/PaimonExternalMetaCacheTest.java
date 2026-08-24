@@ -515,6 +515,7 @@ public class PaimonExternalMetaCacheTest {
             // Schema history came from the retained handle, not from a reloaded base table.
             Mockito.verify(dorisTable).loadSchemaForCache(Mockito.same(retainedTable), Mockito.eq(3L));
             Mockito.verify(mocked.catalog, Mockito.never()).getPaimonTable(mocked.mapping);
+            Mockito.verify(mocked.catalog, Mockito.never()).reloadPaimonTable(mocked.mapping);
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -980,7 +981,7 @@ public class PaimonExternalMetaCacheTest {
         Table paimonTable = Mockito.mock(Table.class);
         java.util.concurrent.atomic.AtomicBoolean alterCompletesDuringLoad =
                 new java.util.concurrent.atomic.AtomicBoolean(true);
-        Mockito.when(catalog.getPaimonTable(mapping)).thenAnswer(invocation -> {
+        Mockito.when(catalog.reloadPaimonTable(mapping)).thenAnswer(invocation -> {
             if (alterCompletesDuringLoad.get()) {
                 // The concurrent credential ALTER reinitializes the catalog while the external
                 // load is still in flight.
@@ -1045,7 +1046,7 @@ public class PaimonExternalMetaCacheTest {
         });
         NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
         Table paimonTable = Mockito.mock(Table.class);
-        Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(paimonTable);
+        Mockito.when(catalog.reloadPaimonTable(mapping)).thenReturn(paimonTable);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -1303,7 +1304,7 @@ public class PaimonExternalMetaCacheTest {
         // The projection load fails after a successful fence read.
         Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap()))
                 .thenThrow(new RuntimeException("projection load failed"));
-        Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(baseTable);
+        Mockito.when(catalog.reloadPaimonTable(mapping)).thenReturn(baseTable);
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
@@ -1619,7 +1620,7 @@ public class PaimonExternalMetaCacheTest {
                 }
                 return Collections.emptyList();
             });
-            Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(baseTable);
+            Mockito.when(catalog.reloadPaimonTable(mapping)).thenReturn(baseTable);
         }
 
         private ExternalTable dorisTable() {
@@ -1664,7 +1665,7 @@ public class PaimonExternalMetaCacheTest {
                         0, observedFenceOwnerCount(cache));
             }
             Assert.assertEquals(10L, tables.stats().getWeightAdmissionRejectedCount());
-            Mockito.verify(mocked.catalog, Mockito.times(10)).getPaimonTable(mapping);
+            Mockito.verify(mocked.catalog, Mockito.times(10)).reloadPaimonTable(mapping);
         } finally {
             cache.close();
             executor.shutdownNow();
