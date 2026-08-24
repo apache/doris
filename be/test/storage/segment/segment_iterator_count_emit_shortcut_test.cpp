@@ -98,28 +98,13 @@ TabletSchemaSPtr make_tablet_schema() {
     return tablet_schema;
 }
 
-SchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
-    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
-    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-        read_column_ids[cid] = cid;
-    }
-    return std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
-}
-
-Block make_block_for(const Schema& schema) {
-    Block block;
-    for (size_t i = 0; i < schema.num_column_ids(); ++i) {
-        const auto* col_desc = schema.column(schema.column_id(i));
-        auto data_type = Schema::get_data_type_ptr(*col_desc);
-        block.insert(
-                ColumnWithTypeAndName(data_type->create_column(), data_type, col_desc->name()));
-    }
-    return block;
+ReadSchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
+    return std::make_shared<ReadSchema>(tablet_schema->columns());
 }
 
 struct Fixture {
     TabletSchemaSPtr tablet_schema;
-    SchemaSPtr read_schema;
+    ReadSchemaSPtr read_schema;
     std::unique_ptr<SegmentIterator> iter;
     OlapReaderStatistics stats;
 
@@ -133,15 +118,12 @@ struct Fixture {
         // State _lazy_init/_vec_init_lazy_materialization would have produced
         // for a count-fastpath scan: no predicate columns, no lazy
         // materialization, index fully answered every column's conditions.
-        iter->_is_pred_column.resize(read_schema->columns().size(), false);
-        iter->_lazy_materialization_read = false;
-        iter->_storage_name_and_type.resize(read_schema->columns().size());
-        for (size_t i = 0; i < read_schema->num_column_ids(); ++i) {
-            ColumnId cid = read_schema->column_id(i);
-            iter->_storage_name_and_type[cid] =
-                    std::make_pair(read_schema->column(cid)->name(),
-                                   Schema::get_data_type_ptr(*read_schema->column(cid)));
-            iter->_need_read_data_indices[cid] = false;
+        iter->_column_states.resize(read_schema->num_read_columns());
+        iter->_storage_name_and_type.resize(read_schema->num_read_columns());
+        for (size_t ordinal = 0; ordinal < read_schema->num_read_columns(); ++ordinal) {
+            iter->_storage_name_and_type[ordinal] = std::make_pair(
+                    read_schema->column(ordinal)->name(), read_schema->data_type(ordinal));
+            iter->_column_states[ordinal].need_read_data = false;
         }
     }
 
@@ -190,7 +172,7 @@ TEST(CountEmitShortcut, EmitsExactCountAcrossBatchesThenEof) {
     const uint64_t count = 3 * kBatchRows + 3395; // 200000
     fx.engage_with_count(count);
 
-    Block block = make_block_for(*fx.read_schema);
+    Block block = fx.read_schema->create_read_block();
     const auto batches = fx.drain(&block);
 
     ASSERT_EQ(batches.size(), 4U);
@@ -215,7 +197,7 @@ TEST(CountEmitShortcut, BatchBoundaryCountsAreExact) {
         reset_emit_counters();
         Fixture fx;
         fx.engage_with_count(count);
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         const auto batches = fx.drain(&block);
         EXPECT_EQ(total_rows(batches), count) << "count: " << count;
         const uint64_t expected_batches = (count + kBatchRows - 1) / kBatchRows;
@@ -233,7 +215,7 @@ TEST(CountEmitShortcut, EmptyResultIsImmediateEof) {
     reset_emit_counters();
     Fixture fx;
     fx.engage_with_count(0);
-    Block block = make_block_for(*fx.read_schema);
+    Block block = fx.read_schema->create_read_block();
     Status st = fx.iter->_emit_count_shortcut_batch(&block);
     EXPECT_TRUE(st.is<ErrorCode::END_OF_FILE>());
     EXPECT_EQ(block.rows(), 0U);
@@ -249,7 +231,7 @@ TEST(CountEmitShortcut, EmptyResultIsImmediateEof) {
 TEST(CountEmitShortcut, NullableColumnsEmitNotNullDefaults) {
     Fixture fx;
     fx.engage_with_count(1000);
-    Block block = make_block_for(*fx.read_schema);
+    Block block = fx.read_schema->create_read_block();
     ASSERT_TRUE(fx.iter->_emit_count_shortcut_batch(&block).ok());
     ASSERT_EQ(block.rows(), 1000U);
 
@@ -282,7 +264,7 @@ TEST(CountEmitShortcut, NullDisjointFabricatedShapeCountsByCardinality) {
     fx.iter->_row_bitmap.addRange(100, 150);
     // The exact engage math from _lazy_init.
     fx.engage_with_count(fx.iter->_row_bitmap.cardinality());
-    Block block = make_block_for(*fx.read_schema);
+    Block block = fx.read_schema->create_read_block();
     const auto batches = fx.drain(&block);
     EXPECT_EQ(total_rows(batches), 50U);
 }
@@ -295,8 +277,8 @@ TEST(CountEmitShortcut, MultipleIteratorsEmitIndependently) {
     Fixture fx2;
     fx1.engage_with_count(kBatchRows + 5000); // 2 batches
     fx2.engage_with_count(3);                 // 1 batch
-    Block block1 = make_block_for(*fx1.read_schema);
-    Block block2 = make_block_for(*fx2.read_schema);
+    Block block1 = fx1.read_schema->create_read_block();
+    Block block2 = fx2.read_schema->create_read_block();
 
     const auto batches1 = fx1.drain(&block1);
     const auto batches2 = fx2.drain(&block2);
@@ -338,7 +320,7 @@ TEST(CountEmitShortcut, EngageAdmitsCleanCountFastpathState) {
     reset_emit_counters();
     Fixture fx;
     fx.set_hit();
-    Block block = make_block_for(*fx.read_schema);
+    Block block = fx.read_schema->create_read_block();
     EXPECT_TRUE(fx.iter->_should_engage_count_emit_shortcut(&block));
     EXPECT_EQ(emit_hits(), 1U);
 }
@@ -350,7 +332,7 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
     // Without the reader hit (row-accurate bitmap): refuse.
     {
         Fixture fx;
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     // A surviving evaluation stage (e.g. index-eval downgrade kept the expr).
@@ -358,7 +340,7 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
         Fixture fx;
         fx.set_hit();
         fx.iter->_is_need_expr_eval = true;
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     // A pushed-down read limit must keep the limit-aware loop.
@@ -366,7 +348,7 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
         Fixture fx;
         fx.set_hit();
         fx.iter->_opts.read_limit = 10;
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     // Condition-cache writes are only produced by the real batch loop.
@@ -374,7 +356,7 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
         Fixture fx;
         fx.set_hit();
         fx.iter->_opts.condition_cache_digest = 7;
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     // Rowid consumers need real row ids.
@@ -382,14 +364,14 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
         Fixture fx;
         fx.set_hit();
         fx.iter->_opts.record_rowids = true;
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     // Block shape != read schema (e.g. delete-condition column beyond block).
     {
         Fixture fx;
         fx.set_hit();
-        Block block = make_block_for(*fx.read_schema);
+        Block block = fx.read_schema->create_read_block();
         block.erase(1);
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
@@ -398,8 +380,8 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
     {
         Fixture fx;
         fx.set_hit();
-        fx.iter->_need_read_data_indices.erase(1);
-        Block block = make_block_for(*fx.read_schema);
+        fx.iter->_column_states[1].need_read_data = true;
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     // A storage->schema cast column: today's path emits CAST(file-type
@@ -408,9 +390,8 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
     {
         Fixture fx;
         fx.set_hit();
-        fx.iter->_storage_name_and_type[0].second =
-                Schema::get_data_type_ptr(*fx.read_schema->column(1));
-        Block block = make_block_for(*fx.read_schema);
+        fx.iter->_storage_name_and_type[0].second = fx.read_schema->data_type(1);
+        Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
     EXPECT_EQ(emit_hits(), 0U);

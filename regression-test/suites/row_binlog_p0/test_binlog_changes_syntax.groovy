@@ -268,6 +268,14 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             ORDER BY id, __DORIS_BINLOG_LSN__
         """
 
+        order_qt_mow_append_value_only """
+            SELECT v1
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "APPEND_ONLY")
+            ORDER BY v1
+        """
+
         // 2.2 MIN_DELTA [mowT0, mowT1]: per-key folded result.
         order_qt_mow_min_delta_range """
             SELECT id, v1, v2, __DORIS_BINLOG_OP__
@@ -275,6 +283,26 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "endTimestamp" = "${mowT1}",
                 "incrementType" = "MIN_DELTA")
             ORDER BY id, __DORIS_BINLOG_OP__, v1
+        """
+
+        // Read only a value column. Key, TSO, OP and the matching before-image
+        // column are storage dependencies and must not appear in the result.
+        order_qt_mow_min_delta_value_only """
+            SELECT v1
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "MIN_DELTA")
+            ORDER BY v1
+        """
+
+        // SELECT * expands to the visible base-table columns only. Internal
+        // binlog columns and generated before-image columns must stay hidden.
+        order_qt_mow_min_delta_select_star """
+            SELECT *
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "MIN_DELTA")
+            ORDER BY id, v1, v2
         """
         // MIN_DELTA op codes (from __DORIS_BINLOG_OP__):
         //   0 = INSERT/APPEND, 1 = DELETE, 2 = UPDATE_BEFORE, 3 = UPDATE_AFTER
@@ -303,6 +331,14 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "endTimestamp" = "${mowT1}",
                 "incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+        """
+
+        order_qt_mow_detail_value_only """
+            SELECT v1
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "DETAIL")
+            ORDER BY v1
         """
 
         // 2.4 startTimestamp only: includes the late (6,60).

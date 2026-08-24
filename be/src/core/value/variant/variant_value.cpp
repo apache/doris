@@ -368,7 +368,14 @@ uint32_t VariantRef::num_elements() const {
     return _container_layout(type).count;
 }
 
-uint32_t VariantRef::_object_field_id(const ContainerLayout& layout, uint32_t index) const {
+VariantRef::ObjectView VariantRef::object_view() const {
+    ContainerLayout layout = _container_layout(VariantBasicType::OBJECT);
+    const uint32_t dictionary_size = layout.count == 0 ? 0 : metadata.dict_size();
+    return ObjectView(*this, layout, dictionary_size);
+}
+
+uint32_t VariantRef::_object_field_id(const ContainerLayout& layout, uint32_t index,
+                                      const uint32_t* dictionary_size) const {
     if (index >= layout.count) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant object index {} is out of range [0, {})", index, layout.count);
@@ -376,10 +383,12 @@ uint32_t VariantRef::_object_field_id(const ContainerLayout& layout, uint32_t in
     const auto field_id = static_cast<uint32_t>(read_unsigned(
             value.data + layout.ids_offset + static_cast<size_t>(index) * layout.id_width,
             layout.id_width));
-    if (field_id >= metadata.dict_size()) {
+    const uint32_t metadata_dictionary_size =
+            dictionary_size != nullptr ? *dictionary_size : metadata.dict_size();
+    if (field_id >= metadata_dictionary_size) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant object field id {} is outside metadata dictionary of size {}",
-                        field_id, metadata.dict_size());
+                        field_id, metadata_dictionary_size);
     }
     return field_id;
 }
@@ -425,6 +434,14 @@ VariantRef VariantRef::object_value_at(uint32_t index, uint32_t* field_id_out) c
         *field_id_out = field_id;
     }
     return _container_value_at(layout, index, false);
+}
+
+VariantRef VariantRef::ObjectView::value_at(uint32_t index, uint32_t* field_id_out) const {
+    const uint32_t field_id = _value._object_field_id(_layout, index, &_dictionary_size);
+    if (field_id_out != nullptr) {
+        *field_id_out = field_id;
+    }
+    return _value._container_value_at(_layout, index, false);
 }
 
 VariantRef VariantRef::array_at(uint32_t index) const {

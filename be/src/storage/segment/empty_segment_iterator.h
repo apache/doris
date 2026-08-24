@@ -28,15 +28,15 @@ namespace segment_v2 {
 
 class EmptySegmentIterator : public RowwiseIterator {
 public:
-    explicit EmptySegmentIterator(const Schema& schema);
+    explicit EmptySegmentIterator(const ReadSchema& schema);
     ~EmptySegmentIterator() override {}
     Status init(const StorageReadOptions& opts) override { return Status::OK(); }
-    const Schema& schema() const override { return _schema; }
+    const ReadSchema& schema() const override { return _schema; }
     Status next_batch(Block* block) override;
     bool empty() const override { return true; }
 
 private:
-    const Schema& _schema;
+    const ReadSchema& _schema;
 };
 
 } // namespace segment_v2

@@ -49,9 +49,8 @@ TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_append_column) {
     tablet_schema.append_column(*create_commit_tso_column(1));
     EXPECT_EQ(1, tablet_schema.commit_tso_col_idx());
 
-    std::vector<ColumnId> column_ids {0, 1};
-    Schema read_schema(tablet_schema.columns(), column_ids);
-    EXPECT_EQ(1, read_schema.commit_tso_col_idx());
+    ReadSchema read_schema(project_columns_by_ordinal(tablet_schema.columns(), {0, 1}));
+    EXPECT_EQ(1, read_schema.commit_tso_ordinal());
 }
 
 TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_current_index_schema) {

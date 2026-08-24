@@ -306,7 +306,6 @@ private:
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
-    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
@@ -323,7 +322,7 @@ private:
     RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_segment_prefetchers_timer = nullptr;
 
@@ -379,14 +378,6 @@ public:
                       std::shared_ptr<QueryCacheRuntime> query_cache_runtime = nullptr);
 
     Status prepare(RuntimeState* state) override;
-
-    int get_column_id(const std::string& col_name) const override {
-        if (!_tablet_schema) {
-            return -1;
-        }
-        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
-        return _tablet_schema->field_index(column.unique_id());
-    }
 
 private:
     friend class OlapScanLocalState;

@@ -35,11 +35,17 @@
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
@@ -118,6 +124,33 @@ std::vector<SlotDescriptor*> string_slot(ObjectPool* pool, DescriptorTbl** desc_
     return (*desc_tbl)->get_tuple_descriptor(0)->slots();
 }
 
+std::vector<SlotDescriptor*> int_array_slot(ObjectPool* pool, DescriptorTbl** desc_tbl) {
+    DescriptorTblBuilder builder(pool);
+    builder.declare_tuple() << std::make_tuple(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()),
+            std::string("c_array"));
+    *desc_tbl = builder.build();
+    return (*desc_tbl)->get_tuple_descriptor(0)->slots();
+}
+
+DataTypePtr nullable_int32_type() {
+    return make_nullable(std::make_shared<DataTypeInt32>());
+}
+
+DataTypePtr array_struct_type(const Strings& names) {
+    DataTypes fields(names.size(), nullable_int32_type());
+    return make_nullable(std::make_shared<DataTypeArray>(
+            make_nullable(std::make_shared<DataTypeStruct>(std::move(fields), names))));
+}
+
+std::vector<SlotDescriptor*> array_struct_slot(ObjectPool* pool, DescriptorTbl** desc_tbl) {
+    DescriptorTblBuilder builder(pool);
+    builder.declare_tuple() << std::make_tuple(array_struct_type({"a", "b"}),
+                                               std::string("c_array"));
+    *desc_tbl = builder.build();
+    return (*desc_tbl)->get_tuple_descriptor(0)->slots();
+}
+
 std::vector<SlotDescriptor*> sqlite_slots(ObjectPool* pool, DescriptorTbl** desc_tbl) {
     DescriptorTblBuilder builder(pool);
     // SQLite stores integers as 64-bit and reals as doubles; the ADBC driver reports them as such.
@@ -144,6 +177,143 @@ std::shared_ptr<arrow::RecordBatch> make_named_large_string_batch(const std::str
 
 std::shared_ptr<arrow::RecordBatch> make_large_string_batch() {
     return make_named_large_string_batch("c_str");
+}
+
+std::shared_ptr<arrow::RecordBatch> make_list_view_batch() {
+    arrow::Int32Builder offsets_builder;
+    EXPECT_TRUE(offsets_builder.AppendValues({2, 0}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    EXPECT_TRUE(sizes_builder.AppendValues({1, 2}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    EXPECT_TRUE(values_builder.AppendValues({10, 20, 30}).ok());
+    std::shared_ptr<arrow::Array> values;
+    EXPECT_TRUE(values_builder.Finish(&values).ok());
+
+    auto array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    auto schema = arrow::schema({arrow::field("c_array", array->type())});
+    return arrow::RecordBatch::Make(schema, 2, {array});
+}
+
+std::shared_ptr<arrow::RecordBatch> make_nullable_list_view_batch(bool large_offsets) {
+    std::shared_ptr<arrow::Array> offsets;
+    if (large_offsets) {
+        arrow::Int64Builder offsets_builder;
+        EXPECT_TRUE(offsets_builder.Append(0).ok());
+        EXPECT_TRUE(offsets_builder.AppendNull().ok());
+        EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+    } else {
+        arrow::Int32Builder offsets_builder;
+        EXPECT_TRUE(offsets_builder.Append(0).ok());
+        EXPECT_TRUE(offsets_builder.AppendNull().ok());
+        EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+    }
+
+    std::shared_ptr<arrow::Array> sizes;
+    if (large_offsets) {
+        arrow::Int64Builder sizes_builder;
+        EXPECT_TRUE(sizes_builder.AppendValues({1, 0}).ok());
+        EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+    } else {
+        arrow::Int32Builder sizes_builder;
+        EXPECT_TRUE(sizes_builder.AppendValues({1, 0}).ok());
+        EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+    }
+
+    arrow::Int32Builder values_builder;
+    EXPECT_TRUE(values_builder.Append(10).ok());
+    std::shared_ptr<arrow::Array> values;
+    EXPECT_TRUE(values_builder.Finish(&values).ok());
+
+    std::shared_ptr<arrow::Array> array;
+    if (large_offsets) {
+        array = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    } else {
+        array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    }
+    auto schema = arrow::schema({arrow::field("c_array", array->type())});
+    return arrow::RecordBatch::Make(schema, 2, {array});
+}
+
+std::shared_ptr<arrow::RecordBatch> make_float_list_view_batch(bool large_offsets) {
+    std::shared_ptr<arrow::Array> offsets;
+    std::shared_ptr<arrow::Array> sizes;
+    if (large_offsets) {
+        arrow::Int64Builder offsets_builder;
+        EXPECT_TRUE(offsets_builder.Append(0).ok());
+        EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+        arrow::Int64Builder sizes_builder;
+        EXPECT_TRUE(sizes_builder.Append(1).ok());
+        EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+    } else {
+        arrow::Int32Builder offsets_builder;
+        EXPECT_TRUE(offsets_builder.Append(0).ok());
+        EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+        arrow::Int32Builder sizes_builder;
+        EXPECT_TRUE(sizes_builder.Append(1).ok());
+        EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+    }
+
+    arrow::FloatBuilder values_builder;
+    EXPECT_TRUE(values_builder.Append(1.0F).ok());
+    std::shared_ptr<arrow::Array> values;
+    EXPECT_TRUE(values_builder.Finish(&values).ok());
+
+    std::shared_ptr<arrow::Array> array;
+    if (large_offsets) {
+        array = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    } else {
+        array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    }
+    return arrow::RecordBatch::Make(arrow::schema({arrow::field("c_array", array->type())}), 1,
+                                    {array});
+}
+
+std::shared_ptr<arrow::RecordBatch> make_struct_list_view_batch(const Strings& names = {"a", "b"}) {
+    arrow::Int32Builder offsets_builder;
+    EXPECT_TRUE(offsets_builder.Append(0).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+    arrow::Int32Builder sizes_builder;
+    EXPECT_TRUE(sizes_builder.Append(2).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder a_builder;
+    EXPECT_TRUE(a_builder.AppendValues({11, 12}).ok());
+    std::shared_ptr<arrow::Array> a;
+    EXPECT_TRUE(a_builder.Finish(&a).ok());
+    arrow::Int32Builder b_builder;
+    EXPECT_TRUE(b_builder.AppendValues({21, 22}).ok());
+    std::shared_ptr<arrow::Array> b;
+    EXPECT_TRUE(b_builder.Finish(&b).ok());
+    auto values = arrow::StructArray::Make({a, b}, {arrow::field(names[0], arrow::int32()),
+                                                    arrow::field(names[1], arrow::int32())})
+                          .ValueOrDie();
+    auto array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    return arrow::RecordBatch::Make(arrow::schema({arrow::field("c_array", array->type())}), 1,
+                                    {array});
+}
+
+ColumnDefinition projected_array_struct_b() {
+    ColumnDefinition b {.identifier = Field::create_field<TYPE_STRING>("b"),
+                        .name = "b",
+                        .type = nullable_int32_type()};
+    auto struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {b.type}, Strings {"b"}));
+    ColumnDefinition element {.identifier = Field::create_field<TYPE_STRING>("element"),
+                              .name = "element",
+                              .type = struct_type,
+                              .children = {b}};
+    return {.identifier = Field::create_field<TYPE_STRING>("c_array"),
+            .name = "c_array",
+            .type = make_nullable(std::make_shared<DataTypeArray>(struct_type)),
+            .children = {element}};
 }
 
 std::unique_ptr<AdbcFileReader> create_reader(RuntimeProfile* profile, const TFileRangeDesc& range,
@@ -298,6 +468,242 @@ TEST(AdbcReaderTest, NormalizesLargeStringBeforeMaterializing) {
     EXPECT_EQ(rows, 0);
     EXPECT_TRUE(eof);
     ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+TEST(AdbcReaderTest, NormalizesListViewBeforeMaterializing) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = int_array_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_list_view_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), slots,
+            [close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {make_list_view_batch()},
+                        close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(rows, 2);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    ASSERT_EQ(array.get_offsets(), ColumnArray::Offsets64({1, 3}));
+    const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+    const auto& data = assert_cast<const ColumnInt32&>(elements.get_nested_column()).get_data();
+    EXPECT_EQ(data, ColumnInt32::Container({30, 10, 20}));
+
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+void assert_required_array_rejects_null_list_view(bool large_offsets) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = int_array_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile(large_offsets ? "adbc_reader_required_large_list_view_test"
+                                         : "adbc_reader_required_list_view_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), slots,
+            [close_count, large_offsets](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                make_nullable_list_view_batch(large_offsets)},
+                        close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    const auto required_type = remove_nullable(schema[0].type);
+    ASSERT_FALSE(required_type->is_nullable());
+    Block block;
+    block.insert({required_type->create_column(), required_type, schema[0].name});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("c_array"), std::string::npos) << status.to_string();
+    EXPECT_NE(status.to_string().find("non-nullable"), std::string::npos) << status.to_string();
+
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+TEST(AdbcReaderTest, RejectsNullListViewForRequiredArray) {
+    assert_required_array_rejects_null_list_view(false);
+}
+
+TEST(AdbcReaderTest, RejectsNullLargeListViewForRequiredArray) {
+    assert_required_array_rejects_null_list_view(true);
+}
+
+void assert_int_array_rejects_float_list_view(bool large_offsets) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = int_array_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile(large_offsets ? "adbc_reader_large_list_view_schema_drift_test"
+                                         : "adbc_reader_list_view_schema_drift_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), slots,
+            [close_count, large_offsets](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                make_float_list_view_batch(large_offsets)},
+                        close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("c_array"), std::string::npos) << status.to_string();
+    EXPECT_NE(status.to_string().find("float"), std::string::npos) << status.to_string();
+    EXPECT_NE(status.to_string().find("INT"), std::string::npos) << status.to_string();
+
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+TEST(AdbcReaderTest, RejectsFloatListViewForCachedIntArray) {
+    assert_int_array_rejects_float_list_view(false);
+}
+
+TEST(AdbcReaderTest, RejectsFloatLargeListViewForCachedIntArray) {
+    assert_int_array_rejects_float_list_view(true);
+}
+
+TEST(AdbcReaderTest, CreatesMaterializedColumnMapper) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = int_array_slot(&pool, &desc_tbl);
+    RuntimeProfile profile("adbc_reader_materialized_mapper_test");
+    auto reader = create_reader(&profile, fake_adbc_range(), slots, {});
+
+    auto mapper = reader->create_column_mapper({.mode = TableColumnMappingMode::BY_NAME});
+
+    ASSERT_NE(dynamic_cast<MaterializedColumnMapper*>(mapper.get()), nullptr);
+}
+
+TEST(AdbcReaderTest, RejectsReorderedSameTypedStructFields) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = array_struct_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_reordered_struct_test");
+    auto close_count = std::make_shared<int>(0);
+    auto reader =
+            create_reader(&profile, fake_adbc_range(), slots,
+                          [close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                              *out = std::make_unique<BatchAdbcStream>(
+                                      std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                              make_struct_list_view_batch({"b", "a"})},
+                                      close_count);
+                              return Status::OK();
+                          });
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("runtime field 'b'"), std::string::npos)
+            << status.to_string();
+    EXPECT_NE(status.to_string().find("cached field 'a'"), std::string::npos) << status.to_string();
+
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+TEST(AdbcReaderTest, TableReaderProjectsAListViewStructChildByName) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = array_struct_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_nested_projection_test");
+    auto close_count = std::make_shared<int>(0);
+    AdbcReader reader([close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+        *out = std::make_unique<BatchAdbcStream>(
+                std::vector<std::shared_ptr<arrow::RecordBatch>> {make_struct_list_view_batch()},
+                close_count);
+        return Status::OK();
+    });
+    const auto projected = projected_array_struct_b();
+    TFileScanRangeParams scan_params;
+    ASSERT_TRUE(reader.init({.projected_columns = {projected},
+                             .conjuncts = {},
+                             .format = FileFormat::ARROW,
+                             .scan_params = &scan_params,
+                             .io_ctx = std::make_shared<io::IOContext>(),
+                             .runtime_state = &state,
+                             .scanner_profile = &profile,
+                             .file_slot_descs = &slots})
+                        .ok());
+    SplitReadOptions split;
+    split.current_range = fake_adbc_range();
+    split.current_split_format = FileFormat::ARROW;
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+
+    Block block;
+    block.insert({projected.type->create_column(), projected.type, projected.name});
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(block.rows(), 1);
+    const auto& root = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& array = assert_cast<const ColumnArray&>(root.get_nested_column());
+    const auto& element = assert_cast<const ColumnNullable&>(array.get_data());
+    const auto& row = assert_cast<const ColumnStruct&>(element.get_nested_column());
+    const auto& b = assert_cast<const ColumnNullable&>(row.get_column(0));
+    const auto& values = assert_cast<const ColumnInt32&>(b.get_nested_column()).get_data();
+    EXPECT_EQ(values, ColumnInt32::Container({21, 22}));
+
+    ASSERT_TRUE(reader.close().ok());
     EXPECT_EQ(*close_count, 1);
 }
 

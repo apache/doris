@@ -48,7 +48,10 @@ public:
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;

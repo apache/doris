@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_number.h"
 #include "storage/binlog.h"
 #include "storage/iterator/binlog_block_reader_utils.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 
@@ -65,9 +66,6 @@ namespace {
 //   5: __DORIS_BINLOG_OP__  (Int64, one of ROW_BINLOG_APPEND/UPDATE/DELETE)
 constexpr int KEY_IDX = 0;
 constexpr int VAL_IDX = 1;
-constexpr int BEFORE_VAL_IDX = 2;
-constexpr int TSO_IDX = 3;
-constexpr int LSN_IDX = 4;
 constexpr int OP_IDX = 5;
 
 struct Row {
@@ -155,19 +153,41 @@ private:
     std::shared_ptr<Block> _source;
 };
 
+// Read schema mirroring the merged binlog block layout above.
+ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
+                                        "key", "val", binlog::build_before_column_name("val"),
+                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+    std::vector<TabletColumnPtr> cols;
+    auto add_bigint = [&](const std::string& name) {
+        auto col = std::make_shared<TabletColumn>();
+        col->set_name(name);
+        col->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+        cols.push_back(std::move(col));
+    };
+    for (const auto& name : names) {
+        add_bigint(name);
+    }
+    return std::make_shared<ReadSchema>(std::move(cols));
+}
+
+TabletSchemaSPtr make_tablet_schema(const ReadSchemaSPtr& schema) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    for (const auto& column : schema->columns()) {
+        tablet_schema->append_column(*column);
+    }
+    return tablet_schema;
+}
+
 // Wire a BlockReader as if init() had already completed for a row-binlog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator.
 void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size) {
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The fake LevelIterator base ctor dereferences reader->tablet_schema(), so a
-    // schema must exist even though its contents are unused by these code paths.
-    reader._tablet_schema = std::make_shared<TabletSchema>();
-
-    // All 6 columns are "normal" columns and are returned in-place.
-    reader._normal_columns_idx = {KEY_IDX, VAL_IDX, BEFORE_VAL_IDX, TSO_IDX, LSN_IDX, OP_IDX};
-    reader._return_columns_loc = {0, 1, 2, 3, 4, 5};
+    // Must be set before constructing the fake LevelIterator: its base ctor
+    // snapshots reader->_read_schema.
+    reader._read_schema = make_read_schema();
+    reader._tablet_schema = make_tablet_schema(reader._read_schema);
 
     reader._next_row.block = source;
     reader._next_row.row_pos = 0;
@@ -231,6 +251,20 @@ protected:
     void TearDown() override { config::enable_adaptive_batch_size = _saved_adaptive; }
     bool _saved_adaptive = false;
 };
+
+TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaWithoutBeforeUsesCurrentColumn) {
+    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL});
+
+    EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
+    auto read_schema = make_read_schema(
+            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL});
+
+    EXPECT_EQ(-1, read_schema->lsn_ordinal());
+    EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
+}
 
 // ============================================================================
 // _min_delta_next_block branch coverage

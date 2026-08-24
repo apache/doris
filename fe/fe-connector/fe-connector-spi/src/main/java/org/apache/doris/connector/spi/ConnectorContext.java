@@ -45,6 +45,7 @@ public interface ConnectorContext {
      * <p>Known keys include:
      * <ul>
      *   <li>{@code doris_home} — the DORIS_HOME path</li>
+     *   <li>{@code hadoop_config_dir} — the configured Hadoop resource directory</li>
      *   <li>{@code jdbc_drivers_dir} — the configured JDBC drivers directory</li>
      * </ul>
      */

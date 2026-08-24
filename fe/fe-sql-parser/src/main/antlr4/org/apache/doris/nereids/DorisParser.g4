@@ -930,8 +930,7 @@ workloadPolicyActions
     ;
 
 workloadPolicyAction
-    : SET_SESSION_VARIABLE STRING_LITERAL
-    | identifier (STRING_LITERAL)?
+    : identifier (STRING_LITERAL)?
     ;
 
 workloadPolicyConditions
@@ -1189,8 +1188,7 @@ replayCommand
     : PLAN REPLAYER replayType;
 
 replayType
-    : DUMP query
-    | PLAY filePath=STRING_LITERAL;
+    : DUMP query;
 
 mergeType
     : APPEND
@@ -2327,7 +2325,6 @@ nonReserved
     | MICROSECOND
     | SEPARATOR
     | SERIALIZABLE
-    | SET_SESSION_VARIABLE
     | SESSION
     | SESSION_USER
     | SHAPE

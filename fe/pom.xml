@@ -441,6 +441,13 @@ under the License.
     </properties>
     <profiles>
         <profile>
+            <!-- Keep benchmarks out of the default FE reactor and all published runtime jars. -->
+            <id>benchmark</id>
+            <modules>
+                <module>fe-sql-parser-benchmark</module>
+            </modules>
+        </profile>
+        <profile>
             <id>general-env</id>
             <activation>
                 <property>
