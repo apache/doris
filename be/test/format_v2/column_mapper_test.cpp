@@ -4087,7 +4087,7 @@ TEST_F(ColumnMapperCastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionCh
     conjunct->close();
 }
 
-TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
+TEST(ColumnMapperTest, VariantAccessPathProjectsTypedLeafWithResidualAndMetadata) {
     auto table_variant = field_id_col("v", 10, variant_v2());
     table_variant.variant_access_paths = {{"typed_col"}};
 
@@ -4106,13 +4106,25 @@ TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& root = request.non_predicate_columns[0];
     ASSERT_FALSE(root.project_all_children);
-    ASSERT_EQ(root.children.size(), 1);
-    EXPECT_EQ(root.children[0].local_id(), 2);
-    ASSERT_EQ(root.children[0].children.size(), 1);
-    EXPECT_EQ(root.children[0].children[0].local_id(), 0);
-    ASSERT_EQ(root.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(root.children[0].children[0].children[0].local_id(), 1);
-    EXPECT_TRUE(root.children[0].children[0].children[0].project_all_children);
+
+    // The root keeps metadata(0) and typed_value(2). Its own value(1) stays unprojected: it holds
+    // every unshredded field, so reading it would give back all the pruned I/O.
+    ASSERT_EQ(root.children.size(), 2);
+    EXPECT_EQ(root.children[0].local_id(), 0);
+    EXPECT_TRUE(root.children[0].project_all_children);
+    EXPECT_EQ(root.children[1].local_id(), 2);
+
+    ASSERT_EQ(root.children[1].children.size(), 1);
+    const auto& wrapper = root.children[1].children[0];
+    EXPECT_EQ(wrapper.local_id(), 0);
+
+    // The wrapper keeps value(0) beside typed_value(1) so rows stored outside the shredded leaf
+    // can be merged instead of rejecting the batch.
+    ASSERT_EQ(wrapper.children.size(), 2);
+    EXPECT_EQ(wrapper.children[0].local_id(), 0);
+    EXPECT_TRUE(wrapper.children[0].project_all_children);
+    EXPECT_EQ(wrapper.children[1].local_id(), 1);
+    EXPECT_TRUE(wrapper.children[1].project_all_children);
 }
 
 TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection) {
@@ -4204,12 +4216,16 @@ TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {
     ASSERT_EQ(root.children.size(), 1);
     const auto& variant = root.children[0];
     EXPECT_EQ(variant.local_id(), 0);
-    ASSERT_EQ(variant.children.size(), 1);
-    EXPECT_EQ(variant.children[0].local_id(), 2);
-    ASSERT_EQ(variant.children[0].children.size(), 1);
-    EXPECT_EQ(variant.children[0].children[0].local_id(), 0);
-    ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+    // The root dictionary travels with typed_value, and the wrapper keeps its residual beside the
+    // typed leaf so rows stored outside the leaf can be merged.
+    ASSERT_EQ(variant.children.size(), 2);
+    EXPECT_EQ(variant.children[0].local_id(), 0);
+    EXPECT_EQ(variant.children[1].local_id(), 2);
+    ASSERT_EQ(variant.children[1].children.size(), 1);
+    EXPECT_EQ(variant.children[1].children[0].local_id(), 0);
+    ASSERT_EQ(variant.children[1].children[0].children.size(), 2);
+    EXPECT_EQ(variant.children[1].children[0].children[0].local_id(), 0);
+    EXPECT_EQ(variant.children[1].children[0].children[1].local_id(), 1);
 }
 
 TEST(ColumnMapperTest, NestedVariantAllAccessPathKeepsPhysicalTypedLeaf) {
@@ -4243,11 +4259,12 @@ TEST(ColumnMapperTest, NestedVariantAllAccessPathKeepsPhysicalTypedLeaf) {
     ASSERT_EQ(root.children.size(), 1);
     const auto& variant = root.children[0];
     ASSERT_FALSE(variant.project_all_children);
-    ASSERT_EQ(variant.children.size(), 1);
-    EXPECT_EQ(variant.children[0].local_id(), 2);
-    ASSERT_EQ(variant.children[0].children.size(), 1);
-    ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+    ASSERT_EQ(variant.children.size(), 2);
+    EXPECT_EQ(variant.children[0].local_id(), 0);
+    EXPECT_EQ(variant.children[1].local_id(), 2);
+    ASSERT_EQ(variant.children[1].children.size(), 1);
+    ASSERT_EQ(variant.children[1].children[0].children.size(), 2);
+    EXPECT_EQ(variant.children[1].children[0].children[1].local_id(), 1);
 }
 
 TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
@@ -4263,11 +4280,12 @@ TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
     };
     auto assert_variant_leaf = [](const LocalColumnIndex& variant) {
         ASSERT_FALSE(variant.project_all_children);
-        ASSERT_EQ(variant.children.size(), 1);
-        EXPECT_EQ(variant.children[0].local_id(), 2);
-        ASSERT_EQ(variant.children[0].children.size(), 1);
-        ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
-        EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+        ASSERT_EQ(variant.children.size(), 2);
+        EXPECT_EQ(variant.children[0].local_id(), 0);
+        EXPECT_EQ(variant.children[1].local_id(), 2);
+        ASSERT_EQ(variant.children[1].children.size(), 1);
+        ASSERT_EQ(variant.children[1].children[0].children.size(), 2);
+        EXPECT_EQ(variant.children[1].children[0].children[1].local_id(), 1);
     };
 
     {
@@ -4391,19 +4409,22 @@ TEST(ColumnMapperTest, VariantDeepObjectPathProjectsPhysicalTypedLeaf) {
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& root = request.non_predicate_columns[0];
     ASSERT_FALSE(root.project_all_children);
-    ASSERT_EQ(root.children.size(), 1);
-    EXPECT_EQ(root.children[0].local_id(), 2);
-    ASSERT_EQ(root.children[0].children.size(), 1);
-    EXPECT_EQ(root.children[0].children[0].local_id(), 0);
-    ASSERT_EQ(root.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(root.children[0].children[0].children[0].local_id(), 1);
-    const auto& object_typed = root.children[0].children[0].children[0];
+    ASSERT_EQ(root.children.size(), 2);
+    EXPECT_EQ(root.children[0].local_id(), 0);
+    EXPECT_EQ(root.children[1].local_id(), 2);
+    ASSERT_EQ(root.children[1].children.size(), 1);
+    EXPECT_EQ(root.children[1].children[0].local_id(), 0);
+    ASSERT_EQ(root.children[1].children[0].children.size(), 1);
+    EXPECT_EQ(root.children[1].children[0].children[0].local_id(), 1);
+    const auto& object_typed = root.children[1].children[0].children[0];
     ASSERT_EQ(object_typed.children.size(), 2);
     EXPECT_EQ(object_typed.children[0].local_id(), 0);
     EXPECT_EQ(object_typed.children[1].local_id(), 1);
+    // Both leaf wrappers keep their residual beside the typed leaf.
     for (const auto& projected_leaf_wrapper : object_typed.children) {
-        ASSERT_EQ(projected_leaf_wrapper.children.size(), 1);
-        EXPECT_EQ(projected_leaf_wrapper.children[0].local_id(), 1);
+        ASSERT_EQ(projected_leaf_wrapper.children.size(), 2);
+        EXPECT_EQ(projected_leaf_wrapper.children[0].local_id(), 0);
+        EXPECT_EQ(projected_leaf_wrapper.children[1].local_id(), 1);
     }
 }
 
@@ -4446,7 +4467,9 @@ TEST(ColumnMapperTest, VariantDeepLeafProjectionRejectsRepeatedAncestor) {
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
 }
 
-TEST(ColumnMapperTest, VariantLeafProjectionDeclinesAmbiguousPrimitiveIdentity) {
+TEST(ColumnMapperTest, VariantLeafProjectionAcceptsAmbiguousPrimitiveIdentity) {
+    // BYTE_ARRAY carries strings, raw binary and UUID alike. The reader resolves which one a leaf
+    // holds from its ParquetColumnSchema, so the mapper only has to decide which columns to read.
     auto field_wrapper = struct_name_col(
             "binary_col",
             {name_col("value", varbinary(), 0), name_col("typed_value", varbinary(), 1)}, 0);
@@ -4457,6 +4480,31 @@ TEST(ColumnMapperTest, VariantLeafProjectionDeclinesAmbiguousPrimitiveIdentity) 
 
     auto table_variant = field_id_col("v", 10, variant_v2());
     table_variant.variant_access_paths = {{"binary_col"}};
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root = request.non_predicate_columns[0];
+    ASSERT_FALSE(root.project_all_children);
+    ASSERT_EQ(root.children.size(), 2);
+    EXPECT_EQ(root.children[0].local_id(), 0);
+    EXPECT_EQ(root.children[1].local_id(), 2);
+}
+
+TEST(ColumnMapperTest, VariantLeafProjectionDeclinesComplexTypedLeaf) {
+    // A complex shredded value still needs its wrapper shape to be reconstructed, so the whole
+    // Variant stays projected.
+    auto inner_typed = struct_name_col("typed_value", {name_col("x", i64(), 0)}, 1);
+    auto field_wrapper = struct_name_col(
+            "object_col", {name_col("value", varbinary(), 0), std::move(inner_typed)}, 0);
+    auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"object_col"}};
     ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
     FileScanRequest request;
