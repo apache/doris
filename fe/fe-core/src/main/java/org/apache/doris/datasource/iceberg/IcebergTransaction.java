@@ -81,6 +81,7 @@ public class IcebergTransaction implements Transaction {
     private org.apache.iceberg.Transaction transaction;
     private IcebergCommitCoordinator.Guard commitGuard;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
+    private boolean acceptingCommitData = true;
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
     private IcebergInsertCommandContext insertCtx;
@@ -100,8 +101,16 @@ public class IcebergTransaction implements Transaction {
 
     public void updateIcebergCommitData(List<TIcebergCommitData> commitDataList) {
         synchronized (this) {
+            // A report may retain this transaction after the manager removes it; the closing fence
+            // must therefore be checked under the same lock that attaches report ownership.
+            Preconditions.checkState(acceptingCommitData,
+                    "Iceberg transaction is no longer accepting commit data");
             this.commitDataList.addAll(commitDataList);
         }
+    }
+
+    public synchronized void stopAcceptingCommitData() {
+        acceptingCommitData = false;
     }
 
     public void setConflictDetectionFilter(Expression filter) {
@@ -570,6 +579,7 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
+        stopAcceptingCommitData();
         try {
             transaction.commitTransaction();
         } finally {
@@ -579,6 +589,7 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void rollback() {
+        stopAcceptingCommitData();
         try {
             if (isRewriteMode) {
                 // Clear the collected files for rewrite mode

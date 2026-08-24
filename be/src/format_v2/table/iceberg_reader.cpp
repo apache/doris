@@ -460,15 +460,21 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     return Status::OK();
 }
 
-Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column) {
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             bool decode_complex_defaults) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
-        VExprSPtr literal;
-        RETURN_IF_ERROR(build_initial_default_literal(*column, &literal));
-        column->default_expr = VExprContext::create_shared(std::move(literal));
+        DORIS_CHECK(column->type != nullptr);
+        const bool has_complex_type =
+                is_complex_type(remove_nullable(column->type)->get_primitive_type());
+        if (decode_complex_defaults || !has_complex_type) {
+            VExprSPtr literal;
+            RETURN_IF_ERROR(build_initial_default_literal(*column, &literal));
+            column->default_expr = VExprContext::create_shared(std::move(literal));
+        }
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child));
+        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child, decode_complex_defaults));
     }
     return Status::OK();
 }
@@ -517,7 +523,10 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     }
 
     auto& schema_column = *context->schema_column;
-    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&schema_column));
+    // V1 complex defaults use Iceberg's human strings, so only V2 may replace the FE-provided
+    // generic expression by decoding the payload as typed JSON.
+    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(
+            &schema_column, supports_iceberg_scan_semantics_v2(context->scan_params)));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;

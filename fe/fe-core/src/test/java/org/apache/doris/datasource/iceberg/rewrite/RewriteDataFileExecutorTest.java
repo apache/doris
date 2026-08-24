@@ -96,7 +96,9 @@ class RewriteDataFileExecutorTest {
                 () -> new RewriteDataFileExecutor(table, null)
                         .executeGroupsConcurrently(java.util.Collections.emptyList(), 1024));
 
-        Mockito.verify(transactionManager).rollback(7L);
+        InOrder inOrder = Mockito.inOrder(transaction, transactionManager);
+        inOrder.verify(transaction).stopAcceptingCommitData();
+        inOrder.verify(transactionManager).rollback(7L);
         Mockito.verify(transactionManager, Mockito.never()).commit(7L);
     }
 }

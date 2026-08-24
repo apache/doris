@@ -71,6 +71,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -78,6 +79,37 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.StampedLock;
 
 public class IcebergTransactionTest {
+    @Test
+    public void testFinalReportRejectedAfterTimedOutRewriteRollback() throws Exception {
+        IcebergTransaction txn = getTxn();
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("late-rewrite-file.parquet");
+        CountDownLatch transactionFetched = new CountDownLatch(1);
+        CountDownLatch resumeFinalReport = new CountDownLatch(1);
+        AtomicReference<Throwable> reportFailure = new AtomicReference<>();
+        Thread finalReport = new Thread(() -> {
+            IcebergTransaction fetchedTxn = txn;
+            transactionFetched.countDown();
+            try {
+                resumeFinalReport.await();
+                fetchedTxn.updateIcebergCommitData(Collections.singletonList(commitData));
+            } catch (Throwable t) {
+                reportFailure.set(t);
+            }
+        });
+        finalReport.start();
+        Assert.assertTrue(transactionFetched.await(5, TimeUnit.SECONDS));
+
+        txn.stopAcceptingCommitData();
+        txn.rollback();
+        resumeFinalReport.countDown();
+        finalReport.join(TimeUnit.SECONDS.toMillis(5));
+
+        Assert.assertFalse(finalReport.isAlive());
+        Assert.assertTrue(reportFailure.get() instanceof IllegalStateException);
+        Assert.assertTrue(txn.getCommitDataList().isEmpty());
+    }
+
     @Test
     public void testCleanupAndCommitAliasesShareCrossThreadFence() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();

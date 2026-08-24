@@ -66,10 +66,10 @@ public class RewriteDataFileExecutor {
         TransactionManager transactionManager = dorisTable.getCatalog().getTransactionManager();
         long transactionId = transactionManager.begin();
         List<RewriteGroupTask> tasks = Lists.newArrayList();
+        IcebergTransaction transaction = null;
         boolean committed = false;
         try {
-            IcebergTransaction transaction = (IcebergTransaction) transactionManager
-                    .getTransaction(transactionId);
+            transaction = (IcebergTransaction) transactionManager.getTransaction(transactionId);
             MvccSnapshot targetSnapshot = dorisTable.loadSnapshot(Optional.empty(), Optional.empty());
             Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot).getSnapshotCacheValue()
                     .getIcebergTable().orElseThrow(
@@ -125,9 +125,16 @@ public class RewriteDataFileExecutor {
                     rewrittenBytesCount, removedDeleteFilesCount);
         } finally {
             if (!committed) {
-                cancelAndQuiesce(tasks);
-                // No task may update the transaction after rollback releases its rewrite fence.
-                transactionManager.rollback(transactionId);
+                // Fence report attachment before cancellation because a timed-out task may retain
+                // the transaction object after rollback removes it from the manager.
+                if (transaction != null) {
+                    transaction.stopAcceptingCommitData();
+                }
+                try {
+                    cancelAndQuiesce(tasks);
+                } finally {
+                    transactionManager.rollback(transactionId);
+                }
             }
         }
     }

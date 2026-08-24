@@ -112,7 +112,10 @@ TEST_F(FullSorterTest, EosReservationIncludesForcedSortBelowAppendThresholds) {
 
     const auto reservation = sorter->get_reserve_mem_size_components(&_state, true, 0, 0);
 
+    EXPECT_GE(reservation.retained_sorted_destination, buffered_bytes);
     EXPECT_GE(reservation.transient_workspace,
+              buffered_rows * sizeof(IColumn::Permutation::value_type));
+    EXPECT_GE(reservation.retained_sorted_destination + reservation.transient_workspace,
               buffered_bytes + buffered_rows * sizeof(IColumn::Permutation::value_type));
 }
 

@@ -3407,6 +3407,41 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, IcebergV1ComplexDefaultsKeepGenericExpressions) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    std::vector<DataTypePtr> complex_types {
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"}),
+            std::make_shared<DataTypeArray>(int_type),
+            std::make_shared<DataTypeMap>(string_type, int_type)};
+    std::vector<schema::external::TFieldPtr> schema_fields {
+            external_struct_field("struct_default", 10, {external_schema_field("value", 11)}),
+            external_array_field("list_default", 20, external_schema_field("element", 21)),
+            external_map_field("map_default", 30, external_schema_field("key", 31),
+                               external_schema_field("value", 32))};
+    const std::vector<std::string> v1_human_defaults {"{value=7}", "[7]", "{key=7}"};
+
+    iceberg::IcebergTableReader reader;
+    TFileScanSlotInfo slot_info;
+    for (size_t i = 0; i < schema_fields.size(); ++i) {
+        schema_fields[i].field_ptr->__set_initial_default_value(v1_human_defaults[i]);
+        TFileScanRangeParams scan_params;
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+        scan_params.__set_current_schema_id(1);
+        scan_params.__set_history_schema_info({external_schema(1, {schema_fields[i]})});
+
+        auto projected = make_table_column(-1, schema_fields[i].field_ptr->name, complex_types[i]);
+        auto generic_default = VExprContext::create_shared(VLiteral::create_shared(
+                string_type, Field::create_field<TYPE_STRING>(v1_human_defaults[i])));
+        projected.default_expr = generic_default;
+        ProjectedColumnBuildContext context {.scan_params = &scan_params};
+
+        const auto status = reader.annotate_projected_column(slot_info, &context, &projected);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(generic_default.get(), projected.default_expr.get());
+    }
+}
+
 TEST(TableReaderTest, IcebergLegacyPlanKeepsGenericBinaryDefaultExpr) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_table_reader_legacy_binary_default_test";

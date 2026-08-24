@@ -46,7 +46,7 @@ inline size_t iceberg_saturating_multiply(size_t lhs, size_t rhs) {
 inline size_t bounded_iceberg_reserve_size(
         const std::vector<IcebergSorterReserveMemory>& per_partition_reservations,
         size_t incoming_rows = std::numeric_limits<size_t>::max(),
-        size_t incoming_bytes = std::numeric_limits<size_t>::max()) {
+        size_t incoming_bytes = std::numeric_limits<size_t>::max(), bool eos = false) {
     size_t transient_workspace = 0;
     for (const auto& reservation : per_partition_reservations) {
         transient_workspace = std::max(transient_workspace, reservation.transient_workspace);
@@ -60,11 +60,13 @@ inline size_t bounded_iceberg_reserve_size(
         }
     }
     std::sort(sorted_destinations.begin(), sorted_destinations.end(), std::greater<>());
-    // A row can touch only one partition, but each destination survives serial dispatch. At EOS
-    // every nonempty sorter is closed, so a zero-row final item must retain all destinations.
-    const size_t destination_count = incoming_rows == 0
-                                             ? sorted_destinations.size()
-                                             : std::min(incoming_rows, sorted_destinations.size());
+    // A nonempty EOS can retain destinations touched by its rows and then force-sort one untouched
+    // partition during serial close; a zero-row final item still closes every nonempty sorter.
+    const size_t destination_count =
+            incoming_rows == 0
+                    ? sorted_destinations.size()
+                    : std::min(eos ? iceberg_saturating_add(incoming_rows, 1) : incoming_rows,
+                               sorted_destinations.size());
     size_t retained_sorted_destinations = 0;
     for (size_t i = 0; i < destination_count; ++i) {
         retained_sorted_destinations =
@@ -133,9 +135,9 @@ inline size_t bounded_iceberg_reserve_size(
 inline size_t iceberg_reserve_size(
         const std::vector<IcebergSorterReserveMemory>& per_partition_reservations,
         size_t incoming_block_reserve, size_t incoming_rows = std::numeric_limits<size_t>::max(),
-        size_t incoming_bytes = std::numeric_limits<size_t>::max()) {
-    size_t sorter_reserve =
-            bounded_iceberg_reserve_size(per_partition_reservations, incoming_rows, incoming_bytes);
+        size_t incoming_bytes = std::numeric_limits<size_t>::max(), bool eos = false) {
+    size_t sorter_reserve = bounded_iceberg_reserve_size(per_partition_reservations, incoming_rows,
+                                                         incoming_bytes, eos);
     // The incoming block creates cold partition writers before they can appear in the published snapshot.
     return iceberg_saturating_add(sorter_reserve, incoming_block_reserve);
 }
@@ -147,8 +149,9 @@ inline size_t iceberg_spill_merge_fan_in(size_t spill_buffer_bytes, size_t merge
         return 0;
     }
     const size_t reader_bytes = iceberg_saturating_multiply(3, spill_buffer_bytes);
+    const size_t output_bytes = iceberg_saturating_multiply(3, spill_buffer_bytes);
     const size_t available_reader_bytes =
-            merge_limit_bytes > spill_buffer_bytes ? merge_limit_bytes - spill_buffer_bytes : 0;
+            merge_limit_bytes > output_bytes ? merge_limit_bytes - output_bytes : 0;
     return std::max<size_t>(2, reader_bytes == 0 ? 0 : available_reader_bytes / reader_bytes);
 }
 
@@ -158,12 +161,14 @@ inline size_t iceberg_spill_merge_workspace(size_t spill_file_count, size_t spil
         return 0;
     }
     const size_t reader_bytes = iceberg_saturating_multiply(3, spill_buffer_bytes);
+    const size_t output_bytes = iceberg_saturating_multiply(3, spill_buffer_bytes);
     const size_t input_count = std::min(
             spill_file_count, iceberg_spill_merge_fan_in(spill_buffer_bytes, merge_limit_bytes));
     // Each primed reader retains a serialized read buffer, parsed protobuf storage, and one
-    // deserialized cursor block; the merger additionally owns the block being emitted.
+    // deserialized cursor block. The output similarly keeps the merged block, compressed PBlock,
+    // and serialized string alive together until the spill write completes.
     return iceberg_saturating_add(iceberg_saturating_multiply(input_count, reader_bytes),
-                                  spill_buffer_bytes);
+                                  output_bytes);
 }
 
 inline size_t iceberg_final_merge_batch_rows(size_t spill_buffer_rows, size_t runtime_batch_rows) {

@@ -158,7 +158,7 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
                              : iceberg_cold_writer_reserve_size(
                                        *block, state->minimum_operator_memory_required_bytes());
     return iceberg_reserve_size(per_partition_reservations, incoming_reserve, incoming_rows,
-                                incoming_bytes);
+                                incoming_bytes, eos);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {

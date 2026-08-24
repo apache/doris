@@ -63,6 +63,16 @@ TEST(SpillIcebergTableSinkOperatorTest, AccumulatesSortedDestinationsAcrossRollo
     EXPECT_EQ(19 * MB, bounded_iceberg_reserve_size(per_partition_reservations, 0, 0));
 }
 
+TEST(SpillIcebergTableSinkOperatorTest, EosWithRowsReservesTouchedAndForcedCloseDestinations) {
+    constexpr size_t MB = 1024 * 1024;
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations {
+            {.retained_sorted_destination = 3 * MB, .transient_workspace = 7 * MB},
+            {.retained_sorted_destination = 5 * MB, .transient_workspace = 4 * MB},
+            {.retained_sorted_destination = 4 * MB, .transient_workspace = 6 * MB}};
+
+    EXPECT_EQ(16 * MB, bounded_iceberg_reserve_size(per_partition_reservations, 1, 8 * MB, true));
+}
+
 TEST(SpillIcebergTableSinkOperatorTest, BoundsRetainedGrowthByOneInputBlock) {
     constexpr size_t MB = 1024 * 1024;
     std::vector<IcebergSorterReserveMemory> per_partition_reservations(
@@ -153,8 +163,8 @@ TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {
     constexpr size_t MB = 1024 * 1024;
 
     EXPECT_EQ(2, iceberg_spill_merge_fan_in(8 * MB, 64 * MB));
-    EXPECT_EQ(56 * MB, iceberg_spill_merge_workspace(12, 8 * MB, 64 * MB));
-    EXPECT_EQ(56 * MB, iceberg_spill_merge_workspace(3, 8 * MB, 64 * MB));
+    EXPECT_EQ(72 * MB, iceberg_spill_merge_workspace(12, 8 * MB, 64 * MB));
+    EXPECT_EQ(72 * MB, iceberg_spill_merge_workspace(3, 8 * MB, 64 * MB));
 }
 
 TEST(SpillIcebergTableSinkOperatorTest, FinalMergeBatchFitsTheReservedSpillOutputBuffer) {

@@ -164,7 +164,9 @@ Status JniPaimonWriteBackend::close() {
 
 Status JniPaimonWriteBackend::prepare_close_for_commit() {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(_get_jni_env(&env));
+    // Use the shared JNI attachment path so this method follows the branch-wide environment
+    // lifetime invariant instead of relying on a backend helper that does not exist here.
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     if (_jni_writer_obj == nullptr || _prepare_close_for_commit_id == nullptr) {
         return Status::InternalError("Paimon prepared writer close method is unavailable");
     }

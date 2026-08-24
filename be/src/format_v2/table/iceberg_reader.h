@@ -42,7 +42,8 @@ struct FileSystemProperties;
 
 namespace doris::format::iceberg {
 
-Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column);
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             bool decode_complex_defaults = true);
 
 // Iceberg table-level reader.
 // It reuses TableReader for split orchestration, dynamic partition pruning and table-block
