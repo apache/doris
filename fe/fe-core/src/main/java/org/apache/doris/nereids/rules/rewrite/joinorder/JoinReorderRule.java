@@ -31,6 +31,9 @@ import java.util.stream.Stream;
 
 /**JoinReorderRule*/
 public class JoinReorderRule extends DefaultPlanRewriter<Void> {
+    public static final JoinReorderRule INSTANCE = new JoinReorderRule();
+    public static final int MAX_ATOM_NUM_FOR_GREEDY = 16;
+
     public Plan rewrite(Plan plan, Void context) {
         return plan.accept(this, context);
     }
@@ -44,36 +47,50 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
             return DefaultPlanRewriter.visitChildren(this, join, context);
         }
 
-        // The current join is the root of a cluster. collectAtomsAndPredicates flattens the cluster
-        // and recursively processes independent clusters below its boundaries.
+        // The current join is the root of a cluster. Reorder the current cluster and recursively
+        // process independent clusters below its boundaries.
         return reorderCluster(join, context);
     }
 
     private Plan reorderCluster(
             LogicalJoin<? extends Plan, ? extends Plan> root,
             Void context) {
-        JoinCluster cluster = new JoinCluster(root.getOutput());
+        // Keep the current cluster's join order and only reorder independent clusters below its boundaries.
+        Plan fallback = rewriteIndependentClusters(root, context);
 
-        // TODO: Remove the unused context parameter.
-        collectAtomsAndPredicates(root, cluster, context);
-        Plan res = reorder(cluster);
-        return res == null ? root : res;
+        // Extract the current cluster from the fallback, so its atoms contain the rewritten subtrees.
+        JoinCluster cluster = extractJoinCluster(fallback);
+
+        // Use the fallback when the best candidate increases the number of cross joins.
+        Plan reordered = reorder(cluster);
+        return reordered == null ? fallback : reordered;
     }
 
-    private void collectAtomsAndPredicates(
-            Plan plan,
-            JoinCluster cluster,
-            Void context) {
+    private int countCrossJoinsInCluster(Plan plan) {
         if (plan instanceof LogicalJoin
                 && isReorderable((LogicalJoin<?, ?>) plan)) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            int currentCrossJoinCount = join.getJoinType().isCrossJoin() ? 1 : 0;
+            return currentCrossJoinCount
+                    + countCrossJoinsInCluster(join.left())
+                    + countCrossJoinsInCluster(join.right());
+        }
+        if (plan instanceof LogicalProject
+                && isTransparentProject((LogicalProject<?>) plan)) {
+            return countCrossJoinsInCluster(plan.child(0));
+        }
+        return 0;
+    }
 
-            cluster.addPredicates(join.getHashJoinConjuncts());
-            cluster.addPredicates(join.getOtherJoinConjuncts());
-
-            collectAtomsAndPredicates(join.left(), cluster, context);
-            collectAtomsAndPredicates(join.right(), cluster, context);
-            return;
+    private Plan rewriteIndependentClusters(Plan plan, Void context) {
+        if (plan instanceof LogicalJoin
+                && isReorderable((LogicalJoin<?, ?>) plan)) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            Plan left = rewriteIndependentClusters(join.left(), context);
+            Plan right = rewriteIndependentClusters(join.right(), context);
+            return left == join.left() && right == join.right()
+                    ? join
+                    : join.withChildren(left, right);
         }
         if (plan instanceof LogicalProject
                 && isTransparentProject((LogicalProject<?>) plan)) {
@@ -84,16 +101,39 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
              * from upper joins do not need to be rewritten and flattening can continue through it.
              * The project at the cluster root restores column pruning and the original output order.
              */
-            collectAtomsAndPredicates(project.child(), cluster, context);
-            return;
+            Plan child = rewriteIndependentClusters(project.child(), context);
+            return child == project.child() ? project : project.withChildren(child);
         }
 
-        /*
-         * The plan is a boundary of the current join cluster.
-         * A boundary may contain independent join clusters, so rewrite it before adding it as an atom.
-         */
-        Plan rewrittenAtom = plan.accept(this, context);
-        cluster.addInput(rewrittenAtom);
+        // The plan is a boundary of the current cluster and may contain independent clusters.
+        return plan.accept(this, context);
+    }
+
+    private JoinCluster extractJoinCluster(Plan root) {
+        JoinCluster cluster = new JoinCluster(root.getOutput());
+        collectAtomsAndPredicates(root, cluster);
+        return cluster;
+    }
+
+    private void collectAtomsAndPredicates(Plan plan, JoinCluster cluster) {
+        if (plan instanceof LogicalJoin
+                && isReorderable((LogicalJoin<?, ?>) plan)) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            cluster.addPredicates(join.getHashJoinConjuncts());
+            cluster.addPredicates(join.getOtherJoinConjuncts());
+            if (join.getJoinType().isCrossJoin()) {
+                cluster.crossJoinCount++;
+            }
+            collectAtomsAndPredicates(join.left(), cluster);
+            collectAtomsAndPredicates(join.right(), cluster);
+            return;
+        }
+        if (plan instanceof LogicalProject
+                && isTransparentProject((LogicalProject<?>) plan)) {
+            collectAtomsAndPredicates(plan.child(0), cluster);
+            return;
+        }
+        cluster.addInput(plan);
     }
 
     private boolean isTransparentProject(LogicalProject<?> project) {
@@ -101,25 +141,29 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
     }
 
     private Plan reorder(JoinCluster joinCluster) {
+        if (joinCluster.inputs.size() > MAX_ATOM_NUM_FOR_GREEDY) {
+            return null;
+        }
         JoinReorderGreedy reorderGreedy = new JoinReorderGreedy();
         reorderGreedy.reorder(joinCluster.inputs, joinCluster.predicates);
         List<Plan> plans = reorderGreedy.getResult();
         if (plans.isEmpty()) {
             return null;
-        } else {
-            Plan afterReorder = plans.get(0);
-            if (joinCluster.originalOutput.equals(afterReorder.getOutput())) {
-                return afterReorder;
-            } else {
-                return new LogicalProject<>((List) joinCluster.originalOutput, afterReorder);
-            }
         }
+        Plan bestPlan = plans.get(0);
+        Plan candidate = joinCluster.originalOutput.equals(bestPlan.getOutput())
+                ? bestPlan
+                : new LogicalProject<>((List) joinCluster.originalOutput, bestPlan);
+        return countCrossJoinsInCluster(candidate) <= joinCluster.crossJoinCount
+                ? candidate
+                : null;
     }
 
     private static class JoinCluster {
         private final List<Plan> inputs = Lists.newArrayList();
         private final List<Expression> predicates = Lists.newArrayList();
         private final List<Slot> originalOutput;
+        private int crossJoinCount;
 
         JoinCluster(List<Slot> originalOutput) {
             this.originalOutput = originalOutput;
