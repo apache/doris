@@ -1476,6 +1476,10 @@ void scan_tmp_rowset(
 
 void set_tablet_last_active_cluster(TabletStatsPB* stats, const std::string& cluster_id,
                                     int64_t last_active_time_ms) {
+    if (stats->has_last_active_time_ms() &&
+        last_active_time_ms < stats->last_active_time_ms()) {
+        return;
+    }
     stats->set_last_active_cluster_id(cluster_id);
     stats->set_last_active_time_ms(last_active_time_ms);
     stats->clear_last_active_cluster_status();
@@ -2283,14 +2287,14 @@ void MetaServiceImpl::commit_txn_immediately(
 
             // Update last active cluster if load has data
             if (!requester_cluster_id.empty() && stats.num_segs > 0) {
-                int64_t last_active_time_ms = ::time(nullptr) * 1000;
-                update_tablet_last_active_cluster(info, requester_cluster_id, last_active_time_ms,
-                                                  txn, code, msg);
+                update_tablet_last_active_cluster(info, requester_cluster_id,
+                                                  version_update_time_ms, txn, code, msg);
                 if (code != MetaServiceCode::OK) return;
                 if (is_versioned_write) {
                     set_tablet_last_active_cluster(&versioned_stats, requester_cluster_id,
-                                                   last_active_time_ms);
+                                                   version_update_time_ms);
                 }
+                response->add_last_active_tablet_ids(tablet_id);
             }
 
             if (is_versioned_write) {
@@ -3509,14 +3513,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
             // Update last active cluster if load has data
             if (!requester_cluster_id_ev.empty() && stats.num_segs > 0) {
-                int64_t last_active_time_ms = ::time(nullptr) * 1000;
                 update_tablet_last_active_cluster(info, requester_cluster_id_ev,
-                                                  last_active_time_ms, txn, code, msg);
+                                                  version_update_time_ms, txn, code, msg);
                 if (code != MetaServiceCode::OK) return;
                 if (is_versioned_write) {
                     set_tablet_last_active_cluster(&versioned_stats, requester_cluster_id_ev,
-                                                   last_active_time_ms);
+                                                   version_update_time_ms);
                 }
+                response->add_last_active_tablet_ids(tablet_id);
             }
 
             if (is_versioned_write) {

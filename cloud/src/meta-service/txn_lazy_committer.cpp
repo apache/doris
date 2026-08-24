@@ -213,7 +213,8 @@ void convert_tmp_rowsets(
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         std::map<int64_t, TabletIndexPB>& tablet_ids, bool is_versioned_write,
         bool is_versioned_read, Versionstamp versionstamp, ResourceManager* resource_mgr,
-        bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso) {
+        bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso,
+        const std::string& load_cluster_id, int64_t last_active_time_ms) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -467,9 +468,18 @@ void convert_tmp_rowsets(
         update_tablet_stats(info, stats, txn, code, msg);
         if (code != MetaServiceCode::OK) return;
 
+        if (!load_cluster_id.empty() && stats.num_segs > 0) {
+            update_tablet_last_active_cluster(info, load_cluster_id, last_active_time_ms, txn, code,
+                                              msg);
+            if (code != MetaServiceCode::OK) return;
+        }
+
         if (is_versioned_write) {
             TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
             merge_tablet_stats(stats_pb, stats);
+            if (!load_cluster_id.empty() && stats.num_segs > 0) {
+                set_tablet_last_active_cluster(&stats_pb, load_cluster_id, last_active_time_ms);
+            }
             std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
 
             // put with specified versionstamp
@@ -738,7 +748,8 @@ void TxnLazyCommitTask::commit() {
                         return commit_partition(
                                 db_id, partition_id, partition_to_tmp_rowset_metas.at(partition_id),
                                 is_versioned_read, is_versioned_write,
-                                defer_deleting_pending_delete_bitmaps, txn_info.commit_tso());
+                                defer_deleting_pending_delete_bitmaps, txn_info.commit_tso(),
+                                txn_info.load_cluster_id());
                     });
                 }
                 bool finished = false;
@@ -760,7 +771,8 @@ void TxnLazyCommitTask::commit() {
                     std::tie(code_, msg_) = commit_partition(
                             db_id, partition_id, partition_to_tmp_rowset_metas[partition_id],
                             is_versioned_read, is_versioned_write,
-                            defer_deleting_pending_delete_bitmaps, txn_info.commit_tso());
+                            defer_deleting_pending_delete_bitmaps, txn_info.commit_tso(),
+                            txn_info.load_cluster_id());
                     if (code_ != MetaServiceCode::OK) break;
                 }
             }
@@ -780,7 +792,7 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
         int64_t db_id, int64_t partition_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
         bool is_versioned_read, bool is_versioned_write, bool defer_deleting_pending_delete_bitmaps,
-        int64_t commit_tso) {
+        int64_t commit_tso, const std::string& load_cluster_id) {
     std::stringstream ss;
     CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
                                  txn_lazy_committer_->resource_manager().get());
@@ -854,7 +866,8 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
                             sub_partition_tmp_rowset_metas, tablet_ids, is_versioned_write,
                             is_versioned_read, versionstamp,
                             txn_lazy_committer_->resource_manager().get(),
-                            defer_deleting_pending_delete_bitmaps, commit_tso);
+                            defer_deleting_pending_delete_bitmaps, commit_tso, load_cluster_id,
+                            original_partition_version.update_time_ms());
         if (code != MetaServiceCode::OK) {
             return {code, msg};
         }

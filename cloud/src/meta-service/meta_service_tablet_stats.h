@@ -20,6 +20,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-store/clone_chain_reader.h"
+#include "meta-store/keys.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -49,6 +50,15 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
 
 // Copy compaction read-write separation metadata between tablet stats.
 void copy_last_active_cluster_info(const TabletStatsPB& source, TabletStatsPB& target);
+
+void set_tablet_last_active_cluster(TabletStatsPB* stats, const std::string& cluster_id,
+                                    int64_t last_active_time_ms);
+
+void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
+                                       const std::string& cluster_id,
+                                       int64_t last_active_time_ms,
+                                       std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                                       std::string& msg);
 
 // Detach tablet stats from `stats` to `detached_stats`.
 void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats);

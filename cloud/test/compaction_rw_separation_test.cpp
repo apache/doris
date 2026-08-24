@@ -154,6 +154,8 @@ TEST(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
 
         meta_service.commit_txn(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.last_active_tablet_ids_size(), 1);
+        EXPECT_EQ(res.last_active_tablet_ids(0), tablet_id);
     }
 
     // Get rowset and check last_active_cluster_id

@@ -802,6 +802,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
     txn_info_pb.set_label("test_label_commit_txn_eventually2");
     txn_info_pb.add_table_ids(table_id);
     txn_info_pb.set_timeout_ms(36000);
+    txn_info_pb.set_load_cluster_id("cluster_2");
     req.mutable_txn_info()->CopyFrom(txn_info_pb);
     BeginTxnResponse res;
     meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
@@ -815,11 +816,30 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+        if (i == 0) {
+            tmp_rowset.set_num_segments(1);
+        }
         CreateRowsetResponse res;
         prepare_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string stats_key;
+        stats_tablet_key({"test_instance", table_id, index_id, partition_id, tablet_id_base},
+                         &stats_key);
+        std::string stats_val;
+        ASSERT_EQ(txn->get(stats_key, &stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats_pb;
+        ASSERT_TRUE(stats_pb.ParseFromString(stats_val));
+        stats_pb.set_last_active_cluster_id("cluster_1");
+        stats_pb.set_last_active_time_ms(1);
+        txn->put(stats_key, stats_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
     {
@@ -849,6 +869,16 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
+
+        std::string stats_key;
+        stats_tablet_key({mock_instance, table_id, index_id, partition_id, tablet_id_base},
+                         &stats_key);
+        std::string stats_val;
+        ASSERT_EQ(txn->get(stats_key, &stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats_pb;
+        ASSERT_TRUE(stats_pb.ParseFromString(stats_val));
+        EXPECT_EQ(stats_pb.last_active_cluster_id(), "cluster_2");
+        EXPECT_GT(stats_pb.last_active_time_ms(), 1);
     }
 }
 
@@ -912,6 +942,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         txn_info_pb.set_label("test_label_commit_txn_eventually2");
         txn_info_pb.add_table_ids(table_id);
         txn_info_pb.set_timeout_ms(36000);
+        txn_info_pb.set_load_cluster_id("cluster_2");
         req.mutable_txn_info()->CopyFrom(txn_info_pb);
         BeginTxnResponse res;
         meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
@@ -926,6 +957,9 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+        if (i == 0) {
+            tmp_rowset.set_num_segments(1);
+        }
         CreateRowsetResponse res;
         prepare_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -971,6 +1005,16 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             Versionstamp versionstamp;
             ASSERT_EQ(versioned::document_get(txn.get(), rowset_key, &rowset_val, &versionstamp),
                       TxnErrorCode::TXN_OK);
+
+            if (i == 0) {
+                std::string stats_key =
+                        versioned::tablet_load_stats_key({mock_instance, tablet_id});
+                TabletStatsPB stats_pb;
+                ASSERT_EQ(versioned::document_get(txn.get(), stats_key, &stats_pb, &versionstamp),
+                          TxnErrorCode::TXN_OK);
+                EXPECT_EQ(stats_pb.last_active_cluster_id(), "cluster_2");
+                EXPECT_GT(stats_pb.last_active_time_ms(), 0);
+            }
         }
     }
 

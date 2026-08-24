@@ -1115,6 +1115,8 @@ message CommitTxnResponse {
     // The lazy commit has only completed its first phase. FE must not notify BE to make
     // temporary rowsets visible until BE observes the final metadata from meta-service.
     optional bool is_lazy_commit_incomplete = 9;
+    // Tablets whose last active cluster was updated by this commit.
+    repeated int64 last_active_tablet_ids = 10;
 }
 
 message AbortTxnRequest {
