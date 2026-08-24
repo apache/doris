@@ -60,11 +60,6 @@ public:
         return {};
     }
 
-    ObjStorageResponse head_bucket(const std::string&) override {
-        ++calls;
-        return ObjStorageResponse::OK();
-    }
-
     ObjStorageResponse get_object(const ObjStoragePath&, void*, size_t, size_t,
                                   size_t* size_return) override {
         ++calls;
@@ -177,7 +172,6 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
     EXPECT_TRUE(client->get_lifecycle("bucket", &expiration_days).ok());
     EXPECT_TRUE(client->check_versioning("bucket").ok());
     EXPECT_TRUE(client->abort_multipart_upload(opts, "upload-id").ok());
-    EXPECT_TRUE(client->head_bucket("bucket").ok());
     EXPECT_EQ(client->generate_presigned_url(opts, 60), "url");
     EXPECT_EQ(client->capabilities().max_delete_batch, 17);
     EXPECT_EQ(client->capabilities().max_list_page, 23);
@@ -187,7 +181,7 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
             {S3RateLimitType::PUT, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 10},
             {S3RateLimitType::GET, 0}, {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 0},
             {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0},
-            {S3RateLimitType::PUT, 0}, {S3RateLimitType::GET, 0},
+            {S3RateLimitType::PUT, 0},
     };
     ASSERT_EQ(policy->requests.size(), expected.size());
     for (size_t i = 0; i < expected.size(); ++i) {
@@ -196,7 +190,7 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
                 << "request index " << i;
     }
     EXPECT_EQ(policy->settled_bytes, std::vector<size_t>({4}));
-    EXPECT_EQ(inner_client->calls, 14);
+    EXPECT_EQ(inner_client->calls, 13);
     EXPECT_EQ(inner_client->presigned_url_calls, 1);
 }
 
@@ -224,10 +218,9 @@ TEST(RateLimitedObjStorageClientTest, RejectsEveryOperationBeforeDispatchingToIn
     expect_rejected(client->get_lifecycle("bucket", &expiration_days));
     expect_rejected(client->check_versioning("bucket"));
     expect_rejected(client->abort_multipart_upload(opts, "upload-id"));
-    expect_rejected(client->head_bucket("bucket"));
 
     EXPECT_EQ(inner_client->calls, 0);
-    EXPECT_EQ(policy->requests.size(), 14);
+    EXPECT_EQ(policy->requests.size(), 13);
     EXPECT_TRUE(policy->settled_bytes.empty());
 }
 

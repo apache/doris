@@ -18,7 +18,6 @@
 #include "s3_express_obj_storage_client.h"
 
 #include <aws/s3/model/ChecksumAlgorithm.h>
-#include <aws/s3/model/HeadBucketRequest.h>
 
 #include <algorithm>
 #include <string>
@@ -64,22 +63,6 @@ ObjStorageListPageResult S3ExpressObjStorageClient::list_objects_page(
         return !object.key.starts_with(logical_prefix);
     });
     return page;
-}
-
-ObjStorageResponse S3ExpressObjStorageClient::head_bucket(const std::string& bucket) {
-    Aws::S3::Model::HeadBucketRequest request;
-    request.SetBucket(bucket);
-    auto outcome = standard_auth_client_->HeadBucket(request);
-    if (outcome.IsSuccess()) {
-        return ObjStorageResponse::OK();
-    }
-    record_object_request_failed(static_cast<int>(outcome.GetError().GetResponseCode()));
-    return {
-            .status = s3fs_error(outcome.GetError(),
-                                 fmt::format("failed to head bucket: {}", bucket)),
-            .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
-            .request_id = outcome.GetError().GetRequestId(),
-    };
 }
 
 std::string S3ExpressObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,

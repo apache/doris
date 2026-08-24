@@ -71,14 +71,6 @@ ObjStorageHeadResult RateLimitedObjStorageClient::head_object(const ObjStoragePa
     return inner_->head_object(opts);
 }
 
-ObjStorageResponse RateLimitedObjStorageClient::head_bucket(const std::string& bucket) {
-    auto rate_limit = acquire(S3RateLimitType::GET);
-    if (!rate_limit.resp.ok()) {
-        return rate_limit.resp;
-    }
-    return inner_->head_bucket(bucket);
-}
-
 ObjStorageResponse RateLimitedObjStorageClient::get_object(const ObjStoragePath& opts, void* buffer,
                                                            size_t offset, size_t bytes_read,
                                                            size_t* size_return) {

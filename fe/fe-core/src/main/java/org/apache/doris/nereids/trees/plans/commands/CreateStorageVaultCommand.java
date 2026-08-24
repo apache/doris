@@ -135,6 +135,9 @@ public class CreateStorageVaultCommand extends Command implements ForwardWithSyn
                     .orElse(null);
             provider = provider == null ? null : provider.trim();
             boolean isS3Express = "S3EXPRESS".equalsIgnoreCase(provider);
+            // Endpoint inference is accepted only for backward-compatible import/resource
+            // configurations. Storage Vault metadata must use the new explicit S3EXPRESS
+            // provider, so detect the legacy form here only to reject it with a clear error.
             if (!isS3Express && StorageAdapter.matchesProviderGuess("S3EXPRESS", properties)) {
                 throw new AnalysisException(
                         "S3 Express storage vault requires provider=S3EXPRESS");

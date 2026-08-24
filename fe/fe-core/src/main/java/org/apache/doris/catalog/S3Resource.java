@@ -289,6 +289,9 @@ public class S3Resource extends Resource {
     }
 
     static String getPingListPrefix(String testObj, Map<String, String> properties) {
+        // matchesProviderGuess also recognizes the historical provider=S3 plus S3 Express
+        // endpoint form. Keep its slash-terminated LIST behavior for backward compatibility;
+        // new S3 Express configurations should use provider=S3EXPRESS explicitly.
         if (!StorageAdapter.matchesProviderGuess("S3EXPRESS", properties)) {
             return testObj;
         }

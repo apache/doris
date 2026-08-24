@@ -32,7 +32,6 @@ public:
     ObjStorageResponse get_lifecycle(const std::string& bucket,
                                      int64_t* expiration_days) override;
     ObjStorageResponse check_versioning(const std::string& bucket) override;
-    ObjStorageResponse head_bucket(const std::string& bucket) override;
     std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override;
     ObjStorageResponse complete_multipart_upload(

@@ -75,6 +75,10 @@ public class ObjectInfoAdapter {
                 return StorageAdapter.ofProvider("OSS", buildS3CompatibleProps(obj));
             case S3: {
                 Map<String, String> properties = buildS3CompatibleProps(obj);
+                // Backward compatibility for metadata persisted before the S3EXPRESS provider
+                // existed: provider=S3 plus an AWS S3 Express endpoint must still use the
+                // directory-bucket implementation. New configurations should persist
+                // provider=S3EXPRESS and take the explicit case below.
                 String provider = StorageAdapter.matchesProviderGuess("S3EXPRESS", properties)
                         ? "S3EXPRESS" : "S3";
                 return StorageAdapter.ofProvider(provider, properties);

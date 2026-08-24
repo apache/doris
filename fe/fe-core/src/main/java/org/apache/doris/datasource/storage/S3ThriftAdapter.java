@@ -73,8 +73,9 @@ public final class S3ThriftAdapter {
 
     /**
      * Builds the wire value from raw user properties while taking the provider from the
-     * already-bound adapter. This preserves S3 Express configurations whose raw
-     * provider remains S3 but whose effective provider is S3EXPRESS.
+     * already-bound adapter. This preserves historical S3 Express configurations whose raw
+     * provider remains S3 but whose effective provider is S3EXPRESS. New configurations should
+     * use provider=S3EXPRESS explicitly.
      */
     public static TS3StorageParam getS3TStorageParam(StorageAdapter adapter) {
         return getS3TStorageParam(adapter.getOrigProps(),

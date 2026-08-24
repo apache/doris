@@ -335,6 +335,9 @@ public class StorageVaultMgr {
                 if (objectInfo.getProvider() == Cloud.ObjectStoreInfoPB.Provider.S3EXPRESS) {
                     return true;
                 }
+                // Compatibility for historical or migrated metadata that still records
+                // provider=S3 with an S3 Express endpoint. New S3 Express Storage Vaults must
+                // persist provider=S3EXPRESS explicitly.
                 return objectInfo.getProvider() == Cloud.ObjectStoreInfoPB.Provider.S3
                         && StorageAdapter.matchesProviderGuess("S3EXPRESS", Collections.singletonMap(
                                 S3ResourceCompat.ENDPOINT, objectInfo.getEndpoint()));

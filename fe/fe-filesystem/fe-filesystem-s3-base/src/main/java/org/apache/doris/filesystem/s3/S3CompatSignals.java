@@ -139,7 +139,14 @@ public final class S3CompatSignals {
         return "true".equalsIgnoreCase(properties.getOrDefault(key, "false"));
     }
 
-    /** True when the properties should use the S3 Express implementation. */
+    /**
+     * True when the properties should use the S3 Express implementation.
+     *
+     * <p>The explicit {@code provider=S3EXPRESS} form is the recommended path for new
+     * configurations. Inferring S3 Express from {@code provider=S3} (or no provider) plus an AWS
+     * S3 Express endpoint is retained only for backward compatibility with existing import and
+     * resource properties.
+     */
     public static boolean isS3Express(Map<String, String> properties) {
         String provider = normalizedProvider(properties);
         if (S3_EXPRESS_PROVIDER.equals(provider)) {
