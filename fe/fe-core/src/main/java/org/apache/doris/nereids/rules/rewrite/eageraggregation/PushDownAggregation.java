@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -92,6 +93,9 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!plan.anyMatch(node -> node instanceof Aggregate<?>)) {
+            return plan;
+        }
         if (SessionVariable.isFeDebug()) {
             try {
                 new AdjustNullable(false).rewriteRoot(plan, null);
