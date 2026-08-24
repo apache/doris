@@ -126,9 +126,11 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 || connectContext.getSessionVariable().disableJoinReorderBeforeEagerAgg) {
             return plan;
         }
-        plan = JoinReorderRule.INSTANCE.rewrite(plan, null);
-        plan = new ColumnPruning().rewriteRoot(plan, jobContext);
-        return plan;
+        Plan reorderedPlan = JoinReorderRule.INSTANCE.rewrite(plan, null);
+        if (reorderedPlan == plan) {
+            return plan;
+        }
+        return new ColumnPruning().rewriteRoot(reorderedPlan, jobContext);
     }
 
     @Override
