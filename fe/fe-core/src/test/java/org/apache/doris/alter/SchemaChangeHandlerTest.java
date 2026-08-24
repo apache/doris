@@ -945,44 +945,22 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        // process agg add inverted index schema change
+        // INVERTED index is not supported on AGG_KEYS tables (even on key columns),
+        // so adding one must be rejected and no schema change job should be created.
         String addInvertedIndexStmtStr =
                 "alter table test.sc_agg add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
-        alterTable(addInvertedIndexStmtStr, connectContext);
-        jobSize++;
-        // check alter job
+        Exception e = Assertions.assertThrows(Exception.class,
+                () -> alterTable(addInvertedIndexStmtStr, connectContext));
+        Assertions.assertTrue(e.getMessage().contains("INVERTED index is not supported on AGG_KEYS table"),
+                "unexpected message: " + e.getMessage());
+
+        // no alter job created, no index added
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
-        LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
-        waitAlterJobDone(alterJobs);
-
-        tbl.readLock();
-        try {
-            Assertions.assertEquals(1, tbl.getIndexes().size());
-            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
-            Assertions.assertEquals(baseIndexName, tbl.getName());
-            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
-            Assertions.assertNotNull(indexMeta);
-        } finally {
-            tbl.readUnlock();
-        }
-
-        // process agg drop inverted index schema change
-        String dropInvertedIndexStmtStr = "alter table test.sc_agg drop index idx_city";
-        alterTable(dropInvertedIndexStmtStr, connectContext);
-        jobSize++;
-        // check alter job
-        LOG.info("alterJobs:{}", alterJobs);
-        Assertions.assertEquals(jobSize, alterJobs.size());
-        waitAlterJobDone(alterJobs);
 
         tbl.readLock();
         try {
             Assertions.assertEquals(0, tbl.getIndexes().size());
-            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
-            Assertions.assertEquals(baseIndexName, tbl.getName());
-            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
-            Assertions.assertNotNull(indexMeta);
         } finally {
             tbl.readUnlock();
         }
