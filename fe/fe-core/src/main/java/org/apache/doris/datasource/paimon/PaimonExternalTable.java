@@ -140,11 +140,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
      *
      * <p>A statement MVCC snapshot belongs to a read relation. In a time-travel self-insert the
      * same Doris table identity can therefore have a historical source snapshot registered in
-     * StatementContext. Write planning must never reuse that snapshot: the writer, target schema
-     * and partition metadata must all come from the latest remote table handle.
+     * StatementContext. Write planning must never reuse that snapshot. The base table cache is the
+     * current write target; REFRESH and cache expiry reload it through {@code PaimonTableLoader},
+     * which also invalidates Paimon's catalog-level table cache.
      */
     public Table getPaimonTableForWrite() {
-        return ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping());
+        return getBasePaimonTable();
     }
 
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,

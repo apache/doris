@@ -152,6 +152,35 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
            !is_transactional_hive;
 }
 
+bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& query_options,
+                                                       bool is_load,
+                                                       const TFileScanRangeParams& scan_params,
+                                                       const TFileRangeDesc& range) {
+    if (!_should_use_file_scanner_v2(query_options, is_load, scan_params)) {
+        return false;
+    }
+    const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
+    if (format == TFileFormatType::FORMAT_PARQUET || format == TFileFormatType::FORMAT_ORC) {
+        // Keep scanner creation aligned with the downstream refinement guard. Otherwise an
+        // Iceberg delete split creates idle scanners even though it can never publish children.
+        return FileScannerV2::can_refine_source_split(range);
+    }
+    if (format != TFileFormatType::FORMAT_JNI || !range.__isset.table_format_params ||
+        range.table_format_params.table_format_type != "paimon" ||
+        !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& paimon = range.table_format_params.paimon_params;
+    return paimon.__isset.file_format &&
+           (paimon.file_format == "parquet" || paimon.file_format == "orc") &&
+           !paimon.__isset.paimon_split;
+}
+
+int FileScanLocalState::_adjust_scanner_count(int requested, int initial_ranges,
+                                              bool can_generate_physical_splits) {
+    return can_generate_physical_splits ? requested : std::min(requested, initial_ranges);
+}
+
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
@@ -258,9 +287,37 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (_split_source == nullptr) {
             _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges, _max_scanners);
         }
-        // currently the total number of splits in the bach split mode cannot be accurately obtained,
-        // so we don't do it in the batch split mode.
-        _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
+        // One FE columnar split can publish many format-local children after metadata planning.
+        // Keep the requested scanner concurrency so those children do not run serially.
+        bool can_generate_physical_splits = false;
+        const TFileScanRangeParams* common_params = nullptr;
+        if (state->get_query_ctx() != nullptr &&
+            state->get_query_ctx()->file_scan_range_params_map.contains(parent_id())) {
+            common_params = &state->get_query_ctx()->file_scan_range_params_map[parent_id()];
+        }
+        for (const auto& scan_range_params : scan_ranges) {
+            const auto& file_scan_range =
+                    scan_range_params.scan_range.ext_scan_range.file_scan_range;
+            const auto* params =
+                    file_scan_range.__isset.params ? &file_scan_range.params : common_params;
+            if (params == nullptr) {
+                continue;
+            }
+            const bool is_load =
+                    state->desc_tbl().get_tuple_descriptor(params->src_tuple_id) != nullptr;
+            can_generate_physical_splits =
+                    std::ranges::any_of(file_scan_range.ranges, [&](const auto& range) {
+                        return _can_generate_physical_splits(state->query_options(), is_load,
+                                                             *params, range);
+                    });
+            if (can_generate_physical_splits) {
+                break;
+            }
+        }
+        // Currently the total number of remote splits cannot be accurately obtained, so batch
+        // mode already skips this cap.
+        _max_scanners = _adjust_scanner_count(_max_scanners, _split_source->num_scan_ranges(),
+                                              can_generate_physical_splits);
     }
 
     if (!scan_ranges.empty() &&

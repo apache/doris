@@ -226,7 +226,7 @@ under the License.
         <module>fe-authentication</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.2</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.17.0</parquet.version>
@@ -1368,6 +1368,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-arrow</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
                 <artifactId>paimon-s3</artifactId>
                 <version>${paimon.version}</version>
             </dependency>
@@ -1692,6 +1697,11 @@ under the License.
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-c-data</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.lance</groupId>
                 <artifactId>lance-core</artifactId>
                 <version>${lance.version}</version>
@@ -1734,6 +1744,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-unsafe</artifactId>
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>

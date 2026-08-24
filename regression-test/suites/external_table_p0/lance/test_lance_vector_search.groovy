@@ -57,8 +57,9 @@ suite("test_lance_vector_search", "p0,external") {
      *
      * An outer WHERE is deliberately different from the TVF filter property: it is evaluated by
      * Doris after Lance returns Top-K and can therefore reduce the final result below top_k.
-     * The current implementation pins one Lance dataset version and searches its entire snapshot
-     * with one scanner. Multi-scanner search plus global Top-K merging remains future work.
+     * The current implementation pins one Lance dataset version, uses physical index segments as
+     * indexed-search splits, retains uncovered fragments as flat-search splits, and lets Doris
+     * merge the split-local candidates with a global Top-N.
      *
      * Fixture: doris.vs_ivf_pq_f32 is generated offline by
      * docker/thirdparties/docker-compose/iceberg/scripts/lance_build_preinstalled_catalog.py.
@@ -70,8 +71,10 @@ suite("test_lance_vector_search", "p0,external") {
      * IVF_PQ is lossy: raw PQ distances are approximations, so every indexed query here uses
      * refine_factor to rerank candidates with exact distances. The agreement between indexed and
      * flat results below is an observed property of this frozen fixture and the pinned Lance
-     * version, not an IVF_PQ algorithm guarantee. The remaining algorithms (IVF_FLAT, IVF_SQ,
-     * IVF_HNSW_*) and the other vector element types are follow-up work for #66495.
+     * version, not an IVF_PQ algorithm guarantee. IVF_FLAT is covered by
+     * test_lance_vector_search_ivf_flat and the remaining algorithms by
+     * test_lance_vector_search_index_types; the other vector element types and distance metrics
+     * are follow-up work for #66495.
      */
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -94,6 +97,7 @@ suite("test_lance_vector_search", "p0,external") {
     String indexedTopFive = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="5", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String flatTopFive = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="5", "metric"="l2", "use_index"="false")"""
     String indexedTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
+    String flatTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "use_index"="false")"""
     String indexedOffset = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "offset"="1", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String indexedPrefilter = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="3", "filter"="category = 'odd'", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String indexedTail = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${tailQuery}", "top_k"="3", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
@@ -131,7 +135,11 @@ suite("test_lance_vector_search", "p0,external") {
             contains "lanceTopK=5"
             contains "lanceOffset=0"
             contains "lanceMetric=l2"
-            contains "lanceSearchScanners=1"
+            contains "lanceVersion="
+            contains "lanceSearchFragments=2"
+            contains "lanceSearchUnindexedFragments=0"
+            contains "lanceSearchIndexSegments=1"
+            contains "lanceSearchIndexFragments=2"
             // The raw query vector must not be echoed into the plan output.
             notContains "[0,1,2,3"
         }
@@ -175,11 +183,35 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
-        // An outer WHERE remains a Doris post-search predicate. Search first selects row_id 1
-        // and 2; filtering for odd retains only row_id 2.
-        qt_post_search_filter """
+        // With use_index=true, one physical index segment covers both fragments and returns the
+        // snapshot's two nearest candidates, rows 1 and 2. The Doris postfilter keeps only row 2;
+        // it does not ask Lance for a replacement candidate.
+        explain {
+            sql """SELECT row_id, category, _distance FROM ${indexedTopTwo}
+                    WHERE category = 'odd' ORDER BY _distance, row_id"""
+            contains "lanceSearchUnindexedFragments=0"
+            contains "lanceSearchIndexSegments=1"
+            contains "lanceSearchIndexFragments=2"
+        }
+        qt_post_search_filter_use_index_true """
             SELECT row_id, category, _distance
             FROM ${indexedTopTwo}
+            WHERE category = 'odd'
+            ORDER BY _distance, row_id
+        """
+
+        // With use_index=false, Doris creates one flat-search split per fragment. The two splits
+        // contribute rows 1..2 and 513..514; postfilter keeps rows 2 and 514 before global TopN.
+        explain {
+            sql """SELECT row_id, category, _distance FROM ${flatTopTwo}
+                    WHERE category = 'odd' ORDER BY _distance, row_id"""
+            contains "lanceSearchUnindexedFragments=2"
+            contains "lanceSearchIndexSegments=0"
+            contains "lanceSearchIndexFragments=0"
+        }
+        qt_post_search_filter_use_index_false """
+            SELECT row_id, category, _distance
+            FROM ${flatTopTwo}
             WHERE category = 'odd'
             ORDER BY _distance, row_id
         """

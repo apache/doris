@@ -1875,27 +1875,15 @@ static const ColumnDefinition* find_file_child_by_name(
     return child_it == children.end() ? nullptr : &*child_it;
 }
 
-static bool variant_leaf_type_preserves_physical_identity(const ColumnDefinition& leaf) {
+static bool variant_leaf_is_projectable_scalar(const ColumnDefinition& leaf) {
     if (!leaf.children.empty() || leaf.type == nullptr) {
         return false;
     }
-    // ColumnDefinition does not transport Parquet's raw-binary/UUID and timestamp-unit tags.
-    // Limit direct leaves to identities fully described by the Doris scalar type; every ambiguous
-    // identity must retain the complete wrapper so reconstruction can inspect its physical schema.
-    switch (remove_nullable(leaf.type)->get_primitive_type()) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_DECIMAL128I:
-    case TYPE_DATEV2:
-        return true;
-    default:
-        return false;
-    }
+    // Physical identity - raw binary versus UTF-8, UUID, timestamp units - is resolved by the
+    // reader from ParquetColumnSchema::type_descriptor, which the projected schema copies verbatim.
+    // The mapper only decides which columns to read, so every scalar leaf is projectable. Complex
+    // leaves keep the complete wrapper because reconstruction still needs their full shape.
+    return !is_complex_type(remove_nullable(leaf.type)->get_primitive_type());
 }
 
 static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
@@ -1919,6 +1907,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
+    // Decoding a residual needs the root key dictionary. The root `value` itself stays unprojected:
+    // it holds every unshredded field, so reading it would give back all the pruned I/O. Shredding
+    // keeps a present typed object's residual keys disjoint from its shredded fields, and a null
+    // typed object means the value is not an object, so the requested path is absent either way.
+    const auto* root_metadata = find_file_child_by_name(mapping.original_file_children, "metadata");
+    if (root_metadata == nullptr) {
+        return false;
+    }
+    root_projection->children.push_back(LocalColumnIndex::local(root_metadata->file_local_id()));
     const auto* root_typed = find_file_child_by_name(mapping.original_file_children, "typed_value");
     if (root_typed == nullptr || root_typed->children.empty() || root_typed->type == nullptr ||
         remove_nullable(root_typed->type)->get_primitive_type() != TYPE_STRUCT) {
@@ -1945,8 +1942,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         if (leaf) {
             // Only primitive typed values can be returned as a direct vector. Complex shredded
             // values still need their wrapper shape and therefore keep the full Variant fallback.
-            if (!variant_leaf_type_preserves_physical_identity(*typed)) {
+            if (!variant_leaf_is_projectable_scalar(*typed)) {
                 return false;
+            }
+            // The residual beside the leaf carries the rows whose value did not match the shredded
+            // type. Reading it lets the reader merge those rows instead of rejecting the batch.
+            if (const auto* residual = find_file_child_by_name(wrapper->children, "value");
+                residual != nullptr) {
+                current_projection->children.push_back(
+                        LocalColumnIndex::local(residual->file_local_id()));
             }
             typed_projection.project_all_children = true;
         } else if (typed->type == nullptr ||
@@ -2359,6 +2363,7 @@ Status TableColumnMapper::create_scan_request(
     }
     file_request->non_predicate_positions.clear();
     file_request->conjuncts.clear();
+    file_request->residual_predicate_columns.clear();
     file_request->metadata_pruning_safe_conjunct_count = 0;
     file_request->constant_pruning_safe_table_filter_count = 0;
     file_request->delete_conjuncts.clear();
@@ -2626,6 +2631,26 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             // A rejected localization must preserve all later filters for post-materialization
             // evaluation, even if a later constant would otherwise prune the complete split.
             in_constant_pruning_safe_prefix = false;
+        }
+    }
+
+    for (size_t table_filter_idx = 0; table_filter_idx < table_filters.size(); ++table_filter_idx) {
+        if (localized_table_filters[table_filter_idx]) {
+            continue;
+        }
+        for (const auto global_index : table_filters[table_filter_idx].global_indices) {
+            const auto* mapping = _find_filter_mapping(global_index);
+            if (mapping == nullptr || !mapping->file_local_id.has_value()) {
+                continue;
+            }
+            const auto local_id = LocalColumnId(*mapping->file_local_id);
+            if (std::ranges::find(file_request->residual_predicate_columns, local_id) ==
+                file_request->residual_predicate_columns.end()) {
+                // Scanner re-evaluates every table predicate after materialization. A predicate
+                // that could not be localized therefore proves its input is semantic data, not a
+                // disposable COUNT(*) carrier.
+                file_request->residual_predicate_columns.push_back(local_id);
+            }
         }
     }
 

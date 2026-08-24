@@ -500,31 +500,33 @@ public:
         if (_segments.empty()) {
             return std::nullopt;
         }
-        std::vector<VariantShreddedTypedValue> matches;
+        std::vector<std::optional<VariantShreddedTypedValue>> matches;
         matches.reserve(_segments.size());
         bool all_direct = true;
         for (const auto& segment : _segments) {
             auto match = segment->find_typed_value(path);
             if (!match.has_value()) {
                 all_direct = false;
-                break;
             }
-            matches.push_back(std::move(*match));
+            // Visit every segment even after one requests normalized fallback. Format states use
+            // find_typed_value() as their validation boundary, so stopping early would let a later
+            // segment publish an unvalidated normalized value and make errors depend on row order.
+            matches.push_back(std::move(match));
         }
 
-        const bool homogeneous = all_direct && matches.front().column && matches.front().type &&
+        const auto& first = matches.front();
+        const bool homogeneous = all_direct && first->column && first->type &&
                                  std::ranges::all_of(matches, [&](const auto& match) {
-                                     return match.column && match.type && !match.normalized &&
-                                            exact_typed_identity(matches.front().type, match.type);
+                                     return match->column && match->type && !match->normalized &&
+                                            exact_typed_identity(first->type, match->type);
                                  });
         if (homogeneous) {
-            MutableColumnPtr combined = matches.front().column->clone_empty();
+            MutableColumnPtr combined = first->column->clone_empty();
             for (const auto& match : matches) {
-                combined->insert_range_from(*match.column, 0, match.column->size());
+                combined->insert_range_from(*match->column, 0, match->column->size());
             }
-            return VariantShreddedTypedValue {.column = std::move(combined),
-                                              .type = matches.front().type,
-                                              .normalized = nullptr};
+            return VariantShreddedTypedValue {
+                    .column = std::move(combined), .type = first->type, .normalized = nullptr};
         }
 
         auto normalized = find_normalized_value(path);

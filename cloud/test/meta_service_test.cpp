@@ -459,6 +459,61 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
     sp->disable_processing();
 }
 
+TEST(MetaServiceTest, CheckInstanceRecycleCompletedWithRetainedKey) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv, nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto resource_mgr = std::make_shared<ResourceManager>(txn_kv);
+    ASSERT_EQ(resource_mgr->init(), 0);
+    auto rate_limiter = std::make_shared<RateLimiter>();
+    auto snapshot_manager = std::make_shared<SnapshotManager>(txn_kv);
+    MetaServiceImpl meta_service(txn_kv, resource_mgr, rate_limiter, snapshot_manager);
+
+    const std::string instance_id = "retained_recycle_instance";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_status(InstanceInfoPB::DELETED);
+    instance.set_recycle_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    bool finished = false;
+    std::string reason;
+    auto [code, msg] = meta_service.check_instance_recycle_completed(instance_id, finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_TRUE(finished);
+    ASSERT_TRUE(reason.empty());
+
+    instance.set_recycle_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    finished = true;
+    reason.clear();
+    std::tie(code, msg) =
+            meta_service.check_instance_recycle_completed(instance_id, finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_FALSE(finished);
+    ASSERT_FALSE(reason.empty());
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(instance_key({instance_id}));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    finished = false;
+    reason.clear();
+    std::tie(code, msg) =
+            meta_service.check_instance_recycle_completed(instance_id, finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_TRUE(finished);
+    ASSERT_NE(reason.find("does not exist"), std::string::npos);
+}
+
 TEST(MetaServiceTest, CreateInstanceTest) {
     auto meta_service = get_meta_service();
 

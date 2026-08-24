@@ -73,6 +73,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                             TUnit::UNIT, parquet_profile, 1);
     variant_leaf_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "VariantLeafProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
+    variant_residual_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantResidualProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
     variant_full_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "VariantFullProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -117,12 +119,26 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantUnshreddedDirectImportRows", TUnit::UNIT, parquet_profile);
     variant_unshredded_direct_import_bytes = add_persistent_counter(
             profile, "VariantUnshreddedDirectImportBytes", TUnit::BYTES, parquet_profile);
+    variant_unshredded_direct_seek_time = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekTime", TUnit::TIME_NS, parquet_profile);
+    variant_unshredded_direct_seek_rows = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekRows", TUnit::UNIT, parquet_profile);
+    variant_unshredded_direct_seek_bytes = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekBytes", TUnit::BYTES, parquet_profile);
+    variant_unshredded_prefix_reuse_rows = add_persistent_counter(
+            profile, "VariantUnshreddedPrefixReuseRows", TUnit::UNIT, parquet_profile);
+    variant_direct_subtree_rows = add_persistent_counter(profile, "VariantDirectSubtreeRows",
+                                                         TUnit::UNIT, parquet_profile);
     variant_direct_leaf_rows =
             add_persistent_counter(profile, "VariantDirectLeafRows", TUnit::UNIT, parquet_profile);
     variant_direct_leaf_path_misses = add_persistent_counter(profile, "VariantDirectLeafPathMisses",
                                                              TUnit::UNIT, parquet_profile);
     variant_direct_leaf_residual_fallbacks = add_persistent_counter(
             profile, "VariantDirectLeafResidualFallbacks", TUnit::UNIT, parquet_profile);
+    variant_direct_leaf_residual_merged_rows = add_persistent_counter(
+            profile, "VariantDirectLeafResidualMergedRows", TUnit::UNIT, parquet_profile);
+    variant_residual_seek_rows = add_persistent_counter(profile, "VariantResidualSeekRows",
+                                                        TUnit::UNIT, parquet_profile);
     variant_direct_leaf_unsupported_fallbacks = add_persistent_counter(
             profile, "VariantDirectLeafUnsupportedFallbacks", TUnit::UNIT, parquet_profile);
     hybrid_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionBatches",
@@ -358,9 +374,16 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .variant_unshredded_direct_import_time = variant_unshredded_direct_import_time,
             .variant_unshredded_direct_import_rows = variant_unshredded_direct_import_rows,
             .variant_unshredded_direct_import_bytes = variant_unshredded_direct_import_bytes,
+            .variant_unshredded_direct_seek_time = variant_unshredded_direct_seek_time,
+            .variant_unshredded_direct_seek_rows = variant_unshredded_direct_seek_rows,
+            .variant_unshredded_direct_seek_bytes = variant_unshredded_direct_seek_bytes,
+            .variant_unshredded_prefix_reuse_rows = variant_unshredded_prefix_reuse_rows,
+            .variant_direct_subtree_rows = variant_direct_subtree_rows,
             .variant_direct_leaf_rows = variant_direct_leaf_rows,
             .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,
             .variant_direct_leaf_residual_fallbacks = variant_direct_leaf_residual_fallbacks,
+            .variant_direct_leaf_residual_merged_rows = variant_direct_leaf_residual_merged_rows,
+            .variant_residual_seek_rows = variant_residual_seek_rows,
             .variant_direct_leaf_unsupported_fallbacks = variant_direct_leaf_unsupported_fallbacks,
             .hybrid_selection_batches = hybrid_selection_batches,
             .hybrid_selection_ranges = hybrid_selection_ranges,

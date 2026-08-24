@@ -79,10 +79,11 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         this.targetTable = targetTable;
         this.icebergTable = targetTable.getIcebergTable();
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
-        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                icebergTable);
+        storagePropertiesMap = IcebergUtils.selectEffectiveStorageProperties(
+                VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        catalog.getCatalogProperty().getMetastoreProperties(),
+                        catalog.getCatalogProperty().getStoragePropertiesMap(),
+                        icebergTable));
     }
 
     public IcebergTableSink(IcebergExternalTable targetTable, Table icebergTable) {
@@ -94,10 +95,11 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         // Keep credentials and every writer option on the metadata generation pinned during analysis.
         this.icebergTable = Objects.requireNonNull(icebergTable, "icebergTable is not null");
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
-        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                icebergTable);
+        storagePropertiesMap = IcebergUtils.selectEffectiveStorageProperties(
+                VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        catalog.getCatalogProperty().getMetastoreProperties(),
+                        catalog.getCatalogProperty().getStoragePropertiesMap(),
+                        icebergTable));
     }
 
     @Override

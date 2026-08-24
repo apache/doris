@@ -569,6 +569,85 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
+    public void testOssTablesRestCatalogUsesSharedS3Credentials() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg");
+        props.put("warehouse", "acs:osstables:cn-hangzhou:1234567890:bucket/my-table-bucket");
+        props.put("iceberg.rest.signing-name", "osstables");
+        props.put("iceberg.rest.signing-region", "cn-hangzhou");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.view-enabled", "false");
+        props.put("io-impl", "org.apache.iceberg.aws.s3.S3FileIO");
+        props.put("oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.region", "cn-hangzhou");
+        props.put("oss.access_key", "oss-access-key");
+        props.put("oss.secret_key", "oss-secret-key");
+        props.put("oss.session_token", "oss-session-token");
+        props.put("oss.use_path_style", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+        Assertions.assertFalse(restProps.isIcebergRestViewEnabled());
+
+        Map<String, String> catalogProps = new HashMap<>(props);
+        catalogProps.putAll(restProps.getIcebergRestCatalogProperties());
+        List<StorageProperties> storageProperties = StorageProperties.createAll(props);
+        restProps.toFileIOProperties(storageProperties, catalogProps, new Configuration());
+
+        Assertions.assertEquals("https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg",
+                catalogProps.get(CatalogProperties.URI));
+        Assertions.assertEquals("acs:osstables:cn-hangzhou:1234567890:bucket/my-table-bucket",
+                catalogProps.get(CatalogProperties.WAREHOUSE_LOCATION));
+        Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO",
+                catalogProps.get(CatalogProperties.FILE_IO_IMPL));
+        Assertions.assertEquals("osstables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("cn-hangzhou", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("true", catalogProps.get("rest.sigv4-enabled"));
+        Assertions.assertEquals("oss-access-key", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("oss-secret-key", catalogProps.get("rest.secret-access-key"));
+        Assertions.assertEquals("oss-session-token", catalogProps.get("rest.session-token"));
+        Assertions.assertTrue(storageProperties.stream().anyMatch(OSSProperties.class::isInstance));
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com",
+                catalogProps.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("cn-hangzhou", catalogProps.get(AwsClientProperties.CLIENT_REGION));
+        Assertions.assertEquals("oss-access-key", catalogProps.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("oss-secret-key", catalogProps.get(S3FileIOProperties.SECRET_ACCESS_KEY));
+        Assertions.assertEquals("oss-session-token", catalogProps.get(S3FileIOProperties.SESSION_TOKEN));
+        Assertions.assertEquals("true", catalogProps.get(S3FileIOProperties.PATH_STYLE_ACCESS));
+    }
+
+    @Test
+    public void testOssTablesSigningNameMissingSigningRegionFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg");
+        props.put("iceberg.rest.signing-name", "osstables");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("s3.access_key", "oss-access-key");
+        props.put("s3.secret_key", "oss-secret-key");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("signing-region") && e.getMessage().contains("osstables"));
+    }
+
+    @Test
+    public void testOssTablesSigningNameWithSigV4DisabledFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg");
+        props.put("iceberg.rest.signing-name", "osstables");
+        props.put("iceberg.rest.signing-region", "cn-hangzhou");
+        props.put("iceberg.rest.sigv4-enabled", "false");
+        props.put("s3.access_key", "oss-access-key");
+        props.put("s3.secret_key", "oss-secret-key");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("sigv4-enabled") && e.getMessage().contains("osstables"));
+    }
+
+    @Test
     public void testAccessKeyAndSecretKeyMustBeSetTogether() {
         Map<String, String> props1 = new HashMap<>();
         props1.put("iceberg.rest.uri", "http://localhost:8080");

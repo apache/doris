@@ -461,10 +461,17 @@ public class HudiUtils {
     }
 
     public static Map<String, String> getPartitionInfoMap(HMSExternalTable table, HivePartition partition) {
+        List<String> partitionColumnNames = table.getPartitionColumns().stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
+        return getPartitionInfoMap(partitionColumnNames, partition);
+    }
+
+    public static Map<String, String> getPartitionInfoMap(
+            List<String> partitionColumnNames, HivePartition partition) {
         Map<String, String> partitionInfoMap = new HashMap<>();
-        List<Column> partitionColumns = table.getPartitionColumns();
-        for (int i = 0; i < partitionColumns.size(); i++) {
-            String partitionName = partitionColumns.get(i).getName();
+        for (int i = 0; i < partitionColumnNames.size(); i++) {
+            String partitionName = partitionColumnNames.get(i);
             String partitionValue = partition.getPartitionValues().get(i);
             partitionInfoMap.put(partitionName, partitionValue);
         }

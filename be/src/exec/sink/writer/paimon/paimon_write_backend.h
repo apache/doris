@@ -47,7 +47,7 @@ public:
     virtual ~IPaimonWriter() = default;
 
     /// Write a projected Block to the Paimon SDK.
-    /// For the JNI path: Block → Arrow IPC → direct buffer → Java.
+    /// For the JNI path: Block → Arrow RecordBatch → Arrow C Data → Java.
     virtual Status write(RuntimeState* state, Block& block) = 0;
 
     /// Flush all buffered data, close files, and collect serialized commit
