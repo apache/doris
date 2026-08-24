@@ -76,57 +76,6 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-// Resolves row-binlog AFTER/BEFORE companions once from the physical tablet schema, then maps
-// their unique ids into the dense ReadSchema ordinals consumed by BlockReader. Physical pairing
-// avoids ambiguous name lookup when a user column resembles a generated BEFORE column.
-void BlockReader::_init_row_binlog_column_ordinals() {
-    const auto num_block_columns = cast_set<ColumnId>(_read_schema->num_block_columns());
-    _row_binlog_before_column_ordinals.resize(num_block_columns);
-    for (ColumnId ordinal = 0; ordinal < num_block_columns; ++ordinal) {
-        _row_binlog_before_column_ordinals[ordinal] = ordinal;
-    }
-
-    _min_delta_value_column_pairs.clear();
-    _min_delta_value_pairs_complete = false;
-    _min_delta_value_compare_unsupported = false;
-    std::vector<binlog::RowBinlogValueColumnPair> physical_pairs;
-    if (!binlog::get_row_binlog_value_column_pairs(*_tablet_schema, &physical_pairs)) {
-        // Retain the current ReadSchema name-based mapping for malformed legacy layouts, but do
-        // not enable no-op suppression because a complete row image cannot be proven.
-        for (ColumnId ordinal = 0; ordinal < num_block_columns; ++ordinal) {
-            _row_binlog_before_column_ordinals[ordinal] =
-                    _read_schema->before_column_ordinal(ordinal);
-        }
-        return;
-    }
-
-    bool complete = true;
-    _min_delta_value_column_pairs.reserve(physical_pairs.size());
-    for (const auto& [after_cid, before_cid] : physical_pairs) {
-        const int32_t after_ordinal =
-                _read_schema->ordinal_by_uid(_tablet_schema->column(after_cid).unique_id());
-        const int32_t before_ordinal =
-                _read_schema->ordinal_by_uid(_tablet_schema->column(before_cid).unique_id());
-        if (after_ordinal < 0 || before_ordinal < 0 ||
-            static_cast<size_t>(after_ordinal) >= _read_schema->num_block_columns() ||
-            static_cast<size_t>(before_ordinal) >= _read_schema->num_block_columns()) {
-            complete = false;
-            continue;
-        }
-
-        const auto after = cast_set<ColumnId>(after_ordinal);
-        const auto before = cast_set<ColumnId>(before_ordinal);
-        _row_binlog_before_column_ordinals[after] = before;
-        if (!_read_schema->data_type(after)->equals(*_read_schema->data_type(before))) {
-            complete = false;
-            continue;
-        }
-        _min_delta_value_column_pairs.emplace_back(after, before);
-    }
-    _min_delta_value_pairs_complete =
-            complete && _min_delta_value_column_pairs.size() == physical_pairs.size();
-}
-
 int64_t BlockReader::_read_binlog_op(const IColumn& col, size_t row) const {
     const IColumn* cur = &col;
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
@@ -167,20 +116,17 @@ Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
 // When use_before is true, return the ordinal of its __BEFORE__ mirror.
 // Binlog meta columns map to themselves.
 uint32_t BlockReader::_resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const {
-    if (!use_before) {
-        return ordinal;
-    }
-    DCHECK_LT(ordinal, _row_binlog_before_column_ordinals.size());
-    return _row_binlog_before_column_ordinals[ordinal];
+    return use_before ? _read_schema->before_column_ordinal(ordinal) : ordinal;
 }
 
 bool BlockReader::_min_delta_values_equal(size_t last_row) {
-    if (!_min_delta_value_pairs_complete || _min_delta_value_column_pairs.empty() ||
+    const auto& value_column_pairs = _read_schema->row_binlog_value_column_pairs();
+    if (!_read_schema->row_binlog_value_pairs_complete() || value_column_pairs.empty() ||
         _min_delta_value_compare_unsupported) {
         return false;
     }
     bool before_image_available = false;
-    for (const auto& [after_idx, before_idx] : _min_delta_value_column_pairs) {
+    for (const auto& [after_idx, before_idx] : value_column_pairs) {
         const auto* before_column = _stored_data_columns[before_idx].get();
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*before_column)) {
             before_image_available |= !nullable->is_null_at(0);
@@ -596,7 +542,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
         read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
-        _init_row_binlog_column_ordinals();
+        auto read_schema = std::make_shared<ReadSchema>(*_read_schema);
+        read_schema->init_row_binlog_column_mappings(*_tablet_schema);
+        _read_schema = std::move(read_schema);
+        _min_delta_value_compare_unsupported = false;
     }
 
     // Every merge and caller Block has the exact read-schema layout. Cache only

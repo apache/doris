@@ -369,9 +369,10 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     for (size_t ordinal = 0; ordinal < source->columns(); ++ordinal) {
         read_types.emplace_back(source->get_by_position(ordinal).type);
     }
-    reader._read_schema =
+    auto read_schema =
             std::make_shared<ReadSchema>(reader._tablet_schema->columns(), std::move(read_types));
-    reader._init_row_binlog_column_ordinals();
+    read_schema->init_row_binlog_column_mappings(*reader._tablet_schema);
+    reader._read_schema = std::move(read_schema);
 
     reader._next_row.block = source;
     reader._next_row.row_pos = 0;
