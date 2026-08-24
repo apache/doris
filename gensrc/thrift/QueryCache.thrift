@@ -77,4 +77,15 @@ struct TQueryCacheParam {
   // cannot be captured (e.g. merged away by compaction), when the delta
   // contains delete predicates, or when the delta rewrites history rows.
   8: optional bool allow_incremental
+
+  // Whether the scanned index is a merge-on-write UNIQUE table. BE needs this
+  // for the cloud write-back gate: enable_prefer_cached_rowset lets the storage
+  // layer read a warmed-up layout that may not match the queried version, so BE
+  // suppresses the cache write-back of such a read. But on cloud that knob is
+  // ignored for a merge-on-write table (CloudTablet::capture_consistent_
+  // versions_unlocked guards it on !enable_unique_key_merge_on_write()), so a
+  // MOW query still reads the exact version and its fill is safe to cache. FE
+  // reports the table type here (on the selected index) so BE can keep the
+  // write-back for a prefer-only MOW query instead of forgoing its cache.
+  9: optional bool is_merge_on_write
 }
