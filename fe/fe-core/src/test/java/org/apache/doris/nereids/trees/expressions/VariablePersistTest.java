@@ -105,6 +105,45 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
     }
 
     /**
+     * A cache-building rewriter (the one MTMVCache.from uses for a nonzero guard mask) must retain a
+     * cache-mismatch marker around an existing non-cache guard: an MTMV over a view carries the view's
+     * query-side guard (cacheGuard=false) in its definition plan, and without re-marking it the guarded
+     * cache for a cross-zone query would have no cache guard, so the isCacheGuard() rejection in
+     * AbstractMaterializedViewRule never fires and a value materialized in the MV's refresh session could
+     * be substituted into a query evaluated in a different zone. The marker must be structurally distinct
+     * from the query-side guard (same shape but cacheGuard=true).
+     */
+    @Test
+    public void testCacheGuardPreservedAroundExistingViewGuard() {
+        Map<String, String> viewVars = ImmutableMap.of("time_zone", "+08:00");
+        Map<String, String> mvVars = ImmutableMap.of("time_zone", "+00:00");
+        // the view expansion already wraps the zone-sensitive expression in a query-side (non-cache) guard
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        Expression dateTruncOnTz = new DateTrunc(tzSlot, new VarcharLiteral("day"));
+        SessionVarGuardExpr viewGuard = new SessionVarGuardExpr(dateTruncOnTz, viewVars);
+        Assertions.assertFalse(viewGuard.isCacheGuard());
+
+        // the query-side rewriter leaves the existing view guard untouched
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter querySideRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(mvVars, viewVars);
+        Expression querySide = viewGuard.accept(querySideRewriter, Boolean.FALSE);
+        Assertions.assertSame(viewGuard, querySide);
+
+        // the cache-building rewriter wraps the existing view guard in a cache-mismatch marker
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter cacheRewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(mvVars,
+                        SessionVarGuardRewriter.GUARD_TIME_ZONE);
+        Expression cacheSide = viewGuard.accept(cacheRewriter, Boolean.FALSE);
+        Assertions.assertTrue(cacheSide instanceof SessionVarGuardExpr);
+        SessionVarGuardExpr cacheGuard = (SessionVarGuardExpr) cacheSide;
+        Assertions.assertTrue(cacheGuard.isCacheGuard());
+        // the marker wraps the existing view guard (keeping its own session vars inside)
+        Assertions.assertEquals(viewGuard, cacheGuard.child());
+        // the cache guard must stay structurally distinct from the query-side guard
+        Assertions.assertNotEquals(querySide, cacheSide);
+    }
+
+    /**
      * The guard family mask computed from the actual session difference: a time-zone-only difference must
      * not activate the "other" family (so integer SUM keeps rewriting across zones) and vice versa.
      */
