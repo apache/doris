@@ -37,7 +37,7 @@ import java.util.Optional;
 /**
  * Command to execute ALTER STORAGE POLICY in the Nereids planner.
  */
-public class AlterStoragePolicyCommand extends AlterCommand {
+public class AlterStoragePolicyCommand extends AlterCommand implements CloudUnsupportedCommand {
     private final String policyName;
     private final Map<String, String> properties;
 
@@ -97,4 +97,3 @@ public class AlterStoragePolicyCommand extends AlterCommand {
         return visitor.visitAlterStoragePolicyCommand(this, context);
     }
 }
-

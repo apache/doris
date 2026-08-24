@@ -270,7 +270,7 @@ public class InternalSchemaInitializer extends Thread {
 
                             ops.add(new ModifyPartitionOp(Lists.newArrayList(tbl.getPartitionNames()), props, false));
                             AlterTableCommand alterTableCommand = new AlterTableCommand(tableNameInfo, ops);
-                            alterTableCommand.run(ConnectContext.get(), null);
+                            alterTableCommand.execute(ConnectContext.get(), null);
                         }
                     } finally {
                         tbl.writeUnlock();
