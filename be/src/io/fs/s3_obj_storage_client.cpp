@@ -282,7 +282,7 @@ ObjectStorageResponse S3ObjStorageClient::abort_multipart_upload(
     }
     Aws::S3::Model::AbortMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
-    auto outcome = s3_put_rate_limit([&]() { return _client->AbortMultipartUpload(request); });
+    auto outcome = _client->AbortMultipartUpload(request);
     if (!outcome.IsSuccess()) {
         record_s3_request_failed(outcome.GetError());
         return {convert_to_obj_response(

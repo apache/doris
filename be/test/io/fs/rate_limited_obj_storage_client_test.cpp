@@ -62,6 +62,10 @@ public:
         ++calls;
         return ObjectStorageResponse::OK();
     }
+    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& opts) override {
+        ++calls;
+        return ObjectStorageResponse::OK();
+    }
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
         ++calls;
         return {};
@@ -135,6 +139,7 @@ TEST(RateLimitedObjStorageClientTest, forwards_all_calls_when_disabled) {
     EXPECT_EQ(0, client.put_object(opts, "data").status.code);
     EXPECT_EQ(0, client.upload_part(opts, "data", 1).resp.status.code);
     EXPECT_EQ(0, client.complete_multipart_upload(opts, {}).status.code);
+    EXPECT_EQ(0, client.abort_multipart_upload(opts).status.code);
     EXPECT_EQ(0, client.head_object(opts).resp.status.code);
     EXPECT_EQ(0, client.get_object(opts, nullptr, 0, 4, &size_return).status.code);
     std::vector<FileInfo> files;
@@ -143,7 +148,7 @@ TEST(RateLimitedObjStorageClientTest, forwards_all_calls_when_disabled) {
     EXPECT_EQ(0, client.delete_object(opts).status.code);
     EXPECT_EQ(0, client.delete_objects_recursively(opts).status.code);
     EXPECT_EQ("presigned", client.generate_presigned_url(opts, 60, S3ClientConf {}));
-    EXPECT_EQ(11, fake->calls);
+    EXPECT_EQ(12, fake->calls);
 }
 
 TEST(RateLimitedObjStorageClientTest, get_rejected_by_count_limit_does_not_reach_inner) {
@@ -348,7 +353,7 @@ TEST(RateLimitedObjStorageClientTest, multipart_control_apis_map_to_put_qps_with
     auto& manager = S3RateLimiterManager::instance();
     auto* put_bytes = manager.bytes_limiter(S3RateLimitType::PUT);
     manager.qps_limiter(S3RateLimitType::PUT)
-            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 2);
+            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 3);
     put_bytes->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1);
 
     auto fake = std::make_shared<FakeObjStorageClient>();
@@ -357,12 +362,13 @@ TEST(RateLimitedObjStorageClientTest, multipart_control_apis_map_to_put_qps_with
 
     EXPECT_EQ(0, client.create_multipart_upload(opts).resp.status.code);
     EXPECT_EQ(0, client.complete_multipart_upload(opts, {}).status.code);
+    EXPECT_EQ(0, client.abort_multipart_upload(opts).status.code);
 
     auto rejected = client.create_multipart_upload(opts);
     EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.resp.status.code);
     EXPECT_EQ(0, rejected.resp.http_code);
     EXPECT_NE(std::string::npos, rejected.resp.status.msg.find("exceeds QPS limit"));
-    EXPECT_EQ(2, fake->calls);
+    EXPECT_EQ(3, fake->calls);
 
     EXPECT_EQ(0, put_bytes->add(1));
     EXPECT_EQ(-1, put_bytes->add(1));
