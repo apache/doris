@@ -47,6 +47,7 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -183,6 +184,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
         threadPoolWithPreAuth = null;
         IcebergMetadataOps retiredIcebergMetadataOps = icebergMetadataOps;
+        Catalog retiredIcebergCatalog = retiredIcebergMetadataOps == null
+                ? null : retiredIcebergMetadataOps.getCatalog();
         icebergMetadataOps = null;
         super.onClose();
         if (null != fileSystemExecutor) {
@@ -195,6 +198,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         icebergResourceTracker.retireCurrent(() -> {
             if (retiredIcebergMetadataOps != null) {
                 retiredIcebergMetadataOps.close();
+            }
+            if (retiredIcebergCatalog instanceof AutoCloseable) {
+                try {
+                    ((AutoCloseable) retiredIcebergCatalog).close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close HMS Iceberg catalog: {}", getName(), e);
+                }
             }
             if (retiredExecutor != null) {
                 ThreadPoolManager.shutdownExecutorService(retiredExecutor);
