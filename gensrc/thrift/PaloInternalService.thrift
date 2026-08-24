@@ -518,6 +518,9 @@ struct TQueryOptions {
   230: optional bool supports_external_file_report_ack = false;
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   231: optional bool enable_hyperscan_fallback = true;
+  // Pre-filter column predicates into the ANN candidate bitmap (IDSelector) instead of falling
+  // back to a brute-force distance scan when an ANN TopN query carries a column predicate.
+  232: optional bool enable_ann_topn_predicate_prefilter = false
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

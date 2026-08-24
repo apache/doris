@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public class SqlCacheTest extends TestWithFeService {
     @Test
@@ -60,6 +61,37 @@ public class SqlCacheTest extends TestWithFeService {
         );
         PUniqueId key3 = cacheContext3.doComputeCacheKeyMd5(ImmutableSet.of(), sessionVariable);
         Assertions.assertNotEquals(key1, key3);
+    }
+
+    @Test
+    public void testCacheKeyIncludesAnnTopnOptions() {
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.enableAnnTopnPredicatePrefilter = false);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.hnswEFSearch = 64);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.hnswCheckRelativeDistance = false);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.hnswBoundedQueue = false);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.ivfNprobe = 64);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.annIndexCandidateRowsThreshold = 1);
+        assertCacheKeyChanges(
+                sessionVariable -> sessionVariable.annIndexCandidateRowsPercentThreshold = 0.2);
+    }
+
+    private void assertCacheKeyChanges(Consumer<SessionVariable> change) {
+        UserIdentity admin = new UserIdentity("admin", "127.0.0.1");
+
+        SessionVariable defaultSessionVariable = new SessionVariable();
+        SqlCacheContext enabledContext = new SqlCacheContext(admin);
+        enabledContext.setOriginSql("SELECT * FROM tbl");
+        PUniqueId defaultKey = enabledContext.doComputeCacheKeyMd5(
+                ImmutableSet.of(), defaultSessionVariable);
+
+        SessionVariable changedSessionVariable = new SessionVariable();
+        change.accept(changedSessionVariable);
+        SqlCacheContext disabledContext = new SqlCacheContext(admin);
+        disabledContext.setOriginSql("SELECT * FROM tbl");
+        PUniqueId changedKey = disabledContext.doComputeCacheKeyMd5(
+                ImmutableSet.of(), changedSessionVariable);
+
+        Assertions.assertNotEquals(defaultKey, changedKey);
     }
 
     @Test
