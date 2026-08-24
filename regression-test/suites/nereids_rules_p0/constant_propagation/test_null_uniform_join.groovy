@@ -37,9 +37,9 @@ suite("test_null_uniform_join") {
     sql "INSERT INTO test_null_uniform_join_left VALUES (1), (2)"
     sql "INSERT INTO test_null_uniform_join_right VALUES (3), (4)"
 
-    qt_null_padded_equality """
+    qt_null_padded_equality_plan """
         EXPLAIN SHAPE PLAN
-        SELECT COUNT(*)
+        SELECT left_input.preserved_id, right_input.preserved_id
         FROM (
             SELECT l.id AS preserved_id, r.id AS padded_id
             FROM test_null_uniform_join_left l
@@ -52,4 +52,19 @@ suite("test_null_uniform_join") {
         ) right_input
         ON left_input.padded_id = right_input.padded_id
     """
+
+    qt_cast_null_equality_plan """
+        EXPLAIN SHAPE PLAN
+        SELECT left_input.id, right_input.id
+        FROM (
+            SELECT id, CAST(NULL AS INT) AS null_key
+            FROM test_null_uniform_join_left
+        ) left_input
+        INNER JOIN (
+            SELECT id, CAST(NULL AS INT) AS null_key
+            FROM test_null_uniform_join_right
+        ) right_input
+        ON left_input.null_key = right_input.null_key
+    """
+
 }

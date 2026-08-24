@@ -63,21 +63,20 @@ public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
                         && ((EqualTo) expr).right() instanceof SlotReference) {
                     EqualTo equal = (EqualTo) JoinUtils.swapEqualToForChildrenOrder((EqualTo) expr,
                             join.left().getOutputSet());
+                    Slot leftSlot = (Slot) equal.left();
+                    Slot rightSlot = (Slot) equal.right();
                     Optional<Expression> leftValue = join.left().getLogicalProperties()
-                            .getTrait().getUniformValue((Slot) equal.left());
+                            .getTrait().getUniformValue(leftSlot);
 
                     Optional<Expression> rightValue = join.right().getLogicalProperties()
-                            .getTrait().getUniformValue((Slot) equal.right());
-                    if (leftValue != null && rightValue != null) {
-                        if (leftValue.isPresent() && rightValue.isPresent()) {
-                            // Ordinary equality does not match NULL to NULL even when the typed literals are equal.
-                            if (!leftValue.get().isNullLiteral()
-                                    && !rightValue.get().isNullLiteral()
-                                    && leftValue.get().equals(rightValue.get())) {
-                                eliminate = true;
-                                changed = true;
-                            }
-                        }
+                            .getTrait().getUniformValue(rightSlot);
+                    if (leftValue.isPresent() && rightValue.isPresent()
+                            && join.left().getLogicalProperties().getTrait().isUniformAndNotNull(leftSlot)
+                            && join.right().getLogicalProperties().getTrait().isUniformAndNotNull(rightSlot)
+                            && leftValue.get().equals(rightValue.get())) {
+                        // Ordinary equality can be removed only when both uniform values cannot be NULL.
+                        eliminate = true;
+                        changed = true;
                     }
                 }
                 if (!eliminate) {

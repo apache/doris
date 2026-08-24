@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -77,6 +80,17 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void eliminateCrossJoinWithFalseCondition() {
+        LogicalPlan join = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.CROSS_JOIN, ImmutableList.of(), ImmutableList.of(BooleanLiteral.FALSE))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new EliminateJoinCondition())
+                .matches(logicalEmptyRelation());
+    }
+
+    @Test
     void eliminateLeftOuterJoinWithNullCondition() {
         LogicalPlan join = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(),
@@ -108,14 +122,33 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
         Assertions.assertEquals(originalOutput, project.getOutput());
         for (int i = 0; i < originalOutput.size(); i++) {
             NamedExpression projectExpression = project.getProjects().get(i);
+            assertSlotMetadata(originalOutput.get(i), project.getOutput().get(i));
             if (preservedOutput.contains(originalOutput.get(i))) {
                 Assertions.assertEquals(originalOutput.get(i), projectExpression);
             } else {
                 Assertions.assertInstanceOf(Alias.class, projectExpression);
                 Assertions.assertInstanceOf(NullLiteral.class, projectExpression.child(0));
-                Assertions.assertEquals(originalOutput.get(i).getQualifier(), projectExpression.getQualifier());
+                Assertions.assertEquals(originalOutput.get(i).getDataType(), projectExpression.child(0).getDataType());
             }
         }
+    }
+
+    private void assertSlotMetadata(Slot expected, Slot actual) {
+        Assertions.assertEquals(expected.getExprId(), actual.getExprId());
+        Assertions.assertEquals(expected.getName(), actual.getName());
+        Assertions.assertEquals(expected.getQualifier(), actual.getQualifier());
+        Assertions.assertEquals(expected.getDataType(), actual.getDataType());
+        Assertions.assertEquals(expected.nullable(), actual.nullable());
+        Assertions.assertEquals(expected.getIndexInSqlString(), actual.getIndexInSqlString());
+        Assertions.assertInstanceOf(SlotReference.class, expected);
+        Assertions.assertInstanceOf(SlotReference.class, actual);
+        SlotReference expectedReference = (SlotReference) expected;
+        SlotReference actualReference = (SlotReference) actual;
+        Assertions.assertEquals(expectedReference.getOriginalTable(), actualReference.getOriginalTable());
+        Assertions.assertEquals(expectedReference.getOriginalColumn(), actualReference.getOriginalColumn());
+        Assertions.assertEquals(expectedReference.getOneLevelTable(), actualReference.getOneLevelTable());
+        Assertions.assertEquals(expectedReference.getOneLevelColumn(), actualReference.getOneLevelColumn());
+        Assertions.assertEquals(expectedReference.getSubPath(), actualReference.getSubPath());
     }
 
     @Test
@@ -158,6 +191,28 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
 
         Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), innerJoin)
                 .applyBottomUp(new EliminateJoinCondition())
+                .applyTopDown(new EliminateConstHashJoinCondition())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, rewritten);
+        Assertions.assertEquals(1, ((LogicalJoin<?, ?>) rewritten).getHashJoinConjuncts().size());
+    }
+
+    @Test
+    void keepEqualToBetweenNullableUniformExpressions() {
+        Alias leftNull = new Alias(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE), "null_key");
+        Alias rightNull = new Alias(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE), "null_key");
+        LogicalPlan leftProject = new LogicalPlanBuilder(scan1)
+                .projectExprs(ImmutableList.of(leftNull))
+                .build();
+        LogicalPlan rightProject = new LogicalPlanBuilder(scan2)
+                .projectExprs(ImmutableList.of(rightNull))
+                .build();
+        LogicalPlan innerJoin = new LogicalPlanBuilder(leftProject)
+                .join(rightProject, JoinType.INNER_JOIN,
+                        ImmutableList.of(new EqualTo(leftNull.toSlot(), rightNull.toSlot())), ImmutableList.of())
+                .build();
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), innerJoin)
                 .applyTopDown(new EliminateConstHashJoinCondition())
                 .getPlan();
         Assertions.assertInstanceOf(LogicalJoin.class, rewritten);

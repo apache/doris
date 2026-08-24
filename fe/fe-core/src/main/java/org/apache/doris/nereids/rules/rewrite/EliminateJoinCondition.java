@@ -98,8 +98,7 @@ public class EliminateJoinCondition extends OneRewriteRuleFactory {
             if (preservedOutput.contains(output)) {
                 projects.add(output);
             } else {
-                projects.add(new Alias(output.getExprId(), ImmutableList.of(new NullLiteral(output.getDataType())),
-                        output.getName(), output.getQualifier(), false));
+                projects.add(new Alias(new NullLiteral(output.getDataType()), output));
             }
         }
         return new LogicalProject<>(projects.build(), preservedChild);
