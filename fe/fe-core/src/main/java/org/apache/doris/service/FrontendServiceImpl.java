@@ -5626,15 +5626,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TShowProcessListResult showProcessList(TShowProcessListRequest request) {
+    public TShowProcessListResult showProcessList(TShowProcessListRequest request) throws TException {
+        if (!request.isSetCurrentUserIdent()) {
+            throw new TException("Current user identity is not set");
+        }
         boolean isShowFullSql = false;
         if (request.isSetShowFullSql()) {
             isShowFullSql = request.isShowFullSql();
         }
-        UserIdentity userIdentity = UserIdentity.ROOT;
-        if (request.isSetCurrentUserIdent()) {
-            userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-        }
+        UserIdentity userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
         String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
         if (request.isSetTimeZone()) {
             timeZone = request.getTimeZone();
