@@ -25,6 +25,7 @@ import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -88,5 +89,14 @@ public class InternalSchemaAlterTest extends TestWithFeService {
         for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
             Assertions.assertNotNull(table.getColumn(def.getName()));
         }
+    }
+
+    @Test
+    public void testCheckPartitionStatisticsTable() throws AnalysisException {
+        Database db = Env.getCurrentEnv().getCatalogMgr()
+                .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
+        Assertions.assertNotNull(db);
+        OlapTable table = db.getOlapTableOrAnalysisException(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        Assertions.assertEquals(PrimitiveType.HLL, table.getColumn("ndv").getType().getPrimitiveType());
     }
 }

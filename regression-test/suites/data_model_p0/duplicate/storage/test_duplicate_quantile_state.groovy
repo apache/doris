@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_duplicate_table_quantile_state") {
+    withGlobalLock("allow_non_aggregate_table_state_types") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     sql "sync;"
 
@@ -63,5 +65,7 @@ suite("test_duplicate_table_quantile_state") {
         sql """ CREATE TABLE IF NOT EXISTS ${tbName} (k QUANTILE_STATE, v int) DUPLICATE KEY(k)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1"); """
         exception "Key column can not set complex type:k"
+    }
+    }
     }
 }
