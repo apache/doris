@@ -28,10 +28,9 @@ namespace doris {
 class SpillIcebergTableSinkLocalState;
 class SpillIcebergTableSinkOperatorX;
 
-class SpillIcebergTableSinkLocalState final
-        : public AsyncWriterSink<VIcebergTableWriter, SpillIcebergTableSinkOperatorX> {
+class SpillIcebergTableSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
 public:
-    using Base = AsyncWriterSink<VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
+    using Base = PipelineXSinkLocalState<FakeSharedState>;
     using Parent = SpillIcebergTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(SpillIcebergTableSinkLocalState);
 
@@ -40,6 +39,7 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     bool is_blockable() const override;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
@@ -49,6 +49,9 @@ public:
 private:
     void _init_spill_counters();
     friend class SpillIcebergTableSinkOperatorX;
+
+    VExprContextSPtrs _output_vexpr_ctxs;
+    std::unique_ptr<VIcebergTableWriter> _writer;
 };
 
 class SpillIcebergTableSinkOperatorX final
@@ -78,9 +81,6 @@ public:
 
 private:
     friend class SpillIcebergTableSinkLocalState;
-    template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
-    friend class AsyncWriterSink;
 
     const RowDescriptor& _row_desc;
     VExprContextSPtrs _output_vexpr_ctxs;

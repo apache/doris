@@ -36,9 +36,10 @@ Status SpillIcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkState
     SCOPED_TIMER(_init_timer);
 
     _init_spill_counters();
+    _writer = std::make_unique<VIcebergTableWriter>(info.tsink, _output_vexpr_ctxs);
 
-    auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._row_desc));
+    auto& parent = _parent->cast<Parent>();
+    RETURN_IF_ERROR(_writer->init_properties(parent._pool, parent._row_desc));
     return Status::OK();
 }
 
@@ -46,7 +47,36 @@ Status SpillIcebergTableSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    return Status::OK();
+
+    auto& parent = _parent->cast<Parent>();
+    _output_vexpr_ctxs.resize(parent._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); ++i) {
+        RETURN_IF_ERROR(parent._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+    return _writer->open(state, operator_profile());
+}
+
+Status SpillIcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+
+    DCHECK(_writer);
+    Status final_status = exec_status;
+    Status writer_status = _writer->close(exec_status);
+    if (final_status.ok() && !writer_status.ok()) {
+        final_status = writer_status;
+    }
+    _writer.reset();
+
+    Status base_status = Base::close(state, final_status);
+    if (final_status.ok() && !base_status.ok()) {
+        final_status = base_status;
+    }
+    return final_status;
 }
 
 bool SpillIcebergTableSinkLocalState::is_blockable() const {
@@ -120,11 +150,16 @@ Status SpillIcebergTableSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
+Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block,
+                                                 bool /*eos*/) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    return local_state.sink(state, in_block, eos);
+    if (in_block->rows() == 0) {
+        return Status::OK();
+    }
+    DCHECK(local_state._writer);
+    return local_state._writer->write(state, *in_block);
 }
 
 size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {

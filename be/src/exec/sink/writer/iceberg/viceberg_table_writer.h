@@ -20,9 +20,9 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include "common/atomic_shared_ptr.h"
+#include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
-#include "exec/sink/writer/async_result_writer.h"
 #include "exec/sink/writer/iceberg/partition_data.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exprs/vexpr_fwd.h"
@@ -44,10 +44,9 @@ class IPartitionWriterBase;
 class VIcebergSortWriter;
 struct ColumnWithTypeAndName;
 
-class VIcebergTableWriter final : public AsyncResultWriter {
+class VIcebergTableWriter final {
 public:
-    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                        std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
+    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     ~VIcebergTableWriter() = default;
 
@@ -56,13 +55,13 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state, RuntimeProfile* profile) override;
+    Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(RuntimeState* state, Block& block) override;
+    Status write(RuntimeState* state, Block& block);
 
     Status write_prepared_block(Block& block);
 
-    Status close(Status) override;
+    Status close(Status);
 
     void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
 
@@ -75,16 +74,16 @@ public:
     // Getter for the current partition writer.
     // Used by SpillIcebergTableSinkLocalState to access the current writer for
     // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
-    // Returns a snapshot by value: the async writer thread updates _current_writer
-    // concurrently with the spill/revoke path, so callers must hold their own copy
-    // while operating on it instead of dereferencing the underlying member directly.
+    // Returns a snapshot by value. The spill/revoke path may inspect the current writer
+    // independently of the pipeline task, so callers must hold their own copy while operating
+    // on it instead of dereferencing the underlying member directly.
     std::shared_ptr<IPartitionWriterBase> current_writer() const { return _current_writer.load(); }
 
 private:
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
-    // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size run on
-    // a different thread than the async writer that assigns to it.
+    // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size may run
+    // independently of the pipeline task that assigns to it.
     doris::atomic_shared_ptr<IPartitionWriterBase> _current_writer;
     class IcebergPartitionColumn {
     public:
@@ -148,8 +147,10 @@ private:
     void _cleanup_closed_files();
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
+    const VExprContextSPtrs& _vec_output_expr_ctxs;
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
+    RuntimeProfile* _operator_profile = nullptr;
 
     // Target file size in bytes for controlling when to split files
     int64_t _target_file_size_bytes = 0;
