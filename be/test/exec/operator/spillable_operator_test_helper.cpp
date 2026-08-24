@@ -52,8 +52,11 @@ void SpillableOperatorTestHelper::SetUp() {
     ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileTime", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadDeserializeBlockTime", TUnit::UNIT, 1);
+    // Both are consumed through SCOPED_TIMER in SpillFileReader, which DCHECKs the counter
+    // is TUnit::TIME_NS. Registering them as plain UNIT counters only stayed harmless while
+    // the deserialize lookup was misspelled and resolved to null.
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillReadFileTime", 1);
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillReadDeserializeBlockTime", 1);
     ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);

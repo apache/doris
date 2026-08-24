@@ -73,7 +73,7 @@ protected:
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
         ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadDerializeBlockTime", 1);
+        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadDeserializeBlockTime", 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
         ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
@@ -1449,6 +1449,56 @@ TEST_F(SpillFileTest, ReadCounters) {
     auto* read_file_size = _custom_profile->get_counter("SpillReadFileBytes");
     ASSERT_TRUE(read_file_size != nullptr);
     ASSERT_GT(read_file_size->value(), 0);
+}
+
+// Regression test: SpillFileReader used to look up the deserialize timer under a
+// misspelled name ("SpillReadDerializeBlockTime"), so get_counter() returned null and
+// SCOPED_TIMER silently recorded nothing. The counter stayed at 0 in every profile.
+TEST_F(SpillFileTest, ReadDeserializeTimerIsRecorded) {
+    SpillFileSPtr spill_file;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(
+            "test_query/read_deserialize_timer", spill_file);
+    ASSERT_TRUE(st.ok());
+
+    {
+        SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
+        ASSERT_TRUE(st.ok());
+
+        auto block = _create_int_block({1, 2, 3, 4, 5});
+        st = writer->write_block(_runtime_state.get(), block);
+        ASSERT_TRUE(st.ok());
+
+        st = writer->close();
+        ASSERT_TRUE(st.ok());
+    }
+
+    // The timer is registered under the canonical name and must still be untouched
+    // before any read happens.
+    auto* deserialize_timer = _custom_profile->get_counter("SpillReadDeserializeBlockTime");
+    ASSERT_TRUE(deserialize_timer != nullptr);
+    ASSERT_EQ(deserialize_timer->value(), 0);
+
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    st = reader->open();
+    ASSERT_TRUE(st.ok());
+
+    Block block;
+    bool eos = false;
+    st = reader->read(&block, &eos);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(block.rows(), 5);
+
+    st = reader->close();
+    ASSERT_TRUE(st.ok());
+
+    // Deserializing a real block must land on the canonical counter. This is 0 whenever
+    // the reader's lookup name does not match what the operator registered.
+    ASSERT_GT(deserialize_timer->value(), 0);
+
+    // The misspelled name must not exist: if it reappears, some caller registered it and
+    // the two spellings will drift apart again.
+    ASSERT_TRUE(_custom_profile->get_counter("SpillReadDerializeBlockTime") == nullptr);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
