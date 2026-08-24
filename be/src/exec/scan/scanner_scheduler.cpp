@@ -75,17 +75,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
-            auto status = [&] {
-                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                return Status::OK();
-            }();
-
-            if (!status.ok()) {
-                scanner_ref->set_status(status);
-                ctx->push_back_scan_task(scanner_ref);
-                return true;
-            }
-            return scanner_ref->is_eos();
+            return execute_scan_task(ctx, scanner_ref);
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
         return this->submit_scan_task(simple_scan_task);
@@ -102,6 +92,22 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     return Status::OK();
+}
+
+bool ScannerScheduler::execute_scan_task(const std::shared_ptr<ScannerContext>& ctx,
+                                         const std::shared_ptr<ScanTask>& scan_task) {
+    // Both schedulers admit tasks differently, but exceptions must always become a completed task
+    // so the operator observes the error and releases the task's in-flight concurrency slot.
+    auto status = [&] {
+        RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scan_task));
+        return Status::OK();
+    }();
+    if (!status.ok()) {
+        scan_task->set_status(status);
+        ctx->push_completed_scan_task(scan_task);
+        return true;
+    }
+    return scan_task->is_eos();
 }
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
@@ -308,7 +314,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             "{}, eos: {}, status: {}",
             ctx->ctx_id, ctx->num_scheduled_scanners(), eos, status.to_string());
 
-    ctx->push_back_scan_task(scan_task);
+    ctx->push_completed_scan_task(scan_task);
 }
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 
