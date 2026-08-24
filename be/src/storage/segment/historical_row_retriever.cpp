@@ -211,7 +211,7 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
                            : -1;
     const int32_t delete_sign_col_unique_id =
             tablet_schema->column(tablet_schema->delete_sign_idx()).unique_id();
-    Block full_block = tablet_schema->create_block();
+    Block full_block = tablet_schema->create_storage_block();
     for (size_t cid = 0; cid < tablet_schema->num_key_columns(); ++cid) {
         const auto& input_column = block->get_by_position(cid);
         auto& full_column = full_block.get_by_position(cid);
@@ -299,7 +299,7 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     }
 
     // Create block to hold historical values for value columns.
-    Block old_value_block = tablet_schema->create_block_by_cids(value_cids);
+    Block old_value_block = tablet_schema->create_storage_block(value_cids);
     CHECK_EQ(value_cids.size(), old_value_block.columns());
 
     // key: logical row index in current batch; value: index in old_value_block

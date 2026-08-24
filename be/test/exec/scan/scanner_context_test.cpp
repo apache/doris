@@ -119,7 +119,6 @@ private:
             std::make_unique<RuntimeProfile::Counter>(TUnit::UNIT, 1, 3);
 
     TupleDescriptor* output_tuple_desc = nullptr;
-    RowDescriptor* output_row_descriptor = nullptr;
     std::shared_ptr<Dependency> scan_dependency =
             Dependency::create_shared(0, 0, "TestScanDependency");
     std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
@@ -153,9 +152,8 @@ TEST_F(ScannerContextTest, test_init) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scan_operator->_should_run_serial = false;
 
@@ -373,9 +371,8 @@ TEST_F(ScannerContextTest, test_serial_run) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scan_operator->_should_run_serial = true;
 
@@ -432,9 +429,8 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scan_operator->_should_run_serial = false;
 
@@ -483,9 +479,8 @@ TEST_F(ScannerContextTest, test_push_back_scan_task) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scanner_context->_in_flight_tasks_num = 11;
 
@@ -521,9 +516,8 @@ TEST_F(ScannerContextTest, get_margin) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -618,9 +612,8 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -696,9 +689,8 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -728,10 +720,9 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(scanner_context->_in_flight_tasks_num, scanner_context->_max_scan_concurrency);
 
-    scanner_context = ScannerContext::create_shared(state.get(), olap_scan_local_state.get(),
-                                                    output_tuple_desc, output_row_descriptor,
-                                                    scanners, limit, scan_dependency, &shared_limit,
-                                                    nullptr, nullptr, 0, false, parallel_tasks);
+    scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -750,10 +741,9 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
         scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
     }
 
-    scanner_context = ScannerContext::create_shared(state.get(), olap_scan_local_state.get(),
-                                                    output_tuple_desc, output_row_descriptor,
-                                                    scanners, limit, scan_dependency, &shared_limit,
-                                                    nullptr, nullptr, 0, false, parallel_tasks);
+    scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -767,10 +757,9 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     ASSERT_EQ(scanner_context->_pending_tasks.size(), 1);
     ASSERT_EQ(scanner_context->_in_flight_tasks_num, 1);
 
-    scanner_context = ScannerContext::create_shared(state.get(), olap_scan_local_state.get(),
-                                                    output_tuple_desc, output_row_descriptor,
-                                                    scanners, limit, scan_dependency, &shared_limit,
-                                                    nullptr, nullptr, 0, false, parallel_tasks);
+    scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -822,9 +811,8 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
 
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
             std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
@@ -863,9 +851,8 @@ TEST_F(ScannerContextTest, get_free_block) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_newly_create_free_blocks_num->set(int64_t(0));
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
@@ -917,9 +904,8 @@ TEST_F(ScannerContextTest, return_free_block) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
     scanner_context->_max_bytes_in_queue = 200;
@@ -962,9 +948,8 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
     }
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
     scanner_context->_max_bytes_in_queue = 200;
@@ -1316,9 +1301,8 @@ TEST_F(ScannerContextTest, scanner_context_with_adaptive_memory) {
                                              static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, arbitrator, limiter, 0, true, parallel_tasks);
 
     limiter->update_open_tasks_count(1);
     ASSERT_TRUE(scanner_context->_enable_adaptive_scanners);
@@ -1357,9 +1341,8 @@ TEST_F(ScannerContextTest, scanner_context_adjust_scan_mem_limit) {
                                              static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, arbitrator, limiter, 0, true, parallel_tasks);
 
     int64_t old_mem = 100 * 1024 * 1024;
     int64_t new_mem = 200 * 1024 * 1024;
@@ -1400,9 +1383,8 @@ TEST_F(ScannerContextTest, scanner_context_reestimated_block_mem_bytes) {
                                              static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, arbitrator, limiter, 0, true, parallel_tasks);
 
     scanner_context->reestimated_block_mem_bytes(150 * 1024 * 1024);
     ASSERT_GT(limiter->get_estimated_block_mem_bytes(), 0);
@@ -1441,9 +1423,8 @@ TEST_F(ScannerContextTest, scanner_context_update_peak_running_scanner) {
                                              static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
-            parallel_tasks);
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, limit,
+            scan_dependency, &shared_limit, arbitrator, limiter, 0, true, parallel_tasks);
 
     scanner_context->update_peak_running_scanner(3);
     ASSERT_EQ(limiter->update_running_tasks_count(0), 3);

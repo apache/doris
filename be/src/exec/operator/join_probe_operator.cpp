@@ -52,8 +52,8 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::close(RuntimeState* state) 
 template <typename SharedStateArg, typename Derived>
 void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block() {
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
-    const auto& mutable_block_desc = p._intermediate_row_desc;
-    for (const auto tuple_desc : mutable_block_desc->tuple_descriptors()) {
+    const auto& mutable_block_desc = p.join_row_desc();
+    for (const auto tuple_desc : mutable_block_desc.tuple_descriptors()) {
         for (const auto slot_desc : tuple_desc->slots()) {
             auto type_ptr = slot_desc->get_data_type_ptr();
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
@@ -118,13 +118,11 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join) {
     if (tnode.__isset.hash_join_node) {
-        _intermediate_row_desc = std::make_unique<RowDescriptor>(
-                descs, tnode.hash_join_node.vintermediate_tuple_id_list);
-        DCHECK_NE(Base::_output_row_descriptor, nullptr);
+        Base::_row_descriptor =
+                RowDescriptor(descs, tnode.hash_join_node.vintermediate_tuple_id_list);
     } else if (tnode.__isset.nested_loop_join_node) {
-        _intermediate_row_desc = std::make_unique<RowDescriptor>(
-                descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list);
-        DCHECK_NE(Base::_output_row_descriptor, nullptr);
+        Base::_row_descriptor =
+                RowDescriptor(descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list);
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
         DCHECK_EQ(_join_op, TJoinOp::CROSS_JOIN);

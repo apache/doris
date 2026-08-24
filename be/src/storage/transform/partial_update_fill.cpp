@@ -227,7 +227,7 @@ Status FlexiblePartialUpdateFillStage::apply(TransformExecContext& ctx, Block* b
     DCHECK(schema.has_skip_bitmap_col());
     const auto skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
 
-    Block full_block = schema.create_block();
+    Block full_block = schema.create_storage_block();
 
     const std::vector<RowsetSharedPtr>& specified_rowsets = ctx.mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());

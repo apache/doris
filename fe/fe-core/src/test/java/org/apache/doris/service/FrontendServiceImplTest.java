@@ -64,6 +64,7 @@ import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
+import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
@@ -76,6 +77,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.Level;
+import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -151,6 +153,14 @@ public class FrontendServiceImplTest extends TestWithFeService {
             Assertions.assertTrue(appender.contains(Level.DEBUG, "priv_hier:GLOBAL"));
             Assertions.assertFalse(appender.contains(Level.DEBUG, "plain_text_secret"));
         }
+    }
+
+    public void testShowProcessListRejectsMissingUserIdentity() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TShowProcessListRequest request = new TShowProcessListRequest();
+
+        TException exception = Assertions.assertThrows(TException.class, () -> impl.showProcessList(request));
+        Assertions.assertEquals("Current user identity is not set", exception.getMessage());
     }
 
     @Test

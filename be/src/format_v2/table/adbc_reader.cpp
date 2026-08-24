@@ -40,13 +40,18 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "format/arrow/arrow_array_normalizer.h"
+#include "format/parquet/arrow_memory_pool.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/adbc_driver_registry.h"
+#include "util/string_util.h"
 #include "util/timezone_utils.h"
 #include "util/url_coding.h"
 
@@ -103,6 +108,136 @@ Status validate_adbc_range(const TFileRangeDesc& range) {
                 kParamQuerySql, kParamPartitionDescriptor, has_query ? "both" : "neither");
     }
     return Status::OK();
+}
+
+Status arrow_type_mismatch(const std::string& path, const arrow::DataType& arrow_type,
+                           const DataTypePtr& doris_type) {
+    return Status::InvalidArgument(
+            "ADBC Arrow type mismatch at '{}': runtime type '{}' does not match cached Doris "
+            "type '{}'",
+            path, arrow_type.ToString(), doris_type->get_name());
+}
+
+int timestamp_scale(arrow::TimeUnit::type unit) {
+    switch (unit) {
+    case arrow::TimeUnit::SECOND:
+        return 0;
+    case arrow::TimeUnit::MILLI:
+        return 3;
+    case arrow::TimeUnit::MICRO:
+    case arrow::TimeUnit::NANO:
+        return 6;
+    }
+    return -1;
+}
+
+Status validate_arrow_type(const arrow::DataType& arrow_type, const DataTypePtr& doris_type,
+                           const std::string& path) {
+    DORIS_CHECK(doris_type != nullptr);
+    const auto nested_doris_type = remove_nullable(doris_type);
+    const auto primitive_type = nested_doris_type->get_primitive_type();
+    const auto mismatch = [&]() { return arrow_type_mismatch(path, arrow_type, doris_type); };
+
+    switch (arrow_type.id()) {
+    case arrow::Type::BOOL:
+        return primitive_type == TYPE_BOOLEAN ? Status::OK() : mismatch();
+    case arrow::Type::INT8:
+        return primitive_type == TYPE_TINYINT ? Status::OK() : mismatch();
+    case arrow::Type::UINT8:
+        return primitive_type == TYPE_SMALLINT ? Status::OK() : mismatch();
+    case arrow::Type::INT16:
+        return primitive_type == TYPE_SMALLINT ? Status::OK() : mismatch();
+    case arrow::Type::UINT16:
+        return primitive_type == TYPE_INT ? Status::OK() : mismatch();
+    case arrow::Type::INT32:
+        return primitive_type == TYPE_INT ? Status::OK() : mismatch();
+    case arrow::Type::UINT32:
+        return primitive_type == TYPE_BIGINT ? Status::OK() : mismatch();
+    case arrow::Type::INT64:
+        return primitive_type == TYPE_BIGINT ? Status::OK() : mismatch();
+    case arrow::Type::UINT64:
+        return primitive_type == TYPE_LARGEINT ? Status::OK() : mismatch();
+    case arrow::Type::HALF_FLOAT:
+    case arrow::Type::FLOAT:
+        return primitive_type == TYPE_FLOAT ? Status::OK() : mismatch();
+    case arrow::Type::DOUBLE:
+        return primitive_type == TYPE_DOUBLE ? Status::OK() : mismatch();
+    case arrow::Type::STRING:
+    case arrow::Type::BINARY:
+    case arrow::Type::FIXED_SIZE_BINARY:
+        return primitive_type == TYPE_STRING ? Status::OK() : mismatch();
+    case arrow::Type::DATE32:
+        return primitive_type == TYPE_DATEV2 ? Status::OK() : mismatch();
+    case arrow::Type::DATE64:
+        return primitive_type == TYPE_DATETIMEV2 && nested_doris_type->get_scale() == 3
+                       ? Status::OK()
+                       : mismatch();
+    case arrow::Type::TIMESTAMP: {
+        const auto& timestamp = static_cast<const arrow::TimestampType&>(arrow_type);
+        const bool zoned = !timestamp.timezone().empty();
+        const auto expected = zoned ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
+        return primitive_type == expected &&
+                               nested_doris_type->get_scale() == timestamp_scale(timestamp.unit())
+                       ? Status::OK()
+                       : mismatch();
+    }
+    case arrow::Type::DECIMAL128:
+    case arrow::Type::DECIMAL256: {
+        const auto& decimal = static_cast<const arrow::DecimalType&>(arrow_type);
+        return is_decimal(primitive_type) &&
+                               nested_doris_type->get_precision() == decimal.precision() &&
+                               nested_doris_type->get_scale() == decimal.scale()
+                       ? Status::OK()
+                       : mismatch();
+    }
+    case arrow::Type::LIST:
+    case arrow::Type::LARGE_LIST:
+    case arrow::Type::FIXED_SIZE_LIST: {
+        if (primitive_type != TYPE_ARRAY) {
+            return mismatch();
+        }
+        const auto& list = static_cast<const arrow::BaseListType&>(arrow_type);
+        const auto& array = assert_cast<const DataTypeArray&>(*nested_doris_type);
+        return validate_arrow_type(*list.value_type(), array.get_nested_type(), path + ".element");
+    }
+    case arrow::Type::STRUCT: {
+        if (primitive_type != TYPE_STRUCT) {
+            return mismatch();
+        }
+        const auto& arrow_struct = static_cast<const arrow::StructType&>(arrow_type);
+        const auto& doris_struct = assert_cast<const DataTypeStruct&>(*nested_doris_type);
+        if (cast_set<size_t>(arrow_struct.num_fields()) != doris_struct.get_elements().size()) {
+            return mismatch();
+        }
+        for (int field_idx = 0; field_idx < arrow_struct.num_fields(); ++field_idx) {
+            const auto& arrow_field = arrow_struct.field(field_idx);
+            const auto& doris_name = doris_struct.get_element_name(field_idx);
+            if (to_lower(arrow_field->name()) != to_lower(doris_name)) {
+                return Status::InvalidArgument(
+                        "ADBC Arrow field mismatch at '{}': runtime field '{}' does not match "
+                        "cached field '{}' at ordinal {}",
+                        path, arrow_field->name(), doris_name, field_idx);
+            }
+            RETURN_IF_ERROR(validate_arrow_type(*arrow_field->type(),
+                                                doris_struct.get_element(field_idx),
+                                                path + "." + doris_name));
+        }
+        return Status::OK();
+    }
+    case arrow::Type::MAP: {
+        if (primitive_type != TYPE_MAP) {
+            return mismatch();
+        }
+        const auto& arrow_map = static_cast<const arrow::MapType&>(arrow_type);
+        const auto& doris_map = assert_cast<const DataTypeMap&>(*nested_doris_type);
+        RETURN_IF_ERROR(validate_arrow_type(*arrow_map.key_type(), doris_map.get_key_type(),
+                                            path + ".key"));
+        return validate_arrow_type(*arrow_map.item_type(), doris_map.get_value_type(),
+                                   path + ".value");
+    }
+    default:
+        return mismatch();
+    }
 }
 
 // Drivers allocate the strings inside AdbcError, so every populated error has to be released.
@@ -498,6 +633,13 @@ Status AdbcFileReader::get_schema(std::vector<ColumnDefinition>* file_schema) co
     return Status::OK();
 }
 
+std::unique_ptr<TableColumnMapper> AdbcFileReader::create_column_mapper(
+        TableColumnMapperOptions options) const {
+    // ADBC streams return complete Arrow roots, so TableReader must own every nested projection and
+    // reorder after the full source shape has been materialized.
+    return std::make_unique<MaterializedColumnMapper>(std::move(options));
+}
+
 Status AdbcFileReader::open(std::shared_ptr<FileScanRequest> request) {
     SCOPED_TIMER(_total_time);
     SCOPED_TIMER(_open_stream_time);
@@ -594,6 +736,13 @@ Status AdbcFileReader::_materialize_record_batch(const arrow::RecordBatch& batch
         return Status::OK();
     }
 
+    ArrowMemoryPool<> local_arrow_pool;
+    arrow::MemoryPool* arrow_pool = ExecEnv::GetInstance()->arrow_memory_pool();
+    if (arrow_pool == nullptr) {
+        // Embedded and unit-test runtimes may omit ExecEnv memory initialization; keep conversions
+        // on Doris' tracked allocator instead of falling back to Arrow's untracked default pool.
+        arrow_pool = &local_arrow_pool;
+    }
     std::vector<bool> materialized_columns(file_block->columns(), false);
     for (int arrow_idx = 0; arrow_idx < batch.num_columns(); ++arrow_idx) {
         const std::string& column_name = batch.schema()->field(arrow_idx)->name();
@@ -608,7 +757,7 @@ Status AdbcFileReader::_materialize_record_batch(const arrow::RecordBatch& batch
         std::shared_ptr<arrow::Array> array;
         {
             SCOPED_TIMER(_normalize_time);
-            RETURN_IF_ERROR(normalize_arrow_array(batch.column(arrow_idx), &array));
+            RETURN_IF_ERROR(normalize_arrow_array(batch.column(arrow_idx), arrow_pool, &array));
         }
         RETURN_IF_ERROR(_materialize_arrow_column(column_name, array, batch.num_rows(),
                                                   file_id_it->second, block_position_it->second,
@@ -643,9 +792,15 @@ Status AdbcFileReader::_materialize_arrow_column(const std::string& column_name,
         return Status::InternalError("ADBC block position {} out of range, block columns {}",
                                      block_position.value(), file_block->columns());
     }
-    auto columns_guard = file_block->mutate_columns_scoped();
-    auto& columns = columns_guard.mutable_columns();
-    const auto& target_type = columns_guard.get_datatype_by_position(block_position.value());
+    const auto& target_type = file_block->get_by_position(block_position.value()).type;
+
+    // The cached FE target remains authoritative when a source schema changes mid-cache-window;
+    // otherwise SerDes without a null map can silently turn source nulls into default values.
+    if (array->null_count() > 0 && !target_type->is_nullable()) {
+        return Status::InternalError(
+                "ADBC Arrow column '{}' contains {} null rows for non-nullable Doris type {}",
+                column_name, array->null_count(), target_type->get_name());
+    }
 
     // An all-null column arrives with a type that says nothing about the column.
     //
@@ -665,10 +820,18 @@ Status AdbcFileReader::_materialize_arrow_column(const std::string& column_name,
     // Only for a nullable target: substituting defaults into a NOT NULL column would turn a source
     // that wrongly sent nulls into silently wrong data, so that keeps failing in the serde.
     if (array->null_count() == array->length() && target_type->is_nullable()) {
+        auto columns_guard = file_block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
         columns[block_position.value()]->insert_many_defaults(cast_set<size_t>(num_rows));
         return Status::OK();
     }
 
+    // Validate the whole logical shape before acquiring mutable block columns. Struct SerDes map
+    // children by ordinal, so a stale cache entry can otherwise produce plausible but wrong values.
+    RETURN_IF_ERROR(validate_arrow_type(*array->type(), target_type, column_name));
+
+    auto columns_guard = file_block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
     try {
         RETURN_IF_ERROR(target_type->get_serde()->read_column_from_arrow(
                 *columns[block_position.value()], array.get(), 0, num_rows, _ctz));

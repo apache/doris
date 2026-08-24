@@ -346,7 +346,7 @@ TEST_F(RowBinlogDeriveTest, PlainAppendAndDeleteWithAfterAndLsn) {
     ctx.tablet = tablet;
 
     // full-width source block: row 0 keeps delete sign 0 (APPEND), row 1 sets it (DELETE)
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -411,7 +411,7 @@ TEST_F(RowBinlogDeriveTest, PlainNoDeleteSignColumnAllAppend) {
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
     ctx.tablet = tablet;
 
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -496,7 +496,7 @@ TEST_F(RowBinlogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.insert_seg_lsn(0, make_seg_lsn(2));
 
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& columns = guard.mutable_columns();
@@ -591,7 +591,7 @@ TEST_F(RowBinlogDeriveTest, MowUpdateAndAppendTakesHistoryV2) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = source_schema->create_block_by_cids({0, 1}); // narrow PU: k1, v1
+    Block block = source_schema->create_storage_block({0, 1}); // narrow PU: k1, v1
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -734,7 +734,7 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     ctx.partial_update_info = pui;
 
     // narrow PU providing both key columns and v1
-    Block block = source_schema->create_block_by_cids({0, 1, 2});
+    Block block = source_schema->create_storage_block({0, 1, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -813,7 +813,7 @@ TEST_F(RowBinlogDeriveTest, MowPartialUpdateWithBeforeImage) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = source_schema->create_block_by_cids({0, 1}); // narrow PU: k1, v1
+    Block block = source_schema->create_storage_block({0, 1}); // narrow PU: k1, v1
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -905,7 +905,7 @@ TEST_F(RowBinlogDeriveTest, MowInsertAfterDeletedHistoryRowIsAppend) {
     ctx.partial_update_info = pui;
 
     // both keys are re-inserted by this load
-    Block block = source_schema->create_block_by_cids({0, 1});
+    Block block = source_schema->create_storage_block({0, 1});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -990,7 +990,7 @@ TEST_F(RowBinlogDeriveTest, MowLooksUpHistoryInBaseTabletNotBinlogTablet) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = source_schema->create_block_by_cids({0, 1}); // narrow PU: k1, v1
+    Block block = source_schema->create_storage_block({0, 1}); // narrow PU: k1, v1
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1067,7 +1067,7 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
     ctx.partial_update_info = pui;
 
     // narrow PU block in update_cids order {k1, v1, delete_sign}
-    Block block = source_schema->create_block_by_cids({0, 1, 3});
+    Block block = source_schema->create_storage_block({0, 1, 3});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1162,7 +1162,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     // full-width upsert source block (k1,v1,v2,delete_sign):
     //   r0 key1 (11,1) delete 0 -> UPDATE; r1 key2 (0,0) delete 1 -> DELETE;
     //   r2 key98 (50,5) delete 0 -> APPEND.
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1271,7 +1271,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeNoopZeroValueColumns) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = source_schema->create_block(); // full width: k1, delete_sign
+    Block block = source_schema->create_storage_block(); // full width: k1, delete_sign
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1360,7 +1360,7 @@ TEST_F(RowBinlogDeriveTest, MowSeqSourceSeqLosesStillReadsHistory) {
     ctx.partial_update_info = pui;
 
     // narrow PU block {k1, seq}: r0 seq=3 loses to history 10; r1 seq=20 wins.
-    Block block = source_schema->create_block_by_cids({0, 2});
+    Block block = source_schema->create_storage_block({0, 2});
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1442,7 +1442,7 @@ TEST_F(RowBinlogDeriveTest, MowMaterializesFlexiblePartialUpdate) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
@@ -1464,7 +1464,7 @@ TEST_F(RowBinlogDeriveTest, MowMaterializesFlexiblePartialUpdate) {
 }
 
 // N5/N6 (B10): the fixed-PU MoW derive rejects a block that is too narrow
-// (<= num_key_columns) or too wide (>= num_columns).
+// (< num_key_columns) or too wide (>= num_columns).
 TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
     auto binlog_tablet =
             create_binlog_tablets(/*tablet_id=*/8601, TKeysType::DUP_KEYS, /*mow=*/false).binlog;
@@ -1506,12 +1506,11 @@ TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
         return ctx;
     };
 
-    // too narrow: only the key column (1 <= num_key_columns 1)
+    // too narrow: no columns (0 < num_key_columns 1)
     {
         cfg.insert_seg_lsn(0, make_seg_lsn(1));
         TransformExecContext ctx = make_ctx();
-        Block block = source_schema->create_block_by_cids({0});
-        block.get_by_position(0).column->assert_mutable()->insert_default();
+        Block block;
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_NE(st.to_string().find("illegal partial update block columns"), std::string::npos)
@@ -1521,7 +1520,7 @@ TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
     {
         cfg.insert_seg_lsn(0, make_seg_lsn(1));
         TransformExecContext ctx = make_ctx();
-        Block block = source_schema->create_block(); // 4 columns
+        Block block = source_schema->create_storage_block(); // 4 columns
         block.get_by_position(0).column->assert_mutable()->insert_default();
         block.get_by_position(1).column->assert_mutable()->insert_default();
         block.get_by_position(2).column->assert_mutable()->insert_default();
@@ -1558,7 +1557,7 @@ TEST_F(RowBinlogDeriveTest, RejectsMissingSourceSchema) {
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
     ctx.tablet = tablet;
 
-    Block block = create_binlog_pu_source_schema()->create_block();
+    Block block = create_binlog_pu_source_schema()->create_storage_block();
     block.get_by_position(0).column->assert_mutable()->insert_default();
     block.get_by_position(1).column->assert_mutable()->insert_default();
     block.get_by_position(2).column->assert_mutable()->insert_default();
@@ -1596,7 +1595,7 @@ TEST_F(RowBinlogDeriveTest, RejectsNegativeSegmentId) {
     ctx.tablet = tablet;
     ctx.segment_id = -1; // add_block seam: no segment id
 
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     block.get_by_position(0).column->assert_mutable()->insert_default();
     block.get_by_position(1).column->assert_mutable()->insert_default();
     block.get_by_position(2).column->assert_mutable()->insert_default();
@@ -1633,7 +1632,7 @@ TEST_F(RowBinlogDeriveTest, RejectsSchemaAndWriteBeforeDisagreement) {
     ctx.tablet = tablets.binlog;
     ctx.mow_context = cfg.source.mow_context;
 
-    Block block = source_schema->create_block();
+    Block block = source_schema->create_storage_block();
     for (size_t cid = 0; cid < source_schema->num_columns(); ++cid) {
         block.get_by_position(cid).column->assert_mutable()->insert_default();
     }

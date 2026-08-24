@@ -44,7 +44,7 @@ protected:
 
     // A narrow input block holding just the key column.
     static Block key_block(const TabletSchemaSPtr& schema, const std::vector<int32_t>& keys) {
-        Block block = schema->create_block_by_cids({0});
+        Block block = schema->create_storage_block({0});
         auto* column = block.get_by_position(0).column->assert_mutable().get();
         for (int32_t k : keys) {
             column->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -68,7 +68,7 @@ TEST_F(HistoricalRowFetcherTest, ReadColumnsReturnsThePlannedRows) {
     ASSERT_EQ(fetcher.pinned_rowsets().size(), 1);
 
     std::vector<uint32_t> cids {1};
-    Block old_values = schema->create_block_by_cids(cids);
+    Block old_values = schema->create_storage_block(cids);
     std::map<uint32_t, uint32_t> read_index;
     auto st = fetcher.read_columns(*schema, cids, old_values, &read_index,
                                    /*force_read_old_delete_signs=*/false);
@@ -95,7 +95,7 @@ TEST_F(HistoricalRowFetcherTest, FillMissingColumnsMixesHistoryAndDefaults) {
     fetcher.plan_fixed_read(RowLocation {rowset->rowset_id(), 0, 2}, /*dst_pos=*/1);
 
     Block input = key_block(schema, {1, 3, 99});
-    Block full_block = schema->create_block();
+    Block full_block = schema->create_storage_block();
     full_block.replace_by_position(0, input.get_by_position(0).column);
     std::vector<bool> use_default_or_null_flag {false, false, true};
 
@@ -125,7 +125,7 @@ TEST_F(HistoricalRowFetcherTest, FillMissingColumnsSkipsDeletedHistory) {
     fetcher.plan_fixed_read(RowLocation {rowset->rowset_id(), 0, 1}, /*dst_pos=*/1);
 
     Block input = key_block(schema, {1, 2});
-    Block full_block = schema->create_block();
+    Block full_block = schema->create_storage_block();
     full_block.replace_by_position(0, input.get_by_position(0).column);
     std::vector<bool> use_default_or_null_flag {false, false};
 

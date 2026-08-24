@@ -120,12 +120,23 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
             return "";
         }
 
-        // check instance_id valid by get fdb
-        if (config::enable_check_instance_id && !rc_mgr->is_instance_id_registered(id)) {
-            LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
-                            "cloud_unique_id="
-                         << cloud_unique_id;
-            return "";
+        if (config::enable_check_instance_id) {
+            InstanceInfoPB instance;
+            auto [code, msg] = rc_mgr->get_instance(nullptr, id, &instance);
+            { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code); }
+            if (code == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                LOG(WARNING)
+                        << "use degraded format cloud_unique_id, but instance is not registered, "
+                           "cloud_unique_id="
+                        << cloud_unique_id;
+                return "";
+            }
+            if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
+                msg = "instance status has been set delete, plz check it, recycle_state=" +
+                      InstanceRecycleState_Name(instance.recycle_state());
+                LOG(WARNING) << msg << ", cloud_unique_id=" << cloud_unique_id;
+                return "";
+            }
         }
         return id;
     }

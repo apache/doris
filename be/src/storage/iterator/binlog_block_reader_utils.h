@@ -20,10 +20,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <string_view>
 
-#include "core/block/block.h"
 #include "storage/binlog.h"
 
 namespace doris::binlog {
@@ -34,26 +31,6 @@ constexpr int64_t STREAM_CHANGE_INSERT = 0;
 constexpr int64_t STREAM_CHANGE_DELETE = 1;
 constexpr int64_t STREAM_CHANGE_UPDATE_BEFORE = 2;
 constexpr int64_t STREAM_CHANGE_UPDATE_AFTER = 3;
-
-// Build the __BEFORE__ column name for a base column.
-inline std::string build_before_column_name(std::string_view name) {
-    std::string before_name = "__BEFORE__";
-    before_name.append(name.data(), name.size());
-    before_name.append("__");
-    return before_name;
-}
-
-// Resolve __BEFORE__ column index for a base column when present.
-inline int resolve_before_column_index(const doris::Block& block, int idx, int binlog_op_pos) {
-    if (idx == binlog_op_pos) {
-        return idx;
-    }
-
-    const auto& col_with_name = block.get_by_position(idx);
-    std::string before_name = build_before_column_name(col_with_name.name);
-    int tmp_idx = block.get_position_by_name(before_name);
-    return tmp_idx < 0 ? idx : tmp_idx;
-}
 
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };
 

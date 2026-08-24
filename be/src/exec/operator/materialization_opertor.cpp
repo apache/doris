@@ -568,7 +568,8 @@ Status MaterializationOperator::init(const doris::TPlanNode& tnode, doris::Runti
 
 Status MaterializationOperator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_rowid_exprs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_rowid_exprs, state));
     return Status::OK();
 }

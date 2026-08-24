@@ -60,6 +60,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalFunctionRules;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.connector.converter.ConnectorBranchTagConverter;
@@ -313,33 +314,26 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * {@code REFRESH CATALOG} must also drop the connector's OWN caches (e.g. the iceberg latest-snapshot
-     * cache, default TTL 24h, and the manifest cache). The base {@link #onRefreshCache} only invalidates the
-     * registered engine caches via the route resolver — which for a plugin catalog resolves to the schema-only
-     * {@code ENGINE_DEFAULT} bucket and never reaches the connector-owned caches. And {@code REFRESH CATALOG}
-     * does NOT rebuild the connector (that only happens on {@code ADD}/{@code MODIFY CATALOG} via
-     * {@link #resetToUninitialized}), so without this the connector keeps serving stale metadata until TTL.
-     *
-     * <p>Connector-agnostic: {@link Connector#invalidateAll()} is a generic SPI (no-op default; paimon clears
-     * its own latest-snapshot cache too). Reads the {@code connector} field directly (no forced init, mirroring
-     * {@link #overlayMetaCacheConfig}): an uninitialized catalog — or one whose connector was just nulled by
-     * {@code resetToUninitialized}'s {@code onClose()} before this runs — has no connector caches to drop, and
-     * the next access lazily rebuilds the connector with empty caches.
+     * Invalidates connector-owned metadata before FE caches because connector metadata feeds row-count loading.
+     * The connector field is read directly so refreshing an uninitialized catalog does not initialize it.
      */
     @Override
     public void onRefreshCache(boolean invalidCache) {
-        super.onRefreshCache(invalidCache);
-        if (invalidCache) {
+        if (!invalidCache) {
+            super.onRefreshCache(false);
+            return;
+        }
+        try {
             invalidateAllConnectorCachesIfPresent();
+        } finally {
+            super.onRefreshCache(true);
         }
     }
 
     /**
      * Invalidates connector-owned caches without initializing or rebuilding the connector.
      *
-     * <p>This is also used by edit-log replay when only a retained local database name is available. Without a
-     * database object, replay cannot recover the remote database/table identity, so whole-connector invalidation is
-     * the conservative cache-only fallback.
+     * <p>Replay also uses this when no database object is cached and remote cache keys cannot be recovered.
      */
     public void invalidateAllConnectorCachesIfPresent() {
         Connector localConnector = connector;
@@ -483,23 +477,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * (buildDbForInit + the shared metadata-cache update protocol) and mirrors the legacy HMS implementation.
      */
     @Override
-    public void registerDatabase(String dbName) {
-        String localDbName = canonicalLocalDatabaseNameFromRemote(dbName);
+    public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
         long dbId = Util.genIdByName(getName(), localDbName);
-        ExternalDatabase<? extends ExternalTable> db =
-                buildDbForInit(dbName, localDbName, dbId, logType, false);
-        if (isInitialized()) {
-            updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
+        try {
+            ExternalDatabase<? extends ExternalTable> db =
+                    buildDbForInit(remoteDbName, localDbName, dbId, logType, false);
+            if (isInitialized()) {
+                updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
+            }
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbId, localDbName);
         }
     }
 
     /**
-     * FIX-4: let the connector's own cache knob also govern the schema cache (restoring the legacy single-knob
-     * semantics — e.g. paimon's {@code meta.cache.paimon.table.ttl-second} sized the whole table cache, schema
-     * included). Applied to the engine's EPHEMERAL cache-sizing property copy only (never persisted). An
-     * explicit user {@code schema.cache.ttl-second} wins. Uses the {@code connector} field directly (no forced
-     * init / no throw): this hook only runs during a cache read, by which point the catalog is already
-     * initialized; a null connector (uninitialized or concurrently dropped) simply leaves the engine default.
+     * Applies a connector-provided schema-cache TTL to the ephemeral cache configuration. An explicit schema TTL
+     * takes precedence, and an unavailable connector leaves the engine default unchanged.
      */
     @Override
     public void overlayMetaCacheConfig(Map<String, String> metaCacheProperties) {
@@ -517,69 +510,34 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * Routes {@code CREATE TABLE} through the SPI's
-     * {@code ConnectorTableOps.createTable(session, request)} instead of the
-     * legacy {@code metadataOps} path used by other {@link ExternalCatalog}
-     * subclasses.
-     *
-     * <p>Connectors that have not overridden the new SPI default fall through
-     * to the SPI's "CREATE TABLE not supported" exception, which is wrapped
-     * here as a {@link DdlException} to match the existing caller contract.</p>
-     *
-     * <p>The SPI {@code createTable} is {@code void} and this override has no
-     * {@code metadataOps}, so it mirrors legacy
-     * {@code MaxComputeMetadataOps.createTableImpl}: when the table already exists
-     * and {@code IF NOT EXISTS} was given it returns {@code true} and skips the
-     * connector create + edit log + cache reset (so a {@code CREATE TABLE IF NOT
-     * EXISTS ... AS SELECT} short-circuits per the {@code Env.createTable} contract
-     * instead of INSERTing into the existing table); otherwise it creates the table,
-     * writes the edit log, resets the cache, and returns {@code false}.</p>
+     * Routes CREATE TABLE through the connector SPI. Returning {@code true} for an existing table preserves
+     * the caller's CTAS short-circuit contract. A newly created table persists canonical local names; every
+     * successful path invalidates connector, metadata, and row-count caches in that order.
      */
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         makeSureInitialized();
-        // Resolve the local db name to its remote (ODPS) name before handing it to the connector,
-        // mirroring legacy MaxComputeMetadataOps.createTableImpl (db.getRemoteName()). Without this,
-        // name-mapped catalogs (lower_case_meta_names / meta_names_mapping, where the local display
-        // name differs from the remote name) would address the wrong remote schema. The table name
-        // is intentionally NOT remote-resolved (legacy parity: the table does not exist yet, so
-        // there is no local->remote mapping for it).
+        // The database already has a remote identity; the new table name is itself the remote target.
         ExternalDatabase<? extends ExternalTable> db = getDbNullable(createTableInfo.getDbName());
         if (db == null) {
             throw new DdlException("Failed to get database: '" + createTableInfo.getDbName()
                     + "' in catalog: " + getName());
         }
+        String localTableName = db.canonicalLocalTableNameFromRemote(createTableInfo.getTableName());
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        // Mirror legacy MaxComputeMetadataOps.createTableImpl:178-197 -- probe BOTH the remote
-        // (connector) and the local FE cache for an existing table. On IF NOT EXISTS this lets CTAS
-        // short-circuit (Env.createTable contract: return true when the table already exists), so a
-        // "CREATE TABLE IF NOT EXISTS ... AS SELECT" does NOT fall through to an INSERT into the
-        // pre-existing table. The table name is intentionally NOT remote-resolved (legacy parity).
+        // Both views matter: name folding can expose a local conflict that the remote lookup does not see.
         boolean remoteExists = metadata.getTableHandle(session, db.getRemoteName(),
                 createTableInfo.getTableName()).isPresent();
-        boolean localExists = db.getTableNullable(createTableInfo.getTableName()) != null;
+        boolean localExists = db.getTableNullable(localTableName) != null;
         if (remoteExists || localExists) {
             if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
                         getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
-                // #66112 (ported from the legacy paimon arm): an existing-table success returns BEFORE the
-                // post-create cache invalidation below, so this FE would keep a table-name cache that predates
-                // the table -- a table created out-of-band (another engine / another FE) stays invisible to
-                // SHOW TABLES and to a subsequent SELECT until an unrelated refresh. Every successful no-op
-                // must refresh the names, exactly like the created-here path.
-                getDbForReplay(createTableInfo.getDbName()).ifPresent(d -> d.resetMetaCacheNames());
+                invalidateCreatedTableCaches(db, createTableInfo.getTableName(), localTableName);
                 return true;
             }
-            // !IF NOT EXISTS: a table that already exists -- whether remotely (connector) OR only in the
-            // local FE cache (a case-variant name folded onto an existing table under lower_case_meta_names
-            // while the case-sensitive remote has no such table) -- must be rejected HERE with MySQL errno
-            // 1050 (ERR_TABLE_EXISTS_ERROR / SQLSTATE 42S01). Mirrors legacy {Paimon,MaxCompute}MetadataOps,
-            // which report ERR_TABLE_EXISTS_ERROR for BOTH the remote arm (PaimonMetadataOps:195 /
-            // MaxComputeMetadataOps:184) and the local arm (:212 / :195). Reporting before
-            // metadata.createTable also keeps a local-cache-only conflict from being CREATED remotely
-            // (the connector would otherwise create a duplicate). Reaching here already guarantees
-            // (remoteExists || localExists) && !isIfNotExists; reportDdlException throws.
+            // Report the established MySQL error before a local-only conflict can create a remote duplicate.
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR,
                     createTableInfo.getTableName());
         }
@@ -588,88 +546,62 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         try {
             metadata.createTable(session, request);
         } catch (DorisConnectorException e) {
-            // #66112: the existence probe above and the remote create are not atomic, so a concurrent
-            // creator (another FE, another engine) can win the race in between and the connector then
-            // fails with its own already-exists error. Under IF NOT EXISTS the statement's contract is
-            // "ensure it is there", so a re-probe that finds the table makes this a successful no-op.
-            // Returning TRUE (not false) is the load-bearing part: it tells CreateTableCommand that this
-            // statement did not create the table, so a CTAS neither INSERTs into the winner's table nor
-            // claims rollback ownership of it.
+            // The probe and create are not atomic. A successful re-probe turns a lost IF NOT EXISTS race into
+            // the same CTAS-short-circuit result as an initially existing table.
             if (createTableInfo.isIfNotExists()
                     && metadata.getTableHandle(session, db.getRemoteName(),
                             createTableInfo.getTableName()).isPresent()) {
                 LOG.info("create table[{}.{}.{}] lost the race to a concurrent creator; "
                                 + "treating as an IF NOT EXISTS no-op", getName(),
                         createTableInfo.getDbName(), createTableInfo.getTableName());
-                getDbForReplay(createTableInfo.getDbName()).ifPresent(d -> d.resetMetaCacheNames());
+                invalidateCreatedTableCaches(db, createTableInfo.getTableName(), localTableName);
                 return true;
             }
             throw new DdlException(e.getMessage(), e);
         }
-        // Drop any stale connector-owned cache entry for this name before the new table goes live
-        // (belt-and-suspenders with the DROP path, which is the load-bearing invalidation for drop+recreate).
-        // Connector-agnostic: invalidateTable is a no-op SPI default; hive/iceberg/paimon drop their own
-        // per-table caches (metastore/file-listing, latest-snapshot pin). The table name is intentionally NOT
-        // remote-resolved (a new table has no local->remote mapping — parity with the create request + editlog).
-        connector.invalidateTable(db.getRemoteName(), createTableInfo.getTableName());
         org.apache.doris.persist.CreateTableInfo persistInfo =
                 new org.apache.doris.persist.CreateTableInfo(
-                        getName(),
-                        createTableInfo.getDbName(),
-                        createTableInfo.getTableName());
+                        getName(), db.getFullName(), localTableName);
         Env.getCurrentEnv().getEditLog().logCreateTable(persistInfo);
-        // Invalidate the FE-side table-name cache so the new table is immediately visible on
-        // this FE. The legacy metadataOps path did this via afterCreateTable(); since
-        // PluginDrivenExternalCatalog has no metadataOps, the override must do it here.
-        // (Edit log and cache invalidation deliberately use the LOCAL db/table names for
-        // follower-replay consistency; only the connector-bound name is remote-resolved.)
-        getDbForReplay(createTableInfo.getDbName()).ifPresent(d -> d.resetMetaCacheNames());
+        invalidateCreatedTableCaches(db, createTableInfo.getTableName(), localTableName);
         LOG.info("finished to create table {}.{}.{}", getName(),
                 createTableInfo.getDbName(), createTableInfo.getTableName());
         return false;
     }
 
-    /**
-     * Routes {@code CREATE DATABASE} through the SPI's
-     * {@code ConnectorSchemaOps.createDatabase(session, dbName, properties)}.
-     *
-     * <p>The SPI signature carries no {@code ifNotExists}; this override honors it
-     * FE-side. It short-circuits on the local FE cache and then on the remote
-     * {@code databaseExists}, so {@code CREATE DATABASE IF NOT EXISTS} on a database
-     * that exists remotely but is not yet in this FE's cache cleanly no-ops instead of
-     * surfacing a remote "already exists" error (mirroring legacy
-     * {@code MaxComputeMetadataOps.createDbImpl}, which checked both). On success it
-     * writes the edit log and invalidates the cached db-name list (mirroring the
-     * legacy {@code metadataOps.afterCreateDb()} the plugin path no longer has).</p>
-     */
+    /** Routes CREATE DATABASE through the connector SPI while enforcing IF NOT EXISTS on both FE and remote state. */
     @Override
     public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         makeSureInitialized();
-        // Fast path: FE-cache hit + IF NOT EXISTS => no-op (legacy createDbImpl: dorisDb != null).
-        if (ifNotExists && getDbNullable(dbName) != null) {
-            return;
+        if (ifNotExists) {
+            ExternalDatabase<? extends ExternalTable> existingDb = getDbNullable(dbName);
+            if (existingDb != null) {
+                invalidateCreatedDatabaseCaches(existingDb.getRemoteName(), existingDb.getFullName());
+                return;
+            }
         }
+        String localDbName = canonicalLocalDatabaseNameFromRemote(dbName);
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        // FE-cache miss but the db may already exist REMOTELY (created on another FE / before this
-        // FE's db-name cache was populated). Legacy MaxComputeMetadataOps.createDbImpl consulted
-        // BOTH getDbNullable AND the remote databaseExist, and IF NOT EXISTS then no-oped. Mirror
-        // that remote check. Asked of EVERY connector, mirroring Trino's CreateSchemaTask: IF NOT
-        // EXISTS means "ensure it is there", so a connector that cannot create databases but reports
-        // this one as existing has already satisfied the request and must not be made to fail.
-        // A connector that answers neither question keeps the default databaseExists() == false and
-        // falls through to createDatabase() -> "CREATE DATABASE not supported", as before.
+        // A remote hit also satisfies IF NOT EXISTS, including for connectors that cannot create databases.
         if (ifNotExists && metadata.databaseExists(session, dbName)) {
             LOG.info("create database[{}] which already exists remotely, skip", dbName);
+            invalidateCreatedDatabaseCaches(dbName, localDbName);
             return;
         }
         try {
             metadata.createDatabase(session, dbName, properties);
         } catch (DorisConnectorException e) {
+            if (ifNotExists && metadata.databaseExists(session, dbName)) {
+                LOG.info("create database[{}] lost the race to a concurrent creator; "
+                        + "treating as an IF NOT EXISTS no-op", dbName);
+                invalidateCreatedDatabaseCaches(dbName, localDbName);
+                return;
+            }
             throw new DdlException(e.getMessage(), e);
         }
-        Env.getCurrentEnv().getEditLog().logCreateDb(new CreateDbInfo(getName(), dbName, null));
-        resetMetaCacheNames();
+        Env.getCurrentEnv().getEditLog().logCreateDb(new CreateDbInfo(getName(), localDbName, null));
+        invalidateCreatedDatabaseCaches(dbName, localDbName);
         LOG.info("finished to create database {}.{}", getName(), dbName);
     }
 
@@ -705,16 +637,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
-        // Drop the connector's own caches for every table in this db so a subsequent same-name CREATE
-        // DATABASE and the next reads go live rather than serving dropped tables up to the connector TTL.
-        // Connector-agnostic (no-op SPI default); keyed by the REMOTE db name, mirroring
-        // RefreshManager.refreshDbInternal. (createDb is intentionally NOT hooked: a brand-new db has no
-        // table-keyed connector entries that this dropDb did not already clear.)
-        connector.invalidateDb(db.getRemoteName());
-        // Edit log + cache invalidation intentionally use the LOCAL name: followers replay the
-        // persisted DropDbInfo and the on-FE cache is keyed by local name (follower-replay parity).
-        Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), dbName));
-        unregisterDatabase(dbName);
+        Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), db.getFullName()));
+        try {
+            connector.invalidateDb(db.getRemoteName());
+        } finally {
+            unregisterDatabase(db.getFullName());
+        }
         LOG.info("finished to drop database {}.{}", getName(), dbName);
     }
 
@@ -762,11 +690,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             } catch (DorisConnectorException e) {
                 throw new DdlException(e.getMessage(), e);
             }
-            // Uniform with the table branch: drop the connector's own caches for this name (harmless no-op
-            // for a view, which carries no snapshot pin). Keyed by the REMOTE names.
-            connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
-            Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
-            getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
+            finishDropTable(db, dorisTable);
             LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
             return;
         }
@@ -776,6 +700,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // side; preserve the existing IF EXISTS handling for that case.
         if (!handle.isPresent()) {
             if (ifExists) {
+                finishDropTable(db, dorisTable);
                 return;
             }
             throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
@@ -785,16 +710,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
-        // Drop the connector's own caches for this table (paimon/iceberg latest-snapshot pin, hive
-        // metastore + file-listing) so a subsequent same-name CREATE and the next read go live rather than
-        // serving the dropped table up to the connector TTL — the load-bearing fix for drop+recreate.
-        // Connector-agnostic (no-op SPI default); keyed by the REMOTE db/table names the connector caches
-        // under, mirroring RefreshManager.refreshTableInternal.
-        connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
-        // Edit log and cache invalidation deliberately use the LOCAL db/table names for
-        // follower-replay consistency; only the connector-bound names are remote-resolved.
-        Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
-        getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
+        finishDropTable(db, dorisTable);
         LOG.info("finished to drop table {}.{}.{}", getName(), dbName, tableName);
     }
 
@@ -823,20 +739,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
+        String localNewTableName = db.canonicalLocalTableNameFromRemote(newTableName);
         try {
             metadata.renameTable(session, handle, newTableName);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
-        // R4: drop the connector's OWN caches for BOTH the source and target names so an atomic swap
-        // (RENAME t->t_arch; RENAME t_new->t) doesn't serve the pre-rename pinned snapshot under either name —
-        // afterExternalRename only fixes the FE name cache. Same drop+recreate class the dropTable hook covers.
-        // Connector-agnostic (no-op SPI default); the source is keyed by its resolved REMOTE names, the target
-        // by the new name in the same remote db (parity with createTable: a rename target has no prior
-        // local->remote mapping). Followers propagate this via RefreshManager.replayRefreshTable's rename branch.
-        connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
-        connector.invalidateTable(dorisTable.getRemoteDbName(), newTableName);
-        afterExternalRename(dbName, oldTableName, newTableName);
+        afterExternalRename(db, dorisTable, newTableName, localNewTableName);
     }
 
     /**
@@ -873,74 +782,108 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throw new DdlException(e.getMessage(), e);
         }
         long updateTime = System.currentTimeMillis();
-        // Cache refresh + edit log use the LOCAL db/table names for follower-replay parity (only the
-        // connector-bound handle is remote-resolved), mirroring base ExternalCatalog.truncateTable.
-        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, dorisTable, updateTime);
         Env.getCurrentEnv().getEditLog().logTruncateTable(
-                new TruncateTableInfo(getName(), dbName, tableName, partitions, updateTime));
+                new TruncateTableInfo(getName(), db.getFullName(), dorisTable.getName(), partitions, updateTime));
+        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, dorisTable, updateTime);
         LOG.info("finished to truncate table {}.{}.{}", getName(), dbName, tableName);
     }
 
     /**
-     * Refreshes the local table cache on edit-log replay of a connector-driven truncate. The base
-     * {@link ExternalCatalog#replayTruncateTable} delegates to {@code metadataOps.afterTruncateTable}, which is a
-     * no-op for PluginDriven ({@code metadataOps == null}); this override re-resolves the cached table by the
-     * replayed LOCAL names and runs {@code refreshTableInternal} (the same effect the master path applied),
-     * mirroring legacy {@code HiveMetadataOps.afterTruncateTable}.
+     * Replays cache invalidation for a connector-driven truncate without loading remote metadata. A cached table
+     * follows the normal refresh path. Otherwise canonical local names identify engine and row-count caches, while
+     * connector invalidation widens to the database or catalog scope when the remote table name is unavailable.
      */
     @Override
     public void replayTruncateTable(TruncateTableInfo info) {
-        getDbForReplay(info.getDb()).ifPresent(db ->
-                db.getTableForReplay(info.getTable()).ifPresent(tbl ->
-                        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, tbl, info.getUpdateTime())));
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(info.getDb());
+        Optional<? extends ExternalTable> table = db.flatMap(database -> database.getTableForReplay(info.getTable()));
+        if (table.isPresent()) {
+            Env.getCurrentEnv().getRefreshManager()
+                    .refreshTableInternal(db.get(), table.get(), info.getUpdateTime());
+            return;
+        }
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        try {
+            Connector replayConnector = connector;
+            if (isInitialized() && replayConnector != null) {
+                if (db.isPresent()) {
+                    replayConnector.invalidateDb(db.get().getRemoteName());
+                } else {
+                    replayConnector.invalidateAll();
+                }
+            }
+        } finally {
+            long dbId = Util.genIdByName(getName(), info.getDb());
+            cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
+                    Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
+        }
     }
 
-    /**
-     * Propagates the coordinator {@link #dropTable} hook's connector-cache invalidation to followers/observers
-     * on edit-log replay. The base {@link ExternalCatalog#replayDropTable} plugin branch only touches the FE
-     * name cache ({@code unregisterTable}); without this, a follower that had queried a paimon/iceberg table
-     * keeps its latest-snapshot pin (and paimon's schema memo) for the dropped name until the 24h access-TTL —
-     * the coordinator-only half of the drop+recreate fix. Resolves the REMOTE names from the still-cached
-     * table BEFORE the base unregisters it, keyed exactly like the coordinator (mirrors
-     * {@code RefreshManager.replayRefreshTable → refreshTableInternal}'s connector hook).
-     *
-     * <p><b>Never force-initializes during replay:</b> {@code getConnector()} runs only inside the
-     * {@code getDbForReplay}/{@code getTableForReplay} match, which is present only when this catalog is
-     * already initialized on this FE (both return empty otherwise). A never-initialized catalog has no
-     * connector cache to drop, so skipping it is correct — mirroring {@code HiveConnector.forEachBuiltSibling}
-     * ("a never-built sibling has no cache") and preserving the base's no-force-init replay behavior.
-     */
     @Override
     public void replayDropTable(String dbName, String tblName) {
-        getDbForReplay(dbName).ifPresent(db ->
-                db.getTableForReplay(tblName).ifPresent(tbl ->
-                        getConnector().invalidateTable(db.getRemoteName(), tbl.getRemoteName())));
-        super.replayDropTable(dbName, tblName);
+        try {
+            invalidateTableConnectorCacheForReplay(dbName, tblName);
+        } finally {
+            super.replayDropTable(dbName, tblName);
+        }
     }
 
-    /**
-     * Replay analogue of the coordinator {@link #dropDb} hook's connector-cache invalidation — clears every
-     * table's connector cache for the dropped database on followers/observers (the base
-     * {@link ExternalCatalog#replayDropDb} plugin branch only unregisters the FE db). Resolves the REMOTE db
-     * name BEFORE the base unregisters the database. See {@link #replayDropTable} for the no-force-init
-     * rationale.
-     */
     @Override
     public void replayDropDb(String dbName) {
-        getDbForReplay(dbName).ifPresent(db -> getConnector().invalidateDb(db.getRemoteName()));
-        super.replayDropDb(dbName);
+        try {
+            invalidateDatabaseConnectorCacheForReplay(dbName);
+        } finally {
+            super.replayDropDb(dbName);
+        }
     }
 
-    /**
-     * Replay analogue of the coordinator {@link #createTable} hook's belt-and-suspenders connector-cache
-     * invalidation (uniform with the drop path). The table name is NOT remote-resolved — parity with the
-     * coordinator, where a brand-new table has no local→remote mapping. See {@link #replayDropTable} for the
-     * no-force-init rationale.
-     */
     @Override
     public void replayCreateTable(String dbName, String tblName) {
-        super.replayCreateTable(dbName, tblName);
-        getDbForReplay(dbName).ifPresent(db -> getConnector().invalidateTable(db.getRemoteName(), tblName));
+        try {
+            invalidateDatabaseConnectorCacheForReplay(dbName);
+        } finally {
+            super.replayCreateTable(dbName, tblName);
+        }
+    }
+
+    @Override
+    public void replayCreateDb(String dbName) {
+        try {
+            invalidateDatabaseConnectorCacheForReplay(dbName);
+        } finally {
+            super.replayCreateDb(dbName);
+        }
+    }
+
+    // Replay never initializes a cold catalog; missing local-to-remote identity widens the live connector scope.
+    private void invalidateDatabaseConnectorCacheForReplay(String localDbName) {
+        Connector replayConnector = connector;
+        if (isInitialized() && replayConnector != null) {
+            Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(localDbName);
+            if (db.isPresent()) {
+                replayConnector.invalidateDb(db.get().getRemoteName());
+            } else {
+                replayConnector.invalidateAll();
+            }
+        }
+    }
+
+    private void invalidateTableConnectorCacheForReplay(String localDbName, String localTableName) {
+        Connector replayConnector = connector;
+        if (!isInitialized() || replayConnector == null) {
+            return;
+        }
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(localDbName);
+        if (!db.isPresent()) {
+            replayConnector.invalidateAll();
+            return;
+        }
+        Optional<? extends ExternalTable> table = db.get().getTableForReplay(localTableName);
+        if (table.isPresent()) {
+            replayConnector.invalidateTable(db.get().getRemoteName(), table.get().getRemoteName());
+        } else {
+            replayConnector.invalidateDb(db.get().getRemoteName());
+        }
     }
 
     /**
@@ -1320,46 +1263,75 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return ConnectorColumnPath.of(columnPath.getParts());
     }
 
-    /**
-     * Replays the base {@link ExternalCatalog} per-op bookkeeping for a connector-driven schema change.
-     *
-     * <p>The base column ops only emit the editlog ({@code logRefreshExternalTable}); the actual cache
-     * invalidation is delegated INTO {@code metadataOps.refreshTable -> RefreshManager.refreshTableInternal}.
-     * Since PluginDrivenExternalCatalog has no {@code metadataOps}, this helper does BOTH explicitly: the
-     * {@code createForRefreshTable} editlog (LOCAL names, replay-neutral) and a {@code refreshTableInternal}
-     * (re-resolving the local cached table by its REMOTE names, mirroring legacy
-     * {@code IcebergMetadataOps.refreshTable}). {@code refreshTableInternal} is the single source of truth for
-     * the cache work ({@code unsetObjectCreated} + {@code setUpdateTime} + {@code invalidateTableCache} + the
-     * connector-side per-table cache drop), so it must NOT be re-inlined here.
-     */
+    /** Persists replay identity, then refreshes the cached table when present or the resolved transient table. */
     protected void afterExternalDdl(ExternalTable externalTable, long updateTime) {
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
-                ExternalObjectLog.createForRefreshTable(getId(),
-                        externalTable.getDbName(), externalTable.getName(), updateTime));
-        getDbForReplay(externalTable.getRemoteDbName()).ifPresent(db ->
-                db.getTableForReplay(externalTable.getRemoteName()).ifPresent(tbl ->
-                        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, tbl, updateTime)));
+                ExternalObjectLog.createForRefreshTable(
+                        getId(), externalTable.getDbName(), externalTable.getName(), updateTime));
+        ExternalTable refreshTarget = getDbForReplay(externalTable.getDbName())
+                .<ExternalTable>flatMap(db -> db.getTableForReplay(externalTable.getName()))
+                .orElse(externalTable);
+        Env.getCurrentEnv().getRefreshManager()
+                .refreshTableInternal(refreshTarget.getDb(), refreshTarget, updateTime);
     }
 
-    /**
-     * Replays the base {@link ExternalCatalog#renameTable} bookkeeping for a connector-driven rename, since
-     * PluginDriven has no {@code metadataOps}: the table-name cache fix ({@code unregisterTable(old)} +
-     * {@code resetMetaCacheNames()}, mirroring legacy {@code IcebergMetadataOps.afterRenameTable}), the
-     * {@code constraintManager} rename, and the {@code createForRenameTable} editlog (whose replay,
-     * {@code RefreshManager.replayRefreshTable}, is already metadataOps-neutral). All use LOCAL names, matching
-     * the base op + the editlog payload, so followers replay consistently. Order mirrors the base op
-     * (cache &rarr; constraint &rarr; editlog).
-     */
-    protected void afterExternalRename(String dbName, String oldTableName, String newTableName) {
-        getDbForReplay(dbName).ifPresent(db -> {
-            db.unregisterTable(oldTableName);
-            db.resetMetaCacheNames();
-        });
-        Env.getCurrentEnv().getConstraintManager().renameTable(
-                new TableNameInfo(getName(), dbName, oldTableName),
-                new TableNameInfo(getName(), dbName, newTableName));
+    private void invalidateCreatedDatabaseCaches(String remoteDbName, String localDbName) {
+        try {
+            connector.invalidateDb(remoteDbName);
+        } finally {
+            invalidateCreatedDatabase(localDbName);
+        }
+    }
+
+    private void invalidateCreatedTableCaches(ExternalDatabase<? extends ExternalTable> db,
+            String remoteTableName, String localTableName) {
+        try {
+            connector.invalidateTable(db.getRemoteName(), remoteTableName);
+        } finally {
+            invalidateCreatedTable(db.getFullName(), localTableName);
+        }
+    }
+
+    private void finishDropTable(ExternalDatabase<? extends ExternalTable> db, ExternalTable table) {
+        Env.getCurrentEnv().getEditLog().logDropTable(
+                new DropInfo(getName(), db.getFullName(), table.getName()));
+        try {
+            connector.invalidateTable(table.getRemoteDbName(), table.getRemoteName());
+        } finally {
+            invalidateDroppedTable(db.getFullName(), table.getName());
+        }
+    }
+
+    protected void afterExternalRename(ExternalDatabase<? extends ExternalTable> db,
+            ExternalTable table, String remoteNewTableName, String localNewTableName) {
+        String dbName = db.getFullName();
+        String oldTableName = table.getName();
+        // The remote rename has committed; persist replay identity before fallible local bookkeeping.
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
-                ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
+                ExternalObjectLog.createForRenameTable(
+                        getId(), dbName, oldTableName, localNewTableName));
+        try {
+            try {
+                connector.invalidateTable(table.getRemoteDbName(), table.getRemoteName());
+            } finally {
+                connector.invalidateTable(table.getRemoteDbName(), remoteNewTableName);
+            }
+        } finally {
+            try {
+                getDbForReplay(dbName).ifPresent(
+                        cachedDb -> cachedDb.invalidateTableRename(oldTableName, localNewTableName));
+            } finally {
+                try {
+                    Env.getCurrentEnv().getConstraintManager().renameTable(
+                            new TableNameInfo(getName(), dbName, oldTableName),
+                            new TableNameInfo(getName(), dbName, localNewTableName));
+                } finally {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRename(
+                            getId(), db.getId(), dbName, table.getId(), oldTableName,
+                            Util.genIdByName(getName(), dbName, localNewTableName), localNewTableName);
+                }
+            }
+        }
     }
 
     @Override

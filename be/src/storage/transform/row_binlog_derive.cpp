@@ -99,7 +99,7 @@ Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
          cid < before_col_start + cast_set<uint32_t>(value_column_num); ++cid) {
         before_cids.emplace_back(cid);
     }
-    Block before_block = binlog_schema.create_block_by_cids(before_cids);
+    Block before_block = binlog_schema.create_storage_block(before_cids);
     DCHECK(retriever != nullptr);
     DCHECK_EQ(before_cids.size(), value_source_cids.size());
     RETURN_IF_ERROR(retriever->build_before_block(&before_block, value_source_cids, 0, num_rows));
@@ -117,7 +117,7 @@ void fill_binlog_system_columns(Block& out, const TabletSchema& binlog_schema,
                                 uint32_t binlog_op_cid, const std::vector<int64_t>& lsn_ids,
                                 const std::vector<int64_t>& operators, size_t num_rows) {
     std::vector<uint32_t> binlog_cids = {binlog_tso_cid, binlog_lsn_cid, binlog_op_cid};
-    Block binlog_system_block = binlog_schema.create_block_by_cids(binlog_cids);
+    Block binlog_system_block = binlog_schema.create_storage_block(binlog_cids);
     {
         auto binlog_system_columns_guard = binlog_system_block.mutate_columns_scoped();
         auto& binlog_system_columns = binlog_system_columns_guard.mutable_columns();
@@ -258,7 +258,7 @@ std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32
 Status emit_binlog_block(const BinlogDeriveContext& c, const Block* after_src,
                          PrimaryKeyModelRowRetriever* retriever,
                          const std::vector<int64_t>* plain_operators, Block* block) {
-    Block out = c.binlog_schema->create_block();
+    Block out = c.binlog_schema->create_storage_block();
     // every index below is a cid, so the block has to carry every schema column
     if (out.columns() != c.binlog_schema->num_columns()) {
         return Status::InternalError<false>(
@@ -368,9 +368,9 @@ Status MowRowBinlogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     }
 
     if (is_fixed_partial_update) {
-        if (block->columns() <= c.source_schema->num_key_columns() ||
+        if (block->columns() < c.source_schema->num_key_columns() ||
             block->columns() >= c.source_schema->num_columns()) {
-            return Status::InternalError(fmt::format(
+            return Status::InvalidArgument(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
                     "schema columns: {}",
                     block->columns(), c.source_schema->num_key_columns(),

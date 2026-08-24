@@ -252,7 +252,7 @@ protected:
     }
 
     Block create_block(int start_key, int num_rows) const {
-        Block block = _tablet->tablet_schema()->create_block();
+        Block block = _tablet->tablet_schema()->create_storage_block();
         {
             auto columns_guard = block.mutate_columns_scoped();
             auto& columns = columns_guard.mutable_columns();

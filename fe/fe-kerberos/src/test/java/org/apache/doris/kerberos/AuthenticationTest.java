@@ -42,4 +42,19 @@ public class AuthenticationTest {
         AuthenticationConfig conf3 = AuthenticationConfig.getKerberosConfig(conf);
         Assert.assertEquals(KerberosAuthenticationConfig.class, conf3.getClass());
     }
+
+    @Test
+    public void testDoAsPreservesCheckedExceptionMessage() {
+        Configuration conf = new Configuration(false);
+        conf.set(AuthenticationConfig.HADOOP_USER_NAME, "hms-user");
+        HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
+
+        RuntimeException error = Assert.assertThrows(RuntimeException.class,
+                () -> authenticator.doAs(() -> {
+                    throw new Exception("Database db is not empty.");
+                }));
+
+        Assert.assertEquals("Database db is not empty.", error.getMessage());
+        Assert.assertEquals(Exception.class, error.getCause().getClass());
+    }
 }

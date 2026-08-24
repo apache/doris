@@ -95,8 +95,7 @@ public:
      * 4. Collects performance statistics
      * 
      * @param range_search_runtime Runtime info containing query vector, radius, and metrics
-     * @param cid_to_index_iterators Vector of index iterators for each column
-     * @param idx_to_cid Mapping from index position to column ID
+     * @param index_iterators Vector of index iterators in read-schema order
      * @param column_iterators Vector of column iterators for data access
      * @param row_bitmap Output bitmap updated with matching row IDs
      * @param ann_index_stats Statistics collector for performance monitoring
@@ -104,8 +103,7 @@ public:
      */
     Status evaluate_ann_range_search(
             const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,

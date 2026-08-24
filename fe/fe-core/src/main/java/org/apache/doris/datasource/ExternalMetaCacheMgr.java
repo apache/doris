@@ -178,13 +178,18 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateCatalog",
-                () -> cache.invalidateCatalogEntries(catalogId)));
-        // Cache B (Nereids sorted-partition-ranges) has no db/catalog-scoped eviction, so a catalog-level
-        // REFRESH must drop ALL of its entries -- else binary-search pruning could serve ranges older than
-        // the refreshed metadata. Coarse but correct (a rebuild is cheap and lazy). Mirrors invalidateTable.
-        invalidateSortedPartitionsCache();
+        try {
+            try {
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "invalidateCatalog",
+                        () -> cache.invalidateCatalogEntries(catalogId)));
+            } finally {
+                // This cache has no catalog-scoped key, so catalog invalidation must clear it globally.
+                invalidateSortedPartitionsCache();
+            }
+        } finally {
+            rowCountCache.invalidateCatalog(catalogId);
+        }
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -194,12 +199,17 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "removeCatalog",
-                () -> cache.invalidateCatalog(catalogId)));
-        // Drop ALL Cache B entries: the catalog is going away and Cache B has no catalog-scoped eviction.
-        // (invalidateAll needs no catalog name, so this is safe even after the catalog was already removed.)
-        invalidateSortedPartitionsCache();
+        try {
+            try {
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "removeCatalog",
+                        () -> cache.invalidateCatalog(catalogId)));
+            } finally {
+                invalidateSortedPartitionsCache();
+            }
+        } finally {
+            rowCountCache.invalidateCatalog(catalogId);
+        }
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -208,24 +218,75 @@ public class ExternalMetaCacheMgr {
                 () -> cache.invalidateCatalog(catalogId)));
     }
 
-    public void invalidateDb(long catalogId, String dbName) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
-        // Cache B has no db-scoped eviction key, so a db-level REFRESH drops ALL entries (coarse but
-        // correct -- a rebuild is cheap and lazy). Mirrors invalidateTable's Cache B wiring.
-        invalidateSortedPartitionsCache();
+    /**
+     * Invalidates database metadata without evicting row counts. Passive object-cache resets use this directly;
+     * mutation paths must add their row-count barrier after upstream metadata has been invalidated.
+     */
+    public void invalidateDbMetadataCache(long catalogId, String dbName) {
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateDbMetadataCache", () -> cache.invalidateDb(catalogId, dbName)));
+        } finally {
+            // This cache has no database-scoped key, so database invalidation must clear it globally.
+            invalidateSortedPartitionsCache();
+        }
     }
 
-    public void invalidateTable(long catalogId, String dbName, String tableName) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateTable",
-                () -> cache.invalidateTable(catalogId, dbName, tableName)));
-        // Also drop the Nereids sorted-partition-ranges cache for this external table so binary-search
-        // pruning does not serve ranges older than the refreshed metadata.
-        CatalogIf<?> ctl = getCatalog(catalogId);
-        if (ctl != null) {
-            Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateTable(ctl.getName(), dbName, tableName);
+    public void invalidateDb(long catalogId, long dbId, String dbName) {
+        try {
+            invalidateDbMetadataCache(catalogId, dbName);
+        } finally {
+            // Keep row-count invalidation last: it fences loads published before the metadata invalidation.
+            rowCountCache.invalidateDb(catalogId, dbId);
         }
+    }
+
+    private void invalidateTableMetadataCache(long catalogId, String dbName, String tableName) {
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateTableMetadataCache",
+                    () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        } finally {
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (catalog != null) {
+                Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                        .invalidateTable(catalog.getName(), dbName, tableName);
+            }
+        }
+    }
+
+    public void invalidateTable(long catalogId, long dbId, String dbName,
+            long tableId, String tableName) {
+        try {
+            invalidateTableMetadataCache(catalogId, dbName, tableName);
+        } finally {
+            // Keep row-count invalidation last: it fences loads published before the metadata invalidation.
+            rowCountCache.invalidateTable(catalogId, dbId, tableId);
+        }
+    }
+
+    public void invalidateTableRename(long catalogId, long dbId, String dbName,
+            long sourceTableId, String sourceTableName,
+            long destinationTableId, String destinationTableName) {
+        try {
+            invalidateTable(catalogId, dbId, dbName, sourceTableId, sourceTableName);
+        } finally {
+            // The destination ID may belong to an earlier incarnation, so its row-count barrier must run last.
+            invalidateTable(catalogId, dbId, dbName, destinationTableId, destinationTableName);
+        }
+    }
+
+    public void invalidateTable(ExternalTable table) {
+        invalidateTable(table.getCatalog().getId(), table.getDb().getId(), table.getDbName(),
+                table.getId(), table.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidated table caches for {}.{} in catalog {}", table.getRemoteDbName(),
+                    table.getRemoteName(), table.getCatalog().getName());
+        }
+    }
+
+    public void invalidateDbRowCountCache(long catalogId, long dbId) {
+        rowCountCache.invalidateDb(catalogId, dbId);
     }
 
     /**
@@ -242,6 +303,12 @@ public class ExternalMetaCacheMgr {
         if (mgr != null) {
             mgr.invalidateAll();
         }
+    }
+
+    /** Evicts only row count for partition changes that do not invalidate table-level FE metadata. */
+    public void invalidateTableRowCountCache(ExternalTable table) {
+        rowCountCache.invalidateTable(
+                table.getCatalog().getId(), table.getDb().getId(), table.getId());
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
@@ -379,16 +446,6 @@ public class ExternalMetaCacheMgr {
 
     public ExternalRowCountCache getRowCountCache() {
         return rowCountCache;
-    }
-
-    public void invalidateTableCache(ExternalTable dorisTable) {
-        invalidateTable(dorisTable.getCatalog().getId(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
-                    dorisTable.getRemoteName(), dorisTable.getCatalog().getName());
-        }
     }
 
     public ExecutorService commonRefreshExecutor() {

@@ -73,7 +73,7 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
 
     bundle->field_name_to_column_id[field_name] = column_index;
 
-    auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_index);
+    auto* iterator = index_context->get_inverted_index_iterator(column_index);
     if (iterator == nullptr) {
         // For example, `data.items.message` has its own SlotRef in the scan schema. The
         // storage layer may inherit index metadata from `data`, but it still constructs a
@@ -89,8 +89,7 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
         return Status::OK();
     }
 
-    const auto* storage_name_type =
-            index_context->get_storage_name_and_type_by_column_id(column_index);
+    const auto* storage_name_type = index_context->get_storage_name_and_type(column_index);
     if (storage_name_type == nullptr) {
         return Status::InternalError("storage_name_type not found for column {} in {}",
                                      column_index, expr.expr_name());
