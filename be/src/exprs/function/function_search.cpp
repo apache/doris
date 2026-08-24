@@ -773,7 +773,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     };
 
     FieldReaderBinding binding;
-    RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
+    const bool require_analyzer_context = clause_type != "WILDCARD" && clause_type != "REGEXP";
+    if (require_analyzer_context) {
+        RETURN_IF_ERROR(resolver.resolve_with_analyzer_context(field_name, query_type, &binding));
+    } else {
+        RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
+    }
 
     if (!binding.is_bound()) {
         LOG(INFO) << "search: No inverted index for field '" << field_name
@@ -905,9 +910,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                             ? normalize_wildcard_pattern(value, binding.index_properties)
                             : value;
             Field query_value = Field::create_field<TYPE_STRING>(pattern);
-            RETURN_IF_ERROR(binding.inverted_reader->query(reader_context,
-                                                           binding.stored_field_name, query_value,
-                                                           snii_query_type, data_bitmap, nullptr));
+            const bool raw_pattern_query =
+                    snii_query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
+                    snii_query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+            RETURN_IF_ERROR(binding.inverted_reader->query(
+                    reader_context, binding.stored_field_name, query_value, snii_query_type,
+                    data_bitmap, raw_pattern_query ? nullptr : binding.analyzer_context.get()));
             // Reply-direction fields land on the copy the reader was given, so they have to be
             // folded back. Today this is unreachable rather than load-bearing: the count-only
             // fast path requires the scan to have no score runtime, while the similarity that
