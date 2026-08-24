@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -115,11 +116,16 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    void propagateNullPaddedOutputToInnerJoin() {
-        LogicalPlan leftOuterJoin = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(), ImmutableList.of(BooleanLiteral.FALSE))
+    void propagateNullPaddedOutputToInnerJoinInSamePass() {
+        Slot scan1Slot = scan1.getOutput().get(0);
+        LogicalPlan filteredScan1 = new LogicalPlanBuilder(scan1)
+                .filter(new EqualTo(scan1Slot, new IntegerLiteral(1)))
                 .build();
-        Slot nullPaddedSlot = leftOuterJoin.getOutput().get(scan1.getOutput().size());
+        LogicalPlan leftOuterJoin = new LogicalPlanBuilder(filteredScan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(),
+                        ImmutableList.of(new EqualTo(scan1Slot, new IntegerLiteral(2))))
+                .build();
+        Slot nullPaddedSlot = leftOuterJoin.getOutput().get(filteredScan1.getOutput().size());
         LogicalPlan innerJoin = new LogicalPlanBuilder(leftOuterJoin)
                 .join(scan3, JoinType.INNER_JOIN, ImmutableList.of(),
                         ImmutableList.of(new EqualTo(
@@ -128,7 +134,6 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), innerJoin)
-                .applyBottomUp(new EliminateJoinCondition())
                 .applyCustom(new ConstantPropagation())
                 .matches(logicalEmptyRelation());
     }
