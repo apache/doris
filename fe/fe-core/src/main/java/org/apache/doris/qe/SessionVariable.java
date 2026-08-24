@@ -3068,6 +3068,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "Intended for one-shot / ad-hoc cold queries.")
     public boolean invertedIndexSniiReadNoWriteFileCache = false;
 
+    @VarAttrDef.VarAttr(name = "disable_join_reorder_before_eager_agg", needForward = true)
+    public boolean disableJoinReorderBeforeEagerAgg = false;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }

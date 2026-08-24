@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.joinorder.JoinReorderRule;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -116,12 +118,15 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
     }
 
     private Plan reorderJoinBeforePush(Plan plan, JobContext jobContext) {
+        List<CatalogRelation> scans = plan.collectToList(CatalogRelation.class::isInstance);
+        StatsCalculator.disableJoinReorderIfStatsInvalid(scans, jobContext.getCascadesContext());
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        if (connectContext.getSessionVariable().isDisableJoinReorder()) {
+        if (connectContext.getSessionVariable().isDisableJoinReorder()
+                || jobContext.getCascadesContext().isLeadingDisableJoinReorder()
+                || connectContext.getSessionVariable().disableJoinReorderBeforeEagerAgg) {
             return plan;
         }
-        JoinReorderRule rule = new JoinReorderRule();
-        plan = rule.rewrite(plan, null);
+        plan = JoinReorderRule.INSTANCE.rewrite(plan, null);
         plan = new ColumnPruning().rewriteRoot(plan, jobContext);
         return plan;
     }
