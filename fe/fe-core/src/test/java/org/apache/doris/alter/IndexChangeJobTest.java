@@ -560,7 +560,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -574,7 +574,7 @@ public class IndexChangeJobTest {
         alterOps.add(createIndexOp);
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("errCode = 2, detailMessage = Table[testTable2]'s state(SCHEMA_CHANGE) is not NORMAL. Do not allow doing ALTER ops");
+        expectedEx.expectMessage("errCode = 2, detailMessage = Table[testTable1]'s state(SCHEMA_CHANGE) is not NORMAL. Do not allow doing ALTER ops");
         schemaChangeHandler.process(alterOps, db, olapTable);
 
         olapTable.setState(OlapTableState.NORMAL);
@@ -661,7 +661,7 @@ public class IndexChangeJobTest {
         alterOps.add(createIndexOp);
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("errCode = 2, detailMessage = Table[testTable2]'s state(SCHEMA_CHANGE) is not NORMAL. Do not allow doing ALTER ops");
+        expectedEx.expectMessage("errCode = 2, detailMessage = Table[testTable1]'s state(SCHEMA_CHANGE) is not NORMAL. Do not allow doing ALTER ops");
         schemaChangeHandler.process(alterOps, db, olapTable);
 
         olapTable.setState(OlapTableState.NORMAL);
