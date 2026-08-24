@@ -9,6 +9,15 @@
 1	{"v":20}	1
 2	{"v":10}	2
 
+-- !group_by_fixed_struct --
+1	{"a":1, "b":10}	2
+1	{"a":2, "b":20}	1
+2	{"a":null, "b":30}	2
+
+-- !distinct_fixed_struct --
+1	2
+2	1
+
 -- !array_agg_distinct_struct --
 1	2
 2	1
