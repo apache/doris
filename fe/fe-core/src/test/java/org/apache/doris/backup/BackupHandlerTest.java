@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -51,6 +52,9 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -59,6 +63,10 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -136,6 +144,48 @@ public class BackupHandlerTest {
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         Assert.assertTrue(backupDir.exists());
+    }
+
+    @Test
+    public void testReplayPendingJobWithMissingTableReference() throws IOException {
+        List<TableRefInfo> tableRefs = Lists.newArrayList();
+        tableRefs.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        BackupJob backupJob = new BackupJob("legacy_missing_ref", CatalogMocker.TEST_DB_ID,
+                CatalogMocker.TEST_DB_NAME, tableRefs, 600_000, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+
+        JsonObject pendingJobJson = JsonParser.parseString(GsonUtils.GSON.toJson(backupJob)).getAsJsonObject();
+        JsonArray corruptedTableRefs = new JsonArray();
+        corruptedTableRefs.add(new JsonObject());
+        pendingJobJson.add("ref", corruptedTableRefs);
+        String corruptedPendingJobJson = pendingJobJson.toString();
+
+        BackupJob replayedPendingJob = GsonUtils.GSON.fromJson(corruptedPendingJobJson, BackupJob.class);
+        handler = new BackupHandler(env);
+        handler.replayAddJob(replayedPendingJob);
+        handler.runAfterCatalogReady();
+
+        BackupJob cancelledJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
+        Assert.assertTrue(cancelledJob.isCancelled());
+        Assert.assertTrue(cancelledJob.getStatus().getErrMsg().contains("submit the backup again"));
+        Mockito.verify(editLog, Mockito.times(1)).logBackupJob(cancelledJob);
+
+        BackupHandler restartedHandler = new BackupHandler(env);
+        restartedHandler.replayAddJob(GsonUtils.GSON.fromJson(corruptedPendingJobJson, BackupJob.class));
+        restartedHandler.replayAddJob(writeAndRead(cancelledJob));
+        Assert.assertTrue(restartedHandler.getJob(CatalogMocker.TEST_DB_ID).isCancelled());
+    }
+
+    private BackupJob writeAndRead(BackupJob backupJob) throws IOException {
+        ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(outputBytes)) {
+            backupJob.write(output);
+        }
+        try (DataInputStream input = new DataInputStream(
+                new ByteArrayInputStream(outputBytes.toByteArray()))) {
+            return BackupJob.read(input);
+        }
     }
 
     @Test

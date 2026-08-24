@@ -26,6 +26,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -38,6 +39,7 @@ import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -51,6 +53,9 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -62,6 +67,8 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -625,12 +632,13 @@ public class BackupJobTest {
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         List<TableRefInfo> tableRefs = Lists.newArrayList();
+        PartitionNamesInfo partitionNames = new PartitionNamesInfo(false, Lists.newArrayList("p1", "p2"));
         tableRefs.add(
                 new TableRefInfo(
                         new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
                         null,
                         null,
-                        null,
+                        partitionNames,
                         new ArrayList<>(),
                         null,
                         null,
@@ -652,9 +660,72 @@ public class BackupJobTest {
         Assert.assertEquals(job.getCreateTime(), job2.getCreateTime());
         Assert.assertEquals(job.getType(), job2.getType());
         Assert.assertEquals(job.getCommitSeq(), job2.getCommitSeq());
+        Assert.assertTrue(job2.getInfo().get(4).contains(UnitTestUtil.TABLE_NAME));
+        Assert.assertTrue(job2.getInfo().get(4).contains("p1"));
+        Assert.assertTrue(job2.getInfo().get(4).contains("p2"));
 
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testDeserializeLegacyTableRefInfoNames() {
+        TableRefInfo tableRef = GsonUtils.GSON.fromJson(
+                "{\"n\":{\"ctl\":\"internal\",\"db\":\"db\",\"tbl\":\"tbl\"},"
+                        + "\"p\":{\"partitionNames\":[\"p1\",\"p2\"],\"isTemp\":false}}",
+                TableRefInfo.class);
+
+        Assert.assertEquals("internal", tableRef.getTableNameInfo().getCtl());
+        Assert.assertEquals("db", tableRef.getTableNameInfo().getDb());
+        Assert.assertEquals("tbl", tableRef.getTableNameInfo().getTbl());
+        Assert.assertEquals(Lists.newArrayList("p1", "p2"),
+                tableRef.getPartitionNamesInfo().getPartitionNames());
+    }
+
+    @Test
+    public void testCancelPendingJobWithMissingPersistedTableReference() throws IOException {
+        JsonObject jobJson = JsonParser.parseString(GsonUtils.GSON.toJson(job)).getAsJsonObject();
+        // This is the exact shape written while TableRefInfo lacked @SerializedName annotations.
+        JsonArray corruptedTableRefs = new JsonArray();
+        corruptedTableRefs.add(new JsonObject());
+        jobJson.add("ref", corruptedTableRefs);
+        String corruptedJobJson = jobJson.toString();
+
+        BackupJob replayedJob = GsonUtils.GSON.fromJson(corruptedJobJson, BackupJob.class);
+        replayedJob.setEnv(env);
+        Assert.assertEquals(BackupJobState.PENDING.name(), replayedJob.getInfo().get(3));
+        replayedJob.run();
+
+        Assert.assertTrue(replayedJob.isCancelled());
+        Assert.assertEquals(BackupJobState.CANCELLED.name(), replayedJob.getInfo().get(3));
+        Assert.assertTrue(replayedJob.getStatus().getErrMsg().contains(
+                "table reference metadata is missing from the edit log"));
+
+        BackupJob replayedCancelledJob = writeAndRead(replayedJob);
+        replayedCancelledJob.setEnv(env);
+        replayedCancelledJob.run();
+        Assert.assertTrue(replayedCancelledJob.isCancelled());
+
+        JsonObject finishedJobJson = JsonParser.parseString(corruptedJobJson).getAsJsonObject();
+        finishedJobJson.addProperty("st", BackupJobState.FINISHED.name());
+        BackupJob replayedFinishedJob = GsonUtils.GSON.fromJson(finishedJobJson.toString(), BackupJob.class);
+        replayedFinishedJob.setEnv(env);
+        replayedFinishedJob.run();
+        Assert.assertTrue(replayedFinishedJob.isFinished());
+
+        Mockito.verify(editLog, Mockito.times(1)).logBackupJob(ArgumentMatchers.any(BackupJob.class));
+        mockedAgentTaskExecutor.verifyNoInteractions();
+    }
+
+    private BackupJob writeAndRead(BackupJob backupJob) throws IOException {
+        ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(outputBytes)) {
+            backupJob.write(output);
+        }
+        try (DataInputStream input = new DataInputStream(
+                new ByteArrayInputStream(outputBytes.toByteArray()))) {
+            return BackupJob.read(input);
+        }
     }
 }
