@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
@@ -639,5 +640,78 @@ public class OlapTableTest {
         }
         }
         // CHECKSTYLE ONca
+    }
+
+    @Test
+    public void testSelectiveCopyBackupReplicaStripping() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+
+            Database db = UnitTestUtil.createDb(10, 20, 30, 40, 50, 60, 1);
+            OlapTable srcTable = (OlapTable) db.getTableNullable(20);
+            Assert.assertNotNull(srcTable);
+
+            int srcReplicaCount = 0;
+            for (Partition p : srcTable.getPartitions()) {
+                for (MaterializedIndex idx : p.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (Tablet t : idx.getTablets()) {
+                        srcReplicaCount += t.getReplicas().size();
+                    }
+                }
+            }
+            Assert.assertTrue(srcReplicaCount > 0);
+
+            boolean savedConfig = Config.backup_meta_reserve_replica_info;
+            try {
+                Config.backup_meta_reserve_replica_info = false;
+                OlapTable backupCopy = srcTable.selectiveCopy(null, IndexExtState.VISIBLE, true);
+                Assert.assertNotNull(backupCopy);
+                for (Partition p : backupCopy.getPartitions()) {
+                    for (MaterializedIndex idx : p.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (Tablet t : idx.getTablets()) {
+                            Assert.assertEquals(0, t.getReplicas().size());
+                        }
+                    }
+                }
+
+                int srcAfterCount = 0;
+                for (Partition p : srcTable.getPartitions()) {
+                    for (MaterializedIndex idx : p.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (Tablet t : idx.getTablets()) {
+                            srcAfterCount += t.getReplicas().size();
+                        }
+                    }
+                }
+                Assert.assertEquals(srcReplicaCount, srcAfterCount);
+
+                Config.backup_meta_reserve_replica_info = true;
+                OlapTable reservedCopy = srcTable.selectiveCopy(null, IndexExtState.VISIBLE, true);
+                Assert.assertNotNull(reservedCopy);
+                int reservedReplicaCount = 0;
+                for (Partition p : reservedCopy.getPartitions()) {
+                    for (MaterializedIndex idx : p.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (Tablet t : idx.getTablets()) {
+                            reservedReplicaCount += t.getReplicas().size();
+                        }
+                    }
+                }
+                Assert.assertTrue(reservedReplicaCount > 0);
+
+                Config.backup_meta_reserve_replica_info = false;
+                OlapTable nonBackupCopy = srcTable.selectiveCopy(null, IndexExtState.VISIBLE, false);
+                Assert.assertNotNull(nonBackupCopy);
+                int nonBackupReplicaCount = 0;
+                for (Partition p : nonBackupCopy.getPartitions()) {
+                    for (MaterializedIndex idx : p.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (Tablet t : idx.getTablets()) {
+                            nonBackupReplicaCount += t.getReplicas().size();
+                        }
+                    }
+                }
+                Assert.assertTrue(nonBackupReplicaCount > 0);
+            } finally {
+                Config.backup_meta_reserve_replica_info = savedConfig;
+            }
+        }
     }
 }
