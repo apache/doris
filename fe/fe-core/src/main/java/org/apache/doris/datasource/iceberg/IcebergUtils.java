@@ -82,6 +82,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
@@ -1749,9 +1750,6 @@ public class IcebergUtils {
     }
 
     public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
-        HiveCatalog hiveCatalog = new HiveCatalog();
-        hiveCatalog.setConf(externalCatalog.getConfiguration());
-
         Map<String, String> catalogProperties = externalCatalog.getProperties();
         if (!catalogProperties.containsKey(HiveCatalog.LIST_ALL_TABLES)) {
             // This configuration will display all tables (including non-Iceberg type tables),
@@ -1761,6 +1759,14 @@ public class IcebergUtils {
         }
         String metastoreUris = catalogProperties.getOrDefault(HMSBaseProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
+        return createIcebergHiveCatalog(name, catalogProperties, externalCatalog.getConfiguration());
+    }
+
+    /** Creates an HMS catalog whose generation owns the FileIO allocated by Iceberg. */
+    public static HiveCatalog createIcebergHiveCatalog(
+            String name, Map<String, String> catalogProperties, Configuration configuration) {
+        DorisHiveCatalog hiveCatalog = new DorisHiveCatalog();
+        hiveCatalog.setConf(configuration);
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
     }

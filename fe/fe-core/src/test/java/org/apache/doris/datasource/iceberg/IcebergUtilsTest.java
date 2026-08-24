@@ -229,6 +229,7 @@ public class IcebergUtilsTest {
             IcebergHMSExternalCatalog c1 =
                     new IcebergHMSExternalCatalog(1, "name", null, new HashMap<>(), "");
             HiveCatalog i1 = IcebergUtils.createIcebergHiveCatalog(c1, "i1");
+            Assert.assertTrue(i1 instanceof DorisHiveCatalog);
             Assert.assertTrue(getListAllTables(i1));
 
             IcebergHMSExternalCatalog c2 =
@@ -259,7 +260,7 @@ public class IcebergUtilsTest {
     }
 
     private boolean getListAllTables(HiveCatalog hiveCatalog) throws IllegalAccessException, NoSuchFieldException {
-        Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
+        Field declaredField = HiveCatalog.class.getDeclaredField("listAllTables");
         declaredField.setAccessible(true);
         return declaredField.getBoolean(hiveCatalog);
     }
