@@ -330,8 +330,9 @@ protected:
     //   current_concurrency = _completed_tasks.size() + _in_flight_tasks_num
     //
     // Lifecycle of a ScanTask:
-    //   _pending_tasks  --(submit_scan_task)--> [thread pool]  --(push_completed_scan_task)-->
-    //   _completed_tasks  --(get_block_from_queue)--> operator
+    //   _pending_tasks  --(submit_scan_task on the TaskExecutor path,
+    //                      try_get_next_scan_task on the ThreadPool path)--> [thread pool]
+    //   --(push_completed_scan_task)--> _completed_tasks  --(get_block_from_queue)--> operator
     //   After consumption: non-EOS task goes back to _pending_tasks; EOS increments
     //   _num_finished_scanners.
 
@@ -346,9 +347,12 @@ protected:
     // non-EOS task; drained by try_get_next_scan_task() or the TaskExecutor scheduler.
     std::stack<std::shared_ptr<ScanTask>> _pending_tasks;
 
-    // True from the start of one Context submission until its runnable starts. A failed submission
-    // also makes the Context terminal, so the marker may remain true when no runnable was retained.
-    // It does not describe scanners executing on workers. Protected by _transfer_lock.
+    // True from the start of one Context submission until its runnable starts. The marker may
+    // remain true when no runnable was retained: a failed submission makes the Context terminal,
+    // and a submission that threw inside _run_context() publishes the error through the task that
+    // was already admitted. In both cases the operator observes _process_status, so no further
+    // submission is attempted. It does not describe scanners executing on workers. Protected by
+    // _transfer_lock.
     bool _is_context_queued = false;
 
     // Number of scan tasks currently submitted to the scanner scheduler thread pool

@@ -544,15 +544,16 @@ std::string ScannerContext::debug_string() {
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, _in_flight_tasks_num: {}, remaining_limit: {}, _num_running_scanners: {}, "
-            "_max_thread_num: {},"
+            " limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, remaining_limit: {}, "
+            "_num_running_scanners: {}, _max_thread_num: {}, expected_scanners: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
             _completed_tasks.size(), _should_stop, _is_finished, _free_blocks.size_approx(), limit,
             _shared_scan_limit->load(std::memory_order_relaxed), _in_flight_tasks_num,
-            _num_finished_scanners, _max_scan_concurrency, _max_bytes_in_queue, _ins_idx,
-            _enable_adaptive_scanners,
+            _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
+            _enable_adaptive_scanners ? _adaptive_processor->expected_scanners : -1,
+            _max_bytes_in_queue, _ins_idx, _enable_adaptive_scanners,
             _enable_adaptive_scanners ? _mem_share_arb->debug_string() : "NULL",
             _enable_adaptive_scanners ? _scanner_mem_limiter->debug_string() : "NULL");
 }
@@ -631,6 +632,10 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
         static_cast<void>(_available_pickup_scanner_count());
     }
     if (!can_admit_scan_task(transfer_lock)) {
+        VLOG_DEBUG << fmt::format(
+                "[{}|{}] refuse admission, pending: {}, completed: {}, in-flight: {}, done: {}",
+                print_id(_query_id), ctx_id, _pending_tasks.size(), _completed_tasks.size(),
+                _in_flight_tasks_num, done());
         return nullptr;
     }
 
@@ -646,6 +651,9 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
     }
     scan_task->set_state(ScanTask::State::IN_FLIGHT);
     ++_in_flight_tasks_num;
+    VLOG_DEBUG << fmt::format("[{}|{}] admit scanner, pending: {}, completed: {}, in-flight: {}",
+                              print_id(_query_id), ctx_id, _pending_tasks.size(),
+                              _completed_tasks.size(), _in_flight_tasks_num);
     return scan_task;
 }
 

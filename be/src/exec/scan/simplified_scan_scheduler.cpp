@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "common/exception.h"
+#include "common/logging.h"
 #include "exec/scan/scanner_context.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/thread_context.h"
@@ -53,7 +54,8 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
     }
     if (!scanner_ctx->can_admit_scan_task(transfer_lock)) {
         // No runnable is needed when the Context has no pending scanner or its concurrency slots
-        // are occupied. Completion or operator consumption will retry scheduling when state changes.
+        // are occupied. A completion only wakes the operator; the operator's next consumption in
+        // get_block_from_queue(), or the successor submit in _run_context(), retries scheduling.
         return Status::OK();
     }
 
@@ -70,6 +72,8 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
     Status status =
             _scan_thread_pool->submit_func([this, scanner_ctx] { _run_context(scanner_ctx); });
     if (status.ok()) {
+        VLOG_DEBUG << "submit context runnable to scanner pool " << _sched_name << ", "
+                   << scanner_ctx->debug_string();
         return Status::OK();
     }
     Status failure =
