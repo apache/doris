@@ -75,6 +75,7 @@ public class PaimonTransaction implements Transaction {
 
     private final List<byte[]> commitPayloads = Lists.newArrayList();
     private final Set<CommitPayloadKey> commitPayloadSet = new HashSet<>();
+    private boolean acceptingCommitData = true;
 
     public PaimonTransaction(PaimonMetadataOps ops, long transactionId) {
         this.ops = Preconditions.checkNotNull(ops, "Paimon metadata ops must not be null");
@@ -97,6 +98,7 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
+        stopAcceptingCommitData();
         PaimonWriteBinding writeBinding = requireBinding();
         List<byte[]> rawPayloads = snapshotPayloads();
         if (rawPayloads.isEmpty() && !writeBinding.isOverwrite()) {
@@ -122,6 +124,7 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void rollback() {
+        stopAcceptingCommitData();
         CommitState currentState = getState();
         if (currentState == CommitState.COMMITTED) {
             LOG.info("Skip rollback for committed PaimonTransaction, txnId={}, table={}",
@@ -163,14 +166,22 @@ public class PaimonTransaction implements Transaction {
     // ────────────────────────────────────────────────────────────
 
     public void updateCommitMessages(List<TPaimonCommitMessage> messages) {
-        if (messages == null || messages.isEmpty()) {
-            return;
-        }
         synchronized (this) {
+            // Even an empty final report transfers cleanup ownership, so it must observe the
+            // same closing fence as reports that carry payloads.
+            Preconditions.checkState(acceptingCommitData,
+                    "Paimon transaction is no longer accepting commit data");
+            if (messages == null || messages.isEmpty()) {
+                return;
+            }
             for (TPaimonCommitMessage msg : messages) {
                 addPayload(msg);
             }
         }
+    }
+
+    private synchronized void stopAcceptingCommitData() {
+        acceptingCommitData = false;
     }
 
     private void addPayload(TPaimonCommitMessage message) {

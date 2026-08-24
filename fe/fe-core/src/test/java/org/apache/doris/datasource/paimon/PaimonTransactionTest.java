@@ -43,6 +43,9 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class PaimonTransactionTest {
     private static final long TRANSACTION_ID = 12345L;
@@ -167,6 +170,33 @@ public class PaimonTransactionTest {
         Assert.assertNotEquals(
                 PaimonTransaction.commitUser(10001, TRANSACTION_ID),
                 PaimonTransaction.commitUser(10002, TRANSACTION_ID));
+    }
+
+    @Test
+    public void testFinalReportRejectedAfterRollbackStarts() throws Exception {
+        PaimonTransaction transaction = new PaimonTransaction(ops, TRANSACTION_ID);
+        CountDownLatch transactionFetched = new CountDownLatch(1);
+        CountDownLatch resumeFinalReport = new CountDownLatch(1);
+        AtomicReference<Throwable> reportFailure = new AtomicReference<>();
+        Thread finalReport = new Thread(() -> {
+            transactionFetched.countDown();
+            try {
+                resumeFinalReport.await();
+                transaction.updateCommitMessages(Collections.emptyList());
+            } catch (Throwable t) {
+                reportFailure.set(t);
+            }
+        });
+        finalReport.start();
+        Assert.assertTrue(transactionFetched.await(5, TimeUnit.SECONDS));
+
+        transaction.rollback();
+        resumeFinalReport.countDown();
+        finalReport.join(TimeUnit.SECONDS.toMillis(5));
+
+        Assert.assertFalse(finalReport.isAlive());
+        Assert.assertTrue(reportFailure.get() instanceof IllegalStateException);
+        Assert.assertEquals(0, transaction.getPayloadCount());
     }
 
     private PaimonTransaction createBoundTransaction() {

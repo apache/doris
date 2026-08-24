@@ -104,6 +104,7 @@ public class HMSTransaction implements Transaction {
     private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
+    private boolean acceptingCommitData = true;
     private Optional<String> stagingDirectory;
     private boolean isMockedPartitionUpdate = false;
 
@@ -152,6 +153,7 @@ public class HMSTransaction implements Transaction {
 
     @Override
     public void commit() {
+        stopAcceptingCommitData();
         doCommit();
     }
 
@@ -225,6 +227,7 @@ public class HMSTransaction implements Transaction {
 
     @Override
     public void rollback() {
+        stopAcceptingCommitData();
         if (hmsCommitter == null) {
             collectUncompletedMpuPendingUploads(hivePartitionUpdates);
             if (uncompletedMpuPendingUploads.isEmpty()) {
@@ -440,8 +443,16 @@ public class HMSTransaction implements Transaction {
 
     public void updateHivePartitionUpdates(List<THivePartitionUpdate> pus) {
         synchronized (this) {
+            // A report handler may retain this object after manager removal, so closing and
+            // ownership attachment must be serialized by the same monitor.
+            Preconditions.checkState(acceptingCommitData,
+                    "Hive transaction is no longer accepting commit data");
             hivePartitionUpdates.addAll(pus);
         }
+    }
+
+    private synchronized void stopAcceptingCommitData() {
+        acceptingCommitData = false;
     }
 
     // for test

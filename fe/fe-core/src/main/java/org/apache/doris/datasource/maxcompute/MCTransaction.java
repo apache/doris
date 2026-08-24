@@ -33,6 +33,7 @@ import com.aliyun.odps.table.configuration.DynamicPartitionOptions;
 import com.aliyun.odps.table.write.TableBatchWriteSession;
 import com.aliyun.odps.table.write.TableWriteSessionBuilder;
 import com.aliyun.odps.table.write.WriterCommitMessage;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,6 +55,7 @@ public class MCTransaction implements Transaction {
     private final MaxComputeExternalCatalog catalog;
     private MaxComputeExternalTable table;
     private final List<TMCCommitData> commitDataList = Lists.newArrayList();
+    private boolean acceptingCommitData = true;
 
     // Storage API write session ID (created in beginInsert, used in finishInsert)
     private String writeSessionId;
@@ -65,8 +67,16 @@ public class MCTransaction implements Transaction {
 
     public void updateMCCommitData(List<TMCCommitData> commitDataList) {
         synchronized (this) {
+            // Rollback can remove the transaction while a report retains this object, so reject
+            // ownership attachment after the lifecycle closing fence is raised.
+            Preconditions.checkState(acceptingCommitData,
+                    "MaxCompute transaction is no longer accepting commit data");
             this.commitDataList.addAll(commitDataList);
         }
+    }
+
+    private synchronized void stopAcceptingCommitData() {
+        acceptingCommitData = false;
     }
 
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
@@ -190,6 +200,7 @@ public class MCTransaction implements Transaction {
     }
 
     public void finishInsert() throws UserException {
+        stopAcceptingCommitData();
         try {
             long t0 = System.currentTimeMillis();
             // Collect all WriterCommitMessages from BEs
@@ -225,11 +236,13 @@ public class MCTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
+        stopAcceptingCommitData();
         // commit is handled in finishInsert()
     }
 
     @Override
     public void rollback() {
+        stopAcceptingCommitData();
         // MC sessions auto-expire if not committed; no explicit rollback needed
         LOG.info("MCTransaction rollback called; uncommitted sessions will auto-expire.");
     }

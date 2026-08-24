@@ -18,14 +18,47 @@
 package org.apache.doris.datasource.maxcompute;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TMCCommitData;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MCTransactionTest {
+    @Test
+    public void testFinalReportRejectedAfterRollbackStarts() throws Exception {
+        MCTransaction transaction = new MCTransaction(Mockito.mock(MaxComputeExternalCatalog.class));
+        TMCCommitData commitData = new TMCCommitData().setRowCount(1);
+        CountDownLatch transactionFetched = new CountDownLatch(1);
+        CountDownLatch resumeFinalReport = new CountDownLatch(1);
+        AtomicReference<Throwable> reportFailure = new AtomicReference<>();
+        Thread finalReport = new Thread(() -> {
+            transactionFetched.countDown();
+            try {
+                resumeFinalReport.await();
+                transaction.updateMCCommitData(Collections.singletonList(commitData));
+            } catch (Throwable t) {
+                reportFailure.set(t);
+            }
+        });
+        finalReport.start();
+        Assert.assertTrue(transactionFetched.await(5, TimeUnit.SECONDS));
+
+        transaction.rollback();
+        resumeFinalReport.countDown();
+        finalReport.join(TimeUnit.SECONDS.toMillis(5));
+
+        Assert.assertFalse(finalReport.isAlive());
+        Assert.assertTrue(reportFailure.get() instanceof IllegalStateException);
+        Assert.assertEquals(0, transaction.getUpdateCnt());
+    }
+
     @Test
     public void testBeginInsertRejectsOdpsExternalTable() {
         assertBeginInsertRejectsUnsupportedOdpsTable("mc_external_table");

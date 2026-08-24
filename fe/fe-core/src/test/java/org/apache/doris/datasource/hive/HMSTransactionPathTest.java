@@ -48,6 +48,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class HMSTransactionPathTest {
     private ConnectContext connectContext;
@@ -92,6 +95,34 @@ public class HMSTransactionPathTest {
 
         String notSubdir = "hdfs://host:8020/warehouse/other";
         Assert.assertNull(HMSTransaction.getImmediateChildPath(parent, notSubdir));
+    }
+
+    @Test
+    public void testFinalReportRejectedAfterRollbackStarts() throws Exception {
+        HMSTransaction transaction = createTransaction(Mockito.mock(FileSystem.class));
+        THivePartitionUpdate update = new THivePartitionUpdate().setRowCount(1);
+        CountDownLatch transactionFetched = new CountDownLatch(1);
+        CountDownLatch resumeFinalReport = new CountDownLatch(1);
+        AtomicReference<Throwable> reportFailure = new AtomicReference<>();
+        Thread finalReport = new Thread(() -> {
+            transactionFetched.countDown();
+            try {
+                resumeFinalReport.await();
+                transaction.updateHivePartitionUpdates(Collections.singletonList(update));
+            } catch (Throwable t) {
+                reportFailure.set(t);
+            }
+        });
+        finalReport.start();
+        Assert.assertTrue(transactionFetched.await(5, TimeUnit.SECONDS));
+
+        transaction.rollback();
+        resumeFinalReport.countDown();
+        finalReport.join(TimeUnit.SECONDS.toMillis(5));
+
+        Assert.assertFalse(finalReport.isAlive());
+        Assert.assertTrue(reportFailure.get() instanceof IllegalStateException);
+        Assert.assertTrue(transaction.getHivePartitionUpdates().isEmpty());
     }
 
     // Ensures NOT_FOUND results from list operations are treated as no-op cleanup.

@@ -299,8 +299,10 @@ public abstract class AbstractInsertExecutor {
      * needs to commit a partition delete.
      */
     public void executeEmptyInsert(StmtExecutor executor) throws Exception {
-        beforeExec();
         try {
+            // Empty inserts may create external transaction resources during preflight, so failures
+            // must enter the same rollback scope as completion failures.
+            beforeExec();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }
