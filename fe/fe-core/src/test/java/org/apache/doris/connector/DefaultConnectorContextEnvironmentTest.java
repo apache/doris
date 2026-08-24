@@ -14,30 +14,26 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
 
-#include <memory>
+package org.apache.doris.connector;
 
-#include "core/string_ref.h" // IWYU pragma: keep
-#include "exprs/function_context.h"
+import org.apache.doris.common.Config;
 
-namespace doris {
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-class FunctionFilter {
-public:
-    FunctionFilter(bool opposite, const std::string& col_name, doris::FunctionContext* fn_ctx,
-                   doris::StringRef string_param)
-            : _opposite(opposite),
-              _col_name(col_name),
-              _fn_ctx(fn_ctx),
-              _string_param(string_param) {}
+public class DefaultConnectorContextEnvironmentTest {
 
-    bool _opposite;
-    std::string _col_name;
-    // these pointer's life time controlled by scan node
-    doris::FunctionContext* _fn_ctx = nullptr;
-    // only one param from conjunct, because now only support like predicate
-    doris::StringRef _string_param;
-};
-
-} // namespace doris
+    @Test
+    public void forwardsConfiguredHadoopResourceDirectory() {
+        String previous = Config.hadoop_config_dir;
+        try {
+            Config.hadoop_config_dir = "/configured/hadoop";
+            DefaultConnectorContext context = new DefaultConnectorContext("test", 1L);
+            Assertions.assertEquals("/configured/hadoop",
+                    context.getEnvironment().get("hadoop_config_dir"));
+        } finally {
+            Config.hadoop_config_dir = previous;
+        }
+    }
+}

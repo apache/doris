@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -178,10 +179,33 @@ class LoadBalanceScanWorkerSelectorBackendSelectionTest {
     }
 
     @Test
-    void testSingleReplicaSelectionPreservesUnavailableWorkerBehavior() throws Exception {
+    void testSingleReplicaSelectionRejectsUnavailableWorker() {
         Backend unavailable = backend(1L, "preferred");
         unavailable.setAlive(false);
         DistributedPlanWorkerManager workerManager = workerManager(unavailable);
+        LoadBalanceScanWorkerSelector selector = new LoadBalanceScanWorkerSelector(
+                workerManager, new ConnectContext(), false);
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> select(selector, locations(location(1L)), 100L));
+    }
+
+    @Test
+    void testSingleReplicaSelectionRejectsQueryDisabledWorker() {
+        Backend queryDisabled = backend(1L, "preferred");
+        queryDisabled.setQueryDisabled(true);
+        DistributedPlanWorkerManager workerManager = workerManager(queryDisabled);
+        LoadBalanceScanWorkerSelector selector = new LoadBalanceScanWorkerSelector(
+                workerManager, new ConnectContext(), false);
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> select(selector, locations(location(1L)), 100L));
+    }
+
+    @Test
+    void testSingleReplicaSelectionKeepsAvailableWorker() throws Exception {
+        Backend available = backend(1L, "preferred");
+        DistributedPlanWorkerManager workerManager = workerManager(available);
         LoadBalanceScanWorkerSelector selector = new LoadBalanceScanWorkerSelector(
                 workerManager, new ConnectContext(), false);
 

@@ -29,6 +29,7 @@
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
+#include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/util/string_helper.h"
 
@@ -137,6 +138,41 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
     EXPECT_EQ(roaring->cardinality(), 2);
     EXPECT_TRUE(roaring->contains(0));
     EXPECT_TRUE(roaring->contains(3));
+
+    _CLDECDELETE(dir0);
+    _CLDECDELETE(dir1);
+}
+
+TEST_F(MultiSegmentCollectorTest, CollectTopKExcludesDeletedDocs) {
+    auto* dir0 = FSDirectory::getDirectory((kTestDir + "/segment0").c_str());
+    auto* dir1 = FSDirectory::getDirectory((kTestDir + "/segment1").c_str());
+
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open(dir0, true);
+    readers[1] = lucene::index::IndexReader::open(dir1, true);
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+
+    auto index_query_context = std::make_shared<IndexQueryContext>();
+    auto field = StringHelper::to_wstring("title");
+    TermQuery query(index_query_context, field, StringHelper::to_wstring("fleabag"));
+    auto weight = query.weight(false);
+
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.readers = {reader};
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+
+    auto mutable_deleted_docs = std::make_shared<roaring::Roaring>();
+    mutable_deleted_docs->add(0);
+    std::shared_ptr<const roaring::Roaring> deleted_docs = std::move(mutable_deleted_docs);
+    for (bool use_wand : {false, true}) {
+        auto roaring = std::make_shared<roaring::Roaring>();
+        ASSERT_NO_THROW(collect_multi_segment_top_k(weight, exec_ctx, "", 1, roaring, nullptr,
+                                                    use_wand, deleted_docs));
+
+        EXPECT_EQ(roaring->cardinality(), 1);
+        EXPECT_TRUE(roaring->contains(3));
+    }
 
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);

@@ -2822,8 +2822,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Default storage format of inverted index, the "
-            + "default value is V3.")
+    @ConfField(mutable = true, masterOnly = true,
+            callback = InvertedIndexStorageFormatValidator.RuntimeConfigHandler.class,
+            description = "Default storage format of inverted index, the default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
@@ -3583,8 +3584,13 @@ public class Config extends ConfigBase {
     public static String doris_tde_key_region = "";
 
     @ConfField(mutable = true, description = "The key provider identifier for TDE (Transparent Data Encryption). "
-            + "Recognized values include aws_kms, aliyun_kms, ranger_kms, gcp_kms, and azure_kms.")
+            + "Recognized values include aws_kms, aliyun_kms, ranger_kms, gcp_kms, azure_kms, and local. "
+            + "For local mode, doris_tde_root_key_file must be set to a key file path.")
     public static String doris_tde_key_provider = "";
+
+    @ConfField(description = "Path to the root key file for TDE local mode. The file content must be a "
+            + "Base64-encoded key.")
+    public static String doris_tde_root_key_file = "";
 
     @ConfField(mutable = true, description = "The simple authentication user name for TDE Hadoop KMS")
     public static String doris_tde_hadoop_user_name = "hadoop";
