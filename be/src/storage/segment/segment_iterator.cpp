@@ -1178,8 +1178,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     }
 
     {
-        SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
         if (!_common_expr_ctxs_push_down.empty()) {
+            SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
             const auto pre_expr_zonemap_size = condition_row_ranges->count();
             RETURN_IF_ERROR(_apply_expr_zonemap_to_row_ranges(_common_expr_ctxs_push_down, 0,
                                                               condition_row_ranges));
