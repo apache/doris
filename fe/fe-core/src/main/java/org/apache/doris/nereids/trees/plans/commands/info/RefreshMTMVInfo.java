@@ -41,6 +41,7 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -134,7 +135,12 @@ public class RefreshMTMVInfo {
                         mtmv.getPartitionItemOrAnalysisException(partitionName).toPartitionKeyDesc(),
                         partitionName);
             }
-            List<String> resolvedPartitions = Lists.newArrayList();
+            // Resolve into an insertion-ordered set so several requested names that map to the same
+            // physical partition (e.g. a legacy time-suffixed name and its regenerated SHA alias) collapse
+            // to a single target. Keeping the duplicates would make the refresh task run separate INSERT
+            // OVERWRITE statements for the same partition (with refresh_partition_num=1) or over-count the
+            // distinct targets when batching / generating the refresh mode.
+            Set<String> resolvedPartitions = new LinkedHashSet<>();
             for (String partition : partitions) {
                 if (shouldExistPartitionNames.contains(partition)) {
                     if (existPartitionNames.contains(partition)) {
@@ -166,7 +172,7 @@ public class RefreshMTMVInfo {
                 }
                 resolvedPartitions.add(partition);
             }
-            this.partitions = resolvedPartitions;
+            this.partitions = Lists.newArrayList(resolvedPartitions);
         } finally {
             MetaLockUtils.readUnlockTables(tables);
         }
