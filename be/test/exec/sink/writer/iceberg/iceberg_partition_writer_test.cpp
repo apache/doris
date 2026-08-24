@@ -21,6 +21,7 @@
 
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -88,6 +89,8 @@ protected:
     static bool collect_column_stats(const VIcebergPartitionWriter& writer) {
         return writer._collect_column_stats;
     }
+
+    RuntimeProfile _profile {"test"};
 };
 
 TEST_F(VIcebergPartitionWriterTest, OrcSkipsFooterCollectionWhenMetricsAreDisabled) {
@@ -178,6 +181,8 @@ TEST_F(VIcebergPartitionWriterTest, NonEosTargetRolloverReservesWideMergeOutput)
     std::vector<bool> nulls_first {false};
     sort_writer._sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order,
                                                     nulls_first, *row_desc, &state, nullptr);
+    // Direct sorter injection bypasses open(), which normally initializes its profile counters.
+    sort_writer._sorter->init_profile(&_profile);
     sort_writer._runtime_state = &state;
     Block wide = ColumnHelper::create_block<DataTypeString>(
             {std::string(2 * MB, 'b'), std::string(2 * MB, 'a')});
@@ -212,6 +217,8 @@ TEST_F(VIcebergPartitionWriterTest, EosReservationCoversWideNonSpillMergeOutput)
     sort_writer._runtime_state = &state;
     sort_writer._sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order,
                                                     nulls_first, *row_desc, &state, nullptr);
+    // Direct sorter injection bypasses open(), which normally initializes its profile counters.
+    sort_writer._sorter->init_profile(&_profile);
 
     Block wide = ColumnHelper::create_block<DataTypeString>(
             {std::string(2 * MB, 'b'), std::string(2 * MB, 'a')});
