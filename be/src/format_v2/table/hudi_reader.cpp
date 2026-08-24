@@ -22,6 +22,7 @@
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/hudi_jni_reader.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -58,6 +59,31 @@ format::TableColumnMappingMode HudiReader::mapping_mode() const {
     return format::can_map_by_history_schema(_scan_params, _split_schema_id)
                    ? format::TableColumnMappingMode::BY_FIELD_ID
                    : format::TableColumnMappingMode::BY_NAME;
+}
+
+Status HudiReader::create_file_reader(std::unique_ptr<format::FileReader>* reader) {
+    if (_format != format::FileFormat::PARQUET) {
+        return format::TableReader::create_file_reader(reader);
+    }
+    DORIS_CHECK(reader != nullptr);
+    const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
+                                             _scan_params->__isset.enable_mapping_timestamp_tz &&
+                                             _scan_params->enable_mapping_timestamp_tz;
+    const bool enable_mapping_varbinary = _scan_params != nullptr &&
+                                          _scan_params->__isset.enable_mapping_varbinary &&
+                                          _scan_params->enable_mapping_varbinary;
+    *reader = std::make_unique<format::parquet::ParquetReader>(
+            _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+            _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+            parquet_int96_time_zone());
+    return Status::OK();
+}
+
+std::string HudiReader::parquet_int96_time_zone() const {
+    DORIS_CHECK(_runtime_state != nullptr);
+    // Hudi keeps its legacy session-timezone contract for native base files; Hive's INT96
+    // compatibility property must not make native and JNI Hudi splits diverge.
+    return _runtime_state->timezone();
 }
 
 Status HudiReader::annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {

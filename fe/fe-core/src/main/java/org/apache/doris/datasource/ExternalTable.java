@@ -27,9 +27,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -242,6 +245,22 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public String getMetaCacheEngine() {
         return "default";
+    }
+
+    public String getHiveParquetTimeZone() throws UserException {
+        if (catalog == null || !("hms".equalsIgnoreCase(catalog.getType())
+                || "hudi".equalsIgnoreCase(catalog.getType()))) {
+            return "";
+        }
+        return getConfiguredHiveParquetTimeZone();
+    }
+
+    public String getConfiguredHiveParquetTimeZone() throws UserException {
+        if (catalog == null) {
+            return "";
+        }
+        String value = catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE);
+        return value == null ? "" : FileFormatUtils.parseHiveParquetTimeZone(value);
     }
 
     @Override

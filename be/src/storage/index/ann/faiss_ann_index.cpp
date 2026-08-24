@@ -219,16 +219,40 @@ FaissVectorIndex::~FaissVectorIndex() {
     }
 }
 
+namespace {
+
+Status close_index_output(std::unique_ptr<lucene::store::IndexOutput>& output,
+                          const char* description) {
+    DCHECK(output != nullptr);
+    try {
+        output->close();
+    } catch (const CLuceneError& e) {
+        output.reset();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Failed to close {}: {}",
+                                                                      description, e.what());
+    }
+    output.reset();
+    return Status::OK();
+}
+
+} // namespace
+
 struct FaissIndexWriter : faiss::IOWriter {
 public:
-    FaissIndexWriter() = default;
-    FaissIndexWriter(lucene::store::IndexOutput* output) : _output(output) {}
+    explicit FaissIndexWriter(lucene::store::IndexOutput* output) : _output(output) {}
     ~FaissIndexWriter() override {
         if (_output != nullptr) {
-            _output->close();
-            delete _output;
+            try {
+                _output->close();
+            } catch (const CLuceneError& e) {
+                // Serialization already failed, so this is cleanup only. A
+                // destructor must not turn an I/O error into std::terminate.
+                LOG(WARNING) << "Failed to close vector index output during cleanup: " << e.what();
+            }
         }
     }
+
+    Status close() { return close_index_output(_output, "vector index output"); }
 
     size_t operator()(const void* ptr, size_t size, size_t nitems) override {
         size_t bytes = size * nitems;
@@ -252,7 +276,7 @@ public:
         return nitems;
     };
 
-    lucene::store::IndexOutput* _output = nullptr;
+    std::unique_ptr<lucene::store::IndexOutput> _output;
 };
 
 struct FaissIndexReader : faiss::IOReader {
@@ -953,84 +977,88 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
 doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    if (_index_type == AnnIndexType::IVF_ON_DISK) {
-        // IVF_ON_DISK: write ivf data to a separate file, then write index metadata.
-        //
-        // Why do we replace invlists here in save() instead of at build() time?
-        // During build/train/add, IndexIVF needs a writable ArrayInvertedLists to
-        // receive vectors via add_entries(). PreadInvertedLists inherits from
-        // ReadOnlyInvertedLists and does not support writes. The original
-        // OnDiskInvertedLists does support writes but requires mmap on a real file,
-        // which is unavailable at build time (Directory is only passed to save()).
-        // So the standard faiss pattern is: build in-memory with ArrayInvertedLists,
-        // then convert to on-disk format at serialization time. The replace_invlists
-        // call in Step 2 is purely a serialization format switch (to emit "ilod"
-        // fourcc instead of "ilar"), not a runtime data structure change.
-        //
-        // Step 1: The in-memory index has ArrayInvertedLists. Write them to ann.ivfdata
-        //         by converting to OnDiskInvertedLists format:
-        //         For each list: [codes: capacity*code_size][ids: capacity*sizeof(idx_t)]
-        auto* ivf = dynamic_cast<faiss::IndexIVF*>(_index.get());
-        DCHECK(ivf != nullptr);
-        auto* ails = dynamic_cast<faiss::ArrayInvertedLists*>(ivf->invlists);
-        DCHECK(ails != nullptr);
+    try {
+        if (_index_type == AnnIndexType::IVF_ON_DISK) {
+            // IVF_ON_DISK: write ivf data to a separate file, then write index metadata.
+            //
+            // Why do we replace invlists here in save() instead of at build() time?
+            // During build/train/add, IndexIVF needs a writable ArrayInvertedLists to
+            // receive vectors via add_entries(). PreadInvertedLists inherits from
+            // ReadOnlyInvertedLists and does not support writes. The original
+            // OnDiskInvertedLists does support writes but requires mmap on a real file,
+            // which is unavailable at build time (Directory is only passed to save()).
+            // So the standard faiss pattern is: build in-memory with ArrayInvertedLists,
+            // then convert to on-disk format at serialization time. The replace_invlists
+            // call in Step 2 is purely a serialization format switch (to emit "ilod"
+            // fourcc instead of "ilar"), not a runtime data structure change.
+            //
+            // Step 1: The in-memory index has ArrayInvertedLists. Write them to ann.ivfdata
+            //         by converting to OnDiskInvertedLists format:
+            //         For each list: [codes: capacity*code_size][ids: capacity*sizeof(idx_t)]
+            auto* ivf = dynamic_cast<faiss::IndexIVF*>(_index.get());
+            DCHECK(ivf != nullptr);
+            auto* ails = dynamic_cast<faiss::ArrayInvertedLists*>(ivf->invlists);
+            DCHECK(ails != nullptr);
 
-        const size_t nlist = ails->nlist;
-        const size_t code_size = ails->code_size;
+            const size_t nlist = ails->nlist;
+            const size_t code_size = ails->code_size;
 
-        // Build OnDiskOneList metadata and write data to ann.ivfdata
-        std::vector<faiss::OnDiskOneList> lists(nlist);
-        lucene::store::IndexOutput* ivfdata_output = dir->createOutput(faiss_ivfdata_file_name);
-        size_t offset = 0;
-        for (size_t i = 0; i < nlist; i++) {
-            size_t list_size = ails->list_size(i);
-            lists[i].size = list_size;
-            lists[i].capacity = list_size;
-            lists[i].offset = offset;
+            // Build OnDiskOneList metadata and write data to ann.ivfdata
+            std::vector<faiss::OnDiskOneList> lists(nlist);
+            auto ivfdata_output = std::unique_ptr<lucene::store::IndexOutput>(
+                    dir->createOutput(faiss_ivfdata_file_name));
+            size_t offset = 0;
+            for (size_t i = 0; i < nlist; i++) {
+                size_t list_size = ails->list_size(i);
+                lists[i].size = list_size;
+                lists[i].capacity = list_size;
+                lists[i].offset = offset;
 
-            if (list_size > 0) {
-                // Write codes
-                const uint8_t* codes = ails->get_codes(i);
-                size_t codes_bytes = list_size * code_size;
-                ivfdata_output->writeBytes(codes, cast_set<Int32>(codes_bytes));
+                if (list_size > 0) {
+                    // Write codes
+                    const uint8_t* codes = ails->get_codes(i);
+                    size_t codes_bytes = list_size * code_size;
+                    ivfdata_output->writeBytes(codes, cast_set<Int32>(codes_bytes));
 
-                // Write ids
-                const faiss::idx_t* ids = ails->get_ids(i);
-                size_t ids_bytes = list_size * sizeof(faiss::idx_t);
-                ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(ids),
-                                           cast_set<Int32>(ids_bytes));
+                    // Write ids
+                    const faiss::idx_t* ids = ails->get_ids(i);
+                    size_t ids_bytes = list_size * sizeof(faiss::idx_t);
+                    ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(ids),
+                                               cast_set<Int32>(ids_bytes));
+                }
+
+                offset += list_size * (code_size + sizeof(faiss::idx_t));
             }
+            size_t totsize = offset;
+            RETURN_IF_ERROR(close_index_output(ivfdata_output, "IVF data output"));
 
-            offset += list_size * (code_size + sizeof(faiss::idx_t));
+            // Step 2: Replace ArrayInvertedLists with OnDiskInvertedLists so that
+            //         write_index serializes in "ilod" format (metadata only).
+            auto* od = new faiss::OnDiskInvertedLists();
+            od->nlist = nlist;
+            od->code_size = code_size;
+            od->lists = std::move(lists);
+            od->totsize = totsize;
+            od->ptr = nullptr;
+            od->read_only = true;
+            // filename is not used during load (we use separate ivfdata file),
+            // but write it for format completeness.
+            od->filename = faiss_ivfdata_file_name;
+            ivf->replace_invlists(od, true);
+
+            // Step 3: Write index metadata to ann.faiss (includes "ilod" fourcc)
+            FaissIndexWriter writer(dir->createOutput(faiss_index_fila_name));
+            RETURN_IF_CATCH_EXCEPTION(faiss::write_index(_index.get(), &writer));
+            RETURN_IF_ERROR(writer.close());
+        } else {
+            // HNSW / IVF: write the full index to ann.faiss
+            FaissIndexWriter writer(dir->createOutput(faiss_index_fila_name));
+            RETURN_IF_CATCH_EXCEPTION(faiss::write_index(_index.get(), &writer));
+            RETURN_IF_ERROR(writer.close());
         }
-        size_t totsize = offset;
-        ivfdata_output->close();
-        delete ivfdata_output;
-
-        // Step 2: Replace ArrayInvertedLists with OnDiskInvertedLists so that
-        //         write_index serializes in "ilod" format (metadata only).
-        auto* od = new faiss::OnDiskInvertedLists();
-        od->nlist = nlist;
-        od->code_size = code_size;
-        od->lists = std::move(lists);
-        od->totsize = totsize;
-        od->ptr = nullptr;
-        od->read_only = true;
-        // filename is not used during load (we use separate ivfdata file),
-        // but write it for format completeness.
-        od->filename = faiss_ivfdata_file_name;
-        ivf->replace_invlists(od, true);
-
-        // Step 3: Write index metadata to ann.faiss (includes "ilod" fourcc)
-        lucene::store::IndexOutput* idx_output = dir->createOutput(faiss_index_fila_name);
-        auto writer = std::make_unique<FaissIndexWriter>(idx_output);
-        faiss::write_index(_index.get(), writer.get());
-
-    } else {
-        // HNSW / IVF: write the full index to ann.faiss
-        lucene::store::IndexOutput* idx_output = dir->createOutput(faiss_index_fila_name);
-        auto writer = std::make_unique<FaissIndexWriter>(idx_output);
-        faiss::write_index(_index.get(), writer.get());
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Failed to save vector index: {}", e.what());
     }
 
     auto end_time = std::chrono::high_resolution_clock::now();

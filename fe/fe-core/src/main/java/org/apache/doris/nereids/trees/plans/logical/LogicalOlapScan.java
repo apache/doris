@@ -804,17 +804,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             return getOutputByIndex(selectedIndexId);
         }
         List<Column> baseSchema = table.getBaseSchema(true);
-        boolean skipBinlogBeforeColumn = scanParams.isPresent() && scanParams.get().incrementalRead();
-        List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema, skipBinlogBeforeColumn);
+        List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
 
         Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < baseSchema.size(); i++) {
             final int index = i;
             Column col = baseSchema.get(i);
-            if (skipBinlogBeforeColumn && col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
-                continue;
-            }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> slotFromColumn.get(index));
             slots.add(slot);
@@ -932,22 +928,31 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return scoreRangeInfo;
     }
 
-    private List<SlotReference> createSlotsVectorized(List<Column> columns, boolean skipBinlogBeforeColumn) {
+    protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
         List<String> qualified = qualified();
         SlotReference[] slots = new SlotReference[columns.size()];
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < columns.size(); i++) {
-            if (skipBinlogBeforeColumn && columns.get(i).getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
-                continue;
-            }
             ExprId nextId = exprIdGenerator.getNextId();
-            slots[i] = SlotReference.fromColumn(nextId, table, columns.get(i), qualified);
+            slots[i] = SlotReference.fromColumn(nextId, table, getOutputColumn(columns.get(i)), qualified);
         }
         return Arrays.asList(slots);
     }
 
-    protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
-        return createSlotsVectorized(columns, false);
+    /**
+     * BE needs the {@code __BEFORE__} columns to build before-images on an {@code @incr} read, but
+     * they are storage bookkeeping: {@code SELECT * FROM t@incr(...)} should return t's own columns,
+     * not the mirrors behind them. The flag is set on a copy because these Column instances belong
+     * to the table's persisted metadata and are shared across statements.
+     */
+    private Column getOutputColumn(Column column) {
+        if (scanParams.isPresent() && scanParams.get().incrementalRead()
+                && column.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+            Column outputColumn = new Column(column);
+            outputColumn.setIsVisible(false);
+            return outputColumn;
+        }
+        return column;
     }
 
     @Override
@@ -963,6 +968,19 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
+        // Raw-version reads expose superseded rows: with skipDeleteBitmap, rows replaced by
+        // later versions are read; with read_mor_as_dup_tables, MOR tables are read as DUP and
+        // expose every version. Uniqueness — including the table-level constraints imported by
+        // super.computeUnique() — does not hold for the data actually read, so suppress it here
+        // before super runs; otherwise the raw-version guard below would return after the
+        // constraint was already registered.
+        if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                && (ConnectContext.get().getSessionVariable().skipDeleteBitmap
+                    || (getTable().isMorTable()
+                        && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
+                            getTable().getQualifiedDbName(), getTable().getName())))) {
+            return;
+        }
         super.computeUnique(builder);
         if (this.selectedIndexId != getTable().getBaseIndexId()) {
             /*
@@ -1010,19 +1028,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniqueBy(constructReplaceMap(mtmv));
         } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
-            // When skipDeleteBitmap is set to true, in the unique model, rows that are replaced due to having the same
-            // unique key will also be read. As a result, the uniqueness of the unique key cannot be guaranteed.
-            if (ConnectContext.get().getSessionVariable().skipDeleteBitmap
-                    && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
-                return;
-            }
-            // When readMorAsDup is enabled, MOR tables are read as DUP, so uniqueness cannot be guaranteed.
-            if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
-                    && getTable().isMorTable()
-                    && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
-                        getTable().getQualifiedDbName(), getTable().getName())) {
-                return;
-            }
+            // raw-version guards (skipDeleteBitmap / read_mor_as_dup_tables) are checked at the
+            // top of this method, before super.computeUnique() imports table-level constraints
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {

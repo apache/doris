@@ -32,9 +32,9 @@
 #include "common/logging.h"
 #include "cpp/aws_common.h"
 #include "cpp/container_credentials_test_util.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
-#include "recycler/s3_obj_client.h"
 
 using namespace doris;
 using namespace Aws::S3::Model;
@@ -77,18 +77,21 @@ TEST_F(S3AccessorMockTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
     // should return an error.
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+    auto s3_obj_client = std::make_shared<S3ObjStorageClient>(
+            mock_s3_client, ObjStorageEndpointInfo {.endpoint = "dummy-endpoint"});
 
     ListObjectsV2Result result;
     result.SetIsTruncated(true);
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
 
-    auto response = s3_obj_client.list_objects(
-            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"});
+    std::vector<ObjectMeta> objects;
+    auto response = s3_obj_client->list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"},
+            &objects);
 
-    EXPECT_FALSE(response->has_next());
-    EXPECT_FALSE(response->is_valid());
+    EXPECT_FALSE(response.ok());
+    EXPECT_TRUE(objects.empty());
 }
 
 namespace {
@@ -97,7 +100,15 @@ class ProviderProbe : public S3Accessor {
 public:
     ProviderProbe() : S3Accessor(S3Conf {}) {}
 
-    using S3Accessor::_create_credentials_provider;
+    // The recycler builds its provider through create_aws_credentials_provider(), so the probe goes
+    // through the same call rather than reaching past it. An S3Conf with no ak/sk and no role_arn is
+    // what a vault configured for container credentials looks like, and it makes the factory return
+    // the CONTAINER base provider unwrapped.
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> container_provider() {
+        S3Conf conf;
+        conf.cred_provider_type = CredProviderType::Container;
+        return create_aws_credentials_provider(conf).provider;
+    }
 };
 
 } // namespace
@@ -114,16 +125,12 @@ TEST_F(S3AccessorMockTest, container_provider_uses_pod_identity_full_uri_and_tok
     env.set_pod_identity("http://127.0.0.1:65000/creds", token_path);
 
     ProviderProbe probe;
-    EXPECT_NE(
-            as_valid_http_provider(probe._create_credentials_provider(CredProviderType::Container)),
-            nullptr)
+    EXPECT_NE(as_valid_http_provider(probe.container_provider()), nullptr)
             << "CONTAINER did not yield a usable container credentials provider for "
                "AWS_CONTAINER_CREDENTIALS_FULL_URI";
 
     ASSERT_EQ(std::remove(token_path.c_str()), 0);
-    EXPECT_EQ(
-            as_valid_http_provider(probe._create_credentials_provider(CredProviderType::Container)),
-            nullptr)
+    EXPECT_EQ(as_valid_http_provider(probe.container_provider()), nullptr)
             << "CONTAINER ignored AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE: the provider stayed "
                "valid "
                "with the token file removed, so the path was never forwarded";
@@ -136,9 +143,7 @@ TEST_F(S3AccessorMockTest, container_provider_still_honours_ecs_relative_uri) {
     env.set_ecs_task_role("/v2/credentials/mock");
 
     ProviderProbe probe;
-    EXPECT_NE(
-            as_valid_http_provider(probe._create_credentials_provider(CredProviderType::Container)),
-            nullptr)
+    EXPECT_NE(as_valid_http_provider(probe.container_provider()), nullptr)
             << "CONTAINER did not yield a usable container credentials provider for "
                "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
 }
@@ -149,7 +154,7 @@ TEST_F(S3AccessorMockTest, container_provider_is_unusable_without_any_uri) {
     ContainerCredentialsEnvGuard env;
 
     ProviderProbe probe;
-    auto provider = probe._create_credentials_provider(CredProviderType::Container);
+    auto provider = probe.container_provider();
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::GeneralHTTPCredentialsProvider>(provider),
               nullptr);
     EXPECT_EQ(as_valid_http_provider(provider), nullptr);

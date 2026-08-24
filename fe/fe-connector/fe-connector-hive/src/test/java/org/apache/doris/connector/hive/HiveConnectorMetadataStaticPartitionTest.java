@@ -42,7 +42,7 @@ import java.util.Collections;
 public class HiveConnectorMetadataStaticPartitionTest {
 
     private static HiveConnectorMetadata metadata() {
-        return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private static HiveTableHandle handle(String... partitionKeys) {

@@ -30,7 +30,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -345,7 +344,7 @@ public class HudiIncrementalTest {
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────
 
     private static HudiConnectorMetadata metadata(HudiMetaClientExecutor executor) {
-        return new HudiConnectorMetadata(null, Collections.emptyMap(), executor);
+        return new HudiConnectorMetadata(null, HudiTestProperties.minimal(), executor);
     }
 
     private static HudiTableHandle partitioned() {

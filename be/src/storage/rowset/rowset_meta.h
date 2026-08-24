@@ -34,7 +34,6 @@
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "storage/compaction/binlog_compaction_policy.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_fwd.h"
@@ -321,14 +320,6 @@ public:
     // if segments are overlapping, the score equals to the number of segments,
     // otherwise, score is 1.
     uint32_t get_compaction_score() const {
-        // Row binlog LMax Base([0-x]) only performs meta-only merge, so treat it as score 1.
-        if (is_row_binlog() &&
-            _rowset_meta_pb.compaction_level() ==
-                    BinlogCompactionPolicy::kBinlogCompactionMaxLevel - 1 &&
-            start_version() == 0) {
-            return 1;
-        }
-
         uint32_t score = 0;
         if (!is_segments_overlapping()) {
             score = 1;
@@ -541,8 +532,6 @@ private:
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
     std::atomic<int64_t> _stale_at_s {0};
 };
-
-using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 
 } // namespace doris
 

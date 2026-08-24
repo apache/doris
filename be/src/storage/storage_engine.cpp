@@ -993,45 +993,6 @@ void StorageEngine::_clean_unused_rowset_metas() {
         }
         return true;
     };
-    std::vector<std::pair<RowsetId, RowsetMetaSharedPtr>> invalid_row_binlog_metas;
-    auto clean_row_binlog_rowsets = [this, &invalid_row_binlog_metas](
-                                            const TabletUid& tablet_uid, RowsetId rowset_id,
-                                            RowsetId row_binlog_rowset_id,
-                                            const std::string& meta_str) -> bool {
-        // return false will break meta iterator, return true to skip this error
-        RowsetMetaSharedPtr row_binlog_rowset_meta(new RowsetMeta());
-        bool parsed = row_binlog_rowset_meta->init(meta_str);
-        if (!parsed) {
-            LOG(WARNING) << "parse binlog<row> meta string failed for rowset_id:"
-                         << row_binlog_rowset_id;
-            row_binlog_rowset_meta->set_rowset_id(row_binlog_rowset_id);
-            row_binlog_rowset_meta->set_tablet_uid(tablet_uid);
-            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
-            return true;
-        }
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(row_binlog_rowset_meta->tablet_id());
-        if (tablet == nullptr) {
-            LOG(INFO) << "failed to find tablet " << row_binlog_rowset_meta->tablet_id()
-                      << " for binlog<row>: " << row_binlog_rowset_meta->rowset_id()
-                      << ", tablet may be dropped";
-            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
-            return true;
-        }
-        if (tablet->tablet_uid() != row_binlog_rowset_meta->tablet_uid()) {
-            LOG(WARNING) << "binlog<row> meta's tablet uid " << row_binlog_rowset_meta->tablet_uid()
-                         << " does not equal to tablet uid: " << tablet->tablet_uid();
-            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
-            return true;
-        }
-        if (row_binlog_rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
-            !tablet->rowset_meta_is_useful(row_binlog_rowset_meta) &&
-            !check_rowset_id_in_unused_rowsets(rowset_id)) {
-            LOG(INFO) << "binlog<row> meta is not used any more, remove it. rowset_id="
-                      << row_binlog_rowset_meta->rowset_id();
-            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
-        }
-        return true;
-    };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
         static_cast<void>(
@@ -1061,16 +1022,6 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
 
-        static_cast<void>(RowsetMetaManager::traverse_row_binlog_metas(data_dir->get_meta(),
-                                                                       clean_row_binlog_rowsets));
-        for (auto& rs_id_to_meta : invalid_row_binlog_metas) {
-            static_cast<void>(RowsetMetaManager::remove_row_binlog(
-                    data_dir->get_meta(), rs_id_to_meta.second->tablet_uid(), rs_id_to_meta.first,
-                    rs_id_to_meta.second->rowset_id()));
-        }
-        LOG(INFO) << "remove " << invalid_row_binlog_metas.size()
-                  << " invalid binlog<row> meta from dir: " << data_dir->path();
-        invalid_row_binlog_metas.clear();
         invalid_rowset_metas.clear();
     }
 }
@@ -1570,10 +1521,10 @@ bool BaseStorageEngine::notify_listener(std::string_view name) {
     return found;
 }
 
-void BaseStorageEngine::_evict_quring_rowset_thread_callback() {
+void BaseStorageEngine::_gc_expired_id_file_map_thread_callback() {
     int32_t interval = config::quering_rowsets_evict_interval;
     do {
-        _evict_querying_rowset();
+        _gc_expired_id_file_map();
         interval = config::quering_rowsets_evict_interval;
         if (interval <= 0) {
             LOG(WARNING) << "quering_rowsets_evict_interval config is illegal: " << interval
@@ -1688,34 +1639,7 @@ void StorageEngine::get_compaction_status_json(std::string* result) {
     _compaction_submit_registry.jsonfy_compaction_status(result);
 }
 
-void BaseStorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    _querying_rowsets.emplace(rs->rowset_id(), rs);
-}
-
-RowsetSharedPtr BaseStorageEngine::get_quering_rowset(RowsetId rs_id) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    auto it = _querying_rowsets.find(rs_id);
-    if (it != _querying_rowsets.end()) {
-        return it->second;
-    }
-    return nullptr;
-}
-
-void BaseStorageEngine::_evict_querying_rowset() {
-    {
-        std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-        for (auto it = _querying_rowsets.begin(); it != _querying_rowsets.end();) {
-            uint64_t now = UnixSeconds();
-            // We delay the GC time of this rowset since it's maybe still needed, see #20732
-            if (now > it->second->delayed_expired_timestamp()) {
-                it = _querying_rowsets.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
-
+void BaseStorageEngine::_gc_expired_id_file_map() {
     uint64_t now = UnixSeconds();
     ExecEnv::GetInstance()->get_id_manager()->gc_expired_id_file_map(now);
 }

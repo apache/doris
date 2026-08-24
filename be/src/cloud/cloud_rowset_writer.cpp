@@ -75,6 +75,9 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _rowset_meta->set_job_id(_context.job_id);
+    if (_context.write_binlog_opt().enable) {
+        _rowset_meta->mark_row_binlog();
+    }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     if (_context.mow_context != nullptr) {
@@ -145,7 +148,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     } else {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "

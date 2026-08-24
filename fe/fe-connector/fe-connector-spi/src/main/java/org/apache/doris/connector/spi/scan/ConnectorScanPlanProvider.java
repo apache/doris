@@ -353,6 +353,17 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether this connector can answer the current table-level COUNT(*) without decoding data files.
+     * The default is false; connectors may use snapshot metadata to prove the stronger condition.
+     */
+    default boolean canServeMetadataOnlyCount(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter) {
+        return false;
+    }
+
+    /**
      * Builds a lazy {@link ConnectorSplitSource} for streaming split generation. Called once, on a
      * background task, only when {@link #streamingSplitEstimate} returned a non-negative value. The
      * engine pulls ranges from the source with backpressure and pumps them into the split queue
@@ -464,6 +475,15 @@ public interface ConnectorScanPlanProvider {
     default void populateScanLevelParams(TFileScanRangeParams params,
             Map<String, String> nodeProperties) {
         // Default: no scan-level params needed
+    }
+
+    /**
+     * Whether unannotated Parquet INT96 values use the Hive writer timezone configured on the catalog.
+     * The default is false because table formats such as Iceberg and Paimon define their own timestamp
+     * semantics even when they are discovered through an HMS-backed catalog.
+     */
+    default boolean usesHiveParquetInt96TimeZone() {
+        return false;
     }
 
     /**

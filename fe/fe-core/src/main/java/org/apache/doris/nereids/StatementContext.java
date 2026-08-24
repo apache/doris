@@ -250,6 +250,9 @@ public class StatementContext implements Closeable {
     // intentionally separate from the cached table schema used by DESCRIBE/SHOW CREATE, and cleared together
     // with the connector statement scope when a prepared StatementContext starts its next execution.
     private final Map<Long, List<Column>> connectorWriteSchemas = new HashMap<>();
+    // The identity is captured by the same provider call chain as connectorWriteSchemas. Keeping it alongside
+    // the columns prevents bind-time expressions and the later sink fence from naming different generations.
+    private final Map<Long, String> connectorWriteMetadataIdentities = new HashMap<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -461,6 +464,14 @@ public class StatementContext implements Closeable {
 
     public Optional<List<Column>> getConnectorWriteSchema(long tableId) {
         return Optional.ofNullable(connectorWriteSchemas.get(tableId));
+    }
+
+    public void setConnectorWriteMetadataIdentity(long tableId, String identity) {
+        connectorWriteMetadataIdentities.put(tableId, identity);
+    }
+
+    public Optional<String> getConnectorWriteMetadataIdentity(long tableId) {
+        return Optional.ofNullable(connectorWriteMetadataIdentities.get(tableId));
     }
 
     public void setTables(Map<List<String>, TableIf> tables) {
@@ -696,6 +707,7 @@ public class StatementContext implements Closeable {
         }
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
+        this.connectorWriteMetadataIdentities.clear();
     }
 
     /**

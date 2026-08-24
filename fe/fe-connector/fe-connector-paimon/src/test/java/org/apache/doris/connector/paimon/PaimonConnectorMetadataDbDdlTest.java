@@ -44,15 +44,15 @@ public class PaimonConnectorMetadataDbDdlTest {
     /** Metadata with default (filesystem) flavor: catalogProperties has no paimon.catalog.type. */
     private static PaimonConnectorMetadata filesystemMetadata(RecordingPaimonCatalogOps ops,
             RecordingConnectorContext ctx) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     /** Metadata with HMS flavor: catalogProperties carries paimon.catalog.type=hms. */
     private static PaimonConnectorMetadata hmsMetadata(RecordingPaimonCatalogOps ops,
             RecordingConnectorContext ctx) {
         Map<String, String> catalogProps = new HashMap<>();
-        catalogProps.put(PaimonConnectorProperties.PAIMON_CATALOG_TYPE, PaimonConnectorProperties.HMS);
-        return new PaimonConnectorMetadata(ops, catalogProps, ctx);
+        catalogProps.put(PaimonCatalogProperties.PAIMON_CATALOG_TYPE, PaimonCatalogProperties.HMS);
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(catalogProps), ctx);
     }
 
     private static Map<String, String> dbProps() {

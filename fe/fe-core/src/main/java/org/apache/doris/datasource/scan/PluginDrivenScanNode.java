@@ -26,9 +26,14 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -52,7 +57,9 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -64,6 +71,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -124,6 +132,7 @@ import java.util.stream.Collectors;
  * </ol>
  */
 public class PluginDrivenScanNode extends FileQueryScanNode {
+    private static final int SUPPORT_ICEBERG_VARIANT_EXEC_VERSION = 12;
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenScanNode.class);
 
@@ -182,6 +191,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Volatile mirrors resolvedScanProvider — keeps an off-path metadata() read race-free.
     private volatile ConnectorMetadata cachedMetadata;
 
+    // COUNT(*) providers can promise metadata-only execution before planning, but TABLESAMPLE and
+    // routing decisions may invalidate that promise. Keep these plans synchronous and fence their
+    // actual ranges before any old backend can receive a Variant payload.
+    private boolean variantCompatibilityDeferred;
+
     public PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
@@ -190,6 +204,74 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+    }
+
+    @Override
+    protected void doInitialize() throws UserException {
+        super.doInitialize();
+        // Pin before projection pruning so every later connector decision uses this scan's snapshot.
+        // The Variant compatibility fence itself runs in finalize, after Nereids prunes scan slots.
+        pinMvccSnapshot();
+    }
+
+    void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
+            throws UserException {
+        boolean projectsVariant = projectsComputeVariant(desc);
+        if (projectsVariant && isTableLevelCountStarPushdown()
+                && conjuncts.isEmpty()) {
+            // Only the finalized ranges prove that sampling and batch routing did not turn a
+            // metadata-count promise into a scan that decodes the projected Variant slot.
+            variantCompatibilityDeferred = true;
+            return;
+        }
+        checkVariantBackendCompatibility(projectsVariant, backends);
+    }
+
+    static boolean projectsComputeVariant(TupleDescriptor tuple) {
+        // Nested-column pruning updates the effective slot type but deliberately keeps the original
+        // Column metadata; compatibility must follow the payload this scan actually projects.
+        return tuple.getSlots().stream().anyMatch(slot -> containsComputeVariant(slot.getType()));
+    }
+
+    private static boolean containsComputeVariant(Type type) {
+        if (type instanceof ConnectorComputeVariantType) {
+            // Only the connector-specific subtype guarantees a V2 execution carrier when the
+            // global storage-format switch is disabled.
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsComputeVariant(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return containsComputeVariant(map.getKeyType()) || containsComputeVariant(map.getValueType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsComputeVariant(field.getType()));
+        }
+        return false;
+    }
+
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+            throws UserException {
+        if (!projectsVariant) {
+            return;
+        }
+        if (Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+            // The query-wide execution version covers every eligible backend, including ordinary
+            // rolling-upgrade nodes that are not marked as cloud smooth-upgrade sources.
+            throw new UserException("Iceberg Variant requires backend execution version "
+                    + SUPPORT_ICEBERG_VARIANT_EXEC_VERSION + " or newer during rolling upgrade");
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                // Old backends cannot distinguish the logical Variant from its physical carrier,
+                // so scheduling this projection there could corrupt the result shape.
+                throw new UserException("Iceberg Variant is unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
     }
 
     // Lazily resolves this node's ConnectorMetadata through the per-statement funnel and caches it, so the
@@ -214,15 +296,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        String dbName = table.getDb() != null ? table.getDb().getRemoteName() : "";
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
         // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
         // sysTableName + forceJni), so the scan path threads force-JNI correctly for binlog/audit_log.
         ConnectorTableHandle handle = table.resolveConnectorTableHandle(session, metadata)
-                .orElseThrow(() -> new RuntimeException(
-                        "Table handle not found for plugin-driven table: " + dbName + "."
-                                + table.getRemoteName()));
+                // Use analysis semantics and local names: mapped remote identifiers are connector internals and
+                // a generic RuntimeException would be reported as ERR_UNKNOWN_ERROR by EXPLAIN.
+                .orElseThrow(() -> new AnalysisException(
+                        "Table '" + catalog.getName() + "."
+                                + (table.getDb() == null ? "" : table.getDb().getFullName()) + "." + table.getName()
+                                + "' does not exist"));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
                 scanContext, connector, session, handle);
     }
@@ -251,6 +335,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             resolvedScanProvider = cached;
         }
         return cached.provider;
+    }
+
+    @Override
+    protected String getHiveParquetTimeZone() throws UserException {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null || !onPluginClassLoader(
+                scanProvider, scanProvider::usesHiveParquetInt96TimeZone)) {
+            return "";
+        }
+        TableIf table = getTargetTable();
+        if (!(table instanceof ExternalTable)) {
+            return "";
+        }
+        // The provider capability owns the file semantics; a plugin catalog type is intentionally
+        // not required to masquerade as a built-in HMS or Hudi catalog to consume this setting.
+        return ((ExternalTable) table).getConfiguredHiveParquetTimeZone();
     }
 
     /**
@@ -913,6 +1013,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     protected void doFinalize() throws UserException {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
+        // Nereids prunes scan slots between init and finalize; fencing the init-time table-wide
+        // tuple would reject old backends even when the executable scan no longer carries Variant.
+        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
         super.doFinalize();
     }
 
@@ -1262,6 +1365,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
             return;
         }
+        String connectorName = connectorDisplayName();
         boolean timeTravelSupported = sysTableSupportsTimeTravel();
         TableScanParams scanParams = getScanParams();
         if (scanParams != null) {
@@ -1272,21 +1376,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             String sysTableName = sysTableName();
             if (scanParams.incrementalRead()) {
                 if (!sysTableSupportsScanParam(p -> p.supportsSystemTableIncrementalRead(sysTableName))) {
-                    throw new UserException("Plugin system table '" + sysTableName
+                    throw new UserException(connectorName + " system table '" + sysTableName
                             + "' does not support INCR scan params.");
                 }
             } else if (scanParams.isOptions()) {
                 if (!sysTableSupportsScanParam(p -> p.supportsSystemTableOptions(sysTableName))) {
-                    throw new UserException("Plugin system table '" + sysTableName
+                    throw new UserException(connectorName + " system table '" + sysTableName
                             + "' does not support OPTIONS scan params.");
                 }
             } else if (!timeTravelSupported) {
-                throw new UserException("Plugin system tables do not support scan params.");
+                throw new UserException(connectorName + " system tables do not support scan params.");
             }
         }
         if (getQueryTableSnapshot() != null && !timeTravelSupported) {
-            throw new UserException("Plugin system tables do not support time travel.");
+            throw new UserException(connectorName + " system tables do not support time travel.");
         }
+    }
+
+    private String connectorDisplayName() throws UserException {
+        String engine = getTargetTable().getEngine();
+        // The engine is already the connector-owned display name; changing its case corrupts identities such
+        // as iRODS and makes equivalent connector errors differ by execution path.
+        return engine == null || engine.isEmpty()
+                ? "Plugin"
+                : engine;
     }
 
     /**
@@ -1457,6 +1570,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                 () -> scanProvider.planScan(connectorSession, request));
 
+        if (variantCompatibilityDeferred) {
+            checkVariantBackendCompatibility(
+                    plannedScanDecodesVariant(projectsComputeVariant(desc), countPushdown, ranges),
+                    backendPolicy.getBackends());
+        }
+
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
             splits.add(new PluginDrivenSplit(range));
@@ -1592,6 +1711,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return -1;
     }
 
+    /** Whether the finalized scan ranges still require BE to decode a projected Variant value. */
+    static boolean plannedScanDecodesVariant(boolean projectsVariant, boolean countPushdown,
+            List<ConnectorScanRange> ranges) {
+        if (!projectsVariant) {
+            return false;
+        }
+        if (!countPushdown) {
+            return true;
+        }
+        // Every range must carry a precomputed count. One fallback range means BE reads data and
+        // therefore still needs the mixed-version Variant execution fence.
+        return ranges.stream().anyMatch(range -> range.getPushDownRowCount() < 0);
+    }
+
     /**
      * Source-side LIMIT to pass to {@code planScan}: the real limit normally, but {@code -1}
      * (no source limit) when non-pushable conjuncts were stripped from the filter. A source LIMIT
@@ -1631,6 +1764,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // whole split set anyway, so batch generation offers no benefit here. Gated on supportsTableSample
         // so a non-sampling connector's TABLESAMPLE no-op does not lose its batch path.
         if (tableSample != null && onPluginClassLoader(scanProvider, scanProvider::supportsTableSample)) {
+            return false;
+        }
+        if (variantCompatibilityDeferred) {
+            // The deferred fence needs the complete range set to prove every split is CountReader-only.
             return false;
         }
         boolean hasSlots = !desc.getSlots().isEmpty();
@@ -2183,7 +2320,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
                     selected.add(withProjectedFieldIds(ch, slot));
-                } else if (pinnedNames.contains(name)) {
+                } else if (requiresPinnedColumnHandle(slot.getColumn(), pinnedNames)) {
                     throw new UserException("Column '" + name + "' of table "
                             + getTargetTable().getName() + " resolves in the pinned time-travel schema"
                             + " but has no connector column handle; refusing to silently drop it"
@@ -2194,18 +2331,60 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return selected;
     }
 
+    static boolean requiresPinnedColumnHandle(Column column, Set<String> pinnedNames) {
+        // A connector-reserved passthrough column is generated by the scan provider rather than resolved
+        // from the physical table schema, so it may legitimately be absent from the column-handle map.
+        return pinnedNames.contains(column.getName()) && !column.isReservedPassthrough();
+    }
+
     static ConnectorColumnHandle withProjectedFieldIds(
             ConnectorColumnHandle handle, SlotDescriptor slot) {
         Set<Integer> projectedFieldIds = new HashSet<>();
         for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
-            for (String component : accessPath.getPath()) {
-                if (component.chars().allMatch(Character::isDigit)) {
-                    projectedFieldIds.add(Integer.parseInt(component));
-                }
-            }
+            collectProjectedFieldIds(accessPath.getPath(), slot.getColumn(), projectedFieldIds);
         }
         return projectedFieldIds.isEmpty()
                 ? handle : handle.withProjectedFieldIds(projectedFieldIds);
+    }
+
+    private static void collectProjectedFieldIds(
+            List<String> path, Column root, Set<Integer> projectedFieldIds) {
+        if (root == null) {
+            path.stream().filter(component -> component.chars().allMatch(Character::isDigit))
+                    .map(Integer::parseInt).forEach(projectedFieldIds::add);
+            return;
+        }
+        Column current = root;
+        for (String component : path) {
+            if (current.getType().isVariantType()) {
+                // Variant selectors are data tokens, so digit-only object keys and array indexes must
+                // never escape as stable Iceberg schema field IDs.
+                if (component.equals(String.valueOf(current.getUniqueId()))) {
+                    projectedFieldIds.add(current.getUniqueId());
+                }
+                break;
+            }
+            if (component.chars().allMatch(Character::isDigit)) {
+                int fieldId = Integer.parseInt(component);
+                if (fieldId == current.getUniqueId()) {
+                    projectedFieldIds.add(fieldId);
+                    continue;
+                }
+                Column child = current.getChildren() == null ? null : current.getChildren().stream()
+                        .filter(candidate -> candidate.getUniqueId() == fieldId)
+                        .findFirst().orElse(null);
+                if (child != null) {
+                    projectedFieldIds.add(fieldId);
+                    current = child;
+                }
+            } else if (current.getChildren() != null && !current.getChildren().isEmpty()) {
+                if (current.getType().isArrayType()) {
+                    current = current.getChildren().get(0);
+                } else if (current.getType().isMapType() && current.getChildren().size() > 1) {
+                    current = current.getChildren().get(1);
+                }
+            }
+        }
     }
 
     /**

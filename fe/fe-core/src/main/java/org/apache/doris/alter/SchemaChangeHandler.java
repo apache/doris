@@ -2341,7 +2341,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true, true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -3290,6 +3290,13 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
+        if (indexDef.getIndexType() == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+            throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
+                    + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
+                    + " recreate the table with inverted_index_storage_format = V2.");
+        }
+
         for (String col : indexDef.getColumnNames()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
@@ -3514,7 +3521,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -3959,6 +3966,17 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
+        }
+
+        if (!oldBinlogConfig.isEnableForStreaming() && newBinlogConfig.isEnableForStreaming()) {
+            throw new DdlException("Do not support dynamically enabling binlog<Row> for table: "
+                    + olapTable.getName());
+        }
+
+        if (newBinlogConfig.isEnableForCCR()) {
+            if (Config.isCloudMode()) {
+                throw new DdlException("Binlog<CCR> is not supported in cloud mode");
+            }
         }
 
         // check db binlog config, if db binlog config is not same as table binlog config, throw exception
