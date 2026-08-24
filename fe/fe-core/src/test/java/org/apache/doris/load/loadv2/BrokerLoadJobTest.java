@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -427,10 +428,10 @@ public class BrokerLoadJobTest {
                     Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
                     Mockito.anyLong(), Mockito.anyLong()))
                     .thenThrow(new LabelAlreadyUsedException("label_self_conflict"));
-            Mockito.when(transactionMgr.getTransactionIdByLabel(Mockito.anyLong(), Mockito.anyString(),
-                    Mockito.anyList())).thenReturn(777L);
+            Mockito.when(transactionMgr.getTransactionId(Mockito.anyLong(), Mockito.anyString())).thenReturn(777L);
             Mockito.when(transactionMgr.getTransactionState(Mockito.anyLong(), Mockito.eq(777L)))
                     .thenReturn(preparedTxn);
+            Mockito.when(preparedTxn.getTransactionId()).thenReturn(777L);
             Mockito.when(preparedTxn.getCallbackId()).thenReturn(1001L);
             Mockito.when(preparedTxn.getTransactionStatus()).thenReturn(TransactionStatus.PREPARE);
 
@@ -438,6 +439,46 @@ public class BrokerLoadJobTest {
         }
 
         Assert.assertEquals(777L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+    }
+
+    @Test
+    public void testBeginTxnFinishesOwnVisibleTxn() throws Exception {
+        // The transaction may become visible in meta service before cloud FE persists the final
+        // load-job state. After FE restart the replayed PENDING job must recover that successful
+        // transaction instead of retrying beginTxn until it is cancelled by its own label.
+        GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState visibleTxn = Mockito.mock(TransactionState.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        CloudBrokerLoadJob brokerLoadJob = new CloudBrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "id", 1001L);
+        Deencapsulation.setField(brokerLoadJob, "dbId", 1L);
+        Deencapsulation.setField(brokerLoadJob, "label", "label_visible_after_restart");
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            Mockito.when(transactionMgr.beginTransaction(Mockito.anyLong(), Mockito.anyList(),
+                    Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.anyLong(), Mockito.anyLong()))
+                    .thenThrow(new LabelAlreadyUsedException("label_visible_after_restart"));
+            Mockito.when(transactionMgr.getTransactionId(Mockito.anyLong(), Mockito.anyString())).thenReturn(888L);
+            Mockito.when(transactionMgr.getTransactionState(Mockito.anyLong(), Mockito.eq(888L)))
+                    .thenReturn(visibleTxn);
+            Mockito.when(visibleTxn.getTransactionId()).thenReturn(888L);
+            Mockito.when(visibleTxn.getCallbackId()).thenReturn(1001L);
+            Mockito.when(visibleTxn.getTransactionStatus()).thenReturn(TransactionStatus.VISIBLE);
+
+            brokerLoadJob.beginTxn();
+        }
+
+        Assert.assertEquals(888L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        Assert.assertEquals(JobState.FINISHED, brokerLoadJob.getState());
+        Mockito.verify(callbackFactory).removeCallback(1001L);
+        Mockito.verify(editLog).logEndLoadJob(Mockito.any(LoadJobFinalOperation.class));
     }
 
     @Test
@@ -456,8 +497,7 @@ public class BrokerLoadJobTest {
                     Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
                     Mockito.anyLong(), Mockito.anyLong()))
                     .thenThrow(new LabelAlreadyUsedException("label_foreign"));
-            Mockito.when(transactionMgr.getTransactionIdByLabel(Mockito.anyLong(), Mockito.anyString(),
-                    Mockito.anyList())).thenReturn(888L);
+            Mockito.when(transactionMgr.getTransactionId(Mockito.anyLong(), Mockito.anyString())).thenReturn(888L);
             Mockito.when(transactionMgr.getTransactionState(Mockito.anyLong(), Mockito.eq(888L)))
                     .thenReturn(foreignTxn);
             Mockito.when(foreignTxn.getCallbackId()).thenReturn(9999L);
