@@ -118,6 +118,79 @@ public class RefreshMTMVInfoTest {
         }
     }
 
+    /**
+     * A legacy time-suffixed physical partition and its regenerated SHA alias are two spellings of the same
+     * logical partition: {@code REFRESH ... PARTITIONS(legacy_p, sha_p)} must collapse to a single resolved
+     * target. Otherwise the refresh task would run two INSERT OVERWRITEs for the same partition (with
+     * refresh_partition_num=1) or count the same target twice when batching / generating the refresh mode.
+     */
+    @Test
+    public void testDeduplicatesAliasAndPhysicalNameOfSamePartition() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<MTMVPartitionUtil> utilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            Env env = Mockito.mock(Env.class);
+            InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+            Database db = Mockito.mock(Database.class);
+            MTMV mtmv = Mockito.mock(MTMV.class);
+            MTMVPartitionInfo mvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+
+            String legacyName = "p_202401010000000000_202401020000000000_1700000000";
+            String shaName = "p_202401010000000000_202401020000000000_a1b2c3d4e5f60718";
+
+            PartitionKeyDesc desc = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000+00:00")),
+                    Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00.000000+00:00")));
+            PartitionItem item = Mockito.mock(PartitionItem.class);
+            Mockito.when(item.toPartitionKeyDesc()).thenReturn(desc);
+
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
+            Mockito.when(internalCatalog.getDbOrDdlException("db1")).thenReturn(db);
+            Mockito.when(db.getTableOrMetaException(Mockito.eq("mv1"), Mockito.eq(TableType.MATERIALIZED_VIEW)))
+                    .thenReturn(mtmv);
+            Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPartitionInfo);
+            Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+            Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet());
+            Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(legacyName));
+            Mockito.when(mtmv.getPartitionItemOrAnalysisException(legacyName)).thenReturn(item);
+            Mockito.when(mtmv.getMvProperties()).thenReturn(Maps.newHashMap());
+            Mockito.when(mtmv.getPartitionColumns())
+                    .thenReturn(Lists.newArrayList(new Column("day_ts", ScalarType.createTimeStampTzType(6))));
+
+            utilStatic.when(() -> MTMVPartitionUtil.generateRelatedPartitionDescs(
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenReturn(ImmutableMap.of(desc, Maps.newHashMap()));
+            utilStatic.when(() -> MTMVPartitionUtil.generatePartitionName(Mockito.any(PartitionKeyDesc.class)))
+                    .thenReturn(shaName);
+
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+
+            // both the physical legacy name and the regenerated alias address the same descriptor, so the
+            // resolved target list must contain the physical partition exactly once
+            RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
+                    Lists.newArrayList(legacyName, shaName), false);
+            info.analyze(ctx);
+            Assertions.assertEquals(Lists.newArrayList(legacyName), info.getPartitions());
+
+            // the reversed order collapses to the same single physical target as well
+            RefreshMTMVInfo reversedInfo = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
+                    Lists.newArrayList(shaName, legacyName), false);
+            reversedInfo.analyze(ctx);
+            Assertions.assertEquals(Lists.newArrayList(legacyName), reversedInfo.getPartitions());
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
     @Test
     public void testKeepsGeneratedNameWhenPartitionWillBeCreated() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
