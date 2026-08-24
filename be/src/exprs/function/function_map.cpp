@@ -63,14 +63,6 @@ class FunctionContext;
 
 namespace doris {
 
-static ColumnPtr ensure_nullable_column(ColumnPtr column) {
-    if (!column->is_nullable()) {
-        const size_t column_size = column->size();
-        column = ColumnNullable::create(std::move(column), ColumnUInt8::create(column_size, 0));
-    }
-    return column;
-}
-
 class FunctionMapFromArrays : public IFunction {
 public:
     static constexpr auto name = "map_from_arrays";
@@ -146,9 +138,9 @@ public:
             result_offsets = std::move(filtered_offsets);
         }
 
-        auto result_map = ColumnMap::create(ensure_nullable_column(std::move(result_keys)),
-                                            ensure_nullable_column(std::move(result_values)),
-                                            std::move(result_offsets));
+        auto result_map =
+                ColumnMap::create(make_nullable(result_keys), make_nullable(result_values),
+                                  std::move(result_offsets));
         RETURN_IF_ERROR(result_map->deduplicate_keys());
         if (block.get_by_position(result).type->is_nullable()) {
             block.replace_by_position(result, ColumnNullable::create(std::move(result_map),
@@ -501,8 +493,8 @@ public:
 
         const auto& entry_struct =
                 assert_cast<const ColumnStruct&>(nullable_entries.get_nested_column());
-        auto result_map = ColumnMap::create(ensure_nullable_column(entry_struct.get_column_ptr(0)),
-                                            ensure_nullable_column(entry_struct.get_column_ptr(1)),
+        auto result_map = ColumnMap::create(make_nullable(entry_struct.get_column_ptr(0)),
+                                            make_nullable(entry_struct.get_column_ptr(1)),
                                             entries.get_offsets_ptr());
         RETURN_IF_ERROR(result_map->deduplicate_keys());
         if (nullable_array != nullptr) {
