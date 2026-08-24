@@ -200,7 +200,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "tps", alternate = {"tempPartitions"})
     private TempPartitions tempPartitions = new TempPartitions();
 
-    // bloom filter columns
+    // BfColumns are managed by the bloom_filter_columns table property.
+    // BfIndex metadata is stored in `indexes`.
     @SerializedName(value = "bfc", alternate = {"bfColumns"})
     private Set<String> bfColumns;
 
@@ -2509,8 +2510,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 && Objects.equals(partitionInfo, other.partitionInfo) && Objects.equals(
                 idToPartition, other.idToPartition) && Objects.equals(nameToPartition,
                 other.nameToPartition) && Objects.equals(tempPartitions, other.tempPartitions)
-                && Objects.equals(bfColumns, other.bfColumns) && Objects.equals(colocateGroup,
-                other.colocateGroup) && Objects.equals(sequenceType, other.sequenceType)
+                && Objects.equals(bfColumns, other.bfColumns)
+                && Objects.equals(colocateGroup, other.colocateGroup)
+                && Objects.equals(sequenceType, other.sequenceType)
                 && Objects.equals(indexes, other.indexes) && Objects.equals(tableProperty,
                 other.tableProperty);
     }
