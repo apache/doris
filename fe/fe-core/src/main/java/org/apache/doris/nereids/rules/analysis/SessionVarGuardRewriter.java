@@ -235,10 +235,18 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         @Override
         public Expression visitSessionVarGuardExpr(SessionVarGuardExpr expr, Boolean context) {
             Expression child = expr.child().accept(this, Boolean.TRUE);
-            if (child != expr.child()) {
-                return expr.withChildren(ImmutableList.of(child));
+            Expression guarded = child != expr.child() ? expr.withChildren(ImmutableList.of(child)) : expr;
+            // A cache-building rewriter must keep a cache-mismatch marker around an existing non-cache guard:
+            // an MTMV over a view carries the view's query-side guard (cacheGuard=false) in its definition
+            // plan, so without re-marking it the guarded cache for a cross-zone query has no cache guard and
+            // the isCacheGuard() rejection in AbstractMaterializedViewRule never fires - FORCE_IN_RBO would
+            // then substitute a value materialized in the MV's creation/refresh session. Wrap the existing
+            // guard so the cache plan is structurally distinct from the query-side plan and the rejection
+            // gates see the marker.
+            if (cacheGuard && !expr.isCacheGuard() && sessionVar != null) {
+                return new SessionVarGuardExpr(guarded, sessionVar, true);
             }
-            return expr;
+            return guarded;
         }
 
         private boolean needsSessionVarGuard(Expression expr) {
