@@ -192,7 +192,7 @@ public class HMSTransaction implements Transaction {
                 continue;
             }
             for (TS3MPUPendingUpload upload : uploads) {
-                if (!isCompleteObjectStoreUpload(upload)) {
+                if (!hasObjectStoreUploadIdentity(upload)) {
                     LOG.warn("Skipping incomplete MPU cleanup record for write path {}", writePath);
                     continue;
                 }
@@ -201,9 +201,24 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    private static boolean isCompleteObjectStoreUpload(TS3MPUPendingUpload upload) {
+    private static boolean hasObjectStoreUploadIdentity(TS3MPUPendingUpload upload) {
         return upload != null && !Strings.isNullOrEmpty(upload.getUploadId())
                 && !Strings.isNullOrEmpty(upload.getBucket()) && !Strings.isNullOrEmpty(upload.getKey());
+    }
+
+    private static boolean isCompleteObjectStoreUpload(TS3MPUPendingUpload upload) {
+        if (!hasObjectStoreUploadIdentity(upload)
+                || upload.getEtags() == null || upload.getEtags().isEmpty()) {
+            return false;
+        }
+        // A gapped part map can be accepted by object stores as a shorter object, so reject it
+        // before publishing metadata that describes the original file.
+        for (int partNumber = 1; partNumber <= upload.getEtagsSize(); partNumber++) {
+            if (Strings.isNullOrEmpty(upload.getEtags().get(partNumber))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void validateObjectStoreCommitRecords() {

@@ -117,7 +117,7 @@ public:
     Status trigger_spill();
 
 private:
-    void _include_merge_reservation(RuntimeState* state, bool eos,
+    void _include_merge_reservation(RuntimeState* state, bool eos, bool reaches_target,
                                     SorterReserveMemory* reservation) const;
 
     // Track the largest observed materialized row size to bound merge output batches.

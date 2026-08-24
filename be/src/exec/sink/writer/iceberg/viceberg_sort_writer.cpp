@@ -96,8 +96,17 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeS
     const size_t target = _target_file_size_bytes >= 0
                                   ? static_cast<size_t>(_target_file_size_bytes)
                                   : std::numeric_limits<size_t>::max();
-    auto reservation = _sorter->get_reserve_mem_size_components(state, eos, target);
-    _include_merge_reservation(state, eos, &reservation);
+    const auto& unsorted_block = _sorter->merge_sort_state()->unsorted_block();
+    const size_t incoming_rows = static_cast<size_t>(state->batch_size());
+    const size_t bytes_per_row =
+            unsorted_block->rows() == 0 ? 0 : unsorted_block->bytes() / unsorted_block->rows();
+    const size_t incoming_bytes = iceberg_saturating_multiply(bytes_per_row, incoming_rows);
+    auto reservation = _sorter->get_reserve_mem_size_components(state, eos, incoming_rows,
+                                                                incoming_bytes, target);
+    const bool reaches_target =
+            incoming_rows > 0 && target != std::numeric_limits<size_t>::max() &&
+            iceberg_saturating_add(_sorter->data_size(), incoming_bytes) >= target;
+    _include_merge_reservation(state, eos, reaches_target, &reservation);
     return reservation;
 }
 
@@ -112,16 +121,20 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(
                                   : std::numeric_limits<size_t>::max();
     auto reservation = _sorter->get_reserve_mem_size_components(state, eos, incoming_rows,
                                                                 incoming_bytes, target);
-    _include_merge_reservation(state, eos, &reservation);
+    const bool reaches_target =
+            incoming_rows > 0 && target != std::numeric_limits<size_t>::max() &&
+            iceberg_saturating_add(_sorter->data_size(), incoming_bytes) >= target;
+    _include_merge_reservation(state, eos, reaches_target, &reservation);
     return reservation;
 }
 
 void VIcebergSortWriter::_include_merge_reservation(RuntimeState* state, bool eos,
+                                                    bool reaches_target,
                                                     SorterReserveMemory* reservation) const {
-    if (!eos) {
+    if (!eos && !reaches_target) {
         return;
     }
-    if (!_sorted_spill_files.empty()) {
+    if (eos && !_sorted_spill_files.empty()) {
         size_t spill_file_count = _sorted_spill_files.size();
         if (_sorter->data_size() > 0) {
             ++spill_file_count;
@@ -131,9 +144,9 @@ void VIcebergSortWriter::_include_merge_reservation(RuntimeState* state, bool eo
                                               state->spill_sort_merge_mem_limit_bytes());
         reservation->transient_workspace =
                 std::max(reservation->transient_workspace, merge_workspace);
-    } else if (_sorter->data_size() > 0) {
-        // Non-spill reads retain all sorted runs while materializing the output block, so EOS
-        // admission must cover the same byte-bounded output used by _write_sorted_data().
+    } else if (_sorter->data_size() > 0 || reaches_target) {
+        // Non-spill reads retain all sorted runs while materializing the output block, so both EOS
+        // and a predicted target rollover must cover the byte-bounded output used by the flush.
         reservation->transient_workspace = std::max(
                 reservation->transient_workspace,
                 iceberg_merge_output_workspace(_max_row_bytes, state->spill_buffer_size_bytes()));

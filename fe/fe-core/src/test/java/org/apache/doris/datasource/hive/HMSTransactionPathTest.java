@@ -46,7 +46,9 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -380,5 +382,27 @@ public class HMSTransactionPathTest {
                 () -> tx.finishInsertTable(NameMapping.createForTest("db", "table")));
 
         Assert.assertTrue(error.getMessage().contains("reported 1 file(s)"));
+    }
+
+    @Test
+    public void testObjectStoreCommitRejectsGappedMultipartParts() {
+        HMSTransaction tx = createTransaction(Mockito.mock(FileSystem.class));
+        tx.fileType = TFileType.FILE_S3;
+        Map<Integer, String> etags = new LinkedHashMap<>();
+        etags.put(1, "etag-1");
+        etags.put(3, "etag-3");
+        TS3MPUPendingUpload upload = new TS3MPUPendingUpload()
+                .setBucket("bucket").setKey("data.parquet").setUploadId("upload-id")
+                .setEtags(etags);
+        THivePartitionUpdate update = new THivePartitionUpdate()
+                .setName("").setFileSize(1).setRowCount(1)
+                .setFileNames(Collections.singletonList("data.parquet"))
+                .setS3MpuPendingUploads(Collections.singletonList(upload));
+        tx.updateHivePartitionUpdates(Collections.singletonList(update));
+
+        IllegalStateException error = Assert.assertThrows(IllegalStateException.class,
+                () -> tx.finishInsertTable(NameMapping.createForTest("db", "table")));
+
+        Assert.assertTrue(error.getMessage().contains("valid multipart completion record"));
     }
 }

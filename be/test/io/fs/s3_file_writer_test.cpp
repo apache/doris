@@ -1038,6 +1038,48 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
     ASSERT_FALSE(st.ok()) << st;
 }
 
+TEST_F(S3FileWriterTest, deferred_multi_part_rejects_missing_tail_part) {
+    mock_client = std::make_shared<MockS3Client>();
+    doris::io::FileWriterOptions state;
+    state.used_by_s3_committer = true;
+    auto fs = io::global_local_filesystem();
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("S3FileWriter::_complete:1", [](auto&& outcome) {
+        const auto& points = try_any_cast<
+                const std::pair<std::atomic_bool*, std::vector<io::ObjectCompleteMultiPart>*>&>(
+                outcome.back());
+        (*points.first) = false;
+        points.second->pop_back();
+    });
+    Defer defer {[&]() { sp->clear_call_back("S3FileWriter::_complete:1"); }};
+    io::FileReaderSPtr local_file_reader;
+
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
+    ASSERT_TRUE(st.ok()) << st;
+
+    constexpr int buf_size = 8192;
+    io::FileWriterPtr s3_file_writer;
+    st = s3_fs->create_file("deferred_multi_part_missing_tail", &s3_file_writer, &state);
+    ASSERT_TRUE(st.ok()) << st;
+
+    char buf[buf_size];
+    Slice slice(buf, buf_size);
+    size_t offset = 0;
+    size_t bytes_read = 0;
+    auto file_size = local_file_reader->size();
+    while (offset < file_size) {
+        st = local_file_reader->read_at(offset, slice, &bytes_read);
+        ASSERT_TRUE(st.ok()) << st;
+        st = s3_file_writer->append(Slice(buf, bytes_read));
+        ASSERT_TRUE(st.ok()) << st;
+        offset += bytes_read;
+    }
+    ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
+    ASSERT_TRUE(s3_file_writer->close(true).ok());
+    ASSERT_FALSE(s3_file_writer->close().ok());
+}
+
 TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
     mock_client = std::make_shared<MockS3Client>();
     doris::io::FileWriterOptions state;

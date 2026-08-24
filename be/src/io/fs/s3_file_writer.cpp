@@ -489,10 +489,6 @@ Status S3FileWriter::_complete() {
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
-    if (_used_by_s3_committer) {    // S3 committer will complete multipart upload file on FE side.
-        s3_file_created_total << 1; // Assume that it will be created successfully
-        return Status::OK();
-    }
 
     // check number of parts
     int64_t expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
@@ -502,8 +498,17 @@ Status S3FileWriter::_complete() {
     DCHECK_EQ(expected_num_parts1, expected_num_parts2)
             << " bytes_appended=" << _bytes_appended << " cur_part_num=" << _cur_part_num
             << " s3_write_buffer_size=" << config::s3_write_buffer_size;
+    // Deferred completion transfers ownership to the FE, so it must receive the same complete,
+    // contiguous part set that the BE would require before completing the upload itself.
+    std::sort(_completed_parts.begin(), _completed_parts.end(),
+              [](auto& p1, auto& p2) { return p1.part_num < p2.part_num; });
+    bool has_complete_part_sequence =
+            _completed_parts.size() == static_cast<size_t>(expected_num_parts1);
+    for (size_t i = 0; has_complete_part_sequence && i < _completed_parts.size(); ++i) {
+        has_complete_part_sequence = _completed_parts[i].part_num == static_cast<int>(i + 1);
+    }
     if (_failed || _completed_parts.size() != static_cast<size_t>(expected_num_parts1) ||
-        expected_num_parts1 != expected_num_parts2) {
+        expected_num_parts1 != expected_num_parts2 || !has_complete_part_sequence) {
         _st = Status::InternalError(
                 "failed to complete multipart upload, error status={} failed={} #complete_parts={} "
                 "#expected_parts={} "
@@ -513,9 +518,10 @@ Status S3FileWriter::_complete() {
         LOG(WARNING) << _st;
         return _st;
     }
-    // make sure _completed_parts are ascending order
-    std::sort(_completed_parts.begin(), _completed_parts.end(),
-              [](auto& p1, auto& p2) { return p1.part_num < p2.part_num; });
+    if (_used_by_s3_committer) {    // S3 committer will complete multipart upload file on FE side.
+        s3_file_created_total << 1; // Assume that it will be created successfully
+        return Status::OK();
+    }
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()

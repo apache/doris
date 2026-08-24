@@ -159,31 +159,37 @@ TEST_F(VIcebergPartitionWriterTest, EosReservationIncludesActualSpillFanIn) {
     EXPECT_EQ(72 * 1024 * 1024, reservation.transient_workspace);
 }
 
-TEST_F(VIcebergPartitionWriterTest, TargetSizeReservationIncludesImmediateSortBelowGenericLimit) {
+TEST_F(VIcebergPartitionWriterTest, NonEosTargetRolloverReservesWideMergeOutput) {
+    constexpr size_t MB = 1024 * 1024;
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
     std::map<std::string, std::string> hadoop_conf;
     auto partition_writer = std::shared_ptr<VIcebergPartitionWriter>(
             make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
-    VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 64);
+    VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 64 * MB);
     MockRuntimeState state;
     ObjectPool pool;
     auto row_desc = std::make_unique<MockRowDescriptor>(
-            std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool);
+            std::vector<DataTypePtr> {std::make_shared<DataTypeString>()}, &pool);
     auto ordering_expr_ctxs =
-            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeString>());
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
     sort_writer._sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order,
                                                     nulls_first, *row_desc, &state, nullptr);
-    Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
-    ASSERT_LT(block.bytes(), 256 * 1024 * 1024);
-    ASSERT_TRUE(sort_writer._sorter->append_block(&block).ok());
+    sort_writer._runtime_state = &state;
+    Block wide = ColumnHelper::create_block<DataTypeString>(
+            {std::string(2 * MB, 'b'), std::string(2 * MB, 'a')});
+    ASSERT_TRUE(sort_writer.write(wide).ok());
+    ASSERT_TRUE(sort_writer._sorter->do_sort().ok());
+    sort_writer._target_file_size_bytes = sort_writer._sorter->data_size() + 1;
+    Block tiny = ColumnHelper::create_block<DataTypeString>({"c"});
 
-    const auto reservation = sort_writer.get_reserve_mem_size_components(&state, false, 0, 0);
+    const auto reservation = sort_writer.get_reserve_mem_size_components(&state, false, tiny.rows(),
+                                                                         tiny.allocated_bytes());
 
-    EXPECT_GT(reservation.transient_workspace, 0);
+    EXPECT_GE(reservation.transient_workspace, 8 * MB);
 }
 
 TEST_F(VIcebergPartitionWriterTest, EosReservationCoversWideNonSpillMergeOutput) {
