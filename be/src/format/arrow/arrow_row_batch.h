@@ -43,8 +43,11 @@ constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
 
 class RowDescriptor;
 
+// datetime_naive only controls how Doris DATETIMEV2 is represented in the output Arrow schema.
+// When enabled, DATETIMEV2 is mapped to a timestamp without a timezone to preserve its wall-clock
+// semantics. TIMESTAMPTZ remains timezone-aware, and Arrow-to-Doris conversions are unaffected.
 Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone);
+                             const std::string& timezone, bool datetime_naive = false);
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
@@ -55,7 +58,7 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone);
+                                       const std::string& timezone, bool datetime_naive = false);
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 
