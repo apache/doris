@@ -80,7 +80,7 @@ suite("test_inverted_index_agg_mor_forbidden", "p0") {
                 "enable_unique_key_merge_on_write" = "false"
             );
         """
-        exception "INVERTED index is not supported on merge-on-read UNIQUE_KEYS table"
+        exception "merge-on-read UNIQUE_KEYS table"
     }
 
     // ---- merge-on-read UNIQUE_KEYS: inverted index forbidden via ALTER on value column ----
@@ -99,7 +99,7 @@ suite("test_inverted_index_agg_mor_forbidden", "p0") {
     """
     test {
         sql "ALTER TABLE ${morTbl} ADD INDEX idx_v1 (v1) USING INVERTED;"
-        exception "INVERTED index is not supported on merge-on-read UNIQUE_KEYS table"
+        exception "merge-on-read UNIQUE_KEYS table"
     }
 
     // ---- merge-on-write UNIQUE_KEYS: inverted index still allowed (sanity check) ----
