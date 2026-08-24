@@ -130,7 +130,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 || connectContext.getSessionVariable().disableJoinReorderBeforeEagerAgg) {
             return plan;
         }
+        long startNanos = System.nanoTime();
         Plan reorderedPlan = JoinReorderRule.INSTANCE.rewrite(plan, null);
+        if (LOG.isDebugEnabled()) {
+            double elapsedMs = (System.nanoTime() - startNanos) / 1_000_000.0;
+            LOG.debug("{} join reorder before eager aggregation [changed={}, elapsedMs={}]",
+                    connectContext.getQueryIdentifier(), reorderedPlan != plan, elapsedMs);
+        }
         if (reorderedPlan == plan) {
             return plan;
         }
