@@ -873,13 +873,12 @@ std::string ResourceManager::update_cluster(
     if (!msg.empty()) {
         return msg;
     }
-    ClusterPB now = clusters[idx];
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
-    now.set_mtime(time);
+    clusters[idx].set_mtime(time);
     LOG(INFO) << "before update cluster original: " << proto_to_json(original)
-              << " after update now: " << proto_to_json(now);
+              << " after update now: " << proto_to_json(clusters[idx]);
 
     InstanceKeyInfo key_info {instance_id};
     std::string key;
