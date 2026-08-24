@@ -40,44 +40,73 @@ public final class LanceStorageOptions {
     }
 
     /**
-     * Builds the options for one dataset, from Doris's storage properties and whatever a namespace
-     * vended for it. Pass {@code null} for {@code vendedOptions} where nothing is vended - the
-     * namespace client's own storage, or the {@code s3()} table-valued function.
+     * Doris's own storage configuration, in the vocabulary of the provider Lance routes
+     * {@code uri} to.
      *
-     * <p>Both halves are put in the vocabulary of the provider Lance will route {@code datasetUri}
-     * to, so a vended option lands on the same key as the catalog's and replaces it outright.
-     * Without that they would reach Lance as two entries for one config key, and object_store
-     * would keep whichever its HashMap yielded last - independently in the FE and in the BE.
+     * <p>Used wherever no namespace is involved: the storage a namespace client reads itself, and
+     * the {@code s3()} table-valued function.
      */
-    public static Map<String, String> forDataset(String datasetUri,
-            List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
-        LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
-        Map<String, String> result = new HashMap<>(provider.fromDorisProperties(storageProperties));
-        if (vendedOptions == null) {
-            return result;
-        }
-        vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
-        result.putAll(provider.normalizeVended(vendedOptions));
+    public static Map<String, String> forUri(String uri, List<StorageProperties> storageProperties) {
+        Map<String, String> result = new HashMap<>(
+                LanceStorageProvider.forDataset(uri).fromDorisProperties(storageProperties));
+        result.forEach((key, value) -> rejectUntransportable(key, value,
+                "Doris storage configuration"));
         return result;
     }
 
     /**
-     * Rejects what the FE cannot hand to the BE unchanged.
+     * The same, plus whatever a namespace vended for one table, which wins on any option both
+     * sides name - it just described the table.
      *
-     * <p>These options reach lance-c as C strings, so a NUL would truncate one there while the FE
-     * kept reading the whole thing, leaving the two halves opening the dataset with different
-     * configuration. That has to fail loudly: dropping the option instead just moves the
-     * divergence, since an FE that drops it and a BE that does not disagree in the same way.
+     * <p>Putting both halves in one provider's vocabulary is what makes that possible: otherwise
+     * two spellings of one option reach Lance as separate entries, and object_store keeps
+     * whichever its HashMap yields last - independently in the FE and in the BE.
+     *
+     * <p>{@code vendedOptions} may be null or empty; a namespace that describes a table without
+     * vending storage options is ordinary, and this then degenerates to {@link #forUri}.
+     */
+    public static Map<String, String> forVendedTable(String datasetUri,
+            List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
+        Map<String, String> result = forUri(datasetUri, storageProperties);
+        if (vendedOptions == null || vendedOptions.isEmpty()) {
+            return result;
+        }
+        vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
+        // Safe to validate the vended half before normalizing: normalizeVended only ever renames a
+        // key to one of this class's own constants or passes it through unchanged, so it cannot
+        // introduce a NUL that the check above would have missed.
+        result.putAll(LanceStorageProvider.forDataset(datasetUri).normalizeVended(vendedOptions));
+        return result;
+    }
+
+    /**
+     * Rejects an option a namespace had no business sending.
+     *
+     * <p>Null is not expressible at all, and a NUL cannot survive the boundary - see
+     * {@link #rejectUntransportable}.
      */
     private static void validateVendedOption(String key, String value) {
         if (key == null || value == null) {
             throw new IllegalArgumentException(
                     "Lance namespace vended a storage option with a null key or value");
         }
+        rejectUntransportable(key, value, "Lance namespace");
+    }
+
+    /**
+     * Rejects what cannot cross into Lance unchanged, whichever side it came from.
+     *
+     * <p>These options are handed to lance-c and to the Lance Java SDK as C strings, so a NUL
+     * truncates one there while the FE goes on using the whole thing, and the two halves open the
+     * dataset with different configuration. That has to fail loudly: dropping the option instead
+     * only moves the divergence, since a component that drops it and one that does not disagree in
+     * exactly the same way. The BE repeats this check as its own last line of defence.
+     */
+    private static void rejectUntransportable(String key, String value, String source) {
         if (key.indexOf('\0') >= 0 || value.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException(
-                    "Lance namespace vended the storage option '" + key.replace('\0', '?')
-                            + "' with a NUL in its key or value, which cannot reach the backend");
+            throw new IllegalArgumentException(source + " supplied the storage option '"
+                    + key.replace('\0', '?') + "' with a NUL in its key or value, which cannot "
+                    + "reach Lance intact");
         }
     }
 }

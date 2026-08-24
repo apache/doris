@@ -95,9 +95,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            Map<String, String> lanceStorageOptions = LanceStorageOptions.forDataset(
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
                     properties.getNamespaceStorageUri(),
-                    catalogProperty.getOrderedStoragePropertiesList(), null);
+                    catalogProperty.getOrderedStoragePropertiesList());
 
             allocator = new RootAllocator(ALLOCATOR_LIMIT);
             namespace = properties.createNamespace(allocator, lanceStorageOptions);
@@ -118,9 +118,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.forDataset(
+        Map<String, String> storageOptions = LanceStorageOptions.forUri(
                 properties.getNamespaceStorageUri(),
-                catalogProperty.getOrderedStoragePropertiesList(), null);
+                catalogProperty.getOrderedStoragePropertiesList());
         List<String> parent = LanceNamespaceName.parseParentNamespace(
                 properties.getNamespaceParent(), properties.getNamespaceDelimiter());
         String type = properties.getLanceCatalogType();
@@ -296,7 +296,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
         // and the BE through lance-c, so neither can end up with credentials the other lacks. The
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
-        Map<String, String> storageOptions = LanceStorageOptions.forDataset(datasetUri,
+        Map<String, String> storageOptions = LanceStorageOptions.forVendedTable(datasetUri,
                 catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
         try {
             if (tableSnapshot.isPresent()) {

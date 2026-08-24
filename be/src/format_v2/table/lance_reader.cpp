@@ -1040,8 +1040,10 @@ Status LanceTableReader::_storage_options(const TFileScanRangeParams* scan_param
     for (const auto& [key, value] : scan_params->lance_storage_options) {
         // These become C strings below, so a NUL would truncate the option here while the FE went
         // on using the whole thing, and the two halves would open the dataset with different
-        // configuration. The FE rejects these already; dropping one here instead of failing would
-        // just recreate that divergence against an FE that predates the check.
+        // configuration. The FE rejects these on both paths it builds options from - its own
+        // storage configuration and what a namespace vends - so this is the last line of defence,
+        // for an FE that predates those checks. Dropping one here instead of failing would just
+        // recreate the divergence it exists to prevent.
         if (key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
             return Status::InvalidArgument(
                     "Lance storage option '{}' contains a NUL and cannot reach lance-c",
