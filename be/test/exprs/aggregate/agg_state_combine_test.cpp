@@ -157,4 +157,59 @@ TEST_F(AggregateStateCombineTest, AvgNullableInput) {
     EXPECT_TRUE(nullable_all_null_result.is_null_at(0));
 }
 
+TEST_F(AggregateStateCombineTest, CountNullableInputPreservesGroupedStates) {
+    auto argument_type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto state_type = std::make_shared<DataTypeAggState>(
+            DataTypes {argument_type}, false, "count", BeExecVersionManager::get_newest_version());
+    auto nested_function = state_type->get_nested_function();
+    auto combine_function =
+            AggregateStateCombine::create(nested_function, DataTypes {argument_type}, state_type);
+    auto input_column =
+            ColumnHelper::create_nullable_column<DataTypeInt64>({10, 0, 20, 30}, {0, 1, 0, 0});
+
+    Arena arena;
+    std::vector<AggregateDataPtr> combine_places(2);
+    for (auto& place : combine_places) {
+        place = reinterpret_cast<AggregateDataPtr>(arena.alloc(combine_function->size_of_data()));
+        combine_function->create(place);
+    }
+    AggregateDataPtr row_places[] = {combine_places[0], combine_places[0], combine_places[1],
+                                     combine_places[1]};
+    const IColumn* input_columns[] = {input_column.get()};
+    combine_function->add_batch(input_column->size(), row_places, 0, input_columns, arena, false);
+
+    auto combined_states = state_type->create_column();
+    combine_function->insert_result_into_vec(combine_places, 0, *combined_states,
+                                             combine_places.size());
+    ASSERT_EQ(combined_states->size(), 2);
+    combine_function->insert_result_into(combine_places[0], *combined_states);
+    ASSERT_EQ(combined_states->size(), 3);
+
+    auto merge_function = AggregateStateMerge::create(nested_function, DataTypes {state_type},
+                                                      nested_function->get_return_type());
+    std::vector<AggregateDataPtr> merge_places(combined_states->size());
+    for (auto& place : merge_places) {
+        place = reinterpret_cast<AggregateDataPtr>(arena.alloc(merge_function->size_of_data()));
+        merge_function->create(place);
+    }
+    const IColumn* state_columns[] = {combined_states.get()};
+    merge_function->add_batch(combined_states->size(), merge_places.data(), 0, state_columns, arena,
+                              false);
+
+    auto result = nested_function->get_return_type()->create_column();
+    merge_function->insert_result_into_vec(merge_places, 0, *result, merge_places.size());
+    const auto& count_result = assert_cast<const ColumnInt64&>(*result);
+    ASSERT_EQ(count_result.size(), 3);
+    EXPECT_EQ(count_result.get_data()[0], 1);
+    EXPECT_EQ(count_result.get_data()[1], 2);
+    EXPECT_EQ(count_result.get_data()[2], 1);
+
+    for (auto place : combine_places) {
+        combine_function->destroy(place);
+    }
+    for (auto place : merge_places) {
+        merge_function->destroy(place);
+    }
+}
+
 } // namespace doris

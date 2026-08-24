@@ -163,7 +163,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        _function->serialize_without_key_to_column(place, to);
+        auto serialized_column = _function->create_serialize_column();
+        _function->serialize_without_key_to_column(place, *serialized_column);
+        DORIS_CHECK_EQ(serialized_column->size(), 1);
+        to.insert_from(*serialized_column, 0);
+    }
+
+    void insert_result_into_vec(const std::vector<AggregateDataPtr>& places, const size_t offset,
+                                IColumn& to, const size_t num_rows) const override {
+        auto serialized_column = _function->create_serialize_column();
+        _function->serialize_to_column(places, offset, serialized_column, num_rows);
+        DORIS_CHECK_EQ(serialized_column->size(), num_rows);
+        to.insert_range_from(*serialized_column, 0, num_rows);
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
