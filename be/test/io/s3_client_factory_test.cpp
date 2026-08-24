@@ -860,12 +860,12 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUsableAsStsBaseProvider) {
     env.write_token_file(token_path, "token-one");
     env.set_pod_identity(endpoint.url(), token_path);
 
-    auto base_provider = as_valid_http_provider(
-            AwsCredentialFactory::create({
-                                                 .version = AwsCredentialProviderVersion::V2,
-                                                 .provider_type = CredProviderType::Container,
-                                         })
-                    .provider);
+    AwsCredentialOptions options;
+    options.version = AwsCredentialProviderVersion::V2;
+    options.provider_type = CredProviderType::Container;
+    // role_arn stays empty on purpose: that is what makes create() hand back the base provider
+    // itself instead of the STS wrapper built on top of it.
+    auto base_provider = as_valid_http_provider(AwsCredentialFactory::create(options).provider);
     ASSERT_NE(base_provider, nullptr)
             << "CONTAINER did not yield a usable STS base credentials provider";
 
