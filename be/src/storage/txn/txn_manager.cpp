@@ -360,7 +360,9 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                       << ", tablet: " << tablet_info.to_string()
                       << ", rowset_id: " << load_info->rowset->rowset_id();
             // Should not remove this rowset from pending rowsets
-            load_info->pending_rs_guard = std::move(guard);
+            if (guard.is_initialized()) {
+                load_info->pending_rs_guard = std::move(guard);
+            }
             return Status::OK();
         }
 
