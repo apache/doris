@@ -946,7 +946,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (recorded_compaction->expiration() > 0 && recorded_compaction->expiration() < now) {
+    if (request->action() != FinishTabletJobRequest::ABORT &&
+        recorded_compaction->expiration() > 0 && recorded_compaction->expiration() < now) {
         code = MetaServiceCode::JOB_EXPIRED;
         SS << "expired compaction job, tablet_id=" << tablet_id
            << " job=" << proto_to_json(*recorded_compaction);
@@ -1544,7 +1545,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     auto& recorded_schema_change = recorded_job.schema_change();
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (recorded_schema_change.expiration() > 0 && recorded_schema_change.expiration() < now) {
+    if (request->action() != FinishTabletJobRequest::ABORT &&
+        recorded_schema_change.expiration() > 0 && recorded_schema_change.expiration() < now) {
         code = MetaServiceCode::JOB_EXPIRED;
         SS << "expired schema_change job, tablet_id=" << tablet_id
            << " job=" << proto_to_json(recorded_schema_change);

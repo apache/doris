@@ -24,7 +24,11 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.system.Backend;
 
@@ -80,6 +84,32 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testSelectEffectiveStoragePropertiesPrefersOssOverGenericS3() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.rest.signing-name", "osstables");
+        properties.put("iceberg.rest.signing-region", "cn-beijing");
+        properties.put("oss.endpoint", "https://oss-cn-beijing.aliyuncs.com");
+        properties.put("oss.region", "cn-beijing");
+        properties.put("oss.access_key", "ak");
+        properties.put("oss.secret_key", "sk");
+
+        Map<StorageProperties.Type, StorageProperties> detected = new HashMap<>();
+        for (StorageProperties storageProperties : StorageProperties.createAll(properties)) {
+            detected.put(storageProperties.getType(), storageProperties);
+        }
+        Assert.assertTrue(detected.get(StorageProperties.Type.S3) instanceof S3Properties);
+        Assert.assertTrue(detected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
+
+        Map<StorageProperties.Type, StorageProperties> selected =
+                IcebergUtils.selectEffectiveStorageProperties(detected);
+
+        Assert.assertFalse(selected.containsKey(StorageProperties.Type.S3));
+        Assert.assertTrue(selected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
+        Assert.assertSame(selected.get(StorageProperties.Type.OSS),
+                LocationPath.of("s3://bucket/data.parquet", selected).getStorageProperties());
+    }
+
     @Test
     public void testSnapshotCacheFreezesSharedTableOperations() {
         Schema originalSchema = new Schema(

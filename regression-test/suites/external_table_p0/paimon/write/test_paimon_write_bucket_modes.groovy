@@ -42,6 +42,17 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             'bucket-key' = 'id'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_rescale;
+        CREATE TABLE paimon.${dbName}.t_rescale (
+            pt STRING, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'pt,id',
+            'bucket' = '2',
+            'bucket-key' = 'id'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_hash_dynamic;
         CREATE TABLE paimon.${dbName}.t_hash_dynamic (
             pt STRING, id INT, name STRING
@@ -234,6 +245,65 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         assertTableEquals("t_hash_fixed", "ORDER BY pt, id")
         def fixedBuckets = assertBucketsInRange("t_hash_fixed", 0, 3)
         assertTrue(fixedBuckets.size() > 1)
+
+        // P04: ALTER only changes the configured bucket count. Existing
+        // partitions must be rewritten before a new writer can use bucket=4.
+        sql """INSERT INTO t_rescale VALUES
+            ('p1', 1, 'p1-old-1'),
+            ('p1', 2, 'p1-old-2'),
+            ('p2', 3, 'p2-old-3'),
+            ('p2', 4, 'p2-old-4')
+        """
+        spark_paimon """
+            ALTER TABLE paimon.${dbName}.t_rescale
+            SET TBLPROPERTIES ('bucket' = '4')
+        """
+        sql """refresh table t_rescale"""
+        long rescaleSnapshot = (sql """
+            SELECT max(snapshot_id) FROM t_rescale\$snapshots
+        """)[0][0] as long
+        long rescaleFiles = (sql """
+            SELECT count(*) FROM t_rescale\$files
+        """)[0][0] as long
+        boolean rejectedBeforeRescale = false
+        try {
+            sql """INSERT INTO t_rescale VALUES ('p1', 10, 'must-fail-before-rescale')"""
+        } catch (Exception ignored) {
+            rejectedBeforeRescale = true
+        }
+        assertTrue(rejectedBeforeRescale)
+        assertEquals(rescaleSnapshot, (sql """
+            SELECT max(snapshot_id) FROM t_rescale\$snapshots
+        """)[0][0] as long)
+        assertEquals(rescaleFiles, (sql """
+            SELECT count(*) FROM t_rescale\$files
+        """)[0][0] as long)
+
+        // Rescale only p1. The rewritten partition accepts new writes, while p2
+        // remains readable with its old layout and still rejects bucket=4.
+        sql """
+            INSERT OVERWRITE TABLE t_rescale PARTITION (pt = 'p1')
+            SELECT id, name FROM t_rescale WHERE pt = 'p1'
+        """
+        sql """INSERT INTO t_rescale VALUES ('p1', 10, 'p1-after-rescale')"""
+        boolean unreformedPartitionRejected = false
+        try {
+            sql """INSERT INTO t_rescale VALUES ('p2', 20, 'p2-must-still-fail')"""
+        } catch (Exception ignored) {
+            unreformedPartitionRejected = true
+        }
+        assertTrue(unreformedPartitionRejected)
+        order_qt_bucket_rescale_partial """
+            SELECT * FROM t_rescale ORDER BY pt, id
+        """
+
+        sql """
+            INSERT OVERWRITE TABLE t_rescale PARTITION (pt = 'p2')
+            SELECT id, name FROM t_rescale WHERE pt = 'p2'
+        """
+        sql """INSERT INTO t_rescale VALUES ('p2', 20, 'p2-after-rescale')"""
+        assertTableEquals("t_rescale", "ORDER BY pt, id")
+        assertBucketsInRange("t_rescale", 0, 3)
 
         // HASH_DYNAMIC: new keys expand buckets independently per partition.
         sql """INSERT INTO t_hash_dynamic VALUES

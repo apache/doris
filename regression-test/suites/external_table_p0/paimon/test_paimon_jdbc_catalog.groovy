@@ -68,6 +68,11 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     String sparkSeedCatalogName = "${catalogName}_seed"
     // Reuse the fixture-wide Docker command so local and CI permission models behave identically.
     String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
+    String sparkMaster = context.config.otherConfigs.get("paimon_jdbc_spark_master")
+    String sparkExternalEnvIp = context.config.otherConfigs.get("paimon_jdbc_spark_external_env_ip")
+    if (sparkExternalEnvIp == null || sparkExternalEnvIp.isEmpty()) {
+        sparkExternalEnvIp = externalEnvIp
+    }
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
 
@@ -168,7 +173,10 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     }
     executeCommand("${dockerCommand} cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true, 60)
 
-    String sparkMinioEndpoint = "http://${externalEnvIp}:${minioPort}"
+    String sparkMinioEndpoint = context.config.otherConfigs.get("paimon_jdbc_spark_minio_endpoint")
+    if (sparkMinioEndpoint == null || sparkMinioEndpoint.isEmpty()) {
+        sparkMinioEndpoint = "http://${sparkExternalEnvIp}:${minioPort}"
+    }
     if (sparkContainerName.contains("spark-iceberg")) {
         String sparkMinioContainerName = sparkContainerName.replaceFirst("spark-iceberg", "minio")
         String resolvedSparkMinioContainer = executeCommand(
@@ -182,10 +190,14 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         }
     }
     logger.info("spark seed minio endpoint: ${sparkMinioEndpoint}")
+    if (sparkMaster == null || sparkMaster.isEmpty()) {
+        sparkMaster = "spark://${sparkContainerName}:7077"
+    }
+    logger.info("spark seed master: ${sparkMaster}")
 
     def sparkPaimonJdbc = { String sqlText ->
         String escapedSql = sqlText.replaceAll('"', '\\\\"')
-        String command = """${dockerCommand} exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
+        String command = """${dockerCommand} exec ${sparkContainerName} spark-sql --master ${sparkMaster} \
 --jars ${sparkDriverPath} \
 --driver-class-path ${sparkDriverPath} \
 --conf spark.driver.extraClassPath=${sparkDriverPath} \
@@ -194,7 +206,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 --conf spark.sql.catalog.${sparkSeedCatalogName}=org.apache.paimon.spark.SparkCatalog \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.metastore=jdbc \
---conf spark.sql.catalog.${sparkSeedCatalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.uri=jdbc:postgresql://${sparkExternalEnvIp}:${jdbcPort}/postgres \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.catalog-key=${catalogName} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.user=postgres \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.password=123456 \
@@ -408,15 +420,12 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
             """
         })
         sql """REFRESH TABLE paimon_jdbc_concurrent_append"""
-        assertEquals([
-                ["left", 128L, 128L, 8128L],
-                ["right", 128L, 128L, 136128L]
-        ], sql("""
+        order_qt_paimon_jdbc_concurrent_append """
             SELECT pt, COUNT(*), COUNT(DISTINCT id), SUM(id)
             FROM paimon_jdbc_concurrent_append
             GROUP BY pt
             ORDER BY pt
-        """))
+        """
         assertEquals(appendSnapshots + 2L, (sql """
             SELECT COUNT(*) FROM paimon_jdbc_concurrent_append\$snapshots
         """)[0][0] as long)
@@ -435,11 +444,11 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
             """
         })
         sql """REFRESH TABLE paimon_jdbc_concurrent_append"""
-        assertEquals([[128L, 128L, 324032L]], sql("""
+        qt_paimon_jdbc_same_partition_append """
             SELECT COUNT(*), COUNT(DISTINCT id), SUM(id)
             FROM paimon_jdbc_concurrent_append
             WHERE pt = 'same'
-        """))
+        """
         assertEquals(appendSnapshots + 4L, (sql """
             SELECT COUNT(*) FROM paimon_jdbc_concurrent_append\$snapshots
         """)[0][0] as long)
@@ -509,9 +518,10 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
             """
         })
         sql """REFRESH TABLE paimon_jdbc_concurrent_aggregation"""
-        assertEquals([[1, 30L]], sql("""
+        order_qt_paimon_jdbc_concurrent_aggregation """
             SELECT id, total FROM paimon_jdbc_concurrent_aggregation
-        """))
+            ORDER BY id
+        """
 
         // Dynamic bucket only permits multiple jobs when they own disjoint partitions.
         sql """DROP TABLE IF EXISTS paimon_jdbc_concurrent_dynamic"""
@@ -543,18 +553,109 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
             """
         })
         sql """REFRESH TABLE paimon_jdbc_concurrent_dynamic"""
-        assertEquals([
-                ["left", 64L, 64L],
-                ["right", 64L, 64L]
-        ], sql("""
+        order_qt_paimon_jdbc_concurrent_dynamic """
             SELECT pt, COUNT(*), COUNT(DISTINCT id)
             FROM paimon_jdbc_concurrent_dynamic
             GROUP BY pt
             ORDER BY pt
-        """))
+        """
+
+        // P12: Row-level writers use the same catalog lock and snapshot commit
+        // protocol as INSERT. Concurrent MERGEs on one key may expose either
+        // last value, but both transactions must commit without duplicating it.
+        sql """DROP TABLE IF EXISTS paimon_jdbc_concurrent_merge"""
+        sql """
+            CREATE TABLE ${dbName}.paimon_jdbc_concurrent_merge (
+                id INT,
+                payload STRING,
+                score INT
+            ) ENGINE=paimon
+            PROPERTIES (
+                'primary-key' = 'id',
+                'bucket' = '1',
+                'merge-engine' = 'deduplicate',
+                'num-sorted-run.compaction-trigger' = '100'
+            )
+        """
+        sql """INSERT INTO paimon_jdbc_concurrent_merge VALUES
+            (1, 'base-1', 0), (2, 'base-2', 0)
+        """
+        long mergeSnapshots = (sql """
+            SELECT COUNT(*) FROM paimon_jdbc_concurrent_merge\$snapshots
+        """)[0][0] as long
+
+        runConcurrent("paimon-jdbc-merge-left", {
+            sql """
+                MERGE INTO ${catalogName}.${dbName}.paimon_jdbc_concurrent_merge t
+                USING (SELECT 1 AS id, 'left' AS payload, 10 AS score) s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET
+                    payload = s.payload, score = s.score
+            """
+        }, "paimon-jdbc-merge-right", {
+            sql """
+                MERGE INTO ${catalogName}.${dbName}.paimon_jdbc_concurrent_merge t
+                USING (SELECT 1 AS id, 'right' AS payload, 20 AS score) s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET
+                    payload = s.payload, score = s.score
+            """
+        })
+        sql """REFRESH TABLE paimon_jdbc_concurrent_merge"""
+        def sameKeyMergeRows = sql """
+            SELECT id, payload, score
+            FROM paimon_jdbc_concurrent_merge
+            WHERE id = 1
+        """
+        assertEquals(1, sameKeyMergeRows.size())
+        assertTrue([
+                [1, "left", 10],
+                [1, "right", 20]
+        ].contains(sameKeyMergeRows[0]))
+        assertEquals(mergeSnapshots + 2L, (sql """
+            SELECT COUNT(*) FROM paimon_jdbc_concurrent_merge\$snapshots
+        """)[0][0] as long)
+
+        // Interleave a Doris MERGE with a Spark full compaction. Whichever
+        // operation obtains the catalog lock first, the MERGE result must remain
+        // visible and compaction must not resurrect the pre-update value.
+        runConcurrent("paimon-jdbc-merge-compact", {
+            sql """
+                MERGE INTO ${catalogName}.${dbName}.paimon_jdbc_concurrent_merge t
+                USING (SELECT 2 AS id, 'merge-during-compact' AS payload,
+                              200 AS score) s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET
+                    payload = s.payload, score = s.score
+            """
+        }, "paimon-jdbc-spark-compact", {
+            sparkPaimonJdbc """
+                CALL ${sparkSeedCatalogName}.sys.compact(
+                    table => '${dbName}.paimon_jdbc_concurrent_merge',
+                    compact_strategy => 'full')
+            """
+        })
+        sql """REFRESH TABLE paimon_jdbc_concurrent_merge"""
+        order_qt_paimon_jdbc_merge_during_compact """
+            SELECT id, payload, score
+            FROM paimon_jdbc_concurrent_merge
+            WHERE id = 2
+            ORDER BY id
+        """
+
+        sparkPaimonJdbc """
+            SELECT assert_true(
+                COUNT(*) = 2 AND
+                SUM(CASE WHEN id = 2
+                          AND payload = 'merge-during-compact'
+                          AND score = 200
+                         THEN 1 ELSE 0 END) = 1)
+            FROM ${sparkSeedCatalogName}.${dbName}.paimon_jdbc_concurrent_merge
+        """
     } finally {
         try {
             sql """SWITCH ${catalogName}"""
+            sql """DROP TABLE IF EXISTS ${dbName}.paimon_jdbc_concurrent_merge"""
             sql """DROP TABLE IF EXISTS ${dbName}.paimon_jdbc_concurrent_dynamic"""
             sql """DROP TABLE IF EXISTS ${dbName}.paimon_jdbc_concurrent_aggregation"""
             sql """DROP TABLE IF EXISTS ${dbName}.paimon_jdbc_concurrent_pk"""

@@ -1162,7 +1162,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         if (!thrift_sink.__isset.paimon_table_sink) {
             return Status::InternalError("Missing paimon table sink.");
         }
-        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(next_sink_operator_id(), row_desc,
                                                            output_exprs);
         break;
     }
