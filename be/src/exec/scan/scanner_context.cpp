@@ -48,7 +48,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/resource_context.h"
 #include "storage/tablet/tablet.h"
-#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -184,10 +183,6 @@ Status ScannerContext::init() {
     _scanner_profile = _local_state->_scanner_profile;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
-    // ThreadPool scheduling queues a Context rather than a Scanner. Its queue delay is therefore
-    // meaningful only as Context-level latency; per-scanner delays depend on arbitrary selection.
-    _context_wait_worker_timer = ADD_TIMER(_scanner_profile, "ScannerContextWaitWorkerTime");
-
     // 3. get thread token
     if (!_state->get_query_ctx()) {
         return Status::InternalError("Query context of {} is not set",
@@ -586,24 +581,16 @@ void ScannerContext::set_context_queued(bool queued,
                                         const std::unique_lock<std::mutex>& transfer_lock) {
     DORIS_CHECK(transfer_lock.owns_lock());
     DORIS_CHECK(_is_context_queued != queued);
-    if (queued) {
-        // A Context is deduplicated while queued, so this timestamp covers exactly one submitted
-        // runnable rather than the wait time of any particular scanner it may later choose.
-        DORIS_CHECK(_context_wait_worker_start_ns == 0);
-        _context_wait_worker_start_ns = MonotonicNanos();
-    } else {
-        // A worker clears the state immediately after dequeueing the runnable. Record the elapsed
-        // time here so queue-state changes and profiling cannot diverge. Failed submissions never
-        // set this state, and therefore never enter this branch.
-        DORIS_CHECK(_context_wait_worker_start_ns != 0);
-#ifndef BE_TEST
-        DORIS_CHECK(_context_wait_worker_timer != nullptr);
-        COUNTER_UPDATE(_context_wait_worker_timer,
-                       MonotonicNanos() - _context_wait_worker_start_ns);
-#endif
-        _context_wait_worker_start_ns = 0;
-    }
     _is_context_queued = queued;
+}
+
+void ScannerContext::set_context_failure(const Status& failure,
+                                         const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    DORIS_CHECK(!failure.ok());
+    _process_status = failure;
+    _is_finished = true;
+    _set_scanner_done();
 }
 
 void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
@@ -615,11 +602,6 @@ void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
     // The state transition documents that this is an admission queue, not a completed-result queue.
     scan_task->set_state(ScanTask::State::PENDING);
     _pending_tasks.push(std::move(scan_task));
-}
-
-bool ScannerContext::has_progressing_task(const std::unique_lock<std::mutex>& transfer_lock) const {
-    DORIS_CHECK(transfer_lock.owns_lock());
-    return cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num > 0;
 }
 
 bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const {
@@ -885,6 +867,13 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
+        // Do not submit more pending scanners after the shared LIMIT is exhausted while
+        // completed or in-flight tasks can still make progress. If neither exists, allow one
+        // scanner to report EOS and wake the pipeline task.
+        if (is_shared_scan_limit_exhausted() &&
+            (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
+            return nullptr;
+        }
         std::shared_ptr<ScanTask> next_scan_task;
         next_scan_task = _pending_tasks.top();
         _pending_tasks.pop();

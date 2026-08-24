@@ -49,7 +49,7 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
     }
     if (scanner_ctx->is_context_queued(transfer_lock)) {
         // A queued runnable will see all pending scanners added before it obtains transfer_lock.
-        // Submitting another runnable would only duplicate work and distort Context queue latency.
+        // Submitting another runnable would only duplicate work.
         return Status::OK();
     }
     if (!scanner_ctx->can_admit_scan_task(transfer_lock)) {
@@ -58,43 +58,32 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
         return Status::OK();
     }
 
-    // transfer_lock prevents another producer from submitting concurrently. The worker callback
-    // also waits for this lock, so it cannot run between successful submission and marking queued.
     if (_is_stop) {
-        // Shutdown must surface: progressing tasks may never complete on a stopped pool.
-        return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
+        Status failure = Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
+        scanner_ctx->set_context_failure(failure, transfer_lock);
+        return failure;
     }
+
+    // ThreadPool::submit_func() may return an error after retaining the runnable. Set the marker
+    // before submission so either outcome is safe: a retained callback clears it, while a truly
+    // rejected callback leaves a terminal Context that no longer needs rescheduling.
+    scanner_ctx->set_context_queued(true, transfer_lock);
     Status status =
             _scan_thread_pool->submit_func([this, scanner_ctx] { _run_context(scanner_ctx); });
     if (status.ok()) {
-        // Start the Context wait interval only after submission succeeds. This excludes failed
-        // submit_func() calls, which never waited for a worker and must not affect the profile.
-        scanner_ctx->set_context_queued(true, transfer_lock);
         return Status::OK();
     }
-    // No worker can dequeue a rejected runnable. The Context remains unqueued, so a later
-    // scheduling attempt can submit it again without clearing state or accounting queue time.
-    LOG(WARNING) << fmt::format("Failed to submit scanner context {}, reason: {}",
-                                scanner_ctx->debug_string(), status.to_string());
-    if (scanner_ctx->has_progressing_task(transfer_lock) ||
-        scanner_ctx->is_shared_scan_limit_exhausted()) {
-        // Someone will retry: a progressing task completes, the operator consumes its result and
-        // reschedules; after shared LIMIT is exhausted, get_block_from_queue() finishes the
-        // Context on its next call. Pool saturation must not fail a query that still progresses.
-        return Status::OK();
-    }
-    // Nothing will retry this Context. Surface the failure, normalized like
-    // ScannerScheduler::submit() so both schedulers report saturation as TOO_MANY_TASKS.
-    return Status::TooManyTasks("Failed to submit scanner context {} to scanner pool, reason: {}",
-                                scanner_ctx->ctx_id, status.msg());
+    Status failure =
+            Status::TooManyTasks("Failed to submit scanner context {} to scanner pool, reason: {}",
+                                 scanner_ctx->ctx_id, status.msg());
+    scanner_ctx->set_context_failure(failure, transfer_lock);
+    return failure;
 }
 
 void ThreadPoolSimplifiedScanScheduler::_run_context(std::shared_ptr<ScannerContext> scanner_ctx) {
     std::shared_ptr<ScanTask> scan_task;
     Status admission_status = [&]() -> Status {
         std::unique_lock<std::mutex> transfer_lock(scanner_ctx->transfer_lock());
-        // The worker has dequeued the Context. Clearing the marker also charges its queue latency:
-        // the interval from successful submit_func() to worker start, not scanner execution time.
         scanner_ctx->set_context_queued(false, transfer_lock);
 
         auto task_execution_lock = scanner_ctx->task_exec_ctx();
@@ -107,35 +96,39 @@ void ThreadPoolSimplifiedScanScheduler::_run_context(std::shared_ptr<ScannerCont
         // lambda so it detaches before execute_scan_task(), whose _scanner_scan() attaches again.
         SCOPED_ATTACH_TASK(scanner_ctx->state());
 #endif
-        RETURN_IF_CATCH_EXCEPTION({
-            // Admission checks completed results, active tasks, adaptive limits, and shared LIMIT
-            // while holding transfer_lock. A null task means the Context may not run one now.
-            scan_task = scanner_ctx->try_get_next_scan_task(transfer_lock);
-            if (scan_task != nullptr) {
-                DBUG_EXECUTE_IF("ThreadPoolSimplifiedScanScheduler._run_context.inject_failure", {
-                    throw Exception(ErrorCode::INTERNAL_ERROR, "injected admission failure");
-                });
-                // Queue the next Context runnable before executing this task. Example: with a
-                // concurrency limit of two, the next worker may admit scanner B while this worker
-                // scans scanner A. Holding transfer_lock keeps the admission decision atomic.
-                Status resubmit_status = schedule_scan_task(scanner_ctx, nullptr, transfer_lock);
-                if (!resubmit_status.ok()) {
-                    LOG(WARNING) << fmt::format("Failed to resubmit scanner context {}, reason: {}",
-                                                scanner_ctx->ctx_id, resubmit_status.to_string());
+        Status status = [&]() -> Status {
+            RETURN_IF_CATCH_EXCEPTION({
+                // Admission checks completed results, active tasks, adaptive limits, and shared
+                // LIMIT while holding transfer_lock.
+                scan_task = scanner_ctx->try_get_next_scan_task(transfer_lock);
+                if (scan_task != nullptr) {
+                    DBUG_EXECUTE_IF("ThreadPoolSimplifiedScanScheduler._run_context.inject_failure",
+                                    {
+                                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                                        "injected admission failure");
+                                    });
+                    // Queue the next Context runnable before executing this task. Holding
+                    // transfer_lock keeps the admission decision atomic.
+                    RETURN_IF_ERROR(schedule_scan_task(scanner_ctx, nullptr, transfer_lock));
                 }
-            }
-        });
-        return Status::OK();
+            });
+            return Status::OK();
+        }();
+        if (!status.ok() && scan_task == nullptr) {
+            scanner_ctx->set_context_failure(status, transfer_lock);
+        }
+        return status;
     }();
-    if (scan_task == nullptr) {
+    if (!admission_status.ok()) [[unlikely]] {
+        if (scan_task != nullptr) {
+            // The scanner was admitted before the failure. Publish it to release the in-flight
+            // slot and make the error observable by the operator.
+            scan_task->set_status(admission_status);
+            scanner_ctx->push_completed_scan_task(scan_task);
+        }
         return;
     }
-    if (!admission_status.ok()) [[unlikely]] {
-        // The scanner was admitted but a later step threw. Publish the failure so the operator
-        // observes the error and the in-flight slot is released; swallowing it would leak the
-        // slot and let dispatch_thread() terminate the process on the escaped exception.
-        scan_task->set_status(admission_status);
-        scanner_ctx->push_completed_scan_task(scan_task);
+    if (scan_task == nullptr) {
         return;
     }
     // The scan runs without transfer_lock so the operator and other Context workers can continue

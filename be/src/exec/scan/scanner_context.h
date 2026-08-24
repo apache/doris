@@ -272,14 +272,16 @@ public:
     // last available concurrency slot.
     std::mutex& transfer_lock() { return _transfer_lock; }
 
-    // One Context runnable represents many pending scanners in the ThreadPool scheduler. Keeping
-    // this separate from scanner execution prevents duplicate Context runnables from accumulating.
+    // One Context submission represents many pending scanners in the ThreadPool scheduler.
+    // Keeping this separate from scanner execution prevents duplicate runnables from accumulating.
     bool is_context_queued(const std::unique_lock<std::mutex>& transfer_lock) const;
-    // Transition the Context runnable's queue state and maintain its wait-time interval. Setting
-    // true records enqueue time; clearing false charges that interval to the Context profile.
-    // The scheduler sets true only after submit succeeds, so failed submissions have no interval.
-    // Example: a queue-full submit leaves the state false and contributes no worker-wait time.
+    // Transition the Context runnable's queue state. The caller must hold _transfer_lock.
     void set_context_queued(bool queued, const std::unique_lock<std::mutex>& transfer_lock);
+
+    // Publish a scheduler failure and make the Context terminal. The caller must hold
+    // _transfer_lock so a retained ThreadPool callback cannot admit another scanner concurrently.
+    void set_context_failure(const Status& failure,
+                             const std::unique_lock<std::mutex>& transfer_lock);
 
     // Return a scanner to the admission queue after its block is consumed. It may not own a cached
     // block and may not be EOS: EOS scanners are terminal and must not run again.
@@ -292,12 +294,6 @@ public:
     // exhausted, because that scanner's EOS is what wakes the operator. The caller must hold
     // _transfer_lock.
     bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const;
-
-    // Return whether at least one task is progressing: in flight on a worker, or completed and
-    // awaiting operator consumption. A progressing task eventually triggers rescheduling, so the
-    // ThreadPool scheduler can tolerate a failed runnable submission while one exists. The caller
-    // must hold _transfer_lock.
-    bool has_progressing_task(const std::unique_lock<std::mutex>& transfer_lock) const;
 
     // Atomically check whether this context can start another scan task, move one task from
     // pending to in-flight, and return it. The caller must hold _transfer_lock.
@@ -360,16 +356,10 @@ protected:
     // non-EOS task; drained by try_get_next_scan_task() or the TaskExecutor scheduler.
     std::stack<std::shared_ptr<ScanTask>> _pending_tasks;
 
-    // True only while one runnable for this context is waiting in the thread pool. It does not
-    // describe scanners currently executing on worker threads. This deduplicates Context
-    // submission: N pending scanners still create exactly one runnable. Protected by _transfer_lock.
+    // True from the start of one Context submission until its runnable starts. A failed submission
+    // also makes the Context terminal, so the marker may remain true when no runnable was retained.
+    // It does not describe scanners executing on workers. Protected by _transfer_lock.
     bool _is_context_queued = false;
-
-    // Start time for one queued Context runnable. This is accounted to the scan operator profile
-    // when the thread-pool worker dequeues the runnable, so the profile reports actual thread-pool
-    // queue latency even though a worker may select any pending scanner. Protected by _transfer_lock.
-    int64_t _context_wait_worker_start_ns = 0;
-    RuntimeProfile::Counter* _context_wait_worker_timer = nullptr;
 
     // Number of scan tasks currently submitted to the scanner scheduler thread pool
     // (i.e. in-flight). Incremented before a task is submitted or directly admitted for

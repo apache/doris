@@ -631,6 +631,7 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
             parallel_tasks);
+    shared_limit.store(limit);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -888,18 +889,16 @@ TEST_F(ScannerContextTest, thread_pool_submit_failure_policy) {
     std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
     ASSERT_FALSE(scanner_context->_pending_tasks.empty());
 
-    // A progressing task exists: pool saturation is tolerated and must not fail the query. The
-    // progressing task's completion and consumption will reschedule this Context.
-    scanner_context->_in_flight_tasks_num = 1;
-    EXPECT_TRUE(scheduler.schedule_scan_task(scanner_context, nullptr, transfer_lock).ok());
-    EXPECT_FALSE(scanner_context->is_context_queued(transfer_lock));
-
-    // Nothing is progressing and shared LIMIT is not exhausted: nothing will retry, so the
-    // failure must surface, normalized like ScannerScheduler::submit().
-    scanner_context->_in_flight_tasks_num = 0;
+    // Context submission is fail-fast regardless of other progress. Retrying here would couple
+    // the scanner scheduler to ThreadPool's internal rejection/retention behavior.
     Status surfaced = scheduler.schedule_scan_task(scanner_context, nullptr, transfer_lock);
     EXPECT_TRUE(surfaced.is<ErrorCode::TOO_MANY_TASKS>()) << surfaced.to_string();
-    EXPECT_FALSE(scanner_context->is_context_queued(transfer_lock));
+    EXPECT_TRUE(scanner_context->done());
+    EXPECT_FALSE(scanner_context->_process_status.ok());
+    EXPECT_TRUE(scan_dependency->ready());
+    // The marker is set before submit_func(). This rejected runnable was not retained, but the
+    // terminal Context no longer needs the marker cleared or another submission attempted.
+    EXPECT_TRUE(scanner_context->is_context_queued(transfer_lock));
 }
 
 TEST_F(ScannerContextTest, run_context_publishes_admission_failure) {
@@ -999,6 +998,7 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
             parallel_tasks);
+    shared_limit.store(limit);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
