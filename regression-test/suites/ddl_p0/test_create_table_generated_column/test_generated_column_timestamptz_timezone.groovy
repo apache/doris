@@ -18,18 +18,15 @@
 import org.junit.Assert;
 
 /**
- * A generated column that interprets a TIMESTAMPTZ value in a time-zone dependent way is rejected at
- * table creation: it is materialized in the write/load session time zone, so data loaded in a different
- * zone would silently store a different value. The classification must look at the operation plus source
- * and result types (a cast into TIMESTAMPTZ, and the implicit cast to the declared column type), not only
- * at the child types.
+ * Doris no longer rejects generated columns that interpret a TIMESTAMPTZ value in a time-zone dependent
+ * way (rendering the instant into a zone-free DATETIME, or interpreting an offset-free string as a
+ * TIMESTAMPTZ): such a column is materialized in the write/load session time zone, and keeping the value
+ * consistent across sessions is the user's responsibility, not enforced at creation.
  *
- * Rendering a TIMESTAMPTZ into a STRING is allowed: the stored string always embeds the session offset
+ * Rendering a TIMESTAMPTZ into a STRING is safe: the stored string always embeds the session offset
  * (e.g. "2024-01-01 08:30:00.000000+08:00"), so it is self-describing and never silently misrepresents
- * the instant. Rendering into a zone-free non-string target (DATETIME/INT/...) and interpreting an
- * offset-free string as a TIMESTAMPTZ remain rejected. Zone-invariant operations (comparing two
- * TIMESTAMPTZ instants, copying an instant verbatim) are allowed and must materialize identically across
- * load zones.
+ * the instant. Zone-invariant operations (comparing two TIMESTAMPTZ instants, copying an instant
+ * verbatim) are allowed and must materialize identically across load zones.
  */
 suite("test_generated_column_timestamptz_timezone","ddl") {
     sql "SET enable_nereids_planner=true;"
@@ -65,9 +62,10 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
             strRes[1][1].toString().contains("2024-01-01 08:30:00.000000+08:00"))
 
     // Rendering a TIMESTAMPTZ into a zone-free non-string target (DATETIME) loses the offset and depends
-    // on the write/load session zone. Must be rejected.
-    test {
-        sql """
+    // on the write/load session zone. It is no longer rejected at creation: keeping the materialized value
+    // consistent across sessions is the user's responsibility.
+    sql "DROP TABLE IF EXISTS gencol_ts_to_dt"
+    sql """
         create table gencol_ts_to_dt(
             id int,
             ts TIMESTAMPTZ(6),
@@ -76,14 +74,12 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num" = "1");
-        """
-        exception "time-zone sensitive"
-    }
+    """
 
     // The reverse implicit cast of an offset-free string slot into a TIMESTAMPTZ generated column
-    // interprets the string in the write session zone. Must be rejected.
-    test {
-        sql """
+    // interprets the string in the write session zone. It is likewise no longer rejected.
+    sql "DROP TABLE IF EXISTS gencol_string_to_ts"
+    sql """
         create table gencol_string_to_ts(
             id int,
             s STRING,
@@ -92,14 +88,12 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num" = "1");
-        """
-        exception "time-zone sensitive"
-    }
+    """
 
     // An explicit cast into TIMESTAMPTZ has the same zone dependence even though the only operand is a
-    // VARCHAR column.
-    test {
-        sql """
+    // VARCHAR column; it is no longer rejected either.
+    sql "DROP TABLE IF EXISTS gencol_cast_to_ts"
+    sql """
         create table gencol_cast_to_ts(
             id int,
             s STRING,
@@ -108,9 +102,7 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num" = "1");
-        """
-        exception "time-zone sensitive"
-    }
+    """
 
     // A TIMESTAMPTZ generated column that stores the instant directly (no rendering) is zone-invariant.
     sql "DROP TABLE IF EXISTS gencol_copy_ts"
