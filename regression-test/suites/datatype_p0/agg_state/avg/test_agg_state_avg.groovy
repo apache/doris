@@ -34,6 +34,14 @@ suite("test_agg_state_avg") {
         """
         exception "Synchronous materialized view does not support aggregate combine function: avg_combine"
     }
+    test {
+        sql """
+            create materialized view mv_orthogonal_bitmap_union_count as
+            select k1, orthogonal_bitmap_union_count(bitmap_hash(v))
+            from avg_combine_mv_base group by k1
+        """
+        exception "Aggregate function does not support AggState: orthogonal_bitmap_union_count"
+    }
 
     sql """ DROP TABLE IF EXISTS a_table; """
     sql """

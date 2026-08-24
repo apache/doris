@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggStateCreation;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -40,8 +39,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -87,6 +90,9 @@ class CombineCombinatorTest {
 
         Assertions.assertThrows(AnalysisException.class,
                 () -> combine.withDistinctAndChildren(true, ImmutableList.of(argument)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze("select avg_combine(distinct 1)"));
     }
 
     @Test
@@ -106,8 +112,8 @@ class CombineCombinatorTest {
     }
 
     @Test
-    void testAiAggDoesNotSupportAggStateCreation() {
-        Assertions.assertTrue(NotSupportAggStateCreation.class.isAssignableFrom(AIAgg.class));
+    void testAiAggDoesNotSupportAggState() {
+        Assertions.assertTrue(NotSupportAggState.class.isAssignableFrom(AIAgg.class));
 
         ImmutableList<VarcharLiteral> arguments = ImmutableList.of(
                 new VarcharLiteral("value"), new VarcharLiteral("task"));
@@ -116,6 +122,20 @@ class CombineCombinatorTest {
                 .findBuiltinFunctionBuilder("ai_agg_state", arguments).isEmpty());
         Assertions.assertTrue(functionRegistry
                 .findBuiltinFunctionBuilder("ai_agg_combine", arguments).isEmpty());
+
+        AggStateType stateType = new AggStateType("ai_agg",
+                ImmutableList.of(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+                ImmutableList.of(false, false, false), true);
+        ImmutableList<SlotReference> stateArgument = ImmutableList.of(
+                new SlotReference("state", stateType, false));
+        Assertions.assertTrue(functionRegistry
+                .findBuiltinFunctionBuilder("ai_agg_merge", stateArgument).isEmpty());
+        Assertions.assertTrue(functionRegistry
+                .findBuiltinFunctionBuilder("ai_agg_union", stateArgument).isEmpty());
+
+        AIAgg aiAgg = new AIAgg(new VarcharLiteral("resource"),
+                new VarcharLiteral("value"), new VarcharLiteral("task"));
+        Assertions.assertThrows(AnalysisException.class, () -> StateCombinator.create(aiAgg));
     }
 
     @Test
@@ -153,6 +173,16 @@ class CombineCombinatorTest {
                 "orthogonal_bitmap_expr_calculate_state", nested.children()).isEmpty());
         Assertions.assertTrue(functionRegistry.findBuiltinFunctionBuilder(
                 "orthogonal_bitmap_expr_calculate_combine", nested.children()).isEmpty());
+
+        SlotReference bitmaps = new SlotReference(
+                "bitmaps", ArrayType.of(BitmapType.INSTANCE), false);
+        Assertions.assertFalse(functionRegistry.findBuiltinFunctionBuilder(
+                "orthogonal_bitmap_union_count_foreach", ImmutableList.of(bitmaps)).isEmpty());
+        Assertions.assertDoesNotThrow(() -> functionRegistry.findFunctionBuilder(
+                "orthogonal_bitmap_union_count_foreach", bitmaps)
+                .build("orthogonal_bitmap_union_count_foreach", bitmaps));
+
+        Assertions.assertThrows(AnalysisException.class, () -> StateCombinator.create(nested));
     }
 
     @Test

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggStateCreation;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
@@ -73,17 +72,14 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         if (!AggregateFunction.class.isAssignableFrom(nestedBuilder.functionClass())) {
             return false;
         }
-        if (NotSupportAggState.class.isAssignableFrom(nestedBuilder.functionClass())) {
-            return false;
-        }
-        if ((combinatorSuffix.equalsIgnoreCase(STATE) || combinatorSuffix.equalsIgnoreCase(COMBINE))
-                && NotSupportAggStateCreation.class.isAssignableFrom(nestedBuilder.functionClass())) {
+        if (!combinatorSuffix.equalsIgnoreCase(FOREACH)
+                && NotSupportAggState.class.isAssignableFrom(nestedBuilder.functionClass())) {
             return false;
         }
         if (combinatorSuffix.equalsIgnoreCase(COMBINE)) {
             // DataTypeAggState needs at least one subtype, so zero-argument aggregates such as
             // count(*) cannot produce an AggState yet. count_combine(1) remains supported.
-            return !arguments.isEmpty() && nestedBuilder.canApply(arguments);
+            return !arguments.isEmpty() && !hasDistinctArgument(arguments) && nestedBuilder.canApply(arguments);
         } else if (combinatorSuffix.equalsIgnoreCase(STATE) || combinatorSuffix.equalsIgnoreCase(FOREACH)) {
             return nestedBuilder.canApply(arguments);
         } else {
@@ -101,6 +97,10 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
 
     private AggregateFunction buildState(String nestedName, List<? extends Object> arguments) {
         return (AggregateFunction) nestedBuilder.build(nestedName, arguments).first;
+    }
+
+    private boolean hasDistinctArgument(List<?> arguments) {
+        return !arguments.isEmpty() && arguments.get(0) instanceof Boolean && (Boolean) arguments.get(0);
     }
 
     private AggregateFunction buildForEach(String nestedName, List<? extends Object> arguments) {
@@ -154,15 +154,12 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         if (combinatorSuffix.equalsIgnoreCase(STATE)) {
             AggregateFunction nestedFunction = buildState(nestedName, arguments);
             // distinct will be passed as 1st boolean true arg. remove it
-            if (!arguments.isEmpty() && arguments.get(0) instanceof Boolean && (Boolean) arguments.get(0)) {
+            if (hasDistinctArgument(arguments)) {
                 arguments = arguments.subList(1, arguments.size());
             }
             return Pair.of(new StateCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
         } else if (combinatorSuffix.equalsIgnoreCase(COMBINE)) {
             AggregateFunction nestedFunction = buildState(nestedName, arguments);
-            if (!arguments.isEmpty() && arguments.get(0) instanceof Boolean && (Boolean) arguments.get(0)) {
-                throw new IllegalStateException(name + " doesn't support DISTINCT");
-            }
             return Pair.of(new CombineCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
         } else if (combinatorSuffix.equalsIgnoreCase(MERGE)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
