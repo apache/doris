@@ -125,7 +125,7 @@ public class MetricsTest {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
-        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("qing.lu@lbk.one").update(20L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("xxx.yyy@example.com").update(20L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         MetricRepo.visitHistograms(visitor);
@@ -138,38 +138,38 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
         Assert.assertTrue(metricResult.contains(
-                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"qing.lu@lbk.one\"} 20.0"));
-        Assert.assertFalse(metricResult.contains("doris_fe_query_latency_ms_lu@lbk_one"));
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"xxx.yyy@example.com\"} 20.0"));
+        Assert.assertFalse(metricResult.contains("doris_fe_query_latency_ms_yyy@example_com"));
 
     }
 
     @Test
     public void testPrometheusVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
         HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
-                Lists.newArrayList(new MetricLabel("user", "thomas.liu@developertools.com")));
+                Lists.newArrayList(new MetricLabel("user", "xxx.yyy@example.com")));
         histogramMetric.update(30L);
         MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
         prometheusVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
                 histogramMetric.getHistogram(), histogramMetric.getLabels());
         String prometheusResult = prometheusVisitor.finish();
         Assert.assertTrue(prometheusResult.contains(
-                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"thomas.liu@developertools.com\"} 30.0"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_liu@developertools_com"));
-        Assert.assertFalse(prometheusResult.contains("user=\"thomas\""));
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"xxx.yyy@example.com\"} 30.0"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_yyy@example_com"));
+        Assert.assertFalse(prometheusResult.contains("user=\"xxx\""));
     }
 
     @Test
     public void testJsonVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
         HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
-                Lists.newArrayList(new MetricLabel("user", "qing.lu@lbk.one")));
+                Lists.newArrayList(new MetricLabel("user", "xxx.yyy@example.com")));
         histogramMetric.update(20L);
         MetricVisitor jsonVisitor = new JsonMetricVisitor();
         jsonVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
                 histogramMetric.getHistogram(), histogramMetric.getLabels());
         String jsonResult = jsonVisitor.finish();
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms\""));
-        Assert.assertTrue(jsonResult.contains("\"user\":\"qing.lu@lbk.one\""));
-        Assert.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_lu@lbk_one\""));
+        Assert.assertTrue(jsonResult.contains("\"user\":\"xxx.yyy@example.com\""));
+        Assert.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_yyy@example_com\""));
     }
 
     @Test

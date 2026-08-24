@@ -204,6 +204,7 @@ suite("test_show_data", "p2") {
         create_httplogs_table_with_index.call(testTableWithIndex)
         load_httplogs_data.call(testTableWithIndex, 'test_httplogs_load_with_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 60000, 0)
+        assertTrue(another_with_index_size != "wait_timeout")
         if (!isCloudMode()) {
             double diff = Math.abs(another_with_index_size.toDouble() - with_index_size.toDouble())
             double max_size = Math.max(another_with_index_size.toDouble(), with_index_size.toDouble())
@@ -410,8 +411,12 @@ suite("test_show_data_for_bkd", "p2") {
         create_httplogs_table_with_bkd_index.call(testTableWithBKDIndex)
         load_httplogs_data.call(testTableWithBKDIndex, 'test_httplogs_load_with_bkd_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithBKDIndex, 60000, 0)
+        assertTrue(another_with_index_size != "wait_timeout")
         if (!isCloudMode()) {
-            assertEquals(another_with_index_size, with_index_size)
+            // Same rationale as test_show_data: writer-path dependent index size, 20% tolerance.
+            assertTrue(Math.abs(another_with_index_size - with_index_size)
+                            <= 0.2 * Math.max(another_with_index_size, with_index_size),
+                    "index size mismatch beyond 20% tolerance: inline_index=${another_with_index_size}, built_index=${with_index_size}")
         }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -613,6 +618,7 @@ suite("test_show_data_multi_add", "p2") {
         create_httplogs_table_with_index.call(testTableWithIndex)
         load_httplogs_data.call(testTableWithIndex, 'test_show_data_httplogs_multi_add_with_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 60000, 0)
+        assertTrue(another_with_index_size != "wait_timeout")
         if (!isCloudMode()) {
             double diff = Math.abs(another_with_index_size.toDouble() - with_index_size2.toDouble())
             double max_size = Math.max(another_with_index_size.toDouble(), with_index_size2.toDouble())

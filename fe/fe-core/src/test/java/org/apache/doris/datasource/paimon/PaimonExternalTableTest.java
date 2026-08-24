@@ -68,6 +68,23 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class PaimonExternalTableTest {
 
     @Test
+    public void testWriteUsesBaseTableInsteadOfStatementSnapshot() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("local_db");
+        Mockito.when(database.getRemoteName()).thenReturn("remote_db");
+        PaimonExternalTable externalTable = Mockito.spy(new PaimonExternalTable(
+                10L, "local_table", "remote_table", catalog, database));
+        Mockito.doReturn(paimonTable).when(externalTable).getBasePaimonTable();
+
+        Assert.assertSame(paimonTable, externalTable.getPaimonTableForWrite());
+        Mockito.verify(externalTable).getBasePaimonTable();
+    }
+
+    @Test
     public void testStatementContextDefersPhysicalManifestValidationUntilRelationOptions() {
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);

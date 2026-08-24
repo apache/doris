@@ -125,32 +125,63 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     public Table getPaimonTable(NameMapping nameMapping, String branch, String queryType) {
         makeSureInitialized();
+        Identifier identifier = tableIdentifier(nameMapping, branch, queryType);
+        return loadPaimonTable(nameMapping, queryType, identifier);
+    }
+
+    /**
+     * Invalidates Paimon's catalog-level table cache and reloads the table.
+     *
+     * <p>Doris and Paimon cache table handles for different purposes. Doris owns the external
+     * metadata lifecycle (TTL, REFRESH and FE-wide invalidation), while Paimon's CachingCatalog
+     * attaches lower-level manifest, snapshot and deletion-vector caches to a table handle. A miss
+     * in the Doris cache must therefore invalidate Paimon's table entry before loading; otherwise a
+     * Doris REFRESH can repopulate its cache with the same stale Paimon table handle.
+     */
+    public Table reloadPaimonTable(NameMapping nameMapping) {
+        makeSureInitialized();
+        Identifier identifier = tableIdentifier(nameMapping, null, null);
         try {
-            Identifier identifier;
-            if (branch != null && queryType != null) {
-                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
-                        branch, queryType);
-            } else if (branch != null) {
-                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
-                        branch);
-            } else if (queryType != null) {
-                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
-                        "main", queryType);
-            } else {
-                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
-            }
             return executionAuthenticator.execute(() -> {
-                Table table = catalog.getTable(identifier);
-                Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
-                // This handle is relation-neutral. Runtime validation and CPU-local capping belong
-                // to the final relation copy, where relation options can override physical values.
-                return tableOptions.isEmpty() ? table : table.copy(tableOptions);
+                catalog.invalidateTable(identifier);
+                return copyWithCatalogTableOptions(catalog.getTable(identifier));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
-                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
-                    + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
+            throw tableLoadException(nameMapping, null, e);
         }
+    }
+
+    private Identifier tableIdentifier(NameMapping nameMapping, String branch, String queryType) {
+        if (branch != null && queryType != null) {
+            return new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                    branch, queryType);
+        } else if (branch != null) {
+            return new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), branch);
+        } else if (queryType != null) {
+            return new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), "main", queryType);
+        }
+        return new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+    }
+
+    private Table loadPaimonTable(NameMapping nameMapping, String queryType, Identifier identifier) {
+        try {
+            return executionAuthenticator.execute(() -> copyWithCatalogTableOptions(catalog.getTable(identifier)));
+        } catch (Exception e) {
+            throw tableLoadException(nameMapping, queryType, e);
+        }
+    }
+
+    private Table copyWithCatalogTableOptions(Table table) {
+        Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
+        // This handle is relation-neutral. Runtime validation and CPU-local capping belong
+        // to the final relation copy, where relation options can override physical values.
+        return tableOptions.isEmpty() ? table : table.copy(tableOptions);
+    }
+
+    private RuntimeException tableLoadException(NameMapping nameMapping, String queryType, Exception e) {
+        return new RuntimeException("Failed to get Paimon table:" + getName() + "."
+                + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
+                + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
     }
 
     protected Catalog createCatalog() {

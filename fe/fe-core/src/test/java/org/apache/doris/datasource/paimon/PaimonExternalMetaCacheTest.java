@@ -75,6 +75,7 @@ import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -2088,6 +2089,62 @@ public class PaimonExternalMetaCacheTest {
 
             Assert.assertEquals("0", table.options().get(
                     CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testReloadInvalidatesPaimonTableCacheBeforeLoad() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("reload_table");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                92L, "paimon_reload_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.close();
+
+        Catalog paimonCatalog = Mockito.mock(Catalog.class);
+        Table expected = Mockito.mock(Table.class);
+        Identifier identifier = Identifier.create("remote_db", "remote_table");
+        Mockito.when(paimonCatalog.getTable(identifier)).thenReturn(expected);
+        dorisCatalog.catalog = paimonCatalog;
+
+        Table actual = dorisCatalog.reloadPaimonTable(
+                new NameMapping(92L, "local_db", "local_table", "remote_db", "remote_table"));
+
+        Assert.assertSame(expected, actual);
+        InOrder inOrder = Mockito.inOrder(paimonCatalog);
+        inOrder.verify(paimonCatalog).invalidateTable(identifier);
+        inOrder.verify(paimonCatalog).getTable(identifier);
+    }
+
+    @Test
+    public void testDorisTableCacheMissReloadsPaimonCatalogOnce() throws Exception {
+        long catalogId = 93L;
+        NameMapping nameMapping = new NameMapping(
+                catalogId, "local_db", "local_table", "remote_db", "remote_table");
+        Table expected = Mockito.mock(Table.class);
+        PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(dorisCatalog.reloadPaimonTable(nameMapping)).thenReturn(expected);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+            cache.initCatalog(catalogId, Collections.emptyMap());
+
+            Assert.assertSame(expected, cache.getPaimonTable(nameMapping));
+            Assert.assertSame(expected, cache.getPaimonTable(nameMapping));
+
+            Mockito.verify(dorisCatalog, Mockito.times(1)).reloadPaimonTable(nameMapping);
         } finally {
             executor.shutdownNow();
         }

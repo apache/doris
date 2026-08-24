@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.ByteBuffer;
 import java.util.Collections;
 
 public class PaimonJniWriterTest {
@@ -33,6 +32,27 @@ public class PaimonJniWriterTest {
                 IllegalArgumentException.class,
                 () -> new DorisMemorySegmentPool(32 * 1024, 64 * 1024, 1L));
         Assertions.assertTrue(exception.getMessage().contains("at least one page"));
+        Assertions.assertDoesNotThrow(
+                () -> new DorisMemorySegmentPool(64 * 1024, 64 * 1024, 1L));
+    }
+
+    @Test
+    public void testMergeTreeMemoryPoolRequiresAtLeastThreePages() {
+        int pageSize = 64 * 1024;
+        long writeBufferSize = 4L * pageSize;
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniWriter.validateAndGetMemoryPoolLimit(
+                        writeBufferSize, 2L * pageSize, pageSize, true));
+        Assertions.assertTrue(exception.getMessage().contains("requires at least 3 memory pages"));
+        Assertions.assertTrue(exception.getMessage().contains("effectivePoolLimit=131072"));
+
+        Assertions.assertEquals(3L * pageSize,
+                PaimonJniWriter.validateAndGetMemoryPoolLimit(
+                        writeBufferSize, 3L * pageSize, pageSize, true));
+        Assertions.assertEquals(pageSize,
+                PaimonJniWriter.validateAndGetMemoryPoolLimit(
+                        pageSize, pageSize, pageSize, false));
     }
 
     @Test
@@ -88,7 +108,7 @@ public class PaimonJniWriterTest {
         thread.setContextClassLoader(testClassLoader);
         try {
             Assertions.assertThrows(Exception.class,
-                    () -> writer.write(ByteBuffer.allocateDirect(0)));
+                    () -> writer.writeArrow(0L, 0L));
             Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
 
             Assertions.assertThrows(Exception.class, writer::prepareCommit);

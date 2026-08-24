@@ -944,7 +944,6 @@ template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOpera
 template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
-template class AsyncWriterSink<doris::PaimonTableWriter, PaimonTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

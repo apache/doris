@@ -166,8 +166,8 @@ static void read_orc_line(int64_t line, std::string block_dump,
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);
-        EXPECT_EQ(info.file_id, 10);
-        EXPECT_EQ(info.row_id, line);
+        EXPECT_EQ(info.file_local.file_id, 10);
+        EXPECT_EQ(info.file_local.row_id, line);
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }

@@ -23,7 +23,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -31,6 +31,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -103,6 +104,27 @@ public class TVFScanNodeTest {
         Assert.assertEquals(100 * MB, target);
     }
 
+    @Test
+    public void testDetermineTargetFileSplitSizeUsesCoarseSizeForParquet() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.getTFileFormatType()).thenReturn(TFileFormatType.FORMAT_PARQUET);
+        desc.setTable(table);
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+
+        TBrokerFileStatus status = new TBrokerFileStatus();
+        status.setSize(10_000L * MB);
+        Method method = TVFScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class);
+        method.setAccessible(true);
+
+        Assert.assertEquals(512 * MB,
+                (long) method.invoke(node, Collections.singletonList(status)));
+    }
+
     private static TBrokerFileStatus splittableFile(String path, long size) {
         TBrokerFileStatus status = new TBrokerFileStatus();
         status.setPath(path);
@@ -129,8 +151,8 @@ public class TVFScanNodeTest {
         Mockito.when(tvf.getFilePath()).thenReturn("s3://bucket/table.lance");
         Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
         Mockito.when(tvf.getLanceFragments()).thenReturn(Arrays.asList(
-                new LanceTableMetadata.LanceFragmentInfo(7, 1000, 1000),
-                new LanceTableMetadata.LanceFragmentInfo(11, 250, 250)));
+                new LanceFragmentInfo(7, 1000, 1000),
+                new LanceFragmentInfo(11, 250, 250)));
         desc.setTable(table);
 
         TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
@@ -140,7 +162,7 @@ public class TVFScanNodeTest {
         LanceSplit first = (LanceSplit) splits.get(0);
         Assert.assertEquals("s3://bucket/table.lance", first.getDatasetUri());
         Assert.assertEquals(42L, first.getVersion());
-        Assert.assertEquals(7L, first.getFragmentId());
+        Assert.assertEquals(Collections.singletonList(7L), first.getFragmentIds());
         // The S3/file TVF path must weight fragments by physical rows, in sync with LanceScanNode.
         Assert.assertEquals(100L, first.getSplitWeight().getRawValue());
         Assert.assertEquals(25L, ((LanceSplit) splits.get(1)).getSplitWeight().getRawValue());
@@ -175,7 +197,7 @@ public class TVFScanNodeTest {
         LanceSplit split = (LanceSplit) splits.get(0);
         Assert.assertEquals("/data/table.lance", split.getDatasetUri());
         Assert.assertEquals(0L, split.getVersion());
-        Assert.assertFalse(split.hasFragmentId());
+        Assert.assertFalse(split.hasFragmentIds());
 
         TFileRangeDesc range = new TFileRangeDesc();
         node.setScanParams(range, split);

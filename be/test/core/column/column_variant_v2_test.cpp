@@ -284,6 +284,69 @@ private:
     ColumnVariantV2::MutablePtr _serialized;
 };
 
+class ValidatingShreddedState final : public VariantShreddedState {
+public:
+    enum class TypedLookup { MISS, ERROR };
+
+    ValidatingShreddedState(size_t rows, TypedLookup lookup,
+                            std::shared_ptr<size_t> typed_lookup_calls)
+            : _rows(rows),
+              _lookup(lookup),
+              _typed_lookup_calls(std::move(typed_lookup_calls)),
+              _serialized(ColumnVariantV2::create()) {
+        _serialized->insert_many_defaults(rows);
+        auto normalized = ColumnVariantV2::create();
+        normalized->insert_many_defaults(rows);
+        _normalized = ColumnNullable::create(std::move(normalized), ColumnUInt8::create(rows, 0));
+    }
+
+    size_t size() const override { return _rows; }
+    size_t byte_size() const override { return 0; }
+    size_t allocated_bytes() const override { return 0; }
+    void sanity_check() const override {}
+    void for_each_subcolumn(const IColumn::ImutableColumnCallback&) const override {}
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t) const override {
+        return select(std::count(filter.begin(), filter.end(), UInt8 {1}));
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t, size_t length) const override {
+        return select(length);
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        return select(indices_end - indices_begin);
+    }
+    bool can_materialize() const override { return false; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        ++*_typed_lookup_calls;
+        if (_lookup == TypedLookup::ERROR) {
+            throw Exception(ErrorCode::CORRUPTION, "late composite segment validation failed");
+        }
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return _normalized;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "validating shredded state cannot materialize");
+    }
+    const ColumnVariantV2& serialized_column() const override { return *_serialized; }
+
+private:
+    std::shared_ptr<VariantShreddedState> select(size_t rows) const {
+        return std::make_shared<ValidatingShreddedState>(rows, _lookup, _typed_lookup_calls);
+    }
+
+    size_t _rows;
+    TypedLookup _lookup;
+    std::shared_ptr<size_t> _typed_lookup_calls;
+    ColumnVariantV2::MutablePtr _serialized;
+    ColumnPtr _normalized;
+};
+
 class MaterializableShreddedState final : public VariantShreddedState {
 public:
     explicit MaterializableShreddedState(ColumnPtr materialized)
@@ -1686,6 +1749,24 @@ TEST(ColumnVariantV2Test, CompositeShreddedSizeDoesNotRecountSegments) {
         EXPECT_EQ(composite->size(), 5);
     }
     EXPECT_EQ(*size_calls, 0);
+}
+
+TEST(ColumnVariantV2Test, CompositeValidatesSegmentsAfterFirstTypedMiss) {
+    auto first_calls = std::make_shared<size_t>(0);
+    auto second_calls = std::make_shared<size_t>(0);
+    auto first = ColumnVariantV2::create_shredded(std::make_shared<ValidatingShreddedState>(
+            1, ValidatingShreddedState::TypedLookup::MISS, first_calls));
+    auto second = ColumnVariantV2::create_shredded(std::make_shared<ValidatingShreddedState>(
+            1, ValidatingShreddedState::TypedLookup::ERROR, second_calls));
+    auto composite = ColumnVariantV2::create();
+    composite->insert_range_from(*first, 0, first->size());
+    composite->insert_range_from(*second, 0, second->size());
+
+    const std::array path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    EXPECT_THROW(static_cast<void>(composite->find_shredded_typed_value(path)), Exception);
+    EXPECT_EQ(*first_calls, 1);
+    EXPECT_EQ(*second_calls, 1);
 }
 
 TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {

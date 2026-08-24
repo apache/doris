@@ -560,6 +560,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // override it with the actual format carried by an individual split.
         rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
+        setTargetSplitSize(rangeDesc, sessionVariable, !wouldRunSerialOnBe());
         rangeDesc.setFileCacheAdmission(admissionResult);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
@@ -569,6 +570,69 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
         return curLocations;
+    }
+
+    static void setTargetSplitSize(TFileRangeDesc rangeDesc, SessionVariable sessionVariable) {
+        setTargetSplitSize(rangeDesc, sessionVariable, true);
+    }
+
+    private static void setTargetSplitSize(
+            TFileRangeDesc rangeDesc, SessionVariable sessionVariable, boolean supportsBeSplit) {
+        if (supportsBeSplit && canSplitOnBe(rangeDesc, sessionVariable)) {
+            rangeDesc.setTargetSplitSize(sessionVariable.getFileSplitSizeOnBe());
+        }
+    }
+
+    protected long selectFeSplitSizeForBe(
+            long fallbackSize, TFileFormatType format, boolean supportsBeSplit) {
+        // FE may enlarge a source range only when BE can refine it. Otherwise the larger range
+        // would silently reduce the parallelism provided by the legacy split planner.
+        if (!supportsBeSplit || !isBeSplitEnabled(sessionVariable) || wouldRunSerialOnBe()
+                || !isColumnarFormat(format)) {
+            return fallbackSize;
+        }
+        return sessionVariable.getFileSplitSizeOnFe();
+    }
+
+    private boolean wouldRunSerialOnBe() {
+        // Mirror the external-scan branch of ScanLocalState::should_run_serial so FE does not
+        // enlarge ranges when BE intentionally constructs only one scanner for a small LIMIT.
+        return sessionVariable.enableAdaptivePipelineTaskSerialReadOnLimit
+                && conjuncts.isEmpty()
+                && getLimit() > 0
+                && getLimit() <= sessionVariable.adaptivePipelineTaskSerialReadOnLimit;
+    }
+
+    static boolean canSplitOnBe(TFileRangeDesc rangeDesc, SessionVariable sessionVariable) {
+        if (!isBeSplitEnabled(sessionVariable) || !rangeDesc.isSetFormatType()
+                || !isColumnarFormat(rangeDesc.getFormatType())) {
+            return false;
+        }
+        if (!rangeDesc.isSetTableFormatParams()) {
+            return true;
+        }
+        if (rangeDesc.getTableFormatParams().isSetTableLevelRowCount()
+                && rangeDesc.getTableFormatParams().getTableLevelRowCount() >= 0) {
+            return false;
+        }
+        if (TableFormatType.TRANSACTIONAL_HIVE.value().equals(
+                rangeDesc.getTableFormatParams().getTableFormatType())) {
+            return false;
+        }
+        return !rangeDesc.getTableFormatParams().isSetIcebergParams()
+                || !rangeDesc.getTableFormatParams().getIcebergParams().isSetDeleteFiles()
+                || rangeDesc.getTableFormatParams().getIcebergParams().getDeleteFiles().isEmpty();
+    }
+
+    private static boolean isBeSplitEnabled(SessionVariable sessionVariable) {
+        return sessionVariable.enableFileScannerV2
+                && sessionVariable.maxFileScannersConcurrency != 1
+                && sessionVariable.getFileSplitSizeOnFe() > 0
+                && sessionVariable.getFileSplitSizeOnBe() > 0;
+    }
+
+    private static boolean isColumnarFormat(TFileFormatType format) {
+        return format == TFileFormatType.FORMAT_PARQUET || format == TFileFormatType.FORMAT_ORC;
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,

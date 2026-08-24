@@ -34,7 +34,12 @@ public final class PaimonTableLoader {
 
     public Table load(NameMapping nameMapping) {
         try {
-            return catalog(nameMapping).getPaimonTable(nameMapping);
+            // Doris caches Paimon table handles to implement the external-catalog TTL and REFRESH
+            // lifecycle. Paimon's CachingCatalog has another table cache because it also owns
+            // lower-level manifest, snapshot and deletion-vector caches. This method is reached on
+            // a Doris cache miss, so invalidate the Paimon table entry as well; otherwise Doris can
+            // reload the same stale handle immediately after REFRESH.
+            return catalog(nameMapping).reloadPaimonTable(nameMapping);
         } catch (Exception e) {
             throw new CacheException("failed to load paimon table %s.%s.%s: %s",
                     e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),

@@ -17,12 +17,20 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.common.util.JsonUtil;
+
+import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.lance.Dataset;
 import org.lance.Fragment;
+import org.lance.index.Index;
+import org.lance.index.IndexDescription;
+import org.lance.schema.LanceField;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -60,7 +68,15 @@ public final class LanceMetadataLoader {
     public static LanceTableMetadata loadLatest(String datasetUri, Map<String, String> javaStorageOptions,
             Map<String, String> backendStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator);
+                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator, false);
+    }
+
+    /** Loads the latest fixed snapshot together with vector index segment coverage. */
+    public static LanceTableMetadata loadLatestWithIndexSegments(
+            String datasetUri, Map<String, String> javaStorageOptions,
+            Map<String, String> backendStorageOptions, BufferAllocator allocator) throws Exception {
+        return loadInternal(
+                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator, true);
     }
 
     /**
@@ -73,24 +89,85 @@ public final class LanceMetadataLoader {
     public static LanceTableMetadata loadVersion(String datasetUri, Map<String, String> javaStorageOptions,
             Map<String, String> backendStorageOptions, long version, BufferAllocator allocator) throws Exception {
         return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.of(version), allocator);
+                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.of(version), allocator, false);
     }
 
     /** Shared implementation for the latest-version and explicit-version public entry points. */
     private static LanceTableMetadata loadInternal(String datasetUri, Map<String, String> javaStorageOptions,
             Map<String, String> backendStorageOptions, OptionalLong version,
-            BufferAllocator allocator) throws Exception {
+            BufferAllocator allocator, boolean loadIndexSegments) throws Exception {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                 .readOptions(LanceReadOptions.build(javaStorageOptions, version)).build()) {
             long resolvedVersion = dataset.version();
-            List<LanceTableMetadata.LanceFragmentInfo> fragments = new ArrayList<>();
+            List<LanceFragmentInfo> fragments = new ArrayList<>();
             for (Fragment fragment : dataset.getFragments()) {
-                fragments.add(new LanceTableMetadata.LanceFragmentInfo(
-                        fragment.getId(), fragment.metadata().getNumRows(),
+                fragments.add(new LanceFragmentInfo(
+                        Integer.toUnsignedLong(fragment.getId()), fragment.metadata().getNumRows(),
                         fragment.metadata().getPhysicalRows()));
             }
-            return new LanceTableMetadata(datasetUri, resolvedVersion, dataset.getSchema(), fragments,
-                    backendStorageOptions);
+            Map<String, Integer> lanceFieldIds = loadIndexSegments
+                    ? loadTopLevelFieldIds(dataset) : Collections.emptyMap();
+            List<LanceIndexSegmentInfo> indexSegments = loadIndexSegments
+                    ? loadVectorIndexSegments(dataset) : Collections.emptyList();
+            return loadIndexSegments
+                    ? LanceTableMetadata.withIndexSegments(datasetUri, resolvedVersion,
+                            dataset.getSchema(), fragments, lanceFieldIds,
+                            indexSegments, backendStorageOptions)
+                    : LanceTableMetadata.withoutIndexSegments(datasetUri, resolvedVersion,
+                            dataset.getSchema(), fragments, backendStorageOptions);
+        }
+    }
+
+    private static Map<String, Integer> loadTopLevelFieldIds(Dataset dataset) {
+        Map<String, Integer> result = new LinkedHashMap<>();
+        for (LanceField field : dataset.getLanceSchema().fields()) {
+            if (field.getId() < 0) {
+                throw new IllegalStateException(
+                        "Lance field '" + field.getName() + "' has invalid id " + field.getId());
+            }
+            if (result.put(field.getName(), field.getId()) != null) {
+                throw new IllegalStateException(
+                        "Duplicate top-level Lance field name '" + field.getName() + "'");
+            }
+        }
+        return result;
+    }
+
+    private static List<LanceIndexSegmentInfo> loadVectorIndexSegments(Dataset dataset) {
+        List<LanceIndexSegmentInfo> result = new ArrayList<>();
+        for (IndexDescription description : dataset.describeIndices()) {
+            String metric = parseMetric(description.getDetailsJson());
+            for (Index segment : description.getSegments()) {
+                if (segment.indexType() == null || segment.indexType().getValue() < 100) {
+                    continue;
+                }
+                List<Long> fragmentIds = segment.fragments()
+                        .map(ids -> {
+                            List<Long> values = new ArrayList<>(ids.size());
+                            for (Integer id : ids) {
+                                values.add(Integer.toUnsignedLong(id));
+                            }
+                            return values;
+                        })
+                        .orElse(null);
+                result.add(new LanceIndexSegmentInfo(segment.uuid(), description.getName(),
+                        description.getFieldIds(), fragmentIds, metric));
+            }
+        }
+        return result;
+    }
+
+    private static String parseMetric(String detailsJson) {
+        if (detailsJson == null || detailsJson.isEmpty()) {
+            return null;
+        }
+        try {
+            JsonNode metric = JsonUtil.readTree(detailsJson).get("metric_type");
+            return metric == null || !metric.isTextual() ? null : metric.asText().toUpperCase();
+        } catch (RuntimeException e) {
+            // Index details are optional compatibility metadata. An unknown legacy encoding should
+            // disable metric-sensitive segment planning rather than prevent ordinary table access.
+            return null;
         }
     }
 }

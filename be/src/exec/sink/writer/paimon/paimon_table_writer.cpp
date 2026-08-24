@@ -20,35 +20,31 @@
 #include "common/check.h"
 #include "common/logging.h"
 #include "core/block/block.h"
+#include "core/block/materialize_block.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 
-PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                                     std::shared_ptr<Dependency> dep,
-                                     std::shared_ptr<Dependency> fin_dep)
-        : AsyncResultWriter(output_exprs, std::move(dep), std::move(fin_dep)),
-          _t_sink(std::move(t_sink)) {
+PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs)
+        : _t_sink(std::move(t_sink)), _output_expr_ctxs(output_exprs) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
 
 Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
-    _operator_profile = profile;
 
     // Register profile counters
-    _written_rows_counter = ADD_COUNTER(_operator_profile, "WrittenRows", TUnit::UNIT);
-    _written_bytes_counter = ADD_COUNTER(_operator_profile, "WrittenBytes", TUnit::BYTES);
-    _send_data_timer = ADD_TIMER(_operator_profile, "SendDataTime");
-    _project_timer = ADD_CHILD_TIMER(_operator_profile, "ProjectTime", "SendDataTime");
-    _file_store_write_timer =
-            ADD_CHILD_TIMER(_operator_profile, "FileStoreWriteTime", "SendDataTime");
-    _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_operator_profile, "CloseTime");
-    _prepare_commit_timer = ADD_TIMER(_operator_profile, "PrepareCommitTime");
-    _commit_payload_count = ADD_COUNTER(_operator_profile, "CommitPayloadCount", TUnit::UNIT);
-    _commit_payload_bytes_counter =
-            ADD_COUNTER(_operator_profile, "CommitPayloadBytes", TUnit::BYTES);
+    _written_rows_counter = ADD_COUNTER(profile, "WrittenRows", TUnit::UNIT);
+    _written_bytes_counter = ADD_COUNTER(profile, "WrittenBytes", TUnit::BYTES);
+    _send_data_timer = ADD_TIMER(profile, "SendDataTime");
+    _project_timer = ADD_CHILD_TIMER(profile, "ProjectTime", "SendDataTime");
+    _file_store_write_timer = ADD_CHILD_TIMER(profile, "FileStoreWriteTime", "SendDataTime");
+    _open_timer = ADD_TIMER(profile, "OpenTime");
+    _close_timer = ADD_TIMER(profile, "CloseTime");
+    _prepare_commit_timer = ADD_TIMER(profile, "PrepareCommitTime");
+    _commit_payload_count = ADD_COUNTER(profile, "CommitPayloadCount", TUnit::UNIT);
+    _commit_payload_bytes_counter = ADD_COUNTER(profile, "CommitPayloadBytes", TUnit::BYTES);
 
     SCOPED_TIMER(_open_timer);
 
@@ -77,20 +73,22 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     Block output_block;
     {
         SCOPED_TIMER(_project_timer);
-        RETURN_IF_ERROR(_projection_block(block, &output_block));
+        RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_expr_ctxs, block,
+                                                                           &output_block));
+        materialize_block_inplace(output_block);
     }
 
     COUNTER_UPDATE(_written_rows_counter, block.rows());
     COUNTER_UPDATE(_written_bytes_counter, block.bytes());
-    _state->update_num_rows_load_total(block.rows());
-    _state->update_num_bytes_load_total(block.bytes());
+    state->update_num_rows_load_total(block.rows());
+    state->update_num_bytes_load_total(block.bytes());
 
     // Step 2: Delegate to the backend writer (JNI or FFI). For the JNI path
-    // this converts Block → Arrow IPC → direct buffer → Java PaimonJniWriter.
+    // this converts Block → Arrow RecordBatch → Arrow C Data → Java PaimonJniWriter.
     DCHECK(_writer);
     {
         SCOPED_TIMER(_file_store_write_timer);
-        RETURN_IF_ERROR(_writer->write(_state, output_block));
+        RETURN_IF_ERROR(_writer->write(state, output_block));
     }
     _written_rows += block.rows();
     return Status::OK();

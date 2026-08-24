@@ -57,6 +57,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -728,7 +729,9 @@ public class Env {
         this.lock = new MonitoredReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
-        this.publishVersionDaemon = new PublishVersionDaemon();
+        if (!isCheckpointCatalog) {
+            this.publishVersionDaemon = new PublishVersionDaemon();
+        }
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInfoCollector = new PartitionInfoCollector();
@@ -913,9 +916,12 @@ public class Env {
                 CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
-        } else {
-            return SingletonHolder.INSTANCE;
         }
+        Env snapshotEnv = CloudSnapshotHandler.getSnapshotEnv();
+        if (snapshotEnv != null) {
+            return snapshotEnv;
+        }
+        return SingletonHolder.INSTANCE;
     }
 
     // NOTICE: in most case, we should use getCurrentEnv() to get the right catalog.
@@ -2029,7 +2035,6 @@ public class Env {
 
         dnsCache.start();
 
-        workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
         splitSourceManager.start();

@@ -305,6 +305,7 @@ public abstract class ExternalCatalog
             CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
                     name,
                     catalogProperty.getMetastoreProperties(),
+                    catalogProperty.getOrderedStoragePropertiesList(),
                     catalogProperty.getStoragePropertiesMap()
             );
             testCoordinator.runTests();

@@ -496,9 +496,9 @@ struct TSearchFilter {
     2: optional binary payload
 }
 
-// Lance-only vector search tuning. Logical query fields stay in TVectorSearchParams so another
-// provider, such as Paimon, can reuse the same request without depending on Lance options.
-struct TLanceVectorSearchOptions {
+// Optional vector search tuning. Logical query fields stay in TVectorSearchParams so providers
+// can reuse the same request and interpret the supported tuning fields independently.
+struct TVectorSearchOptions {
     1: optional i32 nprobes
     2: optional i32 refine_factor
     3: optional i32 ef
@@ -508,17 +508,17 @@ struct TLanceVectorSearchOptions {
 // The active union field identifies the logical search kind. A future hybrid field can contain both
 // vector and full-text subqueries plus its fusion parameters without changing either existing field.
 union TExternalSearchQuery {
-    1: TVectorSearchParams vector
-    2: TFullTextSearchParams full_text
+    1: TVectorSearchParams vector_search
+    2: TFullTextSearchParams full_text_search
 }
 
 // A provider-independent logical search request. Physical target information remains in the
 // provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
 struct TExternalSearchRequest {
     1: optional i32 schema_version = 1
-    2: optional TExternalSearchQuery query
-    3: optional TSearchFilter filter
-    4: optional TLanceVectorSearchOptions lance_options
+    2: optional TExternalSearchQuery search_query
+    3: optional TSearchFilter search_filter
+    4: optional TVectorSearchOptions vector_search_options
 }
 
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
@@ -531,6 +531,9 @@ struct TLanceFileDesc {
     // most this many rows; the upper LIMIT operator still enforces the global bound.
     // Only set for ordinary scans whose predicates are fully pushed into Lance.
     4: optional i64 limit
+    // Physical vector-index segments assigned to this distributed search split. Each value is one
+    // UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and unindexed-fragment scans.
+    5: optional list<binary> index_segment_uuids
 }
 
 struct TTableFormatFileDesc {
@@ -631,10 +634,11 @@ struct TFileScanRangeParams {
     35: optional string serialized_table_cache_key
     // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
     // ScanNode level so it is not serialized once per fragment split.
-    36: optional binary lance_substrait_filter
+    37: optional binary lance_substrait_filter
     // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
-    // query. The first implementation uses one whole-dataset range for Lance vector search.
-    37: optional TExternalSearchRequest external_search_request
+    // query. Lance vector search uses one range per fragment and Doris merges the split-local
+    // candidates.
+    38: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {
@@ -667,6 +671,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // FE's effective split target in bytes for BE-local physical split refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {
