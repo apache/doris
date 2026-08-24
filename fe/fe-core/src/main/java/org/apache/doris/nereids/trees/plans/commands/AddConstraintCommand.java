@@ -156,15 +156,17 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         EditLog.EditLogItem logItem;
         ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
         boolean fenceFrontendAdmission = constraint instanceof DistributionMappingConstraint;
-        if (fenceFrontendAdmission) {
-            constraintManager.acquireFrontendAdmissionForMapping();
-        }
+        boolean frontendAdmissionAcquired = false;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                 ConstraintCommandUtils.lockCurrentDatabases(
                         affectedTableInfos, externalCatalogSnapshots, analyzedTables);
                 ConstraintCommandUtils.LockedTables lockedTables =
                         ConstraintCommandUtils.lockCurrentTables(
                                 lockedDatabases, affectedTableInfos)) {
+            if (fenceFrontendAdmission) {
+                constraintManager.acquireFrontendAdmissionForMapping();
+                frontendAdmissionAcquired = true;
+            }
             lockedTables.requireSame(tableNameInfo, analyzedTable);
             TableIf currentTable = lockedTables.get(tableNameInfo);
             if (constraint instanceof DistributionMappingConstraint) {
@@ -188,7 +190,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                         .invalidateAboutTableAndFencePublication(currentTable);
             }
         } finally {
-            if (fenceFrontendAdmission) {
+            if (frontendAdmissionAcquired) {
                 constraintManager.releaseFrontendAdmissionFence();
             }
         }

@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.connector.ConnectorFactory;
@@ -273,6 +274,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 break;
             case UNREGISTER_DATABASE:
                 catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
+                Env.getCurrentEnv().getConstraintManager()
+                        .dropDatabaseConstraints(catalogName, before.localDbName);
                 break;
             case RENAME_DATABASE:
                 // Always converge to "old removed, new registered". A normal lookup may already have warmed the
@@ -280,6 +283,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
                 catalogMgr.registerExternalDatabaseFromEvent(
                         after.remoteDbName, after.localDbName, catalogName);
+                Env.getCurrentEnv().getConstraintManager().renameDatabase(
+                        catalogName, before.localDbName, after.localDbName);
                 break;
             case REGISTER_TABLE:
                 catalogMgr.registerExternalTableFromEvent(before.localDbName,
@@ -288,6 +293,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             case UNREGISTER_TABLE:
                 catalogMgr.unregisterExternalTableFromEvent(
                         before.localDbName, before.localTableName, catalogName);
+                Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
+                        new TableNameInfo(catalogName, before.localDbName, before.localTableName));
                 break;
             case RENAME_TABLE:
                 // Always converge to "old removed, new registered". The target may already be hot because a normal
@@ -297,6 +304,9 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 catalogMgr.registerExternalTableFromEvent(after.localDbName,
                         after.remoteTableName, after.localTableName,
                         catalogName, descriptor.getUpdateTime());
+                Env.getCurrentEnv().getConstraintManager().renameTable(
+                        new TableNameInfo(catalogName, before.localDbName, before.localTableName),
+                        new TableNameInfo(catalogName, after.localDbName, after.localTableName));
                 break;
             case REFRESH_TABLE:
                 Env.getCurrentEnv().getRefreshManager().refreshExternalTableFromEvent(

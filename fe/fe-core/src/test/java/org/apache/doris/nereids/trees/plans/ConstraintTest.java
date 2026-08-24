@@ -46,6 +46,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
@@ -57,7 +58,9 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -515,10 +518,8 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
             mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
                             Mockito.anyList(), Mockito.anyString()))
                     .thenAnswer(invocation -> {
-                        Assertions.assertFalse(primaryKeyTable.isWriteLockHeldByCurrentThread());
-                        Assertions.assertFalse(foreignKeyTable.isWriteLockHeldByCurrentThread());
-                        Assertions.assertTrue(database.tryWriteLock(1, TimeUnit.SECONDS));
-                        database.writeUnlock();
+                        Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                        Assertions.assertTrue(foreignKeyTable.isWriteLockHeldByCurrentThread());
                         return null;
                     });
 
@@ -596,9 +597,9 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
                                 Mockito.anyList(), Mockito.anyString()))
                         .thenAnswer(invocation -> {
-                            Assertions.assertFalse(
+                            Assertions.assertTrue(
                                     primaryKeyTable.isWriteLockHeldByCurrentThread());
-                            Assertions.assertFalse(
+                            Assertions.assertTrue(
                                     foreignKeyTable.isWriteLockHeldByCurrentThread());
                             return null;
                         });
@@ -782,6 +783,33 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
 
         // Cleanup
         executeSql("drop table t_schema force");
+    }
+
+    @Test
+    void legacyConstrainedColumnRenameJournalStillReplays() throws Exception {
+        createTable("create table legacy_constraint_rename (\n"
+                + "    k1 int,\n"
+                + "    v1 int\n"
+                + ")\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\"replication_num\"=\"1\", \"light_schema_change\"=\"true\")");
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) database.getTableOrDdlException("legacy_constraint_rename");
+        TableNameInfo tableNameInfo = tableNameInfoOf(table);
+        getConstraintMgr().addConstraint(
+                tableNameInfo, "legacy_unique", new UniqueConstraint(
+                        "legacy_unique", Sets.newHashSet("v1")), true);
+        Map<Long, Integer> schemaVersions = new HashMap<>();
+        table.getIndexIdToMeta().forEach((indexId, meta) ->
+                schemaVersions.put(indexId, meta.getSchemaVersion() + 1));
+
+        Env.getCurrentEnv().replayRenameColumn(new TableRenameColumnInfo(
+                database.getId(), table.getId(), "v1", "renamed_v1", schemaVersions));
+
+        Assertions.assertNull(table.getColumn("v1"));
+        Assertions.assertNotNull(table.getColumn("renamed_v1"));
+        executeSql("drop table legacy_constraint_rename force");
     }
 
     @Test

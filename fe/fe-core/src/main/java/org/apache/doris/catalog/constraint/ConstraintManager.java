@@ -194,6 +194,11 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                                 + " Drop all distribution mapping constraints before adding a frontend");
                     }
                 }
+                if (Env.getCurrentRecycleBin().containsDistributionMappingConstraint()) {
+                    throw new DdlException("Cannot add frontend while distribution mapping constraints exist"
+                            + " in the recycle bin. Permanently erase the affected tables or databases"
+                            + " before adding a frontend");
+                }
             } finally {
                 readUnlock();
             }
@@ -207,6 +212,22 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     public void releaseFrontendAdmissionFence() {
         frontendAdmissionLock.unlock();
+    }
+
+    public boolean acquireFrontendAdmissionFence() throws DdlException {
+        if (frontendAdmissionLock.isHeldByCurrentThread()) {
+            return false;
+        }
+        try {
+            if (!frontendAdmissionLock.tryLock(
+                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                throw new DdlException("Failed to acquire frontend admission lock. Try again");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DdlException("Interrupted while acquiring frontend admission lock", e);
+        }
+        return true;
     }
 
     public void acquireFrontendAdmissionForMapping() {
@@ -895,21 +916,18 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                     : tableConstraints.entrySet()) {
                 Constraint c = entry.getValue();
                 if (c instanceof PrimaryKeyConstraint) {
-                    if (((PrimaryKeyConstraint) c)
-                            .getPrimaryKeyNames()
-                            .contains(columnName)) {
+                    if (containsIgnoreCase(
+                            ((PrimaryKeyConstraint) c).getPrimaryKeyNames(), columnName)) {
                         return entry.getKey();
                     }
                 } else if (c instanceof UniqueConstraint) {
-                    if (((UniqueConstraint) c)
-                            .getUniqueColumnNames()
-                            .contains(columnName)) {
+                    if (containsIgnoreCase(
+                            ((UniqueConstraint) c).getUniqueColumnNames(), columnName)) {
                         return entry.getKey();
                     }
                 } else if (c instanceof ForeignKeyConstraint) {
-                    if (((ForeignKeyConstraint) c)
-                            .getForeignKeyNames()
-                            .contains(columnName)) {
+                    if (containsIgnoreCase(
+                            ((ForeignKeyConstraint) c).getForeignKeyNames(), columnName)) {
                         return entry.getKey();
                     }
                 } else if (c instanceof DistributionMappingConstraint) {

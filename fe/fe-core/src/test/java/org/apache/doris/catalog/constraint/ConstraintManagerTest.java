@@ -678,12 +678,14 @@ class ConstraintManagerTest {
     void findConstraintWithColumnFindsPK() {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         Assertions.assertEquals("pk", mgr.findConstraintWithColumn(T1, "k1"));
+        Assertions.assertEquals("pk", mgr.findConstraintWithColumn(T1, "K1"));
     }
 
     @Test
     void findConstraintWithColumnFindsUnique() {
         mgr.addConstraint(T1, "uk", new UniqueConstraint("uk", ImmutableSet.of("c1")), true);
         Assertions.assertEquals("uk", mgr.findConstraintWithColumn(T1, "c1"));
+        Assertions.assertEquals("uk", mgr.findConstraintWithColumn(T1, "C1"));
     }
 
     @Test
@@ -691,6 +693,7 @@ class ConstraintManagerTest {
         mgr.addConstraint(T2, "pk2", newPk("pk2", "k1"), true);
         mgr.addConstraint(T1, "fk", newFk("fk", T2, "c1", "k1"), true);
         Assertions.assertEquals("fk", mgr.findConstraintWithColumn(T1, "c1"));
+        Assertions.assertEquals("fk", mgr.findConstraintWithColumn(T1, "C1"));
     }
 
     @Test

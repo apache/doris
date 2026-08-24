@@ -80,6 +80,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamBuildFactory;
@@ -555,23 +556,32 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime)
             throws DdlException {
-        // Pre-drop all constraints for this database to avoid ordering-dependent FK check failures.
-        // Without this, if table B has an FK referencing table A's PK, and B is iterated before A,
-        // dropping A would fail because B's FK still exists.
-        Env.getCurrentEnv().getConstraintManager().dropDatabaseConstraints(
-                InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName());
-        for (Table table : db.getTables()) {
-            unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
+        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
+        boolean frontendAdmissionAcquired =
+                !isReplay && constraintManager.acquireFrontendAdmissionFence();
+        try {
+            // Pre-drop all constraints for this database to avoid ordering-dependent FK check failures.
+            // Without this, if table B has an FK referencing table A's PK, and B is iterated before A,
+            // dropping A would fail because B's FK still exists.
+            constraintManager.dropDatabaseConstraints(
+                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName());
+            for (Table table : db.getTables()) {
+                unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
+            }
+            if (!db.getTables().isEmpty()) {
+                throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                                + db.getTableIds().stream().collect(Collectors.toSet()));
+            }
+            if (!db.getTableNames().isEmpty()) {
+                throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                                + db.getTableNames().stream().collect(Collectors.toSet()));
+            }
+            db.markDropped();
+        } finally {
+            if (frontendAdmissionAcquired) {
+                constraintManager.releaseFrontendAdmissionFence();
+            }
         }
-        if (!db.getTables().isEmpty()) {
-            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
-                                            + db.getTableIds().stream().collect(Collectors.toSet()));
-        }
-        if (!db.getTableNames().isEmpty()) {
-            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
-                                            + db.getTableNames().stream().collect(Collectors.toSet()));
-        }
-        db.markDropped();
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -618,54 +628,64 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
-
         // add db to catalog
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
-        db.writeLock();
-        List<Table> tableList = db.getTablesOnIdOrder();
-        MetaLockUtils.writeLockTables(tableList);
+        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
+        boolean frontendAdmissionAcquired = false;
         try {
-            if (!Strings.isNullOrEmpty(newDbName)) {
-                if (fullNameToDb.containsKey(newDbName)) {
-                    throw new DdlException("Database[" + newDbName + "] already exist.");
-                    // it's ok that we do not put db back to CatalogRecycleBin
-                    // cause this db cannot recover any more
+            frontendAdmissionAcquired = constraintManager.acquireFrontendAdmissionFence();
+            Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
+            db.writeLock();
+            List<Table> tableList = db.getTablesOnIdOrder();
+            MetaLockUtils.writeLockTables(tableList);
+            try {
+                if (!Strings.isNullOrEmpty(newDbName)) {
+                    if (fullNameToDb.containsKey(newDbName)) {
+                        throw new DdlException("Database[" + newDbName + "] already exist.");
+                        // it's ok that we do not put db back to CatalogRecycleBin
+                        // cause this db cannot recover any more
+                    }
+                } else {
+                    if (fullNameToDb.containsKey(db.getFullName())) {
+                        throw new DdlException("Database[" + db.getFullName() + "] already exist.");
+                        // it's ok that we do not put db back to CatalogRecycleBin
+                        // cause this db cannot recover any more
+                    }
                 }
-            } else {
-                if (fullNameToDb.containsKey(db.getFullName())) {
-                    throw new DdlException("Database[" + db.getFullName() + "] already exist.");
-                    // it's ok that we do not put db back to CatalogRecycleBin
-                    // cause this db cannot recover any more
+                if (!Strings.isNullOrEmpty(newDbName)) {
+                    db.setNameWithLock(newDbName);
                 }
+                fullNameToDb.put(db.getFullName(), db);
+                idToDb.put(db.getId(), db);
+                for (Table table : tableList) {
+                    constraintManager.restoreTableConstraints(
+                            TableNameInfoUtils.fromDb(db, table.getName()), table);
+                }
+                // log
+                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
+                Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
+                db.unmarkDropped();
+                registerDbFunctionsToNereids(db);
+                LOG.info("recover database[{}]", db.getId());
+            } finally {
+                MetaLockUtils.writeUnlockTables(tableList);
+                db.writeUnlock();
             }
-            if (!Strings.isNullOrEmpty(newDbName)) {
-                db.setNameWithLock(newDbName);
-            }
-            fullNameToDb.put(db.getFullName(), db);
-            idToDb.put(db.getId(), db);
-            for (Table table : tableList) {
-                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                        TableNameInfoUtils.fromDb(db, table.getName()), table);
-            }
-            // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
-            Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
-            db.unmarkDropped();
-            registerDbFunctionsToNereids(db);
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
-            db.writeUnlock();
+            if (frontendAdmissionAcquired) {
+                constraintManager.releaseFrontendAdmissionFence();
+            }
             unlock();
         }
-        LOG.info("recover database[{}]", db.getId());
     }
 
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
+        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
+        boolean frontendAdmissionAcquired = constraintManager.acquireFrontendAdmissionFence();
         try {
             if (Strings.isNullOrEmpty(newTableName)) {
                 if (db.getTable(tableName).isPresent()) {
@@ -681,9 +701,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             Table recoveredTable = db.getTableOrDdlException(
                     Strings.isNullOrEmpty(newTableName) ? tableName : newTableName);
-            Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+            constraintManager.restoreTableConstraints(
                     TableNameInfoUtils.fromDb(db, recoveredTable.getName()), recoveredTable);
         } finally {
+            if (frontendAdmissionAcquired) {
+                constraintManager.releaseFrontendAdmissionFence();
+            }
             db.writeUnlock();
         }
     }
@@ -1069,6 +1092,22 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
             long recycleTime) throws DdlException {
+        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
+        boolean frontendAdmissionAcquired =
+                !isReplay && constraintManager.acquireFrontendAdmissionFence();
+        try {
+            return unprotectDropTableWithFrontendAdmission(
+                    db, table, isForceDrop, isReplay, recycleTime, constraintManager);
+        } finally {
+            if (frontendAdmissionAcquired) {
+                constraintManager.releaseFrontendAdmissionFence();
+            }
+        }
+    }
+
+    private boolean unprotectDropTableWithFrontendAdmission(Database db, Table table,
+            boolean isForceDrop, boolean isReplay, long recycleTime,
+            ConstraintManager constraintManager) throws DdlException {
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
         }
@@ -1081,7 +1120,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
-        Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
+        constraintManager.checkAndDropTableConstraints(
                 TableNameInfoUtils.fromDb(db, table.getName()),
                 !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());

@@ -6004,7 +6004,7 @@ public class Env {
         }
         String mappingConstraint =
                 constraintManager.findDistributionMappingConstraintWithColumn(table, colName);
-        if (mappingConstraint == null) {
+        if (mappingConstraint == null && !isReplay) {
             mappingConstraint = constraintManager.findConstraintWithColumn(
                     TableNameInfoUtils.fromDb(db, table.getName()), colName);
         }

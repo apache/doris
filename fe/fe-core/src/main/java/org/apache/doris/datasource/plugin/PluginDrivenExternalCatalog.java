@@ -656,7 +656,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             try {
                 connector.invalidateDb(db.getRemoteName());
             } finally {
-                unregisterDatabase(db.getFullName());
+                try {
+                    unregisterDatabase(db.getFullName());
+                } finally {
+                    Env.getCurrentEnv().getConstraintManager()
+                            .dropDatabaseConstraints(getName(), db.getFullName());
+                }
             }
             LOG.info("finished to drop database {}.{}", getName(), dbName);
             return null;
@@ -702,17 +707,21 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // this routing is inert and the table path runs unchanged. The edit log + cache invalidation use
         // the LOCAL names (follower-replay parity), identical to the table path.
         executeConstraintMetadataMutation(() -> {
+            TableNameInfo tableNameInfo =
+                    new TableNameInfo(getName(), db.getFullName(), dorisTable.getName());
             boolean viewExists = metadata.viewExists(
                     session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
             Optional<ConnectorTableHandle> handle = viewExists ? Optional.empty() : metadata.getTableHandle(
                     session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
             if (!viewExists && !handle.isPresent()) {
                 if (ifExists) {
-                    finishDropTable(db, dorisTable);
+                    finishDropTable(db, dorisTable, tableNameInfo);
                     return null;
                 }
                 throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
             }
+            Env.getCurrentEnv().getConstraintManager()
+                    .checkNoReferencingForeignKeys(tableNameInfo);
             try {
                 if (viewExists) {
                     metadata.dropView(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
@@ -722,7 +731,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             } catch (DorisConnectorException e) {
                 throw new DdlException(e.getMessage(), e);
             }
-            finishDropTable(db, dorisTable);
+            finishDropTable(db, dorisTable, tableNameInfo);
             if (viewExists) {
                 LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
             } else {
@@ -842,19 +851,33 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     @Override
     public void replayDropTable(String dbName, String tblName) {
-        try {
-            invalidateTableConnectorCacheForReplay(dbName, tblName);
-        } finally {
-            super.replayDropTable(dbName, tblName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            try {
+                invalidateTableConnectorCacheForReplay(dbName, tblName);
+            } finally {
+                try {
+                    invalidateDroppedTable(dbName, tblName);
+                } finally {
+                    Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
+                            new TableNameInfo(getName(), dbName, tblName));
+                }
+            }
         }
     }
 
     @Override
     public void replayDropDb(String dbName) {
-        try {
-            invalidateDatabaseConnectorCacheForReplay(dbName);
-        } finally {
-            super.replayDropDb(dbName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            try {
+                invalidateDatabaseConnectorCacheForReplay(dbName);
+            } finally {
+                try {
+                    unregisterDatabase(dbName);
+                } finally {
+                    Env.getCurrentEnv().getConstraintManager()
+                            .dropDatabaseConstraints(getName(), dbName);
+                }
+            }
         }
     }
 
@@ -950,7 +973,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
-        executeSchemaMutation(externalTable, updateTime,
+        executeSchemaMutation(externalTable, updateTime, columnName,
                 () -> metadata.dropColumn(session, handle, columnName));
     }
 
@@ -961,7 +984,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
-        executeSchemaMutation(externalTable, updateTime,
+        executeSchemaMutation(externalTable, updateTime, oldName,
                 () -> metadata.renameColumn(session, handle, oldName, newName));
     }
 
@@ -1245,7 +1268,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     private void executeSchemaMutation(ExternalTable externalTable, long updateTime,
             ConnectorSchemaMutation mutation) throws DdlException {
+        executeSchemaMutation(externalTable, updateTime, null, mutation);
+    }
+
+    private void executeSchemaMutation(ExternalTable externalTable, long updateTime,
+            String constrainedColumn, ConnectorSchemaMutation mutation) throws DdlException {
         executeConstraintMetadataMutation(() -> {
+            if (constrainedColumn != null) {
+                String constraintName = Env.getCurrentEnv().getConstraintManager()
+                        .findConstraintWithColumn(
+                                new TableNameInfo(getName(), externalTable.getDbName(),
+                                        externalTable.getName()),
+                                constrainedColumn);
+                if (constraintName != null) {
+                    throw new DdlException(String.format(
+                            "Cannot modify column '%s' because it is used by constraint '%s'. "
+                                    + "Drop the constraint first.",
+                            constrainedColumn, constraintName));
+                }
+            }
             try {
                 mutation.run();
             } catch (DorisConnectorException e) {
@@ -1309,13 +1350,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
-    private void finishDropTable(ExternalDatabase<? extends ExternalTable> db, ExternalTable table) {
+    private void finishDropTable(ExternalDatabase<? extends ExternalTable> db, ExternalTable table,
+            TableNameInfo tableNameInfo) {
         Env.getCurrentEnv().getEditLog().logDropTable(
                 new DropInfo(getName(), db.getFullName(), table.getName()));
         try {
             connector.invalidateTable(table.getRemoteDbName(), table.getRemoteName());
         } finally {
-            invalidateDroppedTable(db.getFullName(), table.getName());
+            try {
+                invalidateDroppedTable(db.getFullName(), table.getName());
+            } finally {
+                Env.getCurrentEnv().getConstraintManager()
+                        .dropTableConstraints(tableNameInfo);
+            }
         }
     }
 

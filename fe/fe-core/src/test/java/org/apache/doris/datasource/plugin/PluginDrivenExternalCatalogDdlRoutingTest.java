@@ -284,6 +284,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals("db1", catalog.unregisteredDb,
                 "dropDb must remove the db from the cache (legacy afterDropDb parity)");
         Mockito.verify(mockMetaCacheMgr).invalidateDb(1L, DATABASE_ID, "db1");
+        Mockito.verify(mockConstraintManager)
+                .dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME);
     }
 
     @Test
@@ -398,6 +400,36 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockMetaCacheMgr).invalidateTable(1L, DATABASE_ID, "db1", TABLE_ID, "t1");
         // Connector caches are keyed by the remote identity.
         Mockito.verify(connector).invalidateTable("DB1", "TBL1");
+        Mockito.verify(mockConstraintManager).checkNoReferencingForeignKeys(
+                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
+        Mockito.verify(mockConstraintManager).dropTableConstraints(
+                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
+    }
+
+    @Test
+    public void testDropTableJournalFailureKeepsConstraints() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1"))
+                .thenReturn(Optional.of(handle));
+        Mockito.doThrow(new RuntimeException("journal failed"))
+                .when(mockEditLog).logDropTable(Mockito.any());
+
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropTable("db1", "t1", false, false, false,
+                        false, false, false));
+
+        Mockito.verify(metadata).dropTable(session, handle);
+        Mockito.verify(mockConstraintManager, Mockito.never())
+                .dropTableConstraints(Mockito.any());
+        Mockito.verify(connector, Mockito.never())
+                .invalidateTable(Mockito.anyString(), Mockito.anyString());
     }
 
     @Test
@@ -457,6 +489,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropTableHandleAbsentAfterLocalResolveThrowsWithoutIfExists() {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
@@ -472,6 +505,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropTableWrapsConnectorException() {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
@@ -522,6 +556,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropViewWrapsConnectorException() {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable view = Mockito.mock(ExternalTable.class);
+        Mockito.when(view.getName()).thenReturn("v1");
         Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(view.getRemoteName()).thenReturn("V1");
         Mockito.doReturn(view).when(db).getTableNullable("v1");
@@ -1011,6 +1046,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Mockito.verify(connector).invalidateTable("DB1", "TBL1");
         Mockito.verify(replayDb).unregisterTable("t1");
+        Mockito.verify(mockConstraintManager).dropTableConstraints(
+                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
     }
 
     @Test
@@ -1072,6 +1109,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(connector).invalidateDb("DB1");
         Assertions.assertEquals("db1", catalog.unregisteredDb);
         verifyDeterministicDatabaseInvalidation("db1");
+        Mockito.verify(mockConstraintManager)
+                .dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME);
     }
 
     @Test
@@ -1173,6 +1212,38 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         catalog.renameColumn(table, "old", "new");
 
         Mockito.verify(metadata).renameColumn(session, handle, "old", "new");
+    }
+
+    @Test
+    public void testDropColumnRejectsConstrainedColumnBeforeConnectorMutation() throws Exception {
+        ExternalTable table = mockAlterTable();
+        stubAlterHandle();
+        Mockito.when(mockConstraintManager.findConstraintWithColumn(
+                        new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"), "AGE"))
+                .thenReturn("pk_age");
+
+        DdlException exception = Assertions.assertThrows(
+                DdlException.class, () -> catalog.dropColumn(table, "AGE"));
+
+        Assertions.assertTrue(exception.getMessage().contains("pk_age"));
+        Mockito.verify(metadata, Mockito.never())
+                .dropColumn(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testRenameColumnRejectsConstrainedColumnBeforeConnectorMutation() throws Exception {
+        ExternalTable table = mockAlterTable();
+        stubAlterHandle();
+        Mockito.when(mockConstraintManager.findConstraintWithColumn(
+                        new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"), "old"))
+                .thenReturn("uk_old");
+
+        DdlException exception = Assertions.assertThrows(
+                DdlException.class, () -> catalog.renameColumn(table, "old", "new"));
+
+        Assertions.assertTrue(exception.getMessage().contains("uk_old"));
+        Mockito.verify(metadata, Mockito.never())
+                .renameColumn(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test

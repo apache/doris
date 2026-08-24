@@ -158,6 +158,9 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     tableNameInfo, constraint, cascadeDropTables);
             logItem = Env.getCurrentEnv().getConstraintManager()
                     .dropConstraintAndSubmit(tableNameInfo, name, cascadeDropTables);
+            MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                    String.format("after drop constraint %s on table %s",
+                            constraint.getName(), tableNameInfo));
             if (constraint instanceof DistributionMappingConstraint) {
                 Env.getCurrentEnv().getSqlCacheManager()
                         .invalidateAboutTableAndFencePublication(currentTable);
@@ -166,8 +169,6 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         if (logItem != null) {
             logItem.await();
         }
-        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
     }
 
     private List<MTMV> getDependentMtmvs(TableNameInfo tableNameInfo,

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.journal.JournalEntity;
@@ -300,6 +301,9 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
 
         dropTableWithSql("drop table test.mapping_recover");
         Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+        DdlException admissionException = Assertions.assertThrows(
+                DdlException.class, manager::acquireFrontendAdmission);
+        Assertions.assertTrue(admissionException.getMessage().contains("recycle bin"));
 
         recoverTable("recover table test.mapping_recover");
         TableIf recoveredTable = RelationUtil.getTable(

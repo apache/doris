@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -230,6 +231,19 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return true;
         } finally {
             writeUnlock();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    public boolean containsDistributionMappingConstraint() {
+        readLock();
+        try {
+            return idToTable.values().stream()
+                    .map(RecycleTableInfo::getTable)
+                    .anyMatch(table -> table.getTableAttributes().getConstraintsMap().values().stream()
+                            .anyMatch(DistributionMappingConstraint.class::isInstance));
+        } finally {
+            readUnlock();
         }
     }
 
