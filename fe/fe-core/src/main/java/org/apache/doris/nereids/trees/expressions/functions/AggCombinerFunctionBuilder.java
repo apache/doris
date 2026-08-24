@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
@@ -68,6 +69,9 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
 
     @Override
     public boolean canApply(List<?> arguments) {
+        if (NotSupportAggState.class.isAssignableFrom(nestedBuilder.functionClass())) {
+            return false;
+        }
         if (combinatorSuffix.equalsIgnoreCase(COMBINE)) {
             // DataTypeAggState needs at least one subtype, so zero-argument aggregates such as
             // count(*) cannot produce an AggState yet. count_combine(1) remains supported.

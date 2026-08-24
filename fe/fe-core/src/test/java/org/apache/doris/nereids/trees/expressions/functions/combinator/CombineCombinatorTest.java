@@ -25,9 +25,18 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
@@ -83,5 +92,43 @@ class CombineCombinatorTest {
                 .findBuiltinFunctionBuilder("count_combine", ImmutableList.of()).isEmpty());
         Assertions.assertThrows(AnalysisException.class,
                 () -> new CombineCombinator(ImmutableList.of(), new Count()));
+    }
+
+    @Test
+    void testOrthogonalBitmapFunctionsDoNotSupportAggState() {
+        Assertions.assertTrue(NotSupportAggState.class.isAssignableFrom(
+                OrthogonalBitmapExprCalculate.class));
+        Assertions.assertTrue(NotSupportAggState.class.isAssignableFrom(
+                OrthogonalBitmapExprCalculateCount.class));
+        Assertions.assertTrue(NotSupportAggState.class.isAssignableFrom(
+                OrthogonalBitmapIntersect.class));
+        Assertions.assertTrue(NotSupportAggState.class.isAssignableFrom(
+                OrthogonalBitmapIntersectCount.class));
+        Assertions.assertTrue(NotSupportAggState.class.isAssignableFrom(
+                OrthogonalBitmapUnionCount.class));
+
+        SlotReference bitmap = new SlotReference("bitmap", BitmapType.INSTANCE, false);
+        VarcharLiteral filterColumn = new VarcharLiteral("filter");
+        VarcharLiteral expression = new VarcharLiteral("filter");
+        OrthogonalBitmapExprCalculate nested =
+                new OrthogonalBitmapExprCalculate(bitmap, filterColumn, expression);
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        Assertions.assertTrue(functionRegistry.findBuiltinFunctionBuilder(
+                "orthogonal_bitmap_expr_calculate_state", nested.children()).isEmpty());
+        Assertions.assertTrue(functionRegistry.findBuiltinFunctionBuilder(
+                "orthogonal_bitmap_expr_calculate_combine", nested.children()).isEmpty());
+    }
+
+    @Test
+    void testCombineDelegatesAggregatePhaseSupport() {
+        SlotReference bitmap = new SlotReference("bitmap", BitmapType.INSTANCE, false);
+        VarcharLiteral filterColumn = new VarcharLiteral("filter");
+        VarcharLiteral expression = new VarcharLiteral("filter");
+        OrthogonalBitmapExprCalculate nested =
+                new OrthogonalBitmapExprCalculate(bitmap, filterColumn, expression);
+        CombineCombinator combine = new CombineCombinator(nested.children(), nested);
+
+        Assertions.assertFalse(combine.supportAggregatePhase(AggregatePhase.ONE));
+        Assertions.assertTrue(combine.supportAggregatePhase(AggregatePhase.TWO));
     }
 }

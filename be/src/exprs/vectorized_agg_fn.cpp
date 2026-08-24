@@ -292,7 +292,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                    _sort_description, state);
     }
 
-    if (_fn.name.function_name == "ai_agg") {
+    if (_fn.name.function_name.starts_with("ai_agg")) {
         _function->set_query_context(state->get_query_ctx());
     }
 

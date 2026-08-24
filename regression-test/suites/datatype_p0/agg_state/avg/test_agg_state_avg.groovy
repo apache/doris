@@ -17,6 +17,24 @@
 
 suite("test_agg_state_avg") {
     sql "set global enable_agg_state=true"
+    sql "drop table if exists avg_combine_mv_base"
+    sql """
+        create table avg_combine_mv_base (
+            k1 int,
+            v int
+        )
+        duplicate key(k1)
+        distributed by hash(k1) buckets 1
+        properties("replication_num" = "1")
+    """
+    test {
+        sql """
+            create materialized view mv_avg_combine as
+            select k1, avg_combine(v) from avg_combine_mv_base group by k1
+        """
+        exception "Synchronous materialized view does not support aggregate combine function: avg_combine"
+    }
+
     sql """ DROP TABLE IF EXISTS a_table; """
     sql """
             create table a_table(

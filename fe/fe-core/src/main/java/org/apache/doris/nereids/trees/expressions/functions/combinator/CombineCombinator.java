@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctionParams;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
@@ -123,6 +124,11 @@ public class CombineCombinator extends AggregateFunction
     @Override
     public AggregateFunction getNestedFunction() {
         return nested;
+    }
+
+    @Override
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        return nested.supportAggregatePhase(aggregatePhase);
     }
 
     @Override
