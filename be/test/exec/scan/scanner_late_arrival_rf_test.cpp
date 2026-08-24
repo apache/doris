@@ -320,10 +320,10 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
     auto local_state = OlapScanLocalState::create_shared(state, op.get());
     std::vector<std::shared_ptr<Dependency>> rf_dependencies;
     ASSERT_TRUE(local_state->_helper.init(state, true, 0, 0, rf_dependencies, "").ok());
-    ASSERT_TRUE(
-            local_state->_helper
-                    .acquire_runtime_filter(state, local_state->_conjuncts, op->row_descriptor())
-                    .ok());
+    ASSERT_TRUE(local_state->_helper
+                        .acquire_runtime_filter(state, local_state->_conjuncts,
+                                                op->operator_row_desc_before_projection())
+                        .ok());
     ASSERT_TRUE(local_state->_conjuncts.empty());
     auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
     state->set_task_execution_context(task_exec_ctx);
@@ -362,7 +362,7 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
     auto dependency = Dependency::create_shared(0, 0, "late bucket scan dependency");
     std::atomic<int64_t> shared_limit {-1};
     auto scanner_context = ScannerContext::create_shared(
-            state, local_state.get(), desc_tbl->get_tuple_descriptor(0), nullptr, scanner_delegates,
+            state, local_state.get(), desc_tbl->get_tuple_descriptor(0), false, scanner_delegates,
             -1, dependency, &shared_limit, nullptr, nullptr, 0, false, bucket_num);
     scanner_context->_newly_create_free_blocks_num =
             ADD_COUNTER(&scan_profile, "NewlyCreatedFreeBlocks", TUnit::UNIT);
@@ -500,7 +500,7 @@ TEST_F(ScannerLateArrivalRfTest, bounded_concurrency_prunes_scanner_before_first
     auto dependency = Dependency::create_shared(0, 0, "bounded late bucket scan dependency");
     std::atomic<int64_t> shared_limit {-1};
     auto scanner_context = ScannerContext::create_shared(
-            state, local_state.get(), desc_tbl->get_tuple_descriptor(0), nullptr, scanner_delegates,
+            state, local_state.get(), desc_tbl->get_tuple_descriptor(0), false, scanner_delegates,
             -1, dependency, &shared_limit, nullptr, nullptr, 0, false, 1);
     scanner_context->_newly_create_free_blocks_num =
             ADD_COUNTER(&scan_profile, "NewlyCreatedFreeBlocks", TUnit::UNIT);
