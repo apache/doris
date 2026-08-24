@@ -93,9 +93,19 @@ public class AbstractExternalMetaCacheTest {
             cache.initCatalog(1L, Maps.newHashMap());
             cache.invalidateCatalog(1L);
 
+            // While the catalog is still registered (rename/transient absence), the lookup
+            // fails as uninitialized; once the catalog manager no longer serves the id (DROP,
+            // ids are never reused), it fails as dropped. Pin both outcomes via the probe so
+            // the test does not depend on whichever Env this fork happens to carry.
+            cache.bindDroppedCatalogProbeForTest(catalogId -> false);
             IllegalStateException exception = Assert.assertThrows(IllegalStateException.class,
                     () -> cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
-            Assert.assertTrue(exception.getMessage().contains("not initialized"));
+            Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("not initialized"));
+
+            cache.bindDroppedCatalogProbeForTest(catalogId -> catalogId == 1L);
+            IllegalStateException dropped = Assert.assertThrows(IllegalStateException.class,
+                    () -> cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
+            Assert.assertTrue(dropped.getMessage(), dropped.getMessage().contains("was dropped"));
             Assert.assertFalse(cache.isCatalogInitialized(1L));
         } finally {
             refreshExecutor.shutdownNow();

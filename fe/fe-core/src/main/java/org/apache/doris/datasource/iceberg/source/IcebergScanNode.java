@@ -800,10 +800,12 @@ public class IcebergScanNode extends FileQueryScanNode {
                 // frozen operations/FileIO while the catalog still serves the generation this
                 // statement pinned; after a credential/storage ALTER the statement must fail and
                 // be retried. Count-mode values retain no frozen handle and plan the live table,
-                // so they are not fenced.
-                cacheValue.ensurePlannableUnder(
-                        source.getCatalog().getExecutionAuthenticator(),
-                        source.getTargetTable().getName());
+                // so they are not fenced; values without a captured context resolve nothing here.
+                if (cacheValue.getCapturedAuthenticator() != null) {
+                    cacheValue.ensurePlannableUnder(
+                            source.getCatalog().getExecutionAuthenticator(),
+                            source.getTargetTable().getName());
+                }
                 Table frozenBaseTable = frozenTable.get();
                 if (isSystemTable && source.getTargetTable() instanceof IcebergSysExternalTable) {
                     IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
