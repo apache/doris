@@ -226,23 +226,27 @@ public class TVFScanNode extends FileQueryScanNode {
         return splits;
     }
 
-    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {
+        long fallbackSize;
         if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
-        }
-        long result = sessionVariable.getMaxInitialSplitSize();
-        long totalFileSize = 0;
-        boolean exceedInitialThreshold = false;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
-            totalFileSize += fileStatus.getSize();
-            if (!exceedInitialThreshold
-                    && totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                exceedInitialThreshold = true;
+            fallbackSize = sessionVariable.getFileSplitSize();
+        } else {
+            long totalFileSize = 0;
+            boolean exceedInitialThreshold = false;
+            for (TBrokerFileStatus fileStatus : fileStatuses) {
+                totalFileSize += fileStatus.getSize();
+                if (!exceedInitialThreshold
+                        && totalFileSize
+                                >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    exceedInitialThreshold = true;
+                }
             }
+            fallbackSize = exceedInitialThreshold
+                    ? sessionVariable.getMaxSplitSize() : sessionVariable.getMaxInitialSplitSize();
+            fallbackSize = applyMaxFileSplitNumLimit(fallbackSize, totalFileSize);
         }
-        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = applyMaxFileSplitNumLimit(result, totalFileSize);
-        return result;
+        return selectFeSplitSizeForBe(
+                fallbackSize, getFileFormatType(), !isTableLevelCountStarPushdown());
     }
 
     @Override

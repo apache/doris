@@ -284,7 +284,8 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         assertEquals(2, deepProjectionRows.size())
         String deepProjectionProfile = new ProfileAction(context).getProfileBySql(
                 deepProjectionToken,
-                ["VariantLeafProjectionRowGroupColumns", "VariantFullProjectionRowGroupColumns"],
+                ["VariantLeafProjectionRowGroupColumns", "VariantResidualProjectionRowGroupColumns",
+                 "VariantFullProjectionRowGroupColumns"],
                 30000L, 500L)
         def counterSum = { String profile, String counterName ->
             def values = profile =~
@@ -305,8 +306,11 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                         "VariantLeafProjectionRowGroupColumns") > 0,
                 "Paimon Native did not project the deeply shredded Variant object leaves")
         assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantResidualProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly read unrelated ancestor residual columns")
+        assertEquals(0L, counterSum(deepProjectionProfile,
                         "VariantFullProjectionRowGroupColumns"),
-                "Paimon Native unexpectedly fell back to full Variant row-group projection")
+                "Paimon Native unexpectedly fell back to complete Variant row-group projection")
         sql """set enable_profile = false"""
 
         order_qt_native_mixed_us_partitions """

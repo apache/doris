@@ -416,35 +416,35 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,
-            boolean isBatchMode) {
+            boolean isBatchMode) throws UserException {
+        long fallbackSize;
         if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
-        }
-        /** Hive batch split mode will return 0. and <code>FileSplitter</code>
-         *  will determine file split size.
-         */
-        if (isBatchMode) {
-            return 0;
-        }
-        long result = sessionVariable.getMaxInitialSplitSize();
-        long totalFileSize = 0;
-        boolean exceedInitialThreshold = false;
-        for (HiveExternalMetaCache.FileCacheValue fileCacheValue : fileCaches) {
-            if (fileCacheValue.getFiles() == null) {
-                continue;
-            }
-            for (HiveExternalMetaCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                totalFileSize += status.getLength();
-                if (!exceedInitialThreshold
-                        && totalFileSize >= sessionVariable.getMaxSplitSize()
-                                * sessionVariable.getMaxInitialSplitNum()) {
-                    exceedInitialThreshold = true;
+            fallbackSize = sessionVariable.getFileSplitSize();
+        } else if (isBatchMode) {
+            // Hive batch split mode returns 0 so FileSplitter determines the legacy split size.
+            fallbackSize = 0;
+        } else {
+            long totalFileSize = 0;
+            boolean exceedInitialThreshold = false;
+            for (HiveExternalMetaCache.FileCacheValue fileCacheValue : fileCaches) {
+                if (fileCacheValue.getFiles() == null) {
+                    continue;
+                }
+                for (HiveExternalMetaCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    totalFileSize += status.getLength();
+                    if (!exceedInitialThreshold
+                            && totalFileSize >= sessionVariable.getMaxSplitSize()
+                                    * sessionVariable.getMaxInitialSplitNum()) {
+                        exceedInitialThreshold = true;
+                    }
                 }
             }
+            fallbackSize = exceedInitialThreshold
+                    ? sessionVariable.getMaxSplitSize() : sessionVariable.getMaxInitialSplitSize();
+            fallbackSize = applyMaxFileSplitNumLimit(fallbackSize, totalFileSize);
         }
-        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = applyMaxFileSplitNumLimit(result, totalFileSize);
-        return result;
+        boolean supportsBeSplit = !hmsTable.isHiveTransactionalTable() && !isTableLevelCountStarPushdown();
+        return selectFeSplitSizeForBe(fallbackSize, getFileFormatType(), supportsBeSplit);
     }
 
     private void splitAllFiles(List<Split> allFiles,

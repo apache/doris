@@ -1658,6 +1658,28 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSelectFeSplitSizeUsesCoarseSizeOnlyWithoutDeletes() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.format()).thenReturn(FileFormat.PARQUET);
+        FileScanTask task = Mockito.mock(FileScanTask.class);
+        Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.deletes()).thenReturn(Collections.emptyList());
+        Assert.assertEquals(512 * MB, node.selectFeSplitSize(task, 64 * MB));
+
+        DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
+        Mockito.when(task.deletes()).thenReturn(Collections.singletonList(deleteFile));
+        Assert.assertEquals(64 * MB, node.selectFeSplitSize(task, 64 * MB));
+
+        Mockito.when(task.deletes()).thenReturn(Collections.emptyList());
+        Mockito.when(dataFile.format()).thenReturn(FileFormat.AVRO);
+        Assert.assertEquals(64 * MB, node.selectFeSplitSize(task, 64 * MB));
+    }
+
+    @Test
     public void testSetIcebergParamsKeepsDeletionVectorOffsetAsLong() throws Exception {
         SessionVariable sv = new SessionVariable();
         TestIcebergScanNode node = new TestIcebergScanNode(sv);

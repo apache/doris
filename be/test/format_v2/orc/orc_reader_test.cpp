@@ -4543,7 +4543,8 @@ protected:
     // whole file (unset sentinel), matching how FE leaves the range unspecified.
     std::unique_ptr<format::orc::OrcReader> create_reader_with_range(
             const std::string& file_path, int64_t range_start_offset, int64_t range_size,
-            RuntimeProfile* profile = nullptr) const {
+            RuntimeProfile* profile = nullptr, int64_t mtime = 0,
+            std::shared_ptr<const FileContext> file_context = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -4551,8 +4552,10 @@ protected:
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(file_path));
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
+        file_description->mtime = mtime;
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                        nullptr, profile, std::nullopt);
+                                                        nullptr, profile, std::nullopt, false,
+                                                        std::move(file_context));
     }
 
     Status scan_direct_in_filter(const std::string& file_path, int32_t in_list_size,
@@ -4690,6 +4693,111 @@ TEST_F(NewOrcReaderTest, AggregatePushdownCountUsesOnlySplitStripes) {
     EXPECT_EQ(first_split_count, layout[0].rows);
     EXPECT_EQ(second_split_count, layout[1].rows);
     EXPECT_EQ(first_split_count + second_split_count, layout[0].rows + layout[1].rows);
+}
+
+TEST_F(NewOrcReaderTest, PhysicalSplitPlanningReturnsOwnedStripes) {
+    const auto multi_stripe_file_path = (_test_dir / "physical_splits.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 2000});
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 3);
+
+    constexpr int64_t TEST_MTIME = 828282;
+    auto reader = create_reader_with_range(multi_stripe_file_path, 0, -1, nullptr, TEST_MTIME);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+    std::vector<format::PhysicalFileSplit> splits;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&splits, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(splits.size(), layout.size());
+    for (size_t stripe_id = 0; stripe_id < layout.size(); ++stripe_id) {
+        EXPECT_EQ(splits[stripe_id].start_offset, cast_set<int64_t>(layout[stripe_id].offset));
+        EXPECT_EQ(splits[stripe_id].size, cast_set<int64_t>(layout[stripe_id].length));
+        EXPECT_EQ(splits[stripe_id].format_split_id, cast_set<int64_t>(stripe_id));
+        EXPECT_NE(splits[stripe_id].file_context, nullptr);
+        EXPECT_EQ(splits[stripe_id].file_context, splits[0].file_context);
+    }
+
+    auto partial_reader =
+            create_reader_with_range(multi_stripe_file_path, cast_set<int64_t>(layout[1].offset),
+                                     cast_set<int64_t>(layout[1].length), nullptr, TEST_MTIME);
+    ASSERT_TRUE(partial_reader->init(&state).ok());
+    ASSERT_TRUE(partial_reader->open(std::make_shared<format::FileScanRequest>()).ok());
+    splits.clear();
+    was_split = false;
+    ASSERT_TRUE(partial_reader->build_physical_splits(&splits, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(splits.size(), 1);
+    EXPECT_EQ(splits[0].format_split_id, 1);
+
+    auto mutable_reader = create_reader_with_range(multi_stripe_file_path, 0, -1);
+    ASSERT_TRUE(mutable_reader->init(&state).ok());
+    ASSERT_TRUE(mutable_reader->open(std::make_shared<format::FileScanRequest>()).ok());
+    splits.clear();
+    was_split = true;
+    ASSERT_TRUE(mutable_reader->build_physical_splits(&splits, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(splits.empty());
+}
+
+TEST_F(NewOrcReaderTest, PhysicalStripeChildrenReuseOnlyParentTailAndReadExactRows) {
+    const auto multi_stripe_file_path = (_test_dir / "shared_physical_splits.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 2000});
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 3);
+
+    constexpr int64_t TEST_MTIME = 838383;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto build_splits = [&](std::vector<format::PhysicalFileSplit>* splits) -> Status {
+        auto reader = create_reader_with_range(multi_stripe_file_path, 0, -1, nullptr, TEST_MTIME);
+        RETURN_IF_ERROR(reader->init(&state));
+        RETURN_IF_ERROR(reader->open(std::make_shared<format::FileScanRequest>()));
+        bool was_split = false;
+        RETURN_IF_ERROR(reader->build_physical_splits(splits, &was_split));
+        if (!was_split) {
+            return Status::InternalError("ORC reader did not refine the source split");
+        }
+        return Status::OK();
+    };
+
+    std::vector<format::PhysicalFileSplit> parent_splits;
+    ASSERT_TRUE(build_splits(&parent_splits).ok());
+    ASSERT_EQ(parent_splits.size(), layout.size());
+    const auto parent_context = parent_splits[0].file_context;
+    ASSERT_NE(parent_context, nullptr);
+    for (const auto& split : parent_splits) {
+        EXPECT_EQ(split.file_context, parent_context);
+    }
+    std::vector<format::PhysicalFileSplit> sibling_splits;
+    ASSERT_TRUE(build_splits(&sibling_splits).ok());
+    ASSERT_EQ(sibling_splits.size(), layout.size());
+    ASSERT_NE(sibling_splits[0].file_context, parent_splits[0].file_context);
+    for (const auto& split : sibling_splits) {
+        EXPECT_EQ(split.file_context, sibling_splits[0].file_context);
+    }
+
+    auto child =
+            create_reader_with_range(multi_stripe_file_path, parent_splits[0].start_offset,
+                                     parent_splits[0].size, nullptr, TEST_MTIME, parent_context);
+    ASSERT_TRUE(child->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(child->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(field_projection(0));
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    ASSERT_TRUE(child->open(request).ok());
+
+    size_t rows_read = 0;
+    bool eof = false;
+    while (!eof) {
+        auto block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(child->get_block(&block, &rows, &eof).ok());
+        rows_read += rows;
+    }
+    EXPECT_EQ(rows_read, layout[0].rows);
 }
 
 TEST_F(NewOrcReaderTest, OpenAcceptsDorisOffsetTimezone) {
@@ -9737,7 +9845,8 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
     write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 201});
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 3);
 
-    auto reader = create_reader_for_path(multi_stripe_file_path);
+    constexpr int64_t TEST_MTIME = 848484;
+    auto reader = create_reader_with_range(multi_stripe_file_path, 0, -1, nullptr, TEST_MTIME);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
@@ -9750,6 +9859,14 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
     request->conjuncts.push_back(
             VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<format::PhysicalFileSplit> splits;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&splits, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(splits.size(), 2);
+    EXPECT_EQ(splits[0].format_split_id, 0);
+    EXPECT_EQ(splits[1].format_split_id, 2);
 
     bool eof = false;
     std::vector<int32_t> result_ids;

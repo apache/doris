@@ -145,9 +145,12 @@ class RefreshTrackingTableReader final : public TableReader {
 public:
     Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
 
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false) override {
         ++refresh_count;
-        return TableReader::refresh_conjuncts(std::move(conjuncts));
+        return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                              all_runtime_filters_applied);
     }
 
     int refresh_count = 0;

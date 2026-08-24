@@ -38,11 +38,10 @@ class RuntimeState;
 /// manager alive for at least as long as the Java writer can access its
 /// callback handle.
 ///
-/// The limit is a per-writer budget.  It is derived from the query memory
-/// limit and the number of local sink instances, then capped by the global
-/// Paimon JNI configuration.  The manager accounts only for pages allocated
-/// by this callback; Java heap and other Paimon-managed memory remain under
-/// their respective runtimes.
+/// The limit is a per-writer budget derived from the query limit and the sink
+/// pipeline's task count. The manager accounts only for pages allocated by
+/// this callback; Java heap and other Paimon-managed memory remain under their
+/// respective runtimes.
 class PaimonJniMemoryManager {
 public:
     ~PaimonJniMemoryManager();
@@ -51,17 +50,17 @@ public:
     ///
     /// The query must provide both a memory tracker and QueryContext.  The
     /// latter supplies the ResourceContext used whenever allocation/freeing
-    /// crosses into a JNI-created or asynchronous thread.
+    /// crosses into a JNI-created thread.
     static Status create(RuntimeState* state, std::unique_ptr<PaimonJniMemoryManager>* manager);
+
     /// Register the static JNI callback used by PaimonJniWriter.
     static Status register_natives(JNIEnv* env, jclass writer_class);
 
     /// Allocate one native page and return it as a direct ByteBuffer.
     ///
-    /// On failure this method leaves no accounting entry behind and reports
-    /// the error through the JNI environment.  The returned buffer remains
-    /// valid until the manager is destroyed (or allocation of that page is
-    /// rolled back because NewDirectByteBuffer failed).
+    /// On failure this method leaves no accounting entry behind and reports the error through the
+    /// JNI environment. The returned buffer remains valid until the manager is destroyed (or
+    /// allocation of that page is rolled back because NewDirectByteBuffer failed).
     jobject allocate_page(JNIEnv* env, jint bytes);
 
     /// Return the immutable per-writer native page budget in bytes.

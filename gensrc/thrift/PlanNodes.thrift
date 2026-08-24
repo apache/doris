@@ -680,6 +680,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // FE's effective split target in bytes for BE-local physical split refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {

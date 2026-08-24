@@ -50,6 +50,10 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 + "  id int,\n"
                 + "  v variant\n"
                 + ") properties ('replication_num'='1')");
+        createTable("create table variant_ng_tbl(\n"
+                + "  id int,\n"
+                + "  v variant<properties(\"variant_enable_nested_group\" = \"true\")>\n"
+                + ") properties ('replication_num'='1')");
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().enablePruneNestedColumns = true;
@@ -202,6 +206,25 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 "select x['k'] from variant_tbl lateral view explode_outer(v['arr']) tmp as x",
                 ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeNestedGroupVariantAccessPaths() throws Exception {
+        assertAllAccessPathsContain(
+                "select x['x'] from variant_ng_tbl lateral view explode(v['arr']) tmp as x",
+                ImmutableList.of(path("v", "arr", "x")),
+                ImmutableList.of(path("v", "arr"))
+        );
+    }
+
+    @Test
+    public void testMultiArgumentExplodeNestedGroupVariantAccessPaths() throws Exception {
+        assertAllAccessPathsContain(
+                "select x1['x'], x2['y'] from variant_ng_tbl "
+                        + "lateral view explode(v['arr1'], v['arr2']) tmp as x1, x2",
+                ImmutableList.of(path("v", "arr1", "x"), path("v", "arr2", "y")),
+                ImmutableList.of(path("v", "arr1"), path("v", "arr2"))
         );
     }
 

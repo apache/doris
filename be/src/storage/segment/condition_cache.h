@@ -24,6 +24,8 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
@@ -50,6 +52,20 @@ struct ConditionCacheContext {
     int64_t base_granule = 0;                         // global granule index of filter_result[0]
     size_t num_granules = 0; // authoritative bitmap length; excludes allocation-only guard bits
     static constexpr int GRANULE_SIZE = 2048;
+};
+
+// Coordinates condition-cache MISS results produced by row-group children of one BE-local source
+// split. The entry is published only after every child contributes the same source-level key.
+struct ConditionCacheSplitContext {
+    explicit ConditionCacheSplitContext(size_t child_count) : remaining_children(child_count) {}
+
+    std::mutex lock;
+    size_t remaining_children = 0;
+    bool valid = true;
+    bool cache_hit_seen = false;
+    std::optional<std::string> encoded_key;
+    int64_t base_granule = 0;
+    std::vector<bool> merged_filter_result;
 };
 
 namespace segment_v2 {
