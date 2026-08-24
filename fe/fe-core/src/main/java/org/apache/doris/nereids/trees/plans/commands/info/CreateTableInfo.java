@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -62,7 +61,6 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -1143,19 +1141,6 @@ public class CreateTableInfo {
             TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
             ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
             Expr e = expr.accept(translator, planTranslatorContext);
-            // Validate the expression after applying the declared target coercion. The user expression
-            // alone is not enough: the reverse implicit cast of an offset-free string slot into a
-            // TIMESTAMPTZ generated column interprets the string in the write session zone, and a time-zone
-            // dependent non-string rendering (e.g. DATETIME from date_trunc on a timestamptz) is ambiguous
-            // across sessions. STRING GENERATED ALWAYS AS (ts) stays allowed: casting a TIMESTAMPTZ instant
-            // to a string always embeds the session offset, so the stored value is self-describing no
-            // matter which session wrote it.
-            Expr coercedExpr = new CastExpr(column.getType().toCatalogDataType(), e, true);
-            if (SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(coercedExpr)) {
-                throw new AnalysisException("Generated column '" + column.getName()
-                        + "' contains a time-zone sensitive expression on TIMESTAMPTZ, which is not supported "
-                        + "because it would be evaluated in the write session time zone");
-            }
             info.get().setExpr(e);
             exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
         }
