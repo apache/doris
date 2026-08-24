@@ -29,7 +29,8 @@ The generated catalog contains:
   - __manifest            Directory Namespace V2 manifest table (with its scalar indexes).
   - all_types.lance       The pre-existing compatibility-mode root table, re-registered as-is.
   - The `doris` namespace with one indexed vector table per ANN algorithm (hash-prefixed
-    directories), listed in VECTOR_TABLES below.
+    directories), listed in VECTOR_TABLES below, plus NESTED_TABLE, a nested-field scalar
+    index fixture used by the SHOW INDEX / index-inspection suites.
 
 Every vector table holds identical deterministic data: 1024 rows in two 512-row fragments,
 16-dim Float32 `embedding` where embedding[j] = (row_id - 1) + j. For a query equal to the
@@ -136,6 +137,16 @@ VECTOR_TABLES = {
     },
 }
 
+# Nested-field scalar index fixture for #66497's SHOW INDEX / lance_index_entries suites.
+# The indexed child name deliberately contains a dot so the canonical field path can only
+# be written with backtick quoting; the table also carries a __lance_frag_reuse system
+# entry (deferred-remap compaction) so every inspection surface proves it filters reserved
+# system indexes instead of bricking on them.
+NESTED_TABLE = "nested_index"
+NESTED_INDEX_NAME = "nested_label_btree"
+NESTED_COLUMN = "attributes.`child.with.dot`"
+NESTED_ROWS = 16
+
 # The head query is exactly row 1's vector; the tail query is row 1024's. Only endpoint
 # vectors are used so that 16 * (n - r)^2 never ties between two different rows n.
 HEAD_QUERY = [float(j) for j in range(DIM)]
@@ -218,10 +229,68 @@ def create_vector_table(namespace, table_name: str) -> str:
     return location
 
 
+def make_nested_fragment_table(row_offset_start: int, row_offset_end: int) -> pa.Table:
+    offsets = list(range(row_offset_start, row_offset_end))
+    attributes = pa.StructArray.from_arrays(
+        [
+            pa.array(["even" if offset % 2 == 0 else "odd" for offset in offsets]),
+            pa.array([f"item-{offset + 1:04d}" for offset in offsets]),
+        ],
+        fields=[
+            pa.field("source", pa.string(), nullable=False),
+            pa.field("child.with.dot", pa.string(), nullable=False),
+        ],
+    )
+    table = pa.Table.from_arrays(
+        [
+            pa.array([offset + 1 for offset in offsets], type=pa.int64()),
+            attributes,
+        ],
+        schema=pa.schema(
+            [
+                pa.field("row_id", pa.int64(), nullable=False),
+                pa.field(
+                    "attributes",
+                    pa.struct(list(attributes.type)),
+                    nullable=False,
+                ),
+            ]
+        ),
+    )
+    return table
+
+
+def create_nested_index_table(namespace) -> str:
+    first = make_nested_fragment_table(0, NESTED_ROWS // 2)
+    buffer = io.BytesIO()
+    with ipc.new_stream(buffer, first.schema) as writer:
+        writer.write_table(first)
+    response = namespace.create_table(
+        CreateTableRequest(id=[NAMESPACE, NESTED_TABLE]), buffer.getvalue()
+    )
+    location = response.location
+    lance.write_dataset(
+        make_nested_fragment_table(NESTED_ROWS // 2, NESTED_ROWS), location, mode="append"
+    )
+    dataset = lance.dataset(location)
+    # Same physical-dataset indexing detour as the vector tables: the Directory namespace
+    # does not implement create_table_index. The dotted child name only resolves with
+    # backtick quoting (NESTED_COLUMN); a plain dotted path raises KeyError.
+    dataset.create_scalar_index(NESTED_COLUMN, "BTREE", name=NESTED_INDEX_NAME)
+    # Deferred-remap compaction merges the two fragments but leaves a reserved
+    # __lance_frag_reuse system index entry behind, which is exactly what the inspection
+    # surfaces must learn to skip.
+    lance.dataset(location).optimize.compact_files(
+        target_rows_per_fragment=NESTED_ROWS, defer_index_remap=True
+    )
+    return location
+
+
 def compact_manifest(root: Path) -> None:
     # Every namespace mutation above leaves a manifest fragment, index delta, and version
     # behind. Fold them together so the committed fixture stays small and reviewable. Only
-    # the manifest is compacted: the vector tables must keep exactly two fragments.
+    # the manifest is compacted: the vector tables keep exactly two fragments, and
+    # nested_index keeps its deferred-remap system entry.
     manifest = lance.dataset(str(root / MANIFEST_DIR))
     manifest.optimize.compact_files()
     manifest.optimize.optimize_indices(num_indices_to_merge=len(manifest.list_indices()))
@@ -262,6 +331,7 @@ def build(root: Path, all_types_source: Path) -> None:
             index_file_version="V3",
             **spec["params"],
         )
+    create_nested_index_table(namespace)
     compact_manifest(root)
 
 
@@ -431,10 +501,43 @@ def check_ef_discriminator(name: str, dataset, assert_it: bool) -> None:
           f"rows {[row for row, _ in wide]} (differs={differs}, asserted={assert_it})")
 
 
+def check_nested_dataset(location: str):
+    dataset = lance.dataset(location)
+    assert dataset.count_rows() == NESTED_ROWS, f"{NESTED_TABLE}: expected {NESTED_ROWS} rows"
+    fragments = dataset.get_fragments()
+    assert len(fragments) == 1, f"{NESTED_TABLE}: deferred compaction must leave 1 fragment"
+    schema = dataset.schema
+    assert schema.field("row_id").type == pa.int64(), f"{NESTED_TABLE}: row_id type"
+    attributes = schema.field("attributes")
+    assert pa.types.is_struct(attributes.type), f"{NESTED_TABLE}: attributes type"
+    child_names = [field.name for field in attributes.type]
+    assert child_names == ["source", "child.with.dot"], (
+        f"{NESTED_TABLE}: attributes children {child_names}"
+    )
+    indices = {index["name"]: index["type"] for index in dataset.list_indices()}
+    assert indices.get(NESTED_INDEX_NAME) == "BTree", (
+        f"{NESTED_TABLE}: missing BTREE {NESTED_INDEX_NAME}: {indices}"
+    )
+    # The reserved system entry is part of the contract: the Doris FE must filter it out of
+    # SHOW INDEX and lance_index_entries instead of failing the whole read on it.
+    assert "__lance_frag_reuse" in indices, (
+        f"{NESTED_TABLE}: deferred-remap compaction left no __lance_frag_reuse: {indices}"
+    )
+    # The BTREE must be usable, not just present: one exact-match lookup through it.
+    probe = (
+        dataset.scanner(filter="attributes.`child.with.dot` = 'item-0007'")
+        .to_table()
+        .column("row_id")
+        .to_pylist()
+    )
+    assert probe == [7], f"{NESTED_TABLE}: BTREE probe returned {probe}"
+
+
 def check_catalog(root: Path) -> None:
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     tables = namespace.list_tables(ListTablesRequest(id=[NAMESPACE]))
-    assert sorted(tables.tables) == sorted(VECTOR_TABLES), (
+    expected_tables = sorted(list(VECTOR_TABLES) + [NESTED_TABLE])
+    assert sorted(tables.tables) == expected_tables, (
         f"unexpected {NAMESPACE} tables: {tables.tables}"
     )
     root_tables = namespace.list_tables(ListTablesRequest(id=[]))
@@ -478,6 +581,11 @@ def check_catalog(root: Path) -> None:
         check_boundary_discriminator(table_name, dataset, search)
         if search.get("ef"):
             check_ef_discriminator(table_name, dataset, spec.get("ef_discriminator", False))
+
+    nested = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, NESTED_TABLE]))
+    nested_path = Path(nested.location.removeprefix("file://"))
+    assert nested_path.is_dir(), f"{NESTED_TABLE} location missing: {nested.location}"
+    check_nested_dataset(nested.location)
     print(f"self-check OK: {root}")
 
 
