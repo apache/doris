@@ -30,6 +30,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -41,14 +42,17 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.profile.RuntimeProfile;
@@ -116,6 +120,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.tso.TSOService;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
@@ -175,122 +181,55 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> TSO_STATUS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> STATISTICS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> KEY_COLUMN_USAGE_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> TABLE_CONSTRAINTS_COLUMN_TO_INDEX;
+
     static {
-        ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
-        List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
-        for (int i = 0; i < activeQueriesColList.size(); i++) {
-            activeQueriesbuilder.put(activeQueriesColList.get(i).getName().toLowerCase(), i);
-        }
-        ACTIVE_QUERIES_COLUMN_TO_INDEX = activeQueriesbuilder.build();
+        ACTIVE_QUERIES_COLUMN_TO_INDEX = buildColumnToIndex("active_queries");
+        WORKLOAD_GROUPS_COLUMN_TO_INDEX = buildColumnToIndex(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES);
+        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = buildColumnToIndex("workload_policy");
+        TABLE_OPTIONS_COLUMN_TO_INDEX = buildColumnToIndex("table_options");
+        WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX = buildColumnToIndex("workload_group_privileges");
+        TABLE_PROPERTIES_COLUMN_TO_INDEX = buildColumnToIndex("table_properties");
+        DATABASE_PROPERTIES_COLUMN_TO_INDEX = buildColumnToIndex("database_properties");
+        META_CACHE_STATS_COLUMN_TO_INDEX = buildColumnToIndex("catalog_meta_cache_statistics");
+        PARTITIONS_COLUMN_TO_INDEX = buildColumnToIndex("partitions");
+        VIEW_DEPENDENCY_COLUMN_TO_INDEX = buildColumnToIndex("view_dependency");
+        SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = buildColumnToIndex("sql_block_rule_status");
+        AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = buildColumnToIndex("authentication_integrations");
+        EXTENSIONS_COLUMN_TO_INDEX = buildColumnToIndex("extensions");
+        ROLE_MAPPINGS_COLUMN_TO_INDEX = buildColumnToIndex("role_mappings");
+        TABLE_STREAMS_COLUMN_TO_INDEX = buildColumnToIndex("table_streams");
+        TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = buildColumnToIndex("table_stream_consumption");
+        TSO_STATUS_COLUMN_TO_INDEX = buildColumnToIndex("tso_status");
+        STATISTICS_COLUMN_TO_INDEX = buildColumnToIndex("statistics");
+        KEY_COLUMN_USAGE_COLUMN_TO_INDEX = buildColumnToIndex("key_column_usage");
+        TABLE_CONSTRAINTS_COLUMN_TO_INDEX = buildColumnToIndex("table_constraints");
+    }
 
-        ImmutableMap.Builder<String, Integer> workloadGroupBuilder = new ImmutableMap.Builder();
-        for (int i = 0; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
-            workloadGroupBuilder.put(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i).toLowerCase(), i);
+    // Maps each column of a schema table to its position in a row, so that filterColumns() can
+    // pick out the columns the BE asked for.
+    private static ImmutableMap<String, Integer> buildColumnToIndex(String schemaTableName) {
+        List<Column> columns = SchemaTable.TABLE_MAP.get(schemaTableName).getFullSchema();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
+        for (int i = 0; i < columns.size(); i++) {
+            builder.put(columns.get(i).getName().toLowerCase(), i);
         }
-        WORKLOAD_GROUPS_COLUMN_TO_INDEX = workloadGroupBuilder.build();
+        return builder.build();
+    }
 
-        ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
-        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
-        for (int i = 0; i < policyColList.size(); i++) {
-            policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
+    // For the tables whose columns are not declared in SchemaTable.TABLE_MAP.
+    private static ImmutableMap<String, Integer> buildColumnToIndex(List<String> columnNames) {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
+        for (int i = 0; i < columnNames.size(); i++) {
+            builder.put(columnNames.get(i).toLowerCase(), i);
         }
-        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> optionBuilder = new ImmutableMap.Builder();
-        List<Column> optionColList = SchemaTable.TABLE_MAP.get("table_options").getFullSchema();
-        for (int i = 0; i < optionColList.size(); i++) {
-            optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> wgPrivsBuilder = new ImmutableMap.Builder();
-        List<Column> wgPrivsColList = SchemaTable.TABLE_MAP.get("workload_group_privileges").getFullSchema();
-        for (int i = 0; i < wgPrivsColList.size(); i++) {
-            wgPrivsBuilder.put(wgPrivsColList.get(i).getName().toLowerCase(), i);
-        }
-        WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX = wgPrivsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> propertiesBuilder = new ImmutableMap.Builder();
-        List<Column> propertiesColList = SchemaTable.TABLE_MAP.get("table_properties").getFullSchema();
-        for (int i = 0; i < propertiesColList.size(); i++) {
-            propertiesBuilder.put(propertiesColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_PROPERTIES_COLUMN_TO_INDEX = propertiesBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> dbPropertiesBuilder = new ImmutableMap.Builder();
-        List<Column> dbPropertiesColList = SchemaTable.TABLE_MAP.get("database_properties").getFullSchema();
-        for (int i = 0; i < dbPropertiesColList.size(); i++) {
-            dbPropertiesBuilder.put(dbPropertiesColList.get(i).getName().toLowerCase(), i);
-        }
-        DATABASE_PROPERTIES_COLUMN_TO_INDEX = dbPropertiesBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> metaCacheBuilder = new ImmutableMap.Builder();
-        List<Column> metaCacheColList = SchemaTable.TABLE_MAP.get("catalog_meta_cache_statistics").getFullSchema();
-        for (int i = 0; i < metaCacheColList.size(); i++) {
-            metaCacheBuilder.put(metaCacheColList.get(i).getName().toLowerCase(), i);
-        }
-        META_CACHE_STATS_COLUMN_TO_INDEX = metaCacheBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> partitionsBuilder = new ImmutableMap.Builder();
-        List<Column> partitionsColList = SchemaTable.TABLE_MAP.get("partitions").getFullSchema();
-        for (int i = 0; i < partitionsColList.size(); i++) {
-            partitionsBuilder.put(partitionsColList.get(i).getName().toLowerCase(), i);
-        }
-        PARTITIONS_COLUMN_TO_INDEX = partitionsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> viewDependencyBuilder = new ImmutableMap.Builder();
-        List<Column> viewDependencyBuilderColList = SchemaTable.TABLE_MAP.get("view_dependency").getFullSchema();
-        for (int i = 0; i < viewDependencyBuilderColList.size(); i++) {
-            viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> sqlBlockRuleStatusBuilder = new ImmutableMap.Builder();
-        List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status")
-                .getFullSchema();
-        for (int i = 0; i < sqlBlockRuleStatusBuilderColList.size(); i++) {
-            sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = sqlBlockRuleStatusBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> authenticationIntegrationsBuilder = new ImmutableMap.Builder();
-        List<Column> authenticationIntegrationsColList = SchemaTable.TABLE_MAP.get("authentication_integrations")
-                .getFullSchema();
-        for (int i = 0; i < authenticationIntegrationsColList.size(); i++) {
-            authenticationIntegrationsBuilder.put(
-                    authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
-        }
-        AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> extensionsBuilder = new ImmutableMap.Builder();
-        List<Column> extensionsColList = SchemaTable.TABLE_MAP.get("extensions").getFullSchema();
-        for (int i = 0; i < extensionsColList.size(); i++) {
-            extensionsBuilder.put(extensionsColList.get(i).getName().toLowerCase(), i);
-        }
-        EXTENSIONS_COLUMN_TO_INDEX = extensionsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> roleMappingsBuilder = new ImmutableMap.Builder();
-        List<Column> roleMappingsColList = SchemaTable.TABLE_MAP.get("role_mappings").getFullSchema();
-        for (int i = 0; i < roleMappingsColList.size(); i++) {
-            roleMappingsBuilder.put(roleMappingsColList.get(i).getName().toLowerCase(), i);
-        }
-        ROLE_MAPPINGS_COLUMN_TO_INDEX = roleMappingsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> tableStreamsBuilder = new ImmutableMap.Builder();
-        List<Column> streamsBuilderColList = SchemaTable.TABLE_MAP.get("table_streams")
-                .getFullSchema();
-        for (int i = 0; i < streamsBuilderColList.size(); i++) {
-            tableStreamsBuilder.put(streamsBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_STREAMS_COLUMN_TO_INDEX = tableStreamsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> tableStreamConsumptionBuilder = new ImmutableMap.Builder();
-        List<Column> tableStreamConsumptionBuilderColList = SchemaTable.TABLE_MAP.get("table_stream_consumption")
-                .getFullSchema();
-        for (int i = 0; i < tableStreamConsumptionBuilderColList.size(); i++) {
-            tableStreamConsumptionBuilder.put(tableStreamConsumptionBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = tableStreamConsumptionBuilder.build();
+        return builder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -421,6 +360,22 @@ public class MetadataGenerator {
             case TABLE_STREAM_CONSUMPTION:
                 result = streamConsumptionMetadataResult(schemaTableParams);
                 columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
+                break;
+            case TSO_STATUS:
+                result = tsoStatusMetadataResult();
+                columnIndex = TSO_STATUS_COLUMN_TO_INDEX;
+                break;
+            case STATISTICS:
+                result = statisticsMetadataResult(schemaTableParams);
+                columnIndex = STATISTICS_COLUMN_TO_INDEX;
+                break;
+            case KEY_COLUMN_USAGE:
+                result = keyColumnUsageMetadataResult(schemaTableParams);
+                columnIndex = KEY_COLUMN_USAGE_COLUMN_TO_INDEX;
+                break;
+            case TABLE_CONSTRAINTS:
+                result = tableConstraintsMetadataResult(schemaTableParams);
+                columnIndex = TABLE_CONSTRAINTS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -1582,6 +1537,157 @@ public class MetadataGenerator {
         return result;
     }
 
+    /**
+     * Emits the rows one table contributes to a key metadata schema table. {@code schemaName}
+     * is the name of the database as a MySQL client sees it, which is not always its full
+     * name, so every emitted schema column has to use it rather than reach for the database.
+     */
+    private interface KeyMetadataRowEmitter {
+        void emit(CatalogIf catalog, String schemaName, TableIf table, List<TRow> dataBatch);
+    }
+
+    /**
+     * Walks the tables of one database and lets the caller turn each into rows. Shared by
+     * STATISTICS, KEY_COLUMN_USAGE and TABLE_CONSTRAINTS so that the three of them agree on
+     * what they can see and on how they lock.
+     */
+    private static TFetchSchemaTableDataResult keyMetadataResult(TSchemaTableRequestParams params,
+            KeyMetadataRowEmitter emitter) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!params.isSetDbId()) {
+            return errorResult("current db id is not set.");
+        }
+        if (!params.isSetCatalog()) {
+            return errorResult("current catalog is not set.");
+        }
+
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
+        // The BE asks for one database at a time from a list it fetched earlier, so a catalog
+        // or database that has since been dropped is an empty answer, not an error.
+        DatabaseIf database = catalog == null ? null : catalog.getDbNullable(params.getDbId());
+        if (database != null) {
+            String schemaName = InfoSchemaDb.getMysqlTableSchema(catalog.getName(), database.getFullName());
+            for (TableIf table : tablesToScan(database, params)) {
+                // A temporary table belongs to the session that created it and is invisible
+                // to every other one, its name included. It must not leak through here.
+                if (table.isTemporary()) {
+                    continue;
+                }
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
+                        database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+                    continue;
+                }
+                table.readLock();
+                try {
+                    emitter.emit(catalog, schemaName, table, dataBatch);
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    /**
+     * The tables a key metadata scan has to build rows for. A query that pinned one table
+     * with {@code TABLE_NAME = '...'} sends that name down with the request, so answer from
+     * that table alone: a JDBC driver looks up the primary key of a single table on every
+     * connection, and walking every table of the database to then throw the rest away is
+     * the difference between a constant and a linear cost on that path.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static List<TableIf> tablesToScan(DatabaseIf database, TSchemaTableRequestParams params) {
+        if (params.isSetTableName()) {
+            TableIf table = (TableIf) database.getTableNullable(params.getTableName());
+            return table == null ? Collections.emptyList() : Lists.newArrayList(table);
+        }
+        return (List<TableIf>) database.getTables();
+    }
+
+    private static TCell nullCell() {
+        return new TCell().setIsNull(true);
+    }
+
+    private static TCell stringOrNull(String value) {
+        return value == null ? nullCell() : new TCell().setStringVal(value);
+    }
+
+    private static TCell longOrNull(Long value) {
+        return value == null ? nullCell() : new TCell().setLongVal(value);
+    }
+
+    private static TFetchSchemaTableDataResult statisticsMetadataResult(TSchemaTableRequestParams params) {
+        return keyMetadataResult(params, (catalog, schemaName, table, dataBatch) -> {
+            for (TableKeyMeta.KeyRow row : TableKeyMeta.buildKeyRows(table)) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getTableName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setLongVal(row.isNonUnique() ? 1 : 0)); // NON_UNIQUE
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // INDEX_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getIndexName())); // INDEX_NAME
+                trow.addToColumnValue(new TCell().setLongVal(row.getSeqInIndex())); // SEQ_IN_INDEX
+                trow.addToColumnValue(new TCell().setStringVal(row.getColumnName())); // COLUMN_NAME
+                trow.addToColumnValue(stringOrNull(row.getCollation())); // COLLATION
+                trow.addToColumnValue(longOrNull(row.getCardinality())); // CARDINALITY
+                trow.addToColumnValue(nullCell()); // SUB_PART, Doris indexes whole columns
+                trow.addToColumnValue(nullCell()); // PACKED
+                trow.addToColumnValue(new TCell().setStringVal(row.isNullable() ? "YES" : "")); // NULLABLE
+                trow.addToColumnValue(new TCell().setStringVal(row.getIndexType())); // INDEX_TYPE
+                trow.addToColumnValue(new TCell().setStringVal("")); // COMMENT
+                trow.addToColumnValue(new TCell().setStringVal(
+                        row.getComment() == null ? "" : row.getComment())); // INDEX_COMMENT
+                trow.addToColumnValue(new TCell().setStringVal("YES")); // IS_VISIBLE
+                trow.addToColumnValue(nullCell()); // EXPRESSION, Doris has no functional indexes
+                dataBatch.add(trow);
+            }
+        });
+    }
+
+    private static TFetchSchemaTableDataResult keyColumnUsageMetadataResult(TSchemaTableRequestParams params) {
+        return keyMetadataResult(params, (catalog, schemaName, table, dataBatch) -> {
+            for (TableKeyMeta.KeyColumnUsageRow row : TableKeyMeta.buildKeyColumnUsageRows(table)) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CONSTRAINT_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // CONSTRAINT_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getConstraintName())); // CONSTRAINT_NAME
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getDisplayName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(row.getColumnName())); // COLUMN_NAME
+                trow.addToColumnValue(new TCell().setLongVal(row.getOrdinalPosition())); // ORDINAL_POSITION
+                trow.addToColumnValue(row.getPositionInUniqueConstraint() == null ? nullCell()
+                        : new TCell().setLongVal(row.getPositionInUniqueConstraint())); // POSITION_IN_UNIQUE_CONSTRAINT
+                trow.addToColumnValue(stringOrNull(row.getReferencedTableSchema())); // REFERENCED_TABLE_SCHEMA
+                trow.addToColumnValue(stringOrNull(row.getReferencedTableName())); // REFERENCED_TABLE_NAME
+                trow.addToColumnValue(stringOrNull(row.getReferencedColumnName())); // REFERENCED_COLUMN_NAME
+                dataBatch.add(trow);
+            }
+        });
+    }
+
+    private static TFetchSchemaTableDataResult tableConstraintsMetadataResult(TSchemaTableRequestParams params) {
+        return keyMetadataResult(params, (catalog, schemaName, table, dataBatch) -> {
+            for (TableKeyMeta.ConstraintRow row : TableKeyMeta.buildConstraintRows(table)) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CONSTRAINT_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // CONSTRAINT_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getConstraintName())); // CONSTRAINT_NAME
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getDisplayName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(row.getConstraintType())); // CONSTRAINT_TYPE
+                dataBatch.add(trow);
+            }
+        });
+    }
+
     private static void tablePropertiesForInternalCatalog(UserIdentity currentUserIdentity,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
@@ -2164,8 +2270,35 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult streamConsumptionMetadataResult(TSchemaTableRequestParams params) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        try {
+            Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        } catch (UserException e) {
+            return errorResult(e.getMessage());
+        }
         result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult tsoStatusMetadataResult() {
+        if (!Config.enable_feature_binlog) {
+            return errorResult("TSO feature is disabled, please check enable_feature_binlog");
+        }
+
+        TSOService.TSOStatusSnapshot statusSnapshot = Env.getCurrentEnv().getTSOService().getStatusSnapshot();
+        if (!statusSnapshot.isInitialized()) {
+            return errorResult("TSO timestamp is not calibrated, please check");
+        }
+
+        long currentTso = statusSnapshot.getCurrentTso();
+        TRow row = new TRow();
+        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTime()));
+        row.addToColumnValue(new TCell().setLongVal(currentTso));
+        row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(currentTso)));
+        row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractLogicalCounter(currentTso)));
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setDataBatch(Lists.newArrayList(row));
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }

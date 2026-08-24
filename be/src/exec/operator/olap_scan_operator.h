@@ -28,6 +28,7 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
 #include "runtime/runtime_profile.h"
+#include "storage/index/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
@@ -149,6 +150,8 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
+    snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
+    snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
@@ -243,6 +246,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_lookup_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_insert_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
@@ -301,7 +306,6 @@ private:
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
-    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
@@ -318,7 +322,7 @@ private:
     RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_segment_prefetchers_timer = nullptr;
 
@@ -375,14 +379,6 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    int get_column_id(const std::string& col_name) const override {
-        if (!_tablet_schema) {
-            return -1;
-        }
-        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
-        return _tablet_schema->field_index(column.unique_id());
-    }
-
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
@@ -393,5 +389,9 @@ private:
     std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
     TabletSchemaSPtr _tablet_schema;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<OlapScanLocalState>;
+extern template class ScanLocalState<OlapScanLocalState>;
 
 } // namespace doris

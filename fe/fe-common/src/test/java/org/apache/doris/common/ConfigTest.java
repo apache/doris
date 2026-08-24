@@ -21,6 +21,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -99,6 +100,18 @@ public class ConfigTest {
         Assert.assertEquals("array length should be 0", 0, Config.mysql_compat_var_whitelist.length);
     }
 
+    @Test
+    public void testConfFieldDescriptionsAreEnglishStrings() throws Exception {
+        for (Field field : Config.class.getFields()) {
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            if (confField == null) {
+                continue;
+            }
+            Assert.assertFalse("Chinese description found in config: " + field.getName(),
+                    confField.description().matches(".*[\\u4e00-\\u9fff].*"));
+        }
+    }
+
     // File-path and jdbc-driver security configs must only be settable in fe.conf (ops), never at runtime
     // via ADMIN SET FRONTEND CONFIG. setMutableConfig is exactly that runtime entrypoint, so it must reject them.
     @Test
@@ -116,6 +129,26 @@ public class ConfigTest {
             ConfigException e = Assert.assertThrows(key + " should not be runtime-mutable",
                     ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"));
             Assert.assertTrue(e.getMessage().contains("is not mutable"));
+        }
+    }
+
+    @Test
+    public void testRejectDeprecatedInvertedIndexV1WithWhitespace() throws Exception {
+        String originFormat = Config.inverted_index_storage_format;
+        try {
+            ConfigBase.setMutableConfig("inverted_index_storage_format", "V2");
+            ConfigException dynamicException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("inverted_index_storage_format", " V1 "));
+            Assert.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+
+            Config.inverted_index_storage_format = "V2";
+            ConfigException startupException = Assert.assertThrows(ConfigException.class,
+                    () -> InvertedIndexStorageFormatValidator.rejectStartupV1(" V1 "));
+            Assert.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
         }
     }
 }

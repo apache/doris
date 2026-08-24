@@ -161,10 +161,6 @@ bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) cons
            !is_shuffled_exchange(child_distribution.distribution_type);
 }
 
-const RowDescriptor& OperatorBase::row_desc() const {
-    return _child->row_desc();
-}
-
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
@@ -195,7 +191,7 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
     std::string node_name = print_plan_node_type(tnode.node_type);
     _nereids_id = tnode.nereids_id;
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
-        if (!tnode.__isset.output_tuple_id) {
+        if (!has_projection()) {
             return Status::InternalError("no final output tuple id");
         }
         if (tnode.intermediate_output_tuple_id_list.size() !=
@@ -222,16 +218,15 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // create the projections expr
     if (tnode.__isset.projections) {
-        DCHECK(tnode.__isset.output_tuple_id);
-        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.projections, _projections));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.projections, _projection->projections));
     }
     if (!tnode.intermediate_projections_list.empty()) {
-        DCHECK(tnode.__isset.projections) << "no final projections";
-        _intermediate_projections.reserve(tnode.intermediate_projections_list.size());
+        DCHECK(has_projection()) << "no final projections";
+        _projection->intermediate_projections.reserve(tnode.intermediate_projections_list.size());
         for (const auto& tnode_projections : tnode.intermediate_projections_list) {
             VExprContextSPtrs projections;
             RETURN_IF_ERROR(VExpr::create_expr_trees(tnode_projections, projections));
-            _intermediate_projections.push_back(projections);
+            _projection->intermediate_projections.push_back(projections);
         }
     }
     return Status::OK();
@@ -239,7 +234,7 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
+        RETURN_IF_ERROR(conjunct->prepare(state, operator_row_desc_before_projection()));
     }
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
@@ -247,29 +242,40 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         });
     };
 
-    for (int i = 0; i < _intermediate_projections.size(); i++) {
+    if (has_projection()) {
+        auto& projection = *_projection;
+        for (int i = 0; i < projection.intermediate_projections.size(); i++) {
+            const auto& input_row_desc =
+                    i == 0 ? operator_row_desc_before_projection()
+                           : projection.intermediate_output_row_descriptors[i - 1];
+            RETURN_IF_ERROR(
+                    VExpr::prepare(projection.intermediate_projections[i], state, input_row_desc));
+        }
+        const auto& final_projection_input_row_desc =
+                projection.intermediate_output_row_descriptors.empty()
+                        ? operator_row_desc_before_projection()
+                        : projection.intermediate_output_row_descriptors.back();
         RETURN_IF_ERROR(
-                VExpr::prepare(_intermediate_projections[i], state, intermediate_row_desc(i)));
-    }
-    RETURN_IF_ERROR(VExpr::prepare(_projections, state, projections_row_desc()));
-
-    if (has_output_row_desc()) {
-        RETURN_IF_ERROR(VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+                VExpr::prepare(projection.projections, state, final_projection_input_row_desc));
+        RETURN_IF_ERROR(VExpr::check_expr_output_type(projection.projections,
+                                                      projection.output_row_descriptor));
     }
 
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
-    RETURN_IF_ERROR(VExpr::open(_projections, state));
-    for (auto& projections : _intermediate_projections) {
-        RETURN_IF_ERROR(VExpr::open(projections, state));
+    if (has_projection()) {
+        RETURN_IF_ERROR(VExpr::open(_projection->projections, state));
+        for (auto& projections : _projection->intermediate_projections) {
+            RETURN_IF_ERROR(VExpr::open(projections, state));
+        }
     }
     if (_child && !is_source()) {
         RETURN_IF_ERROR(_child->prepare(state));
     }
 
     if (VExpr::contains_blockable_function(_conjuncts) ||
-        VExpr::contains_blockable_function(_projections)) {
+        (has_projection() && VExpr::contains_blockable_function(_projection->projections))) {
         _blockable = true;
     }
 
@@ -299,7 +305,8 @@ Status OperatorXBase::close(RuntimeState* state) {
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
-    _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
+    _origin_block.clear_column_data(
+            _parent->operator_row_desc_before_projection().num_materialized_slots());
 }
 
 Status PipelineXLocalStateBase::filter_block(const VExprContextSPtrs& expr_contexts, Block* block) {
@@ -357,7 +364,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
         }
 
         auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
-                output_block, *_output_row_descriptor);
+                output_block, _projection->output_row_descriptor);
         auto& mutable_columns = scoped_mutable_block.mutable_columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         Columns shared_columns(mutable_columns.size());
@@ -391,7 +398,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     }
 
     origin_block->clear_column_data(
-            local_state->_parent->intermediate_row_desc().num_materialized_slots());
+            local_state->_parent->operator_row_desc_before_projection().num_materialized_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
@@ -416,7 +423,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
             local_state->update_output_block_counters(*block);
         }
     });
-    if (_output_row_descriptor) {
+    if (has_projection()) {
         local_state->clear_origin_block();
         status = get_block(state, &local_state->_origin_block, eos);
         if (UNLIKELY(!status.ok())) {
@@ -608,19 +615,22 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
     _conjuncts.resize(_parent->_conjuncts.size());
-    _projections.resize(_parent->_projections.size());
     for (size_t i = 0; i < _conjuncts.size(); i++) {
         RETURN_IF_ERROR(_parent->_conjuncts[i]->clone(state, _conjuncts[i]));
     }
-    for (size_t i = 0; i < _projections.size(); i++) {
-        RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
-    }
-    _intermediate_projections.resize(_parent->_intermediate_projections.size());
-    for (int i = 0; i < _parent->_intermediate_projections.size(); i++) {
-        _intermediate_projections[i].resize(_parent->_intermediate_projections[i].size());
-        for (int j = 0; j < _parent->_intermediate_projections[i].size(); j++) {
-            RETURN_IF_ERROR(_parent->_intermediate_projections[i][j]->clone(
-                    state, _intermediate_projections[i][j]));
+    if (_parent->has_projection()) {
+        const auto& projection = *_parent->_projection;
+        _projections.resize(projection.projections.size());
+        for (size_t i = 0; i < _projections.size(); i++) {
+            RETURN_IF_ERROR(projection.projections[i]->clone(state, _projections[i]));
+        }
+        _intermediate_projections.resize(projection.intermediate_projections.size());
+        for (int i = 0; i < projection.intermediate_projections.size(); i++) {
+            _intermediate_projections[i].resize(projection.intermediate_projections[i].size());
+            for (int j = 0; j < projection.intermediate_projections[i].size(); j++) {
+                RETURN_IF_ERROR(projection.intermediate_projections[i][j]->clone(
+                        state, _intermediate_projections[i][j]));
+            }
         }
     }
     return Status::OK();
@@ -735,7 +745,8 @@ Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Bl
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
-                OperatorX<LocalStateType>::_child->row_desc().num_materialized_slots());
+                OperatorX<LocalStateType>::_child->operator_row_desc_after_projection()
+                        .num_materialized_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;
@@ -819,6 +830,11 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     return Base::close(state, exec_status);
 }
 
+// An instantiation added outside the macros below needs the matching
+// 'extern template' declaration in the operator's header (enforced by
+// build-support/check-extern-template-pairing.py). Instantiations expanded
+// through DECLARE_OPERATOR are invisible to that check -- macro bodies are
+// skipped -- so their extern pairing has to be kept in sync by hand.
 #define DECLARE_OPERATOR(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR(ResultSinkLocalState)

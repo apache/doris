@@ -34,7 +34,10 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
@@ -46,6 +49,7 @@
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
+#include "format_v2/parquet/selection_vector.h" // count_range_rows
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "util/time.h"
@@ -116,6 +120,47 @@ bool is_dictionary_data_encoding(tparquet::Encoding::type encoding) {
 
 bool is_level_encoding(tparquet::Encoding::type encoding) {
     return encoding == tparquet::Encoding::RLE || encoding == tparquet::Encoding::BIT_PACKED;
+}
+
+bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const DataTypePtr& right) {
+    const auto left_type = remove_nullable(left);
+    const auto right_type = remove_nullable(right);
+    if (left_type->get_primitive_type() != right_type->get_primitive_type()) {
+        return false;
+    }
+
+    switch (left_type->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto& left_array = assert_cast<const DataTypeArray&>(*left_type);
+        const auto& right_array = assert_cast<const DataTypeArray&>(*right_type);
+        return types_equal_ignoring_nested_nullability(left_array.get_nested_type(),
+                                                       right_array.get_nested_type());
+    }
+    case TYPE_MAP: {
+        const auto& left_map = assert_cast<const DataTypeMap&>(*left_type);
+        const auto& right_map = assert_cast<const DataTypeMap&>(*right_type);
+        return types_equal_ignoring_nested_nullability(left_map.get_key_type(),
+                                                       right_map.get_key_type()) &&
+               types_equal_ignoring_nested_nullability(left_map.get_value_type(),
+                                                       right_map.get_value_type());
+    }
+    case TYPE_STRUCT: {
+        const auto& left_struct = assert_cast<const DataTypeStruct&>(*left_type);
+        const auto& right_struct = assert_cast<const DataTypeStruct&>(*right_type);
+        if (left_struct.get_elements().size() != right_struct.get_elements().size()) {
+            return false;
+        }
+        for (size_t i = 0; i < left_struct.get_elements().size(); ++i) {
+            if (!types_equal_ignoring_nested_nullability(left_struct.get_element(i),
+                                                         right_struct.get_element(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return left_type->equals(*right_type);
+    }
 }
 
 bool is_data_page_type(tparquet::PageType::type page_type) {
@@ -259,7 +304,7 @@ void materialize_count_star_placeholders(const format::FileScanRequest& request,
         if (!request.is_count_star_placeholder(column.column_id())) {
             continue;
         }
-        const auto block_position = request.local_positions.at(column.column_id()).value();
+        const auto block_position = request.non_predicate_position(column.column_id()).value();
         auto placeholder = file_block->get_by_position(block_position).column->assert_mutable();
         DCHECK(placeholder->empty());
         placeholder->insert_many_defaults(rows);
@@ -475,8 +520,9 @@ Status finalize_native_row_group_read_plan(
     std::vector<RowRange> page_selected_ranges;
     std::map<int, ParquetPageSkipPlan> page_skip_plans;
     RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
-            thrift, page_indexes, file_schema, request, row_group_plan->row_group_rows,
-            &page_selected_ranges, &page_skip_plans, pruning_stats, timezone, runtime_state));
+            thrift, thrift.row_groups[row_group_plan->row_group_id], page_indexes, file_schema,
+            request, row_group_plan->row_group_rows, &page_selected_ranges, &page_skip_plans,
+            pruning_stats, timezone, runtime_state));
     row_group_plan->selected_ranges =
             intersect_row_ranges(row_group_plan->selected_ranges, page_selected_ranges);
     row_group_plan->page_skip_plans = std::move(page_skip_plans);
@@ -779,14 +825,6 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 }
 
 namespace {
-int64_t count_range_rows(const std::vector<RowRange>& ranges) {
-    int64_t rows = 0;
-    for (const auto& range : ranges) {
-        rows += range.length;
-    }
-    return rows;
-}
-
 void append_intersection(const RowRange& left, const RowRange& right,
                          std::vector<RowRange>& result) {
     const int64_t start = std::max(left.start, right.start);
@@ -1176,9 +1214,17 @@ Status ParquetScanScheduler::open_next_row_group(
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
             thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
-    _current_merge_range_active = file_context.set_native_random_access_ranges(
-            native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
-            _merge_read_slice_size);
+    if (request.non_predicate_positions.empty()) {
+        _current_merge_range_active = file_context.set_native_random_access_ranges(
+                native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
+                _merge_read_slice_size);
+    } else {
+        // Independent predicate/output readers may revisit the same physical leaf at different
+        // cursors. MergeRangeFileReader has one consumptive cache per range, so use the random
+        // access reader for this layout instead of sharing one sequential range cache.
+        _current_merge_range_active = file_context.set_native_random_access_ranges(
+                {}, 0, _profile, _merge_read_slice_size);
+    }
 
     for (const auto& col : request.predicate_columns) {
         const auto local_id = col.column_id();
@@ -1206,8 +1252,8 @@ Status ParquetScanScheduler::open_next_row_group(
         RETURN_IF_ERROR(NativeColumnReader::create(
                 *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
-                file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
-                file_context.native_page_cache_file_key,
+                _int96_timezone, file_context.native_io_ctx, _runtime_state,
+                file_context.native_page_cache_enabled, file_context.native_page_cache_file_key,
                 _current_dictionary_filters.contains(local_id), _scan_profile.column_reader_profile,
                 &column_reader));
         _current_predicate_columns[local_id] = std::move(column_reader);
@@ -1245,9 +1291,9 @@ Status ParquetScanScheduler::open_next_row_group(
         RETURN_IF_ERROR(NativeColumnReader::create(
                 *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
-                file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
-                file_context.native_page_cache_file_key, false, _scan_profile.column_reader_profile,
-                &column_reader));
+                _int96_timezone, file_context.native_io_ctx, _runtime_state,
+                file_context.native_page_cache_enabled, file_context.native_page_cache_file_key,
+                false, _scan_profile.column_reader_profile, &column_reader));
         _current_non_predicate_columns[local_id] = std::move(column_reader);
     }
     if (!_current_merge_range_active &&
@@ -1779,9 +1825,9 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         RETURN_IF_ERROR(NativeColumnReader::create(
                 *column_schema, &col, file_context.native_file, file_context.native_metadata,
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
-                file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
-                file_context.native_page_cache_file_key, true, _scan_profile.column_reader_profile,
-                &column_reader));
+                _int96_timezone, file_context.native_io_ctx, _runtime_state,
+                file_context.native_page_cache_enabled, file_context.native_page_cache_file_key,
+                true, _scan_profile.column_reader_profile, &column_reader));
         MutableColumnPtr dictionary_values;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_read_dict_time);
@@ -1961,8 +2007,10 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         DORIS_CHECK(used_direct_reader_filter != nullptr);
         *used_dictionary_filter = false;
         *used_direct_reader_filter = false;
-        DCHECK(remove_nullable(column_reader->type())
-                       ->equals(*remove_nullable(file_block->get_by_position(block_position).type)))
+        // External table schemas may make required Parquet descendants nullable. Preserve the
+        // recursive type and shape checks while ignoring only nullability at every nesting level.
+        DCHECK(types_equal_ignoring_nested_nullability(
+                column_reader->type(), file_block->get_by_position(block_position).type))
                 << column_reader->type()->get_name() << " "
                 << file_block->get_by_position(block_position).type->get_name() << " "
                 << column_reader->name() << " " << file_block->get_by_position(block_position).name;
@@ -2624,9 +2672,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // selection vector. This also merges pending range gaps with fully filtered batches.
         RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
-            auto position_it = request.local_positions.find(fid);
-            DORIS_CHECK(position_it != request.local_positions.end());
-            const auto block_position = position_it->second.value();
+            const auto block_position = request.non_predicate_position(fid).value();
             auto column = file_block->get_by_position(block_position).column->assert_mutable();
             DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
                       column_reader->type()->get_primitive_type())
@@ -2694,9 +2740,7 @@ Status ParquetScanScheduler::materialize_pending_predicate_batch(
         SCOPED_TIMER(_scan_profile.column_read_time);
         RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
-            auto position_it = request.local_positions.find(fid);
-            DORIS_CHECK(position_it != request.local_positions.end());
-            const auto block_position = position_it->second.value();
+            const auto block_position = request.non_predicate_position(fid).value();
             auto column = file_block->get_by_position(block_position).column->assert_mutable();
             [[maybe_unused]] const auto old_size = column->size();
             RETURN_IF_ERROR(column_reader->select(_pending_output_selection,

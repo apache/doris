@@ -238,6 +238,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonVersionsCommand;
@@ -775,6 +776,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowProcCommand(ShowProcCommand showProcCommand, C context) {
         return visitCommand(showProcCommand, context);
+    }
+
+    default R visitShowProcedureStatusCommand(ShowProcedureStatusCommand showProcedureStatusCommand, C context) {
+        return visitCommand(showProcedureStatusCommand, context);
     }
 
     default R visitShowDataCommand(ShowDataCommand showDataCommand, C context) {

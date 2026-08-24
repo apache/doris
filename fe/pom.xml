@@ -170,7 +170,11 @@ under the License.
                         <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
-                            **/apache/parquet/**/*
+                            **/apache/parquet/**/*,
+                            <!-- be-java-extensions/hadoop-deps' verbatim copy of
+                                 org.apache.hadoop.fs.FileSystem. Scoped to fs/ so that
+                                 fe-connector-hms' org/apache/hadoop/hive/** stays checked. -->
+                            **/apache/hadoop/fs/**/*
                         </excludes>
                     </configuration>
                     <executions>
@@ -436,6 +440,13 @@ under the License.
         <fastutil.version>8.5.18</fastutil.version>
     </properties>
     <profiles>
+        <profile>
+            <!-- Keep benchmarks out of the default FE reactor and all published runtime jars. -->
+            <id>benchmark</id>
+            <modules>
+                <module>fe-sql-parser-benchmark</module>
+            </modules>
+        </profile>
         <profile>
             <id>general-env</id>
             <activation>
@@ -1049,6 +1060,15 @@ under the License.
                     <exclusion>
                         <groupId>org.checkerframework</groupId>
                         <artifactId>checker</artifactId>
+                    </exclusion>
+                    <!-- BDB JE only references javax.resource in its optional JCA resource
+                         adapter (com.sleepycat.je.jca.ra), which embedded FE never uses.
+                         javax.resource:connector:1.0 has no jar in Maven Central (only a pom)
+                         and its historical host (repo.grails.org) is unreliable, so pulling it
+                         breaks the build in many environments. Exclude it. -->
+                    <exclusion>
+                        <groupId>javax.resource</groupId>
+                        <artifactId>connector</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>

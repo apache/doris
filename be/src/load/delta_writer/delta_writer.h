@@ -24,8 +24,6 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -90,6 +88,8 @@ public:
 
     int64_t tablet_id() const { return _req.tablet_id; }
 
+    int64_t binlog_tablet_id() const { return _req.binlog_tablet_id; }
+
     int64_t txn_id() const { return _req.txn_id; }
 
     int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
@@ -146,27 +146,14 @@ public:
 
     Status build_rowset() override;
 
-    Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes);
-
-    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
-                                           success_slave_tablet_node_ids);
-
-    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
-                                             success_slave_tablet_node_ids);
-
-    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+    Status commit_txn();
 
 private:
     void _init_profile(RuntimeProfile* profile) override;
 
-    void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
-
     std::mutex _lock;
 
     StorageEngine& _engine;
-    std::unordered_set<int64_t> _unfinished_slave_node;
-    PSuccessSlaveTabletNodeIds _success_slave_node_ids;
-    std::shared_mutex _slave_node_lock;
 
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 };

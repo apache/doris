@@ -36,11 +36,16 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/defer_op.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
 
 namespace {
+
+void fetch_callback(bthread::CountdownEvent* counter) {
+    Defer defer([&] { counter->signal(); });
+}
 
 constexpr const char* TOPN_LAZY_MAT_PHASE2_PER_BACKEND =
         "TopNLazyMaterializationSecondPhasePerBackend";
@@ -280,6 +285,12 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
         // Phase 1: Deserialize the i-th response block from every BE into block_maps.
         // Each BE's response.blocks(i) corresponds to the i-th relation's fetched columns.
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+            const auto request_row_count = rpc_struct.request.request_block_descs(i).row_id_size();
+            // An empty request may have no response block when its RPC fails. It cannot
+            // contribute rows to block_order_results, so there is nothing to deserialize.
+            if (request_row_count == 0) {
+                continue;
+            }
             Block partial_block;
             size_t uncompressed_size = 0;
             int64_t uncompressed_time = 0;
@@ -293,13 +304,12 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
             // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids.
             // 2. Report error in any case where the row count doesn't match, even if it's not empty,
             //    since that indicates a bug in BE's row fetching logic or serialization logic.
-            if (rpc_struct.request.request_block_descs(i).row_id_size() != partial_block.rows()) {
+            if (request_row_count != partial_block.rows()) {
                 return Status::InternalError(
                         fmt::format("merge_multi_response, "
                                     "backend_id {} returned block with row count {} not match "
                                     "request row id count {}",
-                                    backend_id, partial_block.rows(),
-                                    rpc_struct.request.request_block_descs(i).row_id_size()));
+                                    backend_id, partial_block.rows(), request_row_count));
             }
             if (rpc_struct.response.blocks(i).has_profile()) {
                 auto response_profile =
@@ -307,8 +317,7 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
                 _update_profile_info(backend_id, response_profile.get());
             }
 
-            // Only insert non-empty blocks. A BE may return an empty block if
-            // request.request_block_descs(i).row_id_size() is 0
+            // Only insert non-empty blocks.
             if (!partial_block.is_empty_column()) {
                 // Reset row cursor to 0 — we'll consume rows from this block sequentially.
                 block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
@@ -365,6 +374,29 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
             rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
             rpc_struct.request.mutable_request_block_descs(i)->clear_file_id();
         }
+    }
+    return Status::OK();
+}
+
+Status MaterializationSharedState::validate_rpc_results(int node_id) {
+    for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+        if (rpc_struct.cntl->Failed()) {
+            if (count_request_rows(rpc_struct.request) > 0) {
+                return Status::InternalError(
+                        "Failed to send brpc request, error_text=" + rpc_struct.cntl->ErrorText() +
+                        " Materialization Sink node id:" + std::to_string(node_id) +
+                        " target_backend_id:" + std::to_string(backend_id));
+            }
+            rpc_struct.cntl->Reset();
+            continue;
+        }
+        if (rpc_struct.response.status().status_code() != 0) {
+            Status st = Status::create(rpc_struct.response.status());
+            st.append(fmt::format(", Backend:{}, Materialization Sink node id:{}", backend_id,
+                                  node_id));
+            return st;
+        }
+        rpc_struct.cntl->Reset();
     }
     return Status::OK();
 }
@@ -536,7 +568,8 @@ Status MaterializationOperator::init(const doris::TPlanNode& tnode, doris::Runti
 
 Status MaterializationOperator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_rowid_exprs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_rowid_exprs, state));
     return Status::OK();
 }
@@ -601,6 +634,9 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
         MonotonicStopWatch rpc_timer(true);
         for (auto& [backend_id, rpc_struct] : local_state._materialization_state.rpc_struct_map) {
             auto* callback = brpc::NewCallback(fetch_callback, &counter);
+            // The response object is reused across batches. Clear it so an ignored failure for
+            // an empty request cannot expose a response left by an earlier batch.
+            rpc_struct.response.Clear();
             rpc_struct.cntl->set_timeout_ms(state->execution_timeout() * 1000);
             // send brpc request
             rpc_struct.stub->multiget_data_v2(rpc_struct.cntl.get(), &rpc_struct.request,
@@ -611,22 +647,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
             local_state._max_rpc_timer->set(time);
         }
 
-        for (auto& [backend_id, rpc_struct] : local_state._materialization_state.rpc_struct_map) {
-            if (rpc_struct.cntl->Failed()) {
-                std::string error_text =
-                        "Failed to send brpc request, error_text=" + rpc_struct.cntl->ErrorText() +
-                        " Materialization Sink node id:" + std::to_string(node_id()) +
-                        " target_backend_id:" + std::to_string(backend_id);
-                return Status::InternalError(error_text);
-            }
-            if (rpc_struct.response.status().status_code() != 0) {
-                Status st = Status::create(rpc_struct.response.status());
-                st.append(fmt::format(", Backend:{}, Materialization Sink node id:{}", backend_id,
-                                      node_id()));
-                return st;
-            }
-            rpc_struct.cntl->Reset();
-        }
+        RETURN_IF_ERROR(local_state._materialization_state.validate_rpc_results(node_id()));
 
         if (local_state._materialization_state.need_merge_block) {
             SCOPED_TIMER(local_state._merge_response_timer);
