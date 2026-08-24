@@ -531,6 +531,14 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties, long updateTime)
+            throws UserException {
+        List<SchemaChange> changes = new ArrayList<>(properties.size());
+        properties.forEach((key, value) -> changes.add(SchemaChange.setOption(key, value)));
+        alterTable(dorisTable, changes, "set properties", updateTime);
+    }
+
+    @Override
     public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         List<DataField> fields = loadRemoteFields(dorisTable);
