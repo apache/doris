@@ -1388,8 +1388,11 @@ public:
             return ZoneMapFilterResult::kNoMatch;
         }
         auto upper_prefix = _next_prefix_for_starts_with_zonemap(prefix);
-        if (upper_prefix.has_value() &&
-            !(zone_map.min_value < Field::create_field<TYPE_STRING>(*upper_prefix))) {
+        const std::optional<Field> upper =
+                upper_prefix.has_value()
+                        ? std::optional<Field> {Field::create_field<TYPE_STRING>(*upper_prefix)}
+                        : std::nullopt;
+        if (upper.has_value() && !(zone_map.min_value < *upper)) {
             return ZoneMapFilterResult::kNoMatch;
         }
         // One NULL row is enough to stop the whole zone from matching, and a bound that was cut
@@ -1397,9 +1400,7 @@ public:
         const bool can_match_all = !zone_map.has_null && !zone_map.has_cut_string_bounds();
         // [min, max] sits inside [prefix, next_prefix), so every row starts with the prefix.
         const bool zone_within_prefix_range =
-                zone_map.min_value >= lower &&
-                (!upper_prefix.has_value() ||
-                 zone_map.max_value < Field::create_field<TYPE_STRING>(*upper_prefix));
+                zone_map.min_value >= lower && (!upper.has_value() || zone_map.max_value < *upper);
         return can_match_all && zone_within_prefix_range ? ZoneMapFilterResult::kAllMatch
                                                          : ZoneMapFilterResult::kMayMatch;
     }

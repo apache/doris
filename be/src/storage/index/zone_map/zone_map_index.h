@@ -68,10 +68,10 @@ struct ZoneMap {
 
     bool has_nan = false;
 
-    // A string bound is cut to MAX_ZONE_MAP_INDEX_SIZE bytes, and the max is then raised to the
-    // shortest string above that prefix. Segments written before that carry handled a trailing
-    // 0xff can hold a max below the real value, so a cut bound is not trusted to prove that every
-    // row matches.
+    // True when a string bound was cut to MAX_ZONE_MAP_INDEX_SIZE bytes. A cut max is bumped by
+    // one byte to stay above the real value, and that bump used to wrap: "aa..a\xff" was stored
+    // as "aa..a\x00", below the value it covers. Old segments keep that bad max until they are
+    // rewritten, so a cut bound must never prove that every row matches.
     bool has_cut_string_bounds() const {
         if (!is_string_type(min_value.get_type())) {
             return false;

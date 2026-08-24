@@ -405,9 +405,11 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
             column_id == schema->commit_tso_ordinal() && read_options.commit_tso.end_tso() != -1) {
             const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
         }
-        // A zone map made up from a read-time constant is good enough to rule the whole segment
-        // out, but dropping a predicate is only done on evidence from stored data.
-        const bool can_drop_predicate = !const_value.has_value();
+        // 1. A zone map made up from a read-time constant is not evidence from stored data.
+        // 2. Dropping every predicate on a column puts it in zonemap_always_true_pred_cols,
+        //    which lets the column read defaults instead of its data. Only a query wants that.
+        const bool can_drop_predicate = !const_value.has_value() &&
+                                        read_options.io_ctx.reader_type == ReaderType::READER_QUERY;
         Status st = get_column_reader(col, &reader, read_options.stats, &read_options.io_ctx,
                                       std::move(const_value));
         // not found in this segment, skip
