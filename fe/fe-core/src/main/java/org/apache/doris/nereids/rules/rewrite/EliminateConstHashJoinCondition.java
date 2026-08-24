@@ -70,7 +70,10 @@ public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
                             .getTrait().getUniformValue((Slot) equal.right());
                     if (leftValue != null && rightValue != null) {
                         if (leftValue.isPresent() && rightValue.isPresent()) {
-                            if (leftValue.get().equals(rightValue.get())) {
+                            // Ordinary equality does not match NULL to NULL even when the typed literals are equal.
+                            if (!leftValue.get().isNullLiteral()
+                                    && !rightValue.get().isNullLiteral()
+                                    && leftValue.get().equals(rightValue.get())) {
                                 eliminate = true;
                                 changed = true;
                             }

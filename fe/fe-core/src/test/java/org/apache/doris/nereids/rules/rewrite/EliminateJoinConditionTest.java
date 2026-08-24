@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -46,6 +48,7 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
 
     @Test
     void basicCase() {
@@ -136,5 +139,28 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), innerJoin)
                 .applyCustom(new ConstantPropagation())
                 .matches(logicalEmptyRelation());
+    }
+
+    @Test
+    void keepEqualToBetweenNullPaddedOutputs() {
+        LogicalPlan leftOuterJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(), ImmutableList.of(BooleanLiteral.FALSE))
+                .build();
+        LogicalPlan rightOuterJoin = new LogicalPlanBuilder(scan3)
+                .join(scan4, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(), ImmutableList.of(BooleanLiteral.FALSE))
+                .build();
+        Slot leftNullPaddedSlot = leftOuterJoin.getOutput().get(scan1.getOutput().size());
+        Slot rightNullPaddedSlot = rightOuterJoin.getOutput().get(scan3.getOutput().size());
+        LogicalPlan innerJoin = new LogicalPlanBuilder(leftOuterJoin)
+                .join(rightOuterJoin, JoinType.INNER_JOIN,
+                        ImmutableList.of(new EqualTo(leftNullPaddedSlot, rightNullPaddedSlot)), ImmutableList.of())
+                .build();
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), innerJoin)
+                .applyBottomUp(new EliminateJoinCondition())
+                .applyTopDown(new EliminateConstHashJoinCondition())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, rewritten);
+        Assertions.assertEquals(1, ((LogicalJoin<?, ?>) rewritten).getHashJoinConjuncts().size());
     }
 }
