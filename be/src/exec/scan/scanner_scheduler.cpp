@@ -185,10 +185,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
-            // Do not suppress admission when shared LIMIT is exhausted. A queued scanner still
-            // needs to complete as EOS so push_completed_scan_task() releases its in-flight slot
-            // and the pipeline can observe completion instead of waiting indefinitely.
-            if (ctx->is_shared_scan_limit_exhausted()) { eos = true; }
             // scanner->open may alloc plenty amount of memory(read blocks of data),
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }

@@ -408,28 +408,20 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
         if (scan_task->is_eos()) {
             // 1. if eos, record a finished scanner.
             _num_finished_scanners++;
-            RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
-        } else {
-            // A completed non-EOS attempt is still non-terminal. This covers a task whose block
-            // was just consumed above as well as one that produced no block. The scheduler returns
-            // it to PENDING (ThreadPool) or re-admits it (TaskExecutor) for another scan.
-            RETURN_IF_ERROR(
-                    _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
         }
     }
 
-    // A scanner can make shared LIMIT exhausted while it is still producing the final block:
-    // 1. The remaining limit is 5 and an in-flight scanner reads 100 rows.
-    // 2. The scanner decrements the shared limit below zero, then publishes its 100-row block. If not check
-    // _in_flight_tasks_num == 0 here, the operator will find the limit has reached, but actuall it
-    // do not get the cached block yet.
-    // 3. The operator consumes the block and applies the final limit of 5 rows.
-    // Therefore, wait for every worker to publish its block or EOS before completing this Context.
     if (_completed_tasks.empty() &&
         (_num_finished_scanners == _all_scanners.size() ||
-         (is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
+         (_is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
         _set_scanner_done();
         _is_finished = true;
+    } else if (scan_task != nullptr) {
+        // Check the terminal state before scheduling more work. In particular, after the shared
+        // LIMIT is exhausted, submitting another Context runnable can turn a completed query into
+        // a queue-capacity error even though there is no result left to drain.
+        RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(
+                shared_from_this(), scan_task->is_eos() ? nullptr : scan_task, l));
     }
 
     *eos = done();
@@ -568,7 +560,7 @@ void ScannerContext::_set_scanner_done() {
     _dependency->set_always_ready();
 }
 
-bool ScannerContext::is_shared_scan_limit_exhausted() const {
+bool ScannerContext::_is_shared_scan_limit_exhausted() const {
     return limit >= 0 && _shared_scan_limit->load(std::memory_order_acquire) <= 0;
 }
 
@@ -624,28 +616,9 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
     // both collections prevents a fast producer from exceeding the per-Context scanner limit.
     const int32_t current_concurrency =
             cast_set<int32_t>(_completed_tasks.size()) + _in_flight_tasks_num;
-    // Keep at least one task progressing whenever a pending scanner exists:
-    // 1. An adaptive or low-memory limit can temporarily reduce effective concurrency to zero.
-    // 2. If there are no completed or in-flight tasks, no worker can publish a block or EOS.
-    // 3. Admit one scanner in that case so the query can make progress and cannot stall.
-    // This must stay ahead of the shared LIMIT check below. Another instance can exhaust the
-    // limit while this Context's runnable is still queued with nothing in flight; the operator is
-    // then blocked on the dependency, and only the admitted scanner's EOS can wake it so
-    // get_block_from_queue() observes termination.
-    const bool has_progressing_task = current_concurrency > 0;
-    if (!has_progressing_task) {
-        return true;
-    }
-
-    // A progressing task will publish a result and wake the operator. Once shared LIMIT is
-    // exhausted, any additional scanner would only complete as EOS, so admitting more is pure
-    // thread-pool round trips. get_block_from_queue() finishes the Context when the last result
-    // is consumed with nothing in flight.
-    if (is_shared_scan_limit_exhausted()) {
-        return false;
-    }
-
-    return current_concurrency < effective_max_concurrency;
+    // Keep one task progressing even if an adaptive limit temporarily reaches zero. Otherwise no
+    // worker can publish a result and wake the operator to make another scheduling decision.
+    return current_concurrency == 0 || current_concurrency < effective_max_concurrency;
 }
 
 std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
@@ -868,9 +841,9 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
 
     if (!_pending_tasks.empty()) {
         // Do not submit more pending scanners after the shared LIMIT is exhausted while
-        // completed or in-flight tasks can still make progress. If neither exists, allow one
-        // scanner to report EOS and wake the pipeline task.
-        if (is_shared_scan_limit_exhausted() &&
+        // completed or in-flight tasks can still make progress. If neither exists, allow pending
+        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        if (_is_shared_scan_limit_exhausted() &&
             (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;
         }

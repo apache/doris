@@ -219,14 +219,6 @@ public:
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
 
-    // Checked in two places after shared LIMIT is reached:
-    // 1. ScannerScheduler::_scanner_scan() finishes an admitted scanner as EOS without opening it,
-    //    so it releases its in-flight slot and wakes the operator.
-    // 2. can_admit_scan_task() stops admitting more scanners while another task is still
-    //    progressing, because the only outcome would be further EOS round trips.
-    // The limit is atomic and can therefore be read without _transfer_lock.
-    bool is_shared_scan_limit_exhausted() const;
-
     std::string debug_string();
 
     std::shared_ptr<TaskHandle> task_handle() const { return _task_handle; }
@@ -290,9 +282,8 @@ public:
 
     // Return whether a Context worker can currently admit one pending scanner. This check has no
     // side effects, so the scheduler can avoid submitting a runnable that would immediately exit.
-    // It always admits one scanner when nothing is progressing, even after shared LIMIT is
-    // exhausted, because that scanner's EOS is what wakes the operator. The caller must hold
-    // _transfer_lock.
+    // It always admits one scanner when nothing is progressing so the operator can be woken. The
+    // caller must hold _transfer_lock.
     bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const;
 
     // Atomically check whether this context can start another scan task, move one task from
@@ -307,6 +298,7 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
+    bool _is_shared_scan_limit_exhausted() const;
 
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
