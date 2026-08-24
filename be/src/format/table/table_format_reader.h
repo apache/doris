@@ -211,8 +211,8 @@ public:
         }
 
         bool children_column_exists(std::string table_column_name) const override {
-            DCHECK(children.contains(table_column_name));
-            return children.at(table_column_name).exists;
+            auto child = children.find(table_column_name);
+            return child != children.end() && child->second.exists;
         }
 
         void add_not_exist_children(std::string table_column_name) override {
