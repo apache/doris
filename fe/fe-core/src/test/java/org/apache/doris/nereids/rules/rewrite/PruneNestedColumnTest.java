@@ -122,7 +122,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         createTable("create table nested_array_tbl(\n"
                 + "  id int,\n"
-                + "  a array<array<int>>\n"
+                + "  a array<array<int>>,\n"
+                + "  indexes array<bigint>\n"
                 + ") properties ('replication_num'='1')");
 
         createTable("create table map_array_tbl(\n"
@@ -180,6 +181,31 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 "select cardinality(element_at(a, 1)) from nested_array_tbl",
                 ImmutableList.of(path("a", "*", "OFFSET")),
                 ImmutableList.of(path("a", "*")));
+    }
+
+    @Test
+    public void testComparatorArraySortKeepsPayloadPath() throws Exception {
+        assertColumn("select array_sort((x, y) -> if(cardinality(x) < cardinality(y), -1, "
+                        + "if(cardinality(x) = cardinality(y), 0, 1)), a) from nested_array_tbl",
+                "array<array<int>>",
+                ImmutableList.of(path("a")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testElementAtLambdaIndexKeepsPayloadPath() throws Exception {
+        assertColumns("select array_map((a, i) -> element_at(a, i), a, indexes) "
+                        + "from nested_array_tbl where indexes is not null",
+                ImmutableList.of(
+                        Triple.of(
+                                "array<array<int>>",
+                                ImmutableList.of(path("a", "*", "*")),
+                                ImmutableList.of()),
+                        Triple.of(
+                                "array<bigint>",
+                                ImmutableList.of(path("indexes")),
+                                ImmutableList.of(path("indexes", "NULL")))
+                ));
     }
 
     @Test

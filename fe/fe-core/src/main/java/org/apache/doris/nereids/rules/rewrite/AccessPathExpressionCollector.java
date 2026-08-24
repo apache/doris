@@ -324,7 +324,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             continueCollectAccessPath(first, context);
 
             for (int i = 1; i < arguments.size(); i++) {
-                visit(arguments.get(i), context);
+                // Dispatch every index/key expression with a fresh context. For example, in
+                // element_at(a, i), generic visit(i, context) treats a leaf lambda slot as having
+                // no children and skips visitArrayItemSlot, so the bound index array loses its payload.
+                arguments.get(i).accept(this,
+                        new CollectorContext(context.statementContext, context.bottomFilter));
             }
             return null;
         } else if (first.getDataType().isVariantType() && arguments.size() >= 2
@@ -496,7 +500,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         Expression argument = arraySort.getArgument(0);
         if ((argument instanceof Lambda)) {
-            return collectArrayPathInLambda((Lambda) argument, context);
+            Lambda lambda = (Lambda) argument;
+            // A comparator may inspect only array lengths, while array_sort still returns every element.
+            // Propagate the result access path through the source expression to preserve its payload.
+            CollectorContext resultContext = copyContext(context);
+            collectArrayPathInLambda(lambda, context);
+            return continueCollectAccessPath(
+                    lambda.getLambdaArgument(0).getArrayExpression(), resultContext);
         }
         return visit(arraySort, context);
     }
