@@ -59,6 +59,9 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -145,6 +148,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -176,6 +180,56 @@ public class IcebergUtils {
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
+
+    /**
+     * Selects the storage bindings Iceberg should consume together. Iceberg can configure only one
+     * S3-compatible data plane, so a concrete provider such as OSS takes precedence over the generic
+     * S3 fallback while unrelated storage bindings are preserved.
+     */
+    public static List<StorageProperties> selectEffectiveStorageProperties(
+            List<StorageProperties> storagePropertiesList) {
+        StorageProperties chosenS3 = chooseS3CompatibleStorage(storagePropertiesList);
+        List<StorageProperties> selected = new ArrayList<>();
+        for (StorageProperties storageProperties : storagePropertiesList) {
+            if (!(storageProperties instanceof AbstractS3CompatibleProperties)
+                    || storageProperties == chosenS3) {
+                selected.add(storageProperties);
+            }
+        }
+        return selected;
+    }
+
+    public static Map<StorageProperties.Type, StorageProperties> selectEffectiveStorageProperties(
+            Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
+        List<StorageProperties> ordered = new ArrayList<>();
+        for (StorageProperties.Type type : StorageProperties.Type.values()) {
+            StorageProperties storageProperties = storagePropertiesMap.get(type);
+            if (storageProperties != null) {
+                ordered.add(storageProperties);
+            }
+        }
+
+        Map<StorageProperties.Type, StorageProperties> selected = new EnumMap<>(StorageProperties.Type.class);
+        for (StorageProperties storageProperties : selectEffectiveStorageProperties(ordered)) {
+            selected.put(storageProperties.getType(), storageProperties);
+        }
+        return selected;
+    }
+
+    private static StorageProperties chooseS3CompatibleStorage(List<StorageProperties> storagePropertiesList) {
+        StorageProperties fallback = null;
+        for (StorageProperties storageProperties : storagePropertiesList) {
+            if (storageProperties instanceof AbstractS3CompatibleProperties) {
+                if (fallback == null) {
+                    fallback = storageProperties;
+                }
+                if (!(storageProperties instanceof S3Properties)) {
+                    return storageProperties;
+                }
+            }
+        }
+        return fallback;
+    }
 
     // nickname in flink and spark
     public static final String WRITE_FORMAT = "write-format";
