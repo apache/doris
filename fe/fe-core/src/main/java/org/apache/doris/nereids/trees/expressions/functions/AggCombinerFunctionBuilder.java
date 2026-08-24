@@ -69,6 +69,9 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
 
     @Override
     public boolean canApply(List<?> arguments) {
+        if (!AggregateFunction.class.isAssignableFrom(nestedBuilder.functionClass())) {
+            return false;
+        }
         if (NotSupportAggState.class.isAssignableFrom(nestedBuilder.functionClass())) {
             return false;
         }

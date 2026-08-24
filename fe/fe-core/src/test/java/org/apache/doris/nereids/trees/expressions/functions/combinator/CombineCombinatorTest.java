@@ -23,7 +23,9 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.rules.analysis.WindowFunctionChecker;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -92,6 +94,25 @@ class CombineCombinatorTest {
                 .findBuiltinFunctionBuilder("count_combine", ImmutableList.of()).isEmpty());
         Assertions.assertThrows(AnalysisException.class,
                 () -> new CombineCombinator(ImmutableList.of(), new Count()));
+    }
+
+    @Test
+    void testScalarFunctionDoesNotSupportCombine() {
+        SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, false);
+        Assertions.assertTrue(new FunctionRegistry()
+                .findBuiltinFunctionBuilder("abs_combine", ImmutableList.of(argument)).isEmpty());
+    }
+
+    @Test
+    void testCombineDoesNotSupportWindow() {
+        SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, true);
+        CombineCombinator combine = new CombineCombinator(ImmutableList.of(argument), new Avg(argument));
+        WindowExpression window = new WindowExpression(combine, ImmutableList.of(), ImmutableList.of());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> new WindowFunctionChecker(window).checkWindowFunction());
+        Assertions.assertEquals("Window function does not support aggregate combine function: avg_combine",
+                exception.getMessage());
     }
 
     @Test
