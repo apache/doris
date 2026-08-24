@@ -665,7 +665,6 @@ void OlapScanner::release_unopened_resources() {
     _tablet_reader.reset();
     _tablet_reader_params = TabletReader::ReaderParams {};
     _common_expr_ctxs_push_down.clear();
-    _slot_id_to_virtual_column_expr.clear();
     _virtual_column_exprs.clear();
     _score_runtime.reset();
     _ann_topn_runtime.reset();
