@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -27,7 +28,9 @@ import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.stats.HboStatsCalculator;
+import org.apache.doris.nereids.stats.MemoStatsAndCostRecomputer;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -46,6 +49,12 @@ public class DeriveStatsJob extends Job {
     private static final EventProducer STATS_STATE_TRACER = new EventProducer(
             StatsStateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(StatsStateEvent.class, EventChannel.LOG)));
+
+    // Re-entrancy guard for the mv stats recompute triggered from the stats derivation. The recompute
+    // itself calls StatsCalculator.estimate() directly instead of DeriveStatsJob, so it cannot trigger
+    // this method recursively, the guard is defensive.
+    private static final ThreadLocal<Boolean> MV_STATS_RECOMPUTING = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 
@@ -108,6 +117,8 @@ public class DeriveStatsJob extends Job {
             ConnectContext connectContext = context.getCascadesContext().getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
             boolean isHboEnabled = sessionVariable.isEnableHboOptimization();
+            Group ownerGroup = groupExpression.getOwnerGroup();
+            boolean wasFromMvStats = ownerGroup.isFromMvStats();
             StatsCalculator statsCalculator;
             if (isHboEnabled) {
                 statsCalculator = new HboStatsCalculator(groupExpression,
@@ -126,6 +137,14 @@ public class DeriveStatsJob extends Job {
                         context.getCascadesContext());
                 statsCalculator.estimate();
             }
+            // When the group stats just got covered by the calibrated mv stats, the stats and costs
+            // of the ancestors above the group were derived with the base estimated stats before the
+            // mv candidate was added. Recompute the stats and costs of the whole memo bottom-up so
+            // that the accurate mv stats propagates to the ancestors, and the join reorder and the
+            // cost comparison are based on the accurate stats.
+            if (!wasFromMvStats && ownerGroup.isFromMvStats()) {
+                triggerMvStatsRecompute(context.getCascadesContext());
+            }
             STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
                     groupExpression.getOwnerGroup().getStatistics()));
             if (MinidumpUtils.isDump() && !sessionVariable.isPlayNereidsDump()) {
@@ -143,6 +162,21 @@ public class DeriveStatsJob extends Job {
                         g.getStatistics().withRowCountAndEnforceValid(parentRowCount))
                 );
             }
+        }
+    }
+
+    private static void triggerMvStatsRecompute(CascadesContext cascadesContext) {
+        if (MV_STATS_RECOMPUTING.get()) {
+            return;
+        }
+        MV_STATS_RECOMPUTING.set(true);
+        try {
+            MemoStatsAndCostRecomputer.recompute(cascadesContext.getMemo().getRoot(),
+                    PhysicalProperties.ANY, cascadesContext,
+                    MemoStatsAndCostRecomputer.LogicalExpressionRowCountSyncPolicy
+                            .KEEP_INDIVIDUAL_EXPRESSION_ROW_COUNT);
+        } finally {
+            MV_STATS_RECOMPUTING.remove();
         }
     }
 }
