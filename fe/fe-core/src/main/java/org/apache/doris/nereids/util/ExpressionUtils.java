@@ -26,6 +26,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
@@ -1407,6 +1408,30 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /**
+     * Try to substitute the uniform constant values of {@code childTrait} into {@code expr}. If all
+     * input slots of {@code expr} have a known uniform constant value in {@code childTrait} and the
+     * substituted expression is a constant, return it. e.g. for a project expression
+     * `days_sub(begin_time, 1)` over a child where `begin_time` is a uniform constant slot, returns
+     * `days_sub('2026-07-28 00:00:00', 1)`, so the projected slot can also be registered as a
+     * uniform constant and downstream constant propagation can fold predicates over it.
+     */
+    public static Optional<Expression> foldToConstantByUniformValues(Expression expr, DataTrait childTrait) {
+        Set<Slot> inputSlots = expr.getInputSlots();
+        if (inputSlots.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        for (Slot slot : inputSlots) {
+            if (!childTrait.isUniformAndHasConstValue(slot)) {
+                return Optional.empty();
+            }
+            replaceMap.put(slot, childTrait.getUniformValue(slot).get());
+        }
+        Expression constantExpr = replace(expr, replaceMap);
+        return constantExpr.isConstant() ? Optional.of(constantExpr) : Optional.empty();
     }
 
     /** check constant value the expression */
