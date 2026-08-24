@@ -24,7 +24,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
 
 import com.google.common.collect.ImmutableMap;
@@ -61,7 +60,7 @@ public class RemoteOlapTableSink extends OlapTableSink {
             if (backend == null) {
                 continue;
             }
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(createNodeInfo(backend));
         }
         return nodesInfo;
     }

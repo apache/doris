@@ -320,6 +320,7 @@ struct TOlapTableSink {
     // initial partition list is empty, so auto-partition tables whose first partitions arrive at
     // runtime still enter the correct mode from the start.
     25: optional bool enable_adaptive_random_bucket
+    26: optional map<string, i32> cross_az_succ_quorum
 }
 
 struct THiveLocationParams {

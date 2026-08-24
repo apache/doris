@@ -335,6 +335,10 @@ public:
 
     int64_t write_bytes() const { return _write_bytes.load(); }
 
+    bool is_tablet_successful(int64_t tablet_id) const {
+        return _successful_tablet_ids.contains(tablet_id);
+    }
+
 protected:
     // make a real open request for relative BE's load channel.
     void _open_internal(bool is_incremental);
@@ -404,6 +408,7 @@ protected:
     // this local tablet id instead of failing on an empty tablet_ids list.
     std::unordered_map<int64_t, int64_t> _adaptive_partition_compat_tablets;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
+    std::unordered_set<int64_t> _successful_tablet_ids;
 
     AddBatchCounter _add_batch_counter;
     std::atomic<int64_t> _serialize_batch_ns {0};
@@ -590,7 +595,8 @@ private:
     int _load_required_replicas_num(int64_t tablet_id);
 
     bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
-                         const std::unordered_set<int64_t>& need_finish_tablets);
+                         const std::unordered_set<int64_t>& need_finish_tablets,
+                         bool check_cross_az = true);
 
     int64_t _calc_max_wait_time_ms(const std::unordered_set<int64_t>& unfinished_node_channel_ids);
 

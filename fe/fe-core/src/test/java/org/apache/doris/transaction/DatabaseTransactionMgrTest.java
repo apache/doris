@@ -22,8 +22,11 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
@@ -31,14 +34,19 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrTest.SubTransactionInfo;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.tso.TSOService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.After;
@@ -232,6 +240,191 @@ public class DatabaseTransactionMgrTest {
         TransactionState transactionState2 = masterDbTransMgr.getTransactionState(txnId2);
         Assert.assertEquals(txnId2.longValue(), transactionState2.getTransactionId());
         Assert.assertEquals(TransactionStatus.PREPARE, transactionState2.getTransactionStatus());
+    }
+
+    @Test
+    public void testCrossAzSuccessQuorum() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+
+        try {
+            Config.cross_az_succ_quorum = new String[] {"az1:2", "az2:1"};
+            Assert.assertEquals(ImmutableMap.of("az1", 2, "az2", 1), Config.getCrossAzSuccQuorum());
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_failure", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assert.assertTrue(e.getMessage().contains("cross AZ success quorum failed for az1"));
+            }
+
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_az2_failure", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assert.assertTrue(e.getMessage().contains("cross AZ success quorum failed for az2"));
+            }
+
+            backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_clamp", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+
+            // Invalid items are ignored. The parse result is cached, so only the first commit after
+            // a config change may warn; later commits on the hot path must stay silent.
+            Config.cross_az_succ_quorum = new String[] {"invalid", "az1:not-a-number"};
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_invalid_0",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+            try (TestLogAppender appender = TestLogAppender.attach(Config.class, Level.WARN)) {
+                transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_invalid_1",
+                        transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.assertFalse(appender.contains(Level.WARN, "Invalid cross_az_succ_quorum item"));
+            }
+
+        } finally {
+            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testCrossAzSuccessQuorumIgnoresDeadAndBadReplicas() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Replica backend2Replica = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1)
+                .getReplicaByBackendId(CatalogTestUtil.testBackendId2);
+
+        try {
+            Config.cross_az_succ_quorum = new String[] {"az1:2"};
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId3));
+            backend2.setAlive(false);
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_ignore_dead", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+            backend2.setAlive(true);
+
+            backend2Replica.setBad(true);
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_ignore_bad", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+        } finally {
+            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            backend2.setAlive(true);
+            backend2Replica.setBad(false);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testCrossAzSuccessQuorumIgnoresTransientCloneWithThreeReplicas() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+
+        long cloneBackendId = CatalogTestUtil.testBackendId3 + 100;
+        Backend cloneBackend = CatalogTestUtil.createBackend(cloneBackendId, "clone-host", 123, 124, 125);
+        cloneBackend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        masterEnv.getCurrentSystemInfo().addBackend(cloneBackend);
+
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Tablet tablet = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
+        Replica cloneReplica = new LocalReplica(CatalogTestUtil.testReplicaId3 + 100,
+                cloneBackendId, Replica.ReplicaState.CLONE,
+                CatalogTestUtil.testStartVersion, CatalogTestUtil.testSchemaHash1);
+        tablet.addReplica(cloneReplica);
+
+        try {
+            Assert.assertEquals(3, table.getPartitionInfo()
+                    .getReplicaAllocation(CatalogTestUtil.testPartitionId1).getTotalReplicaNum());
+            Assert.assertEquals(4, tablet.getReplicas().size());
+            Assert.assertEquals(Replica.ReplicaState.CLONE,
+                    tablet.getReplicaByBackendId(cloneBackendId).getState());
+
+            Config.cross_az_succ_quorum = new String[] {"az1:2"};
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_ignore_rf3_clone",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+        } finally {
+            tablet.deleteReplica(cloneReplica);
+            masterEnv.getCurrentSystemInfo().dropBackend(cloneBackendId);
+            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
     }
 
     @Test

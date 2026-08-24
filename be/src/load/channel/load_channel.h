@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -26,6 +28,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "runtime/runtime_profile.h"
@@ -33,18 +36,24 @@
 #include "runtime/workload_management/resource_context.h"
 #include "util/uid_util.h"
 
+namespace google::protobuf {
+class Closure;
+}
+
 namespace doris {
 
-class PTabletWriterOpenRequest;
-class PTabletWriterAddBlockRequest;
-class PTabletWriterAddBlockResult;
-class OpenPartitionRequest;
 class BaseTabletsChannel;
+class LoadChannelMgr;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
 class LoadChannel {
 public:
+    struct FinalTabletResult {
+        PTabletWriterAddBlockResult result;
+        int32_t owner_sender_id = -1;
+    };
+
     LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
                 std::string sender_ip, int64_t backend_id, bool enable_profile, int64_t wg_id);
     ~LoadChannel();
@@ -54,12 +63,17 @@ public:
 
     // this batch must belong to a index in one transaction
     Status add_batch(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+                     PTabletWriterAddBlockResult* response,
+                     google::protobuf::Closure** done = nullptr);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
 
-    Status cancel();
+    bool need_final_tablet_result() const { return _need_final_tablet_result.load(); }
+    bool copy_final_tablet_results(std::unordered_map<int64_t, FinalTabletResult>* results,
+                                   size_t max_bytes, bool* oversized, size_t* result_bytes) const;
+
+    Status cancel(const Status& reason = Status::Cancelled("Load channel cancelled"));
 
     time_t last_updated_time() const { return _last_updated_time.load(); }
 
@@ -81,13 +95,24 @@ protected:
                                 int64_t index_id);
 
     Status _handle_eos(BaseTabletsChannel* channel, const PTabletWriterAddBlockRequest& request,
-                       PTabletWriterAddBlockResult* response);
+                       PTabletWriterAddBlockResult* response, bool* finished);
+
+    void _defer_or_copy_final_tablet_result(int64_t index_id, int32_t sender_id,
+                                            PTabletWriterAddBlockResult* response,
+                                            google::protobuf::Closure** done);
+    void _publish_final_tablet_result(int64_t index_id, int32_t sender_id,
+                                      const PTabletWriterAddBlockResult& result);
+    void _cancel_final_tablet_result_waiters(const Status& reason);
 
     void _init_profile();
     // thread safety
     void _report_profile(PTabletWriterAddBlockResult* response);
 
 private:
+    friend class LoadChannelMgr;
+
+    void _reserve_final_tablet_result(int64_t index_id);
+
     UniqueId _load_id;
     int64_t _txn_id = 0;
 
@@ -131,6 +156,21 @@ private:
     int64_t _backend_id;
 
     bool _enable_profile;
+
+    struct FinalTabletResultWaiter {
+        PTabletWriterAddBlockResult* response = nullptr;
+        google::protobuf::Closure* done = nullptr;
+    };
+    struct FinalTabletResultState {
+        std::shared_ptr<PTabletWriterAddBlockResult> tablet_result;
+        int32_t owner_sender_id = -1;
+        std::vector<FinalTabletResultWaiter> waiters;
+        std::unordered_map<int64_t, PTabletError> tablet_errors;
+    };
+    mutable std::mutex _final_tablet_result_lock;
+    std::atomic<bool> _need_final_tablet_result {false};
+    std::unordered_map<int64_t, FinalTabletResultState> _final_tablet_results;
+    Status _final_tablet_result_cancel_status;
 };
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {

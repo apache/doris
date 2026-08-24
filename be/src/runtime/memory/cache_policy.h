@@ -58,6 +58,7 @@ public:
         CONDITION_CACHE = 23,
         ANN_INDEX_IVF_LIST_CACHE = 24,
         ANN_INDEX_RESULT_CACHE = 25,
+        LOAD_FINAL_TABLET_RESULT_CACHE = 26,
     };
 
     static std::string type_string(CacheType type) {
@@ -86,6 +87,8 @@ public:
             return "MowTabletVersionCache";
         case CacheType::LOAD_STATE_CHANNEL_CACHE:
             return "LoadStateChannelCache ";
+        case CacheType::LOAD_FINAL_TABLET_RESULT_CACHE:
+            return "LoadFinalTabletResultCache";
         case CacheType::COMMON_OBJ_LRU_CACHE:
             return "CommonObjLRUCache";
         case CacheType::FOR_UT_CACHE_SIZE:
@@ -132,6 +135,7 @@ public:
             {"MowDeleteBitmapAggCache", CacheType::DELETE_BITMAP_AGG_CACHE},
             {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
             {"LoadStateChannelCache ", CacheType::LOAD_STATE_CHANNEL_CACHE},
+            {"LoadFinalTabletResultCache", CacheType::LOAD_FINAL_TABLET_RESULT_CACHE},
             {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
             {"ForUTCacheSize", CacheType::FOR_UT_CACHE_SIZE},
             {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
