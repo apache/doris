@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggStateCreation;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
@@ -73,6 +74,10 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
             return false;
         }
         if (NotSupportAggState.class.isAssignableFrom(nestedBuilder.functionClass())) {
+            return false;
+        }
+        if ((combinatorSuffix.equalsIgnoreCase(STATE) || combinatorSuffix.equalsIgnoreCase(COMBINE))
+                && NotSupportAggStateCreation.class.isAssignableFrom(nestedBuilder.functionClass())) {
             return false;
         }
         if (combinatorSuffix.equalsIgnoreCase(COMBINE)) {

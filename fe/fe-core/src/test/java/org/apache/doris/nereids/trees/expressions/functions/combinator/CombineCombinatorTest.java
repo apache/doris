@@ -28,9 +28,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggStateCreation;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -101,6 +103,19 @@ class CombineCombinatorTest {
         SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, false);
         Assertions.assertTrue(new FunctionRegistry()
                 .findBuiltinFunctionBuilder("abs_combine", ImmutableList.of(argument)).isEmpty());
+    }
+
+    @Test
+    void testAiAggDoesNotSupportAggStateCreation() {
+        Assertions.assertTrue(NotSupportAggStateCreation.class.isAssignableFrom(AIAgg.class));
+
+        ImmutableList<VarcharLiteral> arguments = ImmutableList.of(
+                new VarcharLiteral("value"), new VarcharLiteral("task"));
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        Assertions.assertTrue(functionRegistry
+                .findBuiltinFunctionBuilder("ai_agg_state", arguments).isEmpty());
+        Assertions.assertTrue(functionRegistry
+                .findBuiltinFunctionBuilder("ai_agg_combine", arguments).isEmpty());
     }
 
     @Test

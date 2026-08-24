@@ -40,7 +40,7 @@ import java.util.List;
  * AggregateFunction 'AI_AGG'.
  */
 public class AIAgg extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, NotSupportAggStateCreation {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
