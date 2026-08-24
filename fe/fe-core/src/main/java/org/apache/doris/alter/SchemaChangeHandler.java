@@ -3160,6 +3160,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         AlterJobV2 schemaChangeJobV2 = null;
+        boolean healOrphanedWaitingStable = false;
 
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
@@ -3175,11 +3176,36 @@ public class SchemaChangeHandler extends AlterHandler {
             schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null
                     : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
-                throw new DdlException(
-                    "Table[" + tableName + "] is under schema change state" + " but could not find related job");
+                if (olapTable.getState() == OlapTableState.WAITING_STABLE) {
+                    // WAITING_STABLE but no live job: an orphaned state produced by an old binary that
+                    // cancelled a still-WAITING_STABLE job without resetting the table (the job's
+                    // cancelInternal already dropped the shadow indexes, only the table state was left
+                    // stuck). Self-heal by resetting to NORMAL so the table is usable again instead of
+                    // leaving DROP TABLE as the only escape. The reset is done durably via
+                    // setTableStatusInternal (edit log + follower replay), so we only flag it here and
+                    // perform it after releasing the table lock.
+                    healOrphanedWaitingStable = true;
+                } else {
+                    // SCHEMA_CHANGE with no backing job is not a known-reachable state; a silent reset
+                    // could abandon still-present shadow indexes/tablets. Keep failing loudly so it is
+                    // investigated rather than masked.
+                    throw new DdlException("Table[" + tableName + "] is under SCHEMA_CHANGE"
+                            + " but could not find related job");
+                }
             }
         } finally {
             olapTable.writeUnlock();
+        }
+
+        if (healOrphanedWaitingStable) {
+            LOG.warn("table[{}] is in state WAITING_STABLE but has no related schema change job, "
+                    + "reset table state to NORMAL", tableName);
+            try {
+                Env.getCurrentEnv().setTableStatusInternal(dbName, tableName, OlapTableState.NORMAL, false);
+            } catch (MetaNotFoundException e) {
+                throw new DdlException(e.getMessage());
+            }
+            return;
         }
 
         // alter job v2's cancel must be called outside the database lock
