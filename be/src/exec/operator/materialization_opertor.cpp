@@ -478,9 +478,9 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(FileScanner::FileReadBytesProfile);
     update_profile_info_key(FileScanner::FileReadTimeProfile);
     update_profile_info_key(RowIdStorageReader::LanceDatasetOpenTimeProfile, false);
-    update_profile_info_key(RowIdStorageReader::LanceTakeRowsTimeProfile, false);
-    update_profile_info_key(RowIdStorageReader::LanceFillBlockTimeProfile, false);
-    update_profile_info_key(RowIdStorageReader::LanceRowIdFetchTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceRowIdTakeReadTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceArrowToDorisBlockTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceRowIdFetchTotalTimeProfile, false);
 }
 
 Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos,

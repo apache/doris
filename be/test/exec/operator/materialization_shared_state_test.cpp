@@ -40,9 +40,9 @@ void add_request_row(PRequestBlockDesc* request_block_desc, uint64_t row_id, uin
 void set_lance_fetch_profile(PMultiGetBlockV2* response_block, int64_t scale) {
     RuntimeProfile profile("ExternalRowIDFetcher");
     profile.add_info_string("LanceDatasetOpenTime", std::to_string(scale) + "ns");
-    profile.add_info_string("LanceTakeRowsTime", std::to_string(2 * scale) + "ns");
-    profile.add_info_string("LanceFillBlockTime", std::to_string(3 * scale) + "ns");
-    profile.add_info_string("LanceRowIdFetchTime", std::to_string(4 * scale) + "ns");
+    profile.add_info_string("LanceRowIdTakeReadTime", std::to_string(2 * scale) + "ns");
+    profile.add_info_string("LanceArrowToDorisBlockTime", std::to_string(3 * scale) + "ns");
+    profile.add_info_string("LanceRowIdFetchTotalTime", std::to_string(4 * scale) + "ns");
     profile.add_info_string("ScannersRunningTime", "0ms");
     profile.add_info_string("InitReaderAvgTime", "0ms");
     profile.add_info_string("GetBlockAvgTime", "0ms");
@@ -313,14 +313,14 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     EXPECT_EQ(*((int*)merged_value_col->get_data_at(2).data), 200); // Third value from BE2
     const auto& backend1_info = _shared_state->backend_profile_info_string.at(_backend_id1);
     EXPECT_EQ("10ns, ", fmt::to_string(backend1_info.at("LanceDatasetOpenTime")));
-    EXPECT_EQ("20ns, ", fmt::to_string(backend1_info.at("LanceTakeRowsTime")));
-    EXPECT_EQ("30ns, ", fmt::to_string(backend1_info.at("LanceFillBlockTime")));
-    EXPECT_EQ("40ns, ", fmt::to_string(backend1_info.at("LanceRowIdFetchTime")));
+    EXPECT_EQ("20ns, ", fmt::to_string(backend1_info.at("LanceRowIdTakeReadTime")));
+    EXPECT_EQ("30ns, ", fmt::to_string(backend1_info.at("LanceArrowToDorisBlockTime")));
+    EXPECT_EQ("40ns, ", fmt::to_string(backend1_info.at("LanceRowIdFetchTotalTime")));
     const auto& backend2_info = _shared_state->backend_profile_info_string.at(_backend_id2);
     EXPECT_EQ("1ns, ", fmt::to_string(backend2_info.at("LanceDatasetOpenTime")));
-    EXPECT_EQ("2ns, ", fmt::to_string(backend2_info.at("LanceTakeRowsTime")));
-    EXPECT_EQ("3ns, ", fmt::to_string(backend2_info.at("LanceFillBlockTime")));
-    EXPECT_EQ("4ns, ", fmt::to_string(backend2_info.at("LanceRowIdFetchTime")));
+    EXPECT_EQ("2ns, ", fmt::to_string(backend2_info.at("LanceRowIdTakeReadTime")));
+    EXPECT_EQ("3ns, ", fmt::to_string(backend2_info.at("LanceArrowToDorisBlockTime")));
+    EXPECT_EQ("4ns, ", fmt::to_string(backend2_info.at("LanceRowIdFetchTotalTime")));
 }
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {

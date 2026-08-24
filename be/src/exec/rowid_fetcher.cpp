@@ -726,9 +726,10 @@ const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgT
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
 const std::string RowIdStorageReader::LanceDatasetOpenTimeProfile = "LanceDatasetOpenTime";
-const std::string RowIdStorageReader::LanceTakeRowsTimeProfile = "LanceTakeRowsTime";
-const std::string RowIdStorageReader::LanceFillBlockTimeProfile = "LanceFillBlockTime";
-const std::string RowIdStorageReader::LanceRowIdFetchTimeProfile = "LanceRowIdFetchTime";
+const std::string RowIdStorageReader::LanceRowIdTakeReadTimeProfile = "LanceRowIdTakeReadTime";
+const std::string RowIdStorageReader::LanceArrowToDorisBlockTimeProfile =
+        "LanceArrowToDorisBlockTime";
+const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRowIdFetchTotalTime";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
         "TopNLazyMaterializationSecondPhaseLocalIOCount";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
@@ -797,9 +798,9 @@ Status RowIdStorageReader::read_lance_rows_by_row_ids(
         }
     };
     collect_lance_fetch_time(LanceDatasetOpenTimeProfile);
-    collect_lance_fetch_time(LanceTakeRowsTimeProfile);
-    collect_lance_fetch_time(LanceFillBlockTimeProfile);
-    collect_lance_fetch_time(LanceRowIdFetchTimeProfile);
+    collect_lance_fetch_time(LanceRowIdTakeReadTimeProfile);
+    collect_lance_fetch_time(LanceArrowToDorisBlockTimeProfile);
+    collect_lance_fetch_time(LanceRowIdFetchTotalTimeProfile);
     return Status::OK();
 }
 

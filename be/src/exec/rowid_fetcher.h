@@ -104,9 +104,9 @@ public:
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
     static const std::string LanceDatasetOpenTimeProfile;
-    static const std::string LanceTakeRowsTimeProfile;
-    static const std::string LanceFillBlockTimeProfile;
-    static const std::string LanceRowIdFetchTimeProfile;
+    static const std::string LanceRowIdTakeReadTimeProfile;
+    static const std::string LanceArrowToDorisBlockTimeProfile;
+    static const std::string LanceRowIdFetchTotalTimeProfile;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOBytes;
     static const std::string TopNLazyMaterializationSecondPhaseRemoteIOCount;

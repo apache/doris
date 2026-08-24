@@ -34,6 +34,7 @@
 
 struct LanceBatch;
 struct LanceDataset;
+struct LanceScanStatistics;
 struct LanceScanner;
 
 namespace arrow {
@@ -88,6 +89,7 @@ private:
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);
     Status _configure_vector_search(LanceScanner* scanner) const;
+    static void _collect_scan_statistics(void* callback_ctx, const LanceScanStatistics* statistics);
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
@@ -107,15 +109,22 @@ private:
     std::optional<size_t> _global_rowid_output_idx;
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
-    RuntimeProfile::Counter* _index_segment_count = nullptr;
-    RuntimeProfile::Counter* _indexed_fragment_count = nullptr;
-    RuntimeProfile::Counter* _flat_knn_fragment_count = nullptr;
+    RuntimeProfile::Counter* _planned_index_segment_count = nullptr;
+    RuntimeProfile::Counter* _planned_indexed_fragment_count = nullptr;
+    RuntimeProfile::Counter* _planned_flat_search_fragment_count = nullptr;
     RuntimeProfile::Counter* _dataset_open_time = nullptr;
-    RuntimeProfile::Counter* _scanner_open_time = nullptr;
-    RuntimeProfile::Counter* _scanner_next_time = nullptr;
-    RuntimeProfile::Counter* _fill_block_time = nullptr;
-    RuntimeProfile::Counter* _take_rows_time = nullptr;
-    RuntimeProfile::Counter* _row_id_fetch_time = nullptr;
+    RuntimeProfile::Counter* _scanner_configure_time = nullptr;
+    RuntimeProfile::Counter* _scanner_read_time = nullptr;
+    RuntimeProfile::Counter* _arrow_to_doris_block_time = nullptr;
+    RuntimeProfile::Counter* _row_id_take_read_time = nullptr;
+    RuntimeProfile::Counter* _row_id_fetch_total_time = nullptr;
+    RuntimeProfile::Counter* _execution_iops = nullptr;
+    RuntimeProfile::Counter* _execution_requests = nullptr;
+    RuntimeProfile::Counter* _execution_bytes_read = nullptr;
+    RuntimeProfile::Counter* _index_partition_cache_miss_loads = nullptr;
+    RuntimeProfile::Counter* _index_comparisons = nullptr;
+    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
+    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_time_metrics;
     bool _vector_search = false;
     bool _eof = false;
 };
