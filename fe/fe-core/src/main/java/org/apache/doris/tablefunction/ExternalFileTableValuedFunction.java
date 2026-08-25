@@ -168,8 +168,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
             if (storageAdapter != null
                     && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
-                S3Util.validateAndTestEndpoint(
-                        ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
+                S3Util.validateEndpoint(
+                        (S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties());
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;

@@ -18,11 +18,14 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -33,15 +36,61 @@ import java.util.List;
 
 public class S3UtilTest {
     private String originalS3ClientHttpScheme;
+    private String[] originalS3LoadEndpointWhiteList;
 
     @Before
     public void setUp() {
         originalS3ClientHttpScheme = Config.s3_client_http_scheme;
+        originalS3LoadEndpointWhiteList = Config.s3_load_endpoint_white_list;
     }
 
     @After
     public void tearDown() {
         Config.s3_client_http_scheme = originalS3ClientHttpScheme;
+        Config.s3_load_endpoint_white_list = originalS3LoadEndpointWhiteList;
+    }
+
+    @Test
+    public void testValidateEndpointSkipsRawConnectionForS3Express() throws Exception {
+        S3CompatibleFileSystemProperties properties =
+                Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(properties.providerName()).thenReturn("S3EXPRESS");
+        Mockito.when(properties.getEndpoint())
+                .thenReturn("https://s3express-use1-az4.us-east-1.invalid");
+
+        S3Util.validateEndpoint(properties);
+    }
+
+    @Test
+    public void testValidateEndpointStillConnectsForRegularS3() {
+        S3CompatibleFileSystemProperties properties =
+                Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(properties.providerName()).thenReturn("S3");
+        Mockito.when(properties.getEndpoint()).thenReturn("https://s3.us-east-1.invalid");
+
+        try {
+            S3Util.validateEndpoint(properties);
+            Assert.fail("Regular S3 endpoints must retain the connectivity test");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to access object storage"));
+        }
+    }
+
+    @Test
+    public void testValidateEndpointKeepsWhitelistForS3Express() {
+        Config.s3_load_endpoint_white_list = new String[] {"s3.us-east-1.amazonaws.com"};
+        S3CompatibleFileSystemProperties properties =
+                Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(properties.providerName()).thenReturn("S3EXPRESS");
+        Mockito.when(properties.getEndpoint())
+                .thenReturn("https://s3express-use1-az4.us-east-1.amazonaws.com");
+
+        try {
+            S3Util.validateEndpoint(properties);
+            Assert.fail("S3 Express endpoints must retain the endpoint whitelist check");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("is not in s3 load endpoint white list"));
+        }
     }
 
     @Test

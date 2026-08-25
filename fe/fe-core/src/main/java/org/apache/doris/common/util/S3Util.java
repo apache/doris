@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -63,6 +64,7 @@ import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
+    private static final String S3_EXPRESS_PROVIDER = "S3EXPRESS";
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
         AwsCredentials awsCredential;
@@ -389,10 +391,21 @@ public class S3Util {
         return result.toString();
     }
 
-    // Fast fail validation for S3 endpoint connectivity to avoid retries and long waits
-    // when network conditions are poor. Validates endpoint format, whitelist, security,
-    // and tests connection with 10s timeout.
-    public static void validateAndTestEndpoint(String endpoint) throws UserException {
+    /**
+     * Validates an S3-compatible load endpoint according to its provider semantics.
+     *
+     * <p>S3 Express clients ignore the configured endpoint and let the AWS SDK resolve the
+     * bucket-qualified zonal endpoint. The legacy bare zonal endpoint is only a routing signal and
+     * is not itself DNS-resolvable, so it must not receive the generic raw HTTP connectivity test.
+     * Whitelist and SSRF checks still apply to every provider.
+     */
+    public static void validateEndpoint(S3CompatibleFileSystemProperties properties)
+            throws UserException {
+        boolean testConnection = !S3_EXPRESS_PROVIDER.equalsIgnoreCase(properties.providerName());
+        validateEndpoint(properties.getEndpoint(), testConnection);
+    }
+
+    private static void validateEndpoint(String endpoint, boolean testConnection) throws UserException {
         HttpURLConnection connection = null;
         try {
             String urlStr = endpoint;
@@ -409,10 +422,12 @@ public class S3Util {
                     + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
             }
             SecurityChecker.getInstance().startSSRFChecking(urlStr);
-            URL url = new URL(urlStr);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(10000);
-            connection.connect();
+            if (testConnection) {
+                URL url = new URL(urlStr);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(10000);
+                connection.connect();
+            }
         } catch (Exception e) {
             String msg;
             if (e instanceof UserException) {
