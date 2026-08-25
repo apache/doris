@@ -28,5 +28,5 @@ import java.util.Map;
 @NoArgsConstructor
 public class FetchEndOffsetResult {
     private Map<String, String> endOffset;
-    private long lagBytes;
+    private long lagBytes = -1;
 }

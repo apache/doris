@@ -18,13 +18,13 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -179,11 +179,42 @@ public class JdbcSourceOffsetProviderLagTest {
         String response = "{\"code\":0,\"msg\":\"Success\",\"data\":{"
                 + "\"endOffset\":{\"lsn\":\"200\"},\"lagBytes\":4096}}";
 
-        FetchEndOffsetResult result = provider.parseCdcResponseData(
-                response, new TypeReference<FetchEndOffsetResult>() {});
+        FetchEndOffsetResult result = provider.parseFetchEndOffsetResponse(response);
 
         Assert.assertEquals(offset("lsn", "200"), result.getEndOffset());
         Assert.assertEquals(4096, result.getLagBytes());
+    }
+
+    @Test
+    public void testParseLegacyFetchEndOffsetResponse() throws JobException {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        String response = "{\"code\":0,\"msg\":\"Success\",\"data\":{\"lsn\":\"200\"}}";
+
+        FetchEndOffsetResult result = provider.parseFetchEndOffsetResponse(response);
+
+        Assert.assertEquals(offset("lsn", "200"), result.getEndOffset());
+        Assert.assertEquals(-1, result.getLagBytes());
+    }
+
+    @Test
+    public void testParseFetchEndOffsetResponseWithoutLag() throws JobException {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        String response = "{\"code\":0,\"msg\":\"Success\",\"data\":{"
+                + "\"endOffset\":{\"lsn\":\"200\"}}}";
+
+        FetchEndOffsetResult result = provider.parseFetchEndOffsetResponse(response);
+
+        Assert.assertEquals(offset("lsn", "200"), result.getEndOffset());
+        Assert.assertEquals(-1, result.getLagBytes());
+    }
+
+    @Test
+    public void testFetchEndOffsetRequestUsesEmptyReferenceOffsetAsCapabilitySignal() {
+        FetchEndOffsetRequest request =
+                new FetchEndOffsetRequest("123", "POSTGRES", Collections.emptyMap(), null, null);
+
+        Assert.assertNotNull(request.getReferenceOffset());
+        Assert.assertTrue(request.getReferenceOffset().isEmpty());
     }
 
     private static JdbcSourceOffsetProvider provider(DataSourceType type, String startupMode) {

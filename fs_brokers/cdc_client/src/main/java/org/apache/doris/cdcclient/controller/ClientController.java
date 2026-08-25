@@ -111,7 +111,10 @@ public class ClientController {
             SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
             Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
             FetchEndOffsetResult result = reader.fetchEndOffset(jobConfig);
-            return RestResponse.success(result);
+            // Requests from older FEs do not contain referenceOffset and expect the legacy
+            // response.
+            return RestResponse.success(
+                    jobConfig.getReferenceOffset() == null ? result.getEndOffset() : result);
         } catch (Exception ex) {
             LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
             return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));

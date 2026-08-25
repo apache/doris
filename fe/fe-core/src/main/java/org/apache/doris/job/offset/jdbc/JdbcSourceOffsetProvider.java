@@ -331,8 +331,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         "Failed to get end offset from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
-            FetchEndOffsetResult fetchResult = parseCdcResponseData(
-                    result.getResponse(), new TypeReference<FetchEndOffsetResult>() {});
+            FetchEndOffsetResult fetchResult = parseFetchEndOffsetResponse(result.getResponse());
             Map<String, String> newEndOffset = fetchResult.getEndOffset();
             synchronized (splitsLock) {
                 // null→value also counts as a change: upstream may have advanced while fetch was blocked.
@@ -978,6 +977,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         try {
             return objectMapper.convertValue(body.getData(), dataType);
         } catch (Exception e) {
+            throw new JobException(response);
+        }
+    }
+
+    FetchEndOffsetResult parseFetchEndOffsetResponse(String response) throws JobException {
+        JsonNode data = parseCdcResponseData(response, new TypeReference<JsonNode>() {});
+        if (data == null) {
+            throw new JobException(response);
+        }
+        try {
+            if (data.has("endOffset")) {
+                return objectMapper.convertValue(data, FetchEndOffsetResult.class);
+            }
+            Map<String, String> endOffset = objectMapper.convertValue(
+                    data, new TypeReference<Map<String, String>>() {});
+            return new FetchEndOffsetResult(endOffset, -1);
+        } catch (IllegalArgumentException exception) {
             throw new JobException(response);
         }
     }

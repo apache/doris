@@ -21,6 +21,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
+import java.util.Collections;
 import java.util.Map;
 
 @Data
@@ -36,6 +37,7 @@ public class FetchEndOffsetRequest extends JobBaseConfig {
             String frontendAddress,
             Map<String, String> referenceOffset) {
         super(jobId, dataSource, config, frontendAddress);
-        this.referenceOffset = referenceOffset;
+        // Its presence tells the CDC client that this FE accepts the lag-aware response.
+        this.referenceOffset = referenceOffset == null ? Collections.emptyMap() : referenceOffset;
     }
 }
