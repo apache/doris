@@ -173,4 +173,55 @@ suite("test_timestamp_ns_partition_bucket") {
           and table_name = 'timestamp_ns_auto_range_boundary'
         order by partition_name
     """
+
+    sql "drop table if exists datetimev2_cast_timestamp_ns_prune"
+    sql """
+        create table datetimev2_cast_timestamp_ns_prune (
+            id int,
+            dt datetimev2(6) not null
+        )
+        duplicate key(id)
+        partition by range(dt) (
+            partition p1 values less than ('2024-01-02 00:00:00.000000'),
+            partition p2 values less than ('2024-01-03 00:00:00.000000'),
+            partition p3 values less than MAXVALUE
+        )
+        distributed by hash(id) buckets 3
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into datetimev2_cast_timestamp_ns_prune values
+        (1, '2024-01-01 00:00:00.000001'),
+        (2, '2024-01-02 00:00:00.000002'),
+        (3, '2024-01-03 00:00:00.000003')
+    """
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_prune
+            where cast(dt as timestamp_ns) in (
+                cast('2024-01-01 00:00:00.000001000' as timestamp_ns),
+                cast('2024-01-02 00:00:00.000002000' as timestamp_ns))
+        """
+        contains "partitions=2/3 (p1,p2)"
+    }
+    order_qt_datetimev2_cast_timestamp_ns_aligned """
+        select id from datetimev2_cast_timestamp_ns_prune
+        where cast(dt as timestamp_ns) in (
+            cast('2024-01-01 00:00:00.000001000' as timestamp_ns),
+            cast('2024-01-02 00:00:00.000002000' as timestamp_ns))
+        order by id
+    """
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_prune
+            where cast(dt as timestamp_ns) =
+                  cast('2024-01-02 00:00:00.000002001' as timestamp_ns)
+        """
+        contains "VEMPTYSET"
+    }
+    qt_datetimev2_cast_timestamp_ns_unreachable """
+        select id from datetimev2_cast_timestamp_ns_prune
+        where cast(dt as timestamp_ns) =
+              cast('2024-01-02 00:00:00.000002001' as timestamp_ns)
+    """
 }

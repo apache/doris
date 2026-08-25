@@ -51,6 +51,16 @@ suite("test_timestamp_ns_functions") {
         (7, null)
     """
 
+    sql "set debug_skip_fold_constant = false"
+    sql "set @timestamp_ns_user_var = cast('2024-02-29 12:34:56.123456789' as timestamp_ns)"
+    qt_timestamp_ns_user_variable """
+        select cast(@timestamp_ns_user_var as string),
+               date_format(@timestamp_ns_user_var, '%n'),
+               time_format(@timestamp_ns_user_var, '%n'),
+               cast(seconds_add(@timestamp_ns_user_var, 0) as string),
+               to_iso8601(@timestamp_ns_user_var)
+    """
+
     def scalarFunctionConstantsSql = """
         select
             year(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)),

@@ -33,3 +33,9 @@ timestamp_ns	timestamp_ns	\N	\N	9	\N	YES
 p16770921001243	[('1677-09-21 00:12:43.145224192'), ('1677-09-22 00:00:00.000000000'))
 p22620411000000	[('2262-04-11 00:00:00.000000000'), (MAXVALUE))
 
+-- !datetimev2_cast_timestamp_ns_aligned --
+1
+2
+
+-- !datetimev2_cast_timestamp_ns_unreachable --
+
