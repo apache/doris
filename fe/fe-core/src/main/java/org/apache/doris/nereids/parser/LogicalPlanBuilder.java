@@ -9723,7 +9723,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             layoutType = LayoutType.of(ctx.layoutType.getText());
         } catch (IllegalArgumentException e) {
             throw new AnalysisException(
-                    "Unknown layout type: " + ctx.layoutType.getText() + ". must be IP_TRIE or HASH_MAP");
+                    "Unknown layout type: " + ctx.layoutType.getText() + ". must be IP_TRIE, HASH_MAP or FLAT");
         }
 
         return new CreateDictionaryCommand(ctx.EXISTS() != null, // if not exists
