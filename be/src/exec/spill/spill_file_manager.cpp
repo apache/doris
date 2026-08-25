@@ -57,23 +57,6 @@ ExternalSpillSession::ExternalSpillSession(SpillFileManager* manager, QueryConte
 }
 
 ExternalSpillSession::~ExternalSpillSession() {
-    {
-        std::lock_guard lock(_mutex);
-        for (auto& managed_path : _managed_paths) {
-            const int64_t accounted_bytes =
-                    managed_path.buffer_accounted_bytes + managed_path.direct_file_accounted_bytes;
-            if (accounted_bytes > 0) {
-                // A confirmed Java close can still leave files behind when eager physical cleanup
-                // fails. Keep those bytes charged after this callback object is destroyed; query
-                // directory GC releases them only after deletion actually succeeds.
-                _manager->_transfer_external_spill_accounting(
-                        managed_path.data_dir->get_spill_data_path(_query_id),
-                        managed_path.data_dir, accounted_bytes);
-                managed_path.buffer_accounted_bytes = 0;
-                managed_path.direct_file_accounted_bytes = 0;
-            }
-        }
-    }
     _manager->_release_external_spill_session(this);
 }
 
@@ -182,7 +165,11 @@ Status ExternalSpillSession::reconcile_direct_file_usage(bool allow_release) {
         std::lock_guard lock(_mutex);
         observed_paths.reserve(_managed_paths.size());
         for (const auto& managed_path : _managed_paths) {
-            ObservedPathUsage observed_path {.path = managed_path.path};
+            ObservedPathUsage observed_path {
+                    .path = managed_path.path,
+                    .buffer_paths = {},
+                    .bytes = 0,
+            };
             for (const auto& buffer_entry : managed_path.buffer_accounted_bytes_by_path) {
                 observed_path.buffer_paths.emplace(buffer_entry.first);
             }
@@ -419,70 +406,67 @@ Status SpillFileManager::_initialize_external_spill_session(ExternalSpillSession
     }
 
     for (auto* data_dir : data_dirs) {
-        std::string path = data_dir->get_spill_data_path(spill_session->_query_id) + "/" +
-                           spill_session->_relative_path;
+        auto query_dir = data_dir->get_spill_data_path(spill_session->_query_id);
         {
             // Once the lease is visible, query teardown queues the query directory for the existing
             // GC retry path instead of deleting it under an external writer.
-            std::lock_guard lock(_external_spill_leases_mutex);
-            ++_external_spill_leases[data_dir->get_spill_data_path(spill_session->_query_id)];
+            std::lock_guard lock(_query_spill_directories_mutex);
+            auto it = _query_spill_directories
+                              .try_emplace(query_dir,
+                                           QuerySpillDirectoryState {
+                                                   .failed_count = 0,
+                                                   .data_dir = data_dir,
+                                                   .external_accounted_bytes = 0,
+                                                   .external_leases = 0,
+                                                   .delete_requested = false,
+                                           })
+                              .first;
+            DCHECK(it->second.data_dir == data_dir);
+            ++it->second.external_leases;
         }
         query_context->record_spill_data_dir(data_dir);
         spill_session->_managed_paths.emplace_back(ExternalSpillSession::ManagedPath {
                 .data_dir = data_dir,
-                .path = std::move(path),
+                .path = query_dir + "/" + spill_session->_relative_path,
+                .buffer_accounted_bytes = 0,
+                .buffer_accounted_bytes_by_path = {},
+                .direct_file_accounted_bytes = 0,
         });
     }
     return Status::OK();
 }
 
-void SpillFileManager::_release_external_spill_session(const ExternalSpillSession* spill_session) {
+void SpillFileManager::_release_external_spill_session(ExternalSpillSession* spill_session) {
+    std::lock_guard session_lock(spill_session->_mutex);
+    std::lock_guard directory_lock(_query_spill_directories_mutex);
     for (const auto& managed_path : spill_session->_managed_paths) {
-        std::lock_guard lock(_external_spill_leases_mutex);
         auto query_dir = managed_path.data_dir->get_spill_data_path(spill_session->_query_id);
-        auto it = _external_spill_leases.find(query_dir);
-        if (it != _external_spill_leases.end() && --it->second == 0) {
-            _external_spill_leases.erase(it);
+        auto it = _query_spill_directories.find(query_dir);
+        DCHECK(it != _query_spill_directories.end());
+        if (it == _query_spill_directories.end()) {
+            continue;
+        }
+        auto& directory = it->second;
+        DCHECK(directory.data_dir == managed_path.data_dir);
+        DCHECK_GT(directory.external_leases, 0);
+        const int64_t accounted_bytes =
+                managed_path.buffer_accounted_bytes + managed_path.direct_file_accounted_bytes;
+        if (accounted_bytes > 0) {
+            // A confirmed Java close can still leave files behind when eager physical cleanup
+            // fails. Keep those bytes charged until deletion of the query directory succeeds.
+            if (accounted_bytes >
+                std::numeric_limits<int64_t>::max() - directory.external_accounted_bytes) {
+                LOG(ERROR) << "Pending external spill accounting overflow for " << query_dir;
+            } else {
+                directory.external_accounted_bytes += accounted_bytes;
+            }
+        }
+        --directory.external_leases;
+        if (directory.external_leases == 0 && !directory.delete_requested &&
+            directory.external_accounted_bytes == 0) {
+            _query_spill_directories.erase(it);
         }
     }
-}
-
-void SpillFileManager::_transfer_external_spill_accounting(const std::string& query_dir,
-                                                           SpillDataDir* data_dir, int64_t bytes) {
-    DCHECK(data_dir != nullptr);
-    DCHECK_GT(bytes, 0);
-    std::lock_guard lock(_pending_external_spill_accounting_mutex);
-    auto it = _pending_external_spill_accounting
-                      .try_emplace(query_dir, PendingExternalSpillAccounting {.data_dir = data_dir})
-                      .first;
-    DCHECK(it->second.data_dir == data_dir);
-    if (bytes > std::numeric_limits<int64_t>::max() - it->second.bytes) {
-        LOG(ERROR) << "Pending external spill accounting overflow for " << query_dir;
-        // Preserve the existing charge rather than risk releasing more bytes than were reserved.
-        return;
-    }
-    it->second.bytes += bytes;
-}
-
-void SpillFileManager::_release_pending_external_spill_accounting(const std::string& query_dir) {
-    PendingExternalSpillAccounting accounting;
-    {
-        std::lock_guard lock(_pending_external_spill_accounting_mutex);
-        auto it = _pending_external_spill_accounting.find(query_dir);
-        if (it == _pending_external_spill_accounting.end()) {
-            return;
-        }
-        accounting = it->second;
-        _pending_external_spill_accounting.erase(it);
-    }
-    if (accounting.bytes > 0) {
-        accounting.data_dir->update_spill_data_usage(-accounting.bytes);
-    }
-}
-
-bool SpillFileManager::_has_external_spill_lease(const std::string& query_dir) {
-    std::lock_guard lock(_external_spill_leases_mutex);
-    return _external_spill_leases.contains(query_dir);
 }
 
 SpillDataDir* SpillFileManager::_get_store_for_spill() {
@@ -509,42 +493,71 @@ void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
 
 void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
                                                     SpillDataDir* data_dir) {
-    PendingQuerySpillDirectory pending_directory {
-            .query_dir = data_dir->get_spill_data_path(query_id),
-    };
+    auto query_dir = data_dir->get_spill_data_path(query_id);
+    {
+        std::lock_guard lock(_query_spill_directories_mutex);
+        auto it = _query_spill_directories
+                          .try_emplace(query_dir,
+                                       QuerySpillDirectoryState {
+                                               .failed_count = 0,
+                                               .data_dir = data_dir,
+                                               .external_accounted_bytes = 0,
+                                               .external_leases = 0,
+                                               .delete_requested = false,
+                                       })
+                          .first;
+        DCHECK(it->second.data_dir == data_dir);
+        it->second.delete_requested = true;
+    }
 
-    auto status = _try_delete_query_spill_directory(pending_directory);
+    auto status = _try_delete_query_spill_directory(query_dir);
     if (!status.ok()) {
-        std::lock_guard lock(_pending_query_spill_directories_mutex);
-        ++pending_directory.failed_count;
-        _pending_query_spill_directories.emplace_back(std::move(pending_directory));
+        std::lock_guard lock(_query_spill_directories_mutex);
+        auto it = _query_spill_directories.find(query_dir);
+        if (it != _query_spill_directories.end()) {
+            ++it->second.failed_count;
+        }
     }
 }
 
-Status SpillFileManager::_try_delete_query_spill_directory(
-        const PendingQuerySpillDirectory& pending_directory) {
-    std::unique_lock lock(_external_spill_leases_mutex);
-    if (_external_spill_leases.contains(pending_directory.query_dir)) {
+Status SpillFileManager::_try_delete_query_spill_directory(const std::string& query_dir) {
+    std::unique_lock lock(_query_spill_directories_mutex);
+    auto it = _query_spill_directories.find(query_dir);
+    if (it == _query_spill_directories.end() || !it->second.delete_requested) {
+        return Status::OK();
+    }
+    if (it->second.external_leases > 0) {
         return Status::InternalError("external spill directory is still in use: {}",
-                                     pending_directory.query_dir);
+                                     query_dir);
     }
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::delete_query_spill_directory", {
         return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
     });
     const auto& fs = io::global_local_filesystem();
-    auto status = fs->delete_directory(pending_directory.query_dir);
-    lock.unlock();
-    if (status.ok()) {
-        _release_pending_external_spill_accounting(pending_directory.query_dir);
+    auto status = fs->delete_directory(query_dir);
+    if (!status.ok()) {
+        return status;
     }
-    return status;
+
+    auto* data_dir = it->second.data_dir;
+    const int64_t accounted_bytes = it->second.external_accounted_bytes;
+    _query_spill_directories.erase(it);
+    lock.unlock();
+    if (accounted_bytes > 0) {
+        data_dir->update_spill_data_usage(-accounted_bytes);
+    }
+    return Status::OK();
 }
 
 void SpillFileManager::_retry_pending_query_spill_directories() {
-    std::vector<PendingQuerySpillDirectory> pending_directories;
+    std::vector<std::string> pending_directories;
     {
-        std::lock_guard lock(_pending_query_spill_directories_mutex);
-        pending_directories.swap(_pending_query_spill_directories);
+        std::lock_guard lock(_query_spill_directories_mutex);
+        for (const auto& [query_dir, directory] : _query_spill_directories) {
+            if (directory.delete_requested && directory.external_leases == 0) {
+                pending_directories.emplace_back(query_dir);
+            }
+        }
     }
     DBUG_EXECUTE_IF(
             "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain",
@@ -553,30 +566,25 @@ void SpillFileManager::_retry_pending_query_spill_directories() {
     // Limit repeated warnings for a persistently unavailable directory while retaining it for
     // every subsequent retry.
     constexpr int log_interval = 5;
-    std::vector<PendingQuerySpillDirectory> failed_directories;
-    for (auto& pending_directory : pending_directories) {
-        if (_has_external_spill_lease(pending_directory.query_dir)) {
-            failed_directories.emplace_back(std::move(pending_directory));
-            continue;
-        }
-        auto status = _try_delete_query_spill_directory(pending_directory);
+    for (const auto& query_dir : pending_directories) {
+        auto status = _try_delete_query_spill_directory(query_dir);
         if (status.ok()) {
             continue;
         }
 
-        ++pending_directory.failed_count;
-        if (pending_directory.failed_count % log_interval == 0) {
+        int failed_count = 0;
+        {
+            std::lock_guard lock(_query_spill_directories_mutex);
+            auto it = _query_spill_directories.find(query_dir);
+            if (it == _query_spill_directories.end()) {
+                continue;
+            }
+            failed_count = ++it->second.failed_count;
+        }
+        if (failed_count % log_interval == 0) {
             LOG(WARNING) << fmt::format(
                     "failed to retry deleting spill query directory, dir {}, error: {}",
-                    pending_directory.query_dir, status.to_string());
-        }
-        failed_directories.emplace_back(std::move(pending_directory));
-    }
-
-    if (!failed_directories.empty()) {
-        std::lock_guard lock(_pending_query_spill_directories_mutex);
-        for (auto& pending_directory : failed_directories) {
-            _pending_query_spill_directories.emplace_back(std::move(pending_directory));
+                    query_dir, status.to_string());
         }
     }
 }

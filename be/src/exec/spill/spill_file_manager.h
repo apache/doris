@@ -64,7 +64,7 @@ public:
     // return true if limit reached, otherwise, return false.
     bool reach_capacity_limit(int64_t incoming_data_size);
 
-    // Atomically check the capacity limit and reserve spill usage for an external writer.
+    // Atomically check the capacity limit and reserve spill usage for a writer.
     bool try_reserve_spill_data(int64_t incoming_data_size);
 
     Status update_capacity();
@@ -199,27 +199,24 @@ public:
 private:
     friend class ExternalSpillSession;
 
-    struct PendingQuerySpillDirectory {
+    // Query-directory lifecycle shared by regular spill cleanup and external spill users. An
+    // external session may finish before or after QueryContext requests deletion, so leases,
+    // residual accounting and the deletion request must be kept in one state object.
+    struct QuerySpillDirectoryState {
         int failed_count {0};
-        std::string query_dir;
-    };
-
-    struct PendingExternalSpillAccounting {
         SpillDataDir* data_dir = nullptr;
-        int64_t bytes = 0;
+        int64_t external_accounted_bytes = 0;
+        size_t external_leases = 0;
+        bool delete_requested = false;
     };
 
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
-    Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
+    Status _try_delete_query_spill_directory(const std::string& query_dir);
     void _retry_pending_query_spill_directories();
     Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
-    void _transfer_external_spill_accounting(const std::string& query_dir, SpillDataDir* data_dir,
-                                             int64_t bytes);
-    void _release_pending_external_spill_accounting(const std::string& query_dir);
-    void _release_external_spill_session(const ExternalSpillSession* spill_session);
-    bool _has_external_spill_lease(const std::string& query_dir);
+    void _release_external_spill_session(ExternalSpillSession* spill_session);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
     std::vector<SpillDataDir*> _get_stores_for_spill();
     SpillDataDir* _get_store_for_spill();
@@ -229,15 +226,8 @@ private:
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
 
-    std::mutex _pending_query_spill_directories_mutex;
-    std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
-
-    std::mutex _pending_external_spill_accounting_mutex;
-    std::unordered_map<std::string, PendingExternalSpillAccounting>
-            _pending_external_spill_accounting;
-
-    std::mutex _external_spill_leases_mutex;
-    std::unordered_map<std::string, size_t> _external_spill_leases;
+    std::mutex _query_spill_directories_mutex;
+    std::unordered_map<std::string, QuerySpillDirectoryState> _query_spill_directories;
 
     std::atomic_uint64_t id_ = 0;
 

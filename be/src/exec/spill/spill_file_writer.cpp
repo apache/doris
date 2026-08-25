@@ -91,12 +91,27 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     _part_meta.append((const char*)&_part_max_sub_block_size, sizeof(_part_max_sub_block_size));
     _part_meta.append((const char*)&_part_written_blocks, sizeof(_part_written_blocks));
 
+    int64_t meta_size = _part_meta.size();
+    if (!_data_dir->try_reserve_spill_data(meta_size)) {
+        return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
+                "spill data total size exceed limit, path: {}, size limit: {}, spill data "
+                "size: {}",
+                _data_dir->path(), PrettyPrinter::print_bytes(_data_dir->get_spill_data_limit()),
+                PrettyPrinter::print_bytes(_data_dir->get_spill_data_bytes()));
+    }
+    bool write_succeeded = false;
+    Defer rollback_reservation([&]() {
+        if (!write_succeeded) {
+            _data_dir->update_spill_data_usage(-meta_size);
+        }
+    });
+
     {
         SCOPED_TIMER(_write_file_timer);
         RETURN_IF_ERROR(_file_writer->append(_part_meta));
     }
+    write_succeeded = true;
 
-    int64_t meta_size = _part_meta.size();
     _part_written_bytes += meta_size;
     _total_written_bytes += meta_size;
     COUNTER_UPDATE(_write_file_total_size, meta_size);
@@ -106,7 +121,6 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     if (_write_file_current_size) {
         COUNTER_UPDATE(_write_file_current_size, meta_size);
     }
-    _data_dir->update_spill_data_usage(meta_size);
     ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(meta_size);
     // Incrementally update SpillFile's accounting so gc() can always
     // decrement the correct amount, even if close() is never called.
@@ -226,7 +240,7 @@ Status SpillFileWriter::_write_internal(const Block& block,
             COUNTER_UPDATE(_memory_used_counter, buff_size);
             Defer defer2 {[&]() { COUNTER_UPDATE(_memory_used_counter, -buff_size); }};
         }
-        if (_data_dir->reach_capacity_limit(buff_size)) {
+        if (!_data_dir->try_reserve_spill_data(buff_size)) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                     "size: {}",
@@ -235,10 +249,15 @@ Status SpillFileWriter::_write_internal(const Block& block,
                     PrettyPrinter::print_bytes(_data_dir->get_spill_data_bytes()));
         }
 
+        bool write_succeeded = false;
+        Defer rollback_reservation([&]() {
+            if (!write_succeeded) {
+                _data_dir->update_spill_data_usage(-buff_size);
+            }
+        });
         {
             Defer defer {[&]() {
-                if (status.ok()) {
-                    _data_dir->update_spill_data_usage(buff_size);
+                if (write_succeeded) {
                     ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(buff_size);
 
                     _part_max_sub_block_size =
@@ -266,6 +285,7 @@ Status SpillFileWriter::_write_internal(const Block& block,
                 SCOPED_TIMER(_write_file_timer);
                 status = _file_writer->append(buff);
                 RETURN_IF_ERROR(status);
+                write_succeeded = true;
             }
         }
     }
