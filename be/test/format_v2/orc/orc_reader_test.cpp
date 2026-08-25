@@ -4568,7 +4568,7 @@ protected:
 
     struct DirectInScanResult {
         std::vector<int32_t> ids;
-        size_t materialize_calls = 0;
+        size_t begin_calls = 0;
         size_t prepare_literals_calls = 0;
         int64_t filtered_row_groups = 0;
         int64_t filtered_row_groups_by_min_max = 0;
@@ -4703,7 +4703,7 @@ protected:
             }
         }
 
-        result->materialize_calls = filter->begin_calls();
+        result->begin_calls = filter->begin_calls();
         result->filtered_row_groups = reader->reader_statistics().filtered_row_groups;
         result->filtered_row_groups_by_min_max =
                 reader->reader_statistics().filtered_row_groups_by_min_max;
@@ -7147,11 +7147,11 @@ TEST_F(NewOrcReaderTest, SargDirectInCompoundMaterializesLiteralsOnce) {
                                           shape, &disabled)
                             .ok());
 
-        EXPECT_EQ(enabled.materialize_calls, 1);
+        EXPECT_EQ(enabled.begin_calls, 1);
         EXPECT_EQ(enabled.prepare_literals_calls, 1);
         EXPECT_EQ(enabled.filtered_row_groups, 1);
         EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 1);
-        EXPECT_EQ(disabled.materialize_calls, 0);
+        EXPECT_EQ(disabled.begin_calls, 0);
         EXPECT_EQ(disabled.prepare_literals_calls, 0);
         EXPECT_EQ(disabled.filtered_row_groups, 0);
         EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
@@ -7177,11 +7177,11 @@ TEST_F(NewOrcReaderTest, SargDirectInNullSafeOrFallsBackBeforeLiteralConversion)
                                       DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL, &disabled)
                         .ok());
 
-    EXPECT_EQ(enabled.materialize_calls, 1);
+    EXPECT_EQ(enabled.begin_calls, 1);
     EXPECT_EQ(enabled.prepare_literals_calls, 0);
     EXPECT_EQ(enabled.filtered_row_groups, 0);
     EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
-    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.begin_calls, 0);
     EXPECT_EQ(disabled.prepare_literals_calls, 0);
     EXPECT_EQ(disabled.filtered_row_groups, 0);
     EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
@@ -7209,11 +7209,11 @@ TEST_F(NewOrcReaderTest, SargDirectInOverLimitFallsBackBeforeMaterialization) {
                                       DirectInPredicateShape::ROOT, &disabled)
                         .ok());
 
-    EXPECT_EQ(enabled.materialize_calls, 0);
+    EXPECT_EQ(enabled.begin_calls, 0);
     EXPECT_EQ(enabled.prepare_literals_calls, 0);
     EXPECT_EQ(enabled.filtered_row_groups, 0);
     EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
-    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.begin_calls, 0);
     EXPECT_EQ(disabled.prepare_literals_calls, 0);
     EXPECT_EQ(disabled.filtered_row_groups, 0);
     EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);

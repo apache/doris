@@ -164,7 +164,7 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     }
 
     // Create block to hold historical values for value columns.
-    Block old_value_block = tablet_schema->create_block_by_cids(value_cids);
+    Block old_value_block = tablet_schema->create_storage_block(value_cids);
     CHECK_EQ(value_cids.size(), old_value_block.columns());
 
     // key: logical row index in current batch; value: index in old_value_block

@@ -439,17 +439,21 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegments
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
-        const std::shared_ptr<FileMapping>& file_mapping, const std::vector<SlotDescriptor>& slots,
-        const TUniqueId& query_id, const std::shared_ptr<RuntimeState>& runtime_state,
-        std::vector<Block>& scan_blocks, std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        const std::shared_ptr<FileMapping>& file_mapping,
+        const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
+        const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
+        std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
         const std::unordered_map<std::string, int>& colname_to_slot_id,
-        std::atomic<int>& producer_count, size_t scan_rows_count,
-        std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
-        TupleDescriptor& tuple_desc) {
+        std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc) {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
     signal::set_signal_task_id(query_id);
+
+    // Release the concurrency permit on every exit path (including error returns
+    // and exceptions). Completion accounting and status publishing are owned by
+    // the caller, so the status is always published before the waiter is woken.
+    Defer defer([&] { semaphore.release(); });
 
     std::list<int64_t> read_ids;
     //Generate an ordered list with the help of the orderliness of the map.
@@ -460,7 +464,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         row_id_block_idx[result_block_idx] = std::make_pair(idx, read_ids.size() - 1);
     }
 
-    scan_blocks[idx] = Block(slots, read_ids.size());
+    scan_blocks[idx] = Block(scan_slots, read_ids.size());
 
     auto& external_info = file_mapping->get_external_file_info();
     auto& scan_range_desc = external_info.scan_range_desc;
@@ -484,6 +488,23 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
                 &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
     }
 
+    if (scan_blocks[idx].rows() != read_ids.size()) {
+        return Status::InternalError(
+                "Row id fetch scan row count mismatch, "
+                "query_id={}, path={}, expected_rows={}, actual_rows={}",
+                print_id(query_id), scan_range_desc.path, read_ids.size(), scan_blocks[idx].rows());
+    }
+    for (size_t column_id = 0; column_id < scan_blocks[idx].columns(); ++column_id) {
+        const auto& column = scan_blocks[idx].get_by_position(column_id);
+        if (column.column->size() != read_ids.size()) {
+            return Status::InternalError(
+                    "Row id fetch scan column row count mismatch, "
+                    "query_id={}, path={}, column={}, expected_rows={}, actual_rows={}",
+                    print_id(query_id), scan_range_desc.path, column.name, read_ids.size(),
+                    column.column->size());
+        }
+    }
+
     auto file_read_bytes_counter =
             sub_runtime_profile->get_counter(FileScanner::FileReadBytesProfile);
 
@@ -499,12 +520,93 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
                 file_read_times_counter->value(), file_read_times_counter->type());
     }
 
-    semaphore.release();
-    if (++producer_count == scan_rows_count) {
-        std::lock_guard<std::mutex> lock(mtx);
-        cv.notify_one();
-    }
     return Status::OK();
+}
+
+std::string RowIdStorageReader::source_column_key(const SlotDescriptor& slot, uint32_t column_idx) {
+    fmt::memory_buffer key;
+    // Length-prefix each component so distinct sequences cannot alias, e.g.
+    // paths ["a", "b"] -> "1:a1:b" while ["a:b"] -> "3:a:b".
+    auto append = [&key](std::string_view component) {
+        fmt::format_to(key, "{}:", component.size());
+        key.append(component.data(), component.data() + component.size());
+    };
+    append(slot.col_name());
+    append(std::to_string(column_idx));
+    append(std::to_string(slot.col_unique_id()));
+    append(std::to_string(slot.column_paths().size()));
+    for (const auto& path : slot.column_paths()) {
+        append(path);
+    }
+    append(std::to_string(slot.all_access_paths().size()));
+    // Encode each optional sub-path's presence bit separately from its element
+    // count so an absent path ("0") never aliases a present-but-empty path
+    // ("1" + size "0").
+    auto append_optional_path = [&append](bool is_set, const std::vector<std::string>& items) {
+        append(is_set ? "1" : "0");
+        if (is_set) {
+            append(std::to_string(items.size()));
+            for (const auto& item : items) {
+                append(item);
+            }
+        }
+    };
+    for (const auto& path : slot.all_access_paths()) {
+        append(fmt::format("{}", path.type));
+        append_optional_path(path.__isset.data_access_path, path.data_access_path.path);
+        append_optional_path(path.__isset.meta_access_path, path.meta_access_path.path);
+    }
+    return fmt::to_string(key);
+}
+
+Status RowIdStorageReader::submit_external_scan_tasks(
+        ScannerScheduler* scheduler, std::counting_semaphore<>& semaphore, size_t task_count,
+        const std::function<std::string(size_t)>& make_task_id,
+        const std::function<Status(size_t)>& run_task) {
+    // `completed_count` is a plain counter guarded by `mtx`; the same mutex guards
+    // the wait predicate below, so a worker can never notify between the waiter's
+    // predicate check and its wait.
+    AtomicStatus scan_status;
+    std::condition_variable cv;
+    std::mutex mtx;
+    size_t completed_count = 0;
+
+    // Only tasks the scheduler actually accepted are waited for. If a submission
+    // fails we stop submitting, but still wait for the already-accepted tasks so
+    // their workers cannot outlive the locals they capture by reference.
+    size_t submitted_count = 0;
+    for (size_t idx = 0; idx < task_count; ++idx) {
+        semaphore.acquire();
+        auto run_one_task = [&, idx]() -> bool {
+            Status task_status = Status::OK();
+            // Publish the status before the completion signal wakes the waiter, on every
+            // path. A scanner that throws would otherwise leave scan_status OK while this
+            // Defer still counts the task as finished, and the caller would report success
+            // over a half-filled result block.
+            Defer complete([&] {
+                scan_status.update(task_status);
+                std::lock_guard<std::mutex> lock(mtx);
+                ++completed_count;
+                cv.notify_one();
+            });
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(task_status = run_task(idx), task_status);
+            return true;
+        };
+        Status submit_st = scheduler->submit_scan_task(
+                SimplifiedScanTask(run_one_task, nullptr, nullptr), make_task_id(idx));
+        if (!submit_st.ok()) {
+            scan_status.update(submit_st);
+            semaphore.release();
+            break;
+        }
+        ++submitted_count;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&] { return completed_count == submitted_count; });
+    }
+    return scan_status.ok() ? Status::OK() : scan_status.status();
 }
 
 Status RowIdStorageReader::read_batch_external_row(
@@ -517,11 +619,20 @@ Status RowIdStorageReader::read_batch_external_row(
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
     std::unordered_map<std::string, int> colname_to_slot_id;
     std::shared_ptr<RuntimeState> runtime_state = nullptr;
+    std::vector<SlotDescriptor> scan_slots;
+    std::vector<size_t> result_column_to_scan_column;
+    std::vector<uint32_t> scan_column_idxs;
 
     int max_file_scanners = 0;
     {
         if (result_block.is_empty_column()) [[likely]] {
             result_block = Block(slots, request_block_desc.row_id_size());
+        }
+        if (request_block_desc.column_idxs_size() != slots.size()) {
+            return Status::InternalError(
+                    "Row id fetch request has mismatched slots and column indexes, "
+                    "query_id={}, slots={}, column_idxs={}",
+                    print_id(query_id), slots.size(), request_block_desc.column_idxs_size());
         }
 
         auto& external_info = first_file_mapping->get_external_file_info();
@@ -538,13 +649,32 @@ Status RowIdStorageReader::read_batch_external_row(
 
         std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
                                     first_scan_range_desc.columns_from_path_keys.end());
+
+        std::unordered_map<std::string, size_t> source_column_to_scan_idx;
+
+        result_column_to_scan_column.reserve(slots.size());
+        scan_slots.reserve(slots.size());
+        scan_column_idxs.reserve(slots.size());
         for (auto slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-            auto& slot = slots[slot_idx];
+            const auto& slot = slots[slot_idx];
+            const auto column_idx = request_block_desc.column_idxs(slot_idx);
+            const auto key = source_column_key(slot, column_idx);
+            auto [it, inserted] =
+                    source_column_to_scan_idx.emplace(key, source_column_to_scan_idx.size());
+            result_column_to_scan_column.emplace_back(it->second);
+            if (inserted) {
+                scan_slots.emplace_back(slot);
+                scan_column_idxs.emplace_back(column_idx);
+            }
+        }
+
+        for (auto slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
+            auto& slot = scan_slots[slot_idx];
             tuple_desc.add_slot(&slot);
-            colname_to_slot_id.emplace(slot.col_name(), slot.id());
+            colname_to_slot_id[slot.col_name()] = slot.id();
             TFileScanSlotInfo slot_info;
             slot_info.slot_id = slot.id();
-            auto column_idx = request_block_desc.column_idxs(slot_idx);
+            auto column_idx = scan_column_idxs[slot_idx];
             if (partition_name_set.contains(slot.col_name())) {
                 //This is partition column.
                 slot_info.is_file_slot = false;
@@ -637,42 +767,69 @@ Status RowIdStorageReader::read_batch_external_row(
     int64_t scan_running_time = 0;
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {
-                // Make sure to insert data into result_block only after all scan tasks have been executed.
-                std::atomic<int> producer_count {0};
-                std::condition_variable cv;
-                std::mutex mtx;
-
                 //semaphore: Limit the number of scan tasks submitted at one time
                 std::counting_semaphore semaphore {max_file_scanners};
 
-                size_t idx = 0;
+                std::vector<std::pair<std::multimap<segment_v2::rowid_t, size_t>,
+                                      std::shared_ptr<FileMapping>>>
+                        scan_info_list;
+                scan_info_list.reserve(scan_rows.size());
                 for (const auto& [_, scan_info] : scan_rows) {
-                    semaphore.acquire();
-                    RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
-                            SimplifiedScanTask(
-                                    [&, idx, scan_info]() -> Status {
-                                        const auto& [row_ids, file_mapping] = scan_info;
-                                        return read_external_row_from_file_mapping(
-                                                idx, row_ids, file_mapping, slots, query_id,
-                                                runtime_state, scan_blocks, row_id_block_idx,
-                                                fetch_statistics, rpc_scan_params,
-                                                colname_to_slot_id, producer_count,
-                                                scan_rows.size(), semaphore, cv, mtx, tuple_desc);
-                                    },
-                                    nullptr, nullptr),
-                            fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
-                    idx++;
+                    scan_info_list.emplace_back(scan_info);
                 }
 
-                {
-                    std::unique_lock<std::mutex> lock(mtx);
-                    cv.wait(lock, [&] { return producer_count == scan_rows.size(); });
-                }
-                return Status::OK();
+                return submit_external_scan_tasks(
+                        remote_scan_sched, semaphore, scan_rows.size(),
+                        [&](size_t idx) {
+                            return fmt::format("{}-read_batch_external_row-{}", print_id(query_id),
+                                               idx);
+                        },
+                        [&](size_t idx) -> Status {
+                            const auto& [row_ids, file_mapping] = scan_info_list[idx];
+                            return read_external_row_from_file_mapping(
+                                    idx, row_ids, file_mapping, scan_slots, query_id, runtime_state,
+                                    scan_blocks, row_id_block_idx, fetch_statistics,
+                                    rpc_scan_params, colname_to_slot_id, semaphore, tuple_desc);
+                        });
             },
             &scan_running_time));
 
-    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+    // Insert the read data into result_block. Use insert_indices_from() instead of
+    // scatter_scan_blocks_to_result_block()/insert_from_multi_column(), because
+    // scan_blocks may have fewer columns than result_block when duplicate physical columns
+    // are deduplicated, and insert_from_multi_column() cannot handle ColumnString
+    // cross-type (32/64) copies safely.
+    const size_t result_column_count = result_block.columns();
+    for (size_t column_id = 0; column_id < result_column_count; column_id++) {
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
+
+        bool dst_is_nullable = dst_col->is_nullable();
+        std::vector<ColumnPtr> nullable_src_columns(scan_blocks.size());
+        auto scan_column_id = result_column_to_scan_column[column_id];
+        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
+            DCHECK_GT(scan_blocks.size(), pos_block);
+            DCHECK_GT(scan_blocks[pos_block].columns(), scan_column_id);
+            const auto& src_column_ptr =
+                    scan_blocks[pos_block].get_by_position(scan_column_id).column;
+            const auto* src_col = src_column_ptr.get();
+            if (dst_is_nullable && !src_col->is_nullable()) {
+                if (!nullable_src_columns[pos_block]) {
+                    nullable_src_columns[pos_block] = make_nullable(src_column_ptr);
+                }
+                src_col = nullable_src_columns[pos_block].get();
+            }
+            if (block_idx >= src_col->size()) {
+                return Status::InternalError(
+                        "Row id fetch source index out of range, query_id={}, column={}, "
+                        "source_block={}, source_rows={}, row_index={}",
+                        print_id(query_id), result_block.get_by_position(column_id).name, pos_block,
+                        src_col->size(), block_idx);
+            }
+            uint32_t scan_position = cast_set<uint32_t>(block_idx);
+            dst_col->insert_indices_from(*src_col, &scan_position, &scan_position + 1);
+        }
+    }
 
     // Statistical runtime profile information.
     std::unique_ptr<RuntimeProfile> runtime_profile =

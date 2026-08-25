@@ -335,6 +335,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEn
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromArrays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -917,6 +919,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
             scalar(MapEntries.class, "map_entries"),
+            scalar(MapFromArrays.class, "map_from_arrays"),
+            scalar(MapFromEntries.class, "map_from_entries"),
             scalar(MapKeys.class, "map_keys"),
             scalar(MapSize.class, "map_size"),
             scalar(MapValues.class, "map_values"),

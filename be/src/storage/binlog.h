@@ -54,6 +54,17 @@ constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
 constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
 
+namespace binlog {
+
+inline std::string build_before_column_name(std::string_view name) {
+    std::string before_name = "__BEFORE__";
+    before_name.append(name.data(), name.size());
+    before_name.append("__");
+    return before_name;
+}
+
+} // namespace binlog
+
 constexpr int64_t kBinlogLsnAutoIncId = -1;
 // used in file directory
 constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";

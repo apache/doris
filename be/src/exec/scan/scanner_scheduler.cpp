@@ -368,11 +368,8 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
         }
 
         std::string error_msg = fmt::format(
-                "Column in idx {} is nothing, block columns {}, normal_columns "
-                "{}, "
-                "virtual_column_ids [{}]",
-                idx, free_block->columns(), olap_scanner->_return_columns.size(),
-                fmt::join(virtual_column_ids, ","));
+                "Column in idx {} is nothing, block columns {}, virtual_column_ids [{}]", idx,
+                free_block->columns(), fmt::join(virtual_column_ids, ","));
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
     }
 #endif

@@ -169,8 +169,7 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
 
 public:
     ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                   const TupleDescriptor* output_tuple_desc,
-                   const RowDescriptor* output_row_descriptor,
+                   const TupleDescriptor* output_tuple_desc, bool has_projection,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    std::shared_ptr<Dependency> dependency, std::atomic<int64_t>* shared_scan_limit,
                    std::shared_ptr<MemShareArbitrator> arb, std::shared_ptr<MemLimiter> limiter,
@@ -268,7 +267,6 @@ protected:
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc = nullptr;
-    const RowDescriptor* _output_row_descriptor = nullptr;
 
     Status _process_status = Status::OK();
     std::atomic_bool _should_stop = false;
