@@ -38,6 +38,9 @@ suite("test_ivm_explain_refresh") {
     }
 
     sql "set disable_join_reorder=true"
+    // 固定 join 分布：剔除 broadcast 候选后，bucketShuffle 与 shuffle 的取舍只取决于
+    // 重分布数据量（bucketShuffle 恒优），不再受 BE 数量等环境因素影响
+    sql "set broadcast_row_count_limit = 0"
 
     sql """drop materialized view if exists test_ivm_explain_refresh_mv;"""
     sql """drop table if exists test_ivm_explain_refresh_t1;"""
