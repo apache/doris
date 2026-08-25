@@ -205,7 +205,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        cacheMgr.runCatalogLifecycle(getId(), () -> resetCatalogRuntime(cacheMgr, invalidCache));
+        resetCatalogRuntime(cacheMgr, invalidCache);
     }
 
     private void resetCatalogRuntime(ExternalMetaCacheMgr cacheMgr, boolean invalidCache) {
