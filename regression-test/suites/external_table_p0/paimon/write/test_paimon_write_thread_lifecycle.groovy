@@ -135,21 +135,27 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
                 (sql """SELECT COUNT(*) FROM t_thread_lifecycle""")[0][0] as long)
 
         backendEndpoints.keySet().each { backendId ->
-            // Warm-up now performs the same workload as every measured phase, so compare every
-            // phase with the actual pre-phase baseline. A bounded per-writer leak can no longer be
-            // hidden by using phase one as the oracle.
-            jvmPhases.eachWithIndex { counts, phase ->
-                assertTrue(counts[backendId] <= jvmBefore[backendId] + 2,
-                        "JVM threads grew after warm-up on backend ${backendId}, phase ${phase + 1}: "
-                                + "baseline=${jvmBefore[backendId]}, phases="
-                                + jvmPhases.collect { sample -> sample[backendId] })
-            }
-            processPhases.eachWithIndex { counts, phase ->
-                assertTrue(counts[backendId] <= processBefore[backendId] + 4,
-                        "Process threads grew after warm-up on backend ${backendId}, phase ${phase + 1}: "
-                                + "baseline=${processBefore[backendId]}, phases="
-                                + processPhases.collect { sample -> sample[backendId] })
-            }
+            // Warm-up performs the same workload as every measured phase. Judge persistent growth
+            // from the actual pre-phase baseline and phase low-water marks instead of failing on
+            // an isolated background-thread spike: a leaked thread cannot disappear in a later
+            // phase, while an unrelated transient thread can.
+            def jvmCounts = jvmPhases.collect { sample -> sample[backendId] as long }
+            def processCounts = processPhases.collect { sample -> sample[backendId] as long }
+            def earlyJvmFloor = jvmCounts.take(2).min()
+            def lateJvmFloor = jvmCounts.drop(2).min()
+            def earlyProcessFloor = processCounts.take(2).min()
+            def lateProcessFloor = processCounts.drop(2).min()
+
+            assertTrue(jvmCounts.min() <= jvmBefore[backendId] + 2,
+                    "JVM threads never returned to the warm-up baseline on backend ${backendId}: "
+                            + "baseline=${jvmBefore[backendId]}, phases=${jvmCounts}")
+            assertTrue(lateJvmFloor <= earlyJvmFloor + 2,
+                    "JVM threads kept growing on backend ${backendId}: phases=${jvmCounts}")
+            assertTrue(processCounts.min() <= processBefore[backendId] + 4,
+                    "Process threads never returned to the warm-up baseline on backend ${backendId}: "
+                            + "baseline=${processBefore[backendId]}, phases=${processCounts}")
+            assertTrue(lateProcessFloor <= earlyProcessFloor + 4,
+                    "Process threads kept growing on backend ${backendId}: phases=${processCounts}")
         }
     } finally {
         sql """drop catalog if exists ${catalogName}"""

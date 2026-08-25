@@ -126,13 +126,14 @@ void update_paimon_spill_accounting(JNIEnv* env, jclass, jlong spill_session_han
     spill_session->update_accounting(native_path, current_bytes_delta, write_bytes, read_bytes);
 }
 
-void reconcile_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle) {
+void reconcile_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle,
+                            jboolean allow_release) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr) {
         throw_java_io_exception(env, "Paimon external spill session is null");
         return;
     }
-    Status st = spill_session->reconcile_direct_file_usage();
+    Status st = spill_session->reconcile_direct_file_usage(allow_release == JNI_TRUE);
     if (!st.ok()) {
         throw_java_io_exception(env, st.to_string());
     }
@@ -146,7 +147,7 @@ Status register_paimon_spill_natives(JNIEnv* env, jclass writer_class) {
     static char update_spill_name[] = "updatePaimonSpillAccounting";
     static char update_spill_signature[] = "(JLjava/lang/String;JJJ)V";
     static char reconcile_spill_name[] = "reconcilePaimonSpill";
-    static char reconcile_spill_signature[] = "(J)V";
+    static char reconcile_spill_signature[] = "(JZ)V";
     static ::JNINativeMethod methods[] = {
             {get_spill_directories_name, get_spill_directories_signature,
              reinterpret_cast<void*>(&get_paimon_spill_directories)},

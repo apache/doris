@@ -233,9 +233,9 @@ public class PaimonJniWriter {
                                 allocator, array, schema, dictionaries)) {
                     writeBatch(root);
                     // Some Paimon writers (lookup stores, global indexes and clustering indexes)
-                    // write raw files below IOManager paths. Account their observed growth before
-                    // returning control to the native pipeline.
-                    ioManager.reconcile();
+                    // write raw files below IOManager paths. Observe their growth periodically
+                    // without turning every Doris block into a recursive filesystem scan.
+                    ioManager.reconcileIfDue();
                     return null;
                 } catch (Throwable t) {
                     throw new RuntimeException("PaimonJniWriter C Data write failed", t);
@@ -553,7 +553,7 @@ public class PaimonJniWriter {
         List<CommitMessage> messages = commitIdentifier > 0
                 ? writer.prepareCommit(true, commitIdentifier)
                 : writer.prepareCommit();
-        ioManager.reconcile();
+        ioManager.reconcileNow(false);
         preparedCommitMessages = new ArrayList<>(messages);
         return messages;
     }
@@ -594,15 +594,20 @@ public class PaimonJniWriter {
         }
         lifecycleFailure = closeResource(globalIndexAssigner, lifecycleFailure);
         Exception cleanupFailure = closeResource(ioManager, null);
+        boolean physicalCleanupFailure =
+                cleanupFailure instanceof DorisIOManager.SpillDirectoryCleanupException;
+        if (cleanupFailure != null && !physicalCleanupFailure) {
+            lifecycleFailure = appendFailure(lifecycleFailure, cleanupFailure);
+        }
         clearWriterState();
         if (lifecycleFailure != null) {
-            if (cleanupFailure != null) {
+            if (physicalCleanupFailure) {
                 lifecycleFailure.addSuppressed(cleanupFailure);
             }
             sdkCloseFailed = true;
             throw lifecycleFailure;
         }
-        if (cleanupFailure != null) {
+        if (physicalCleanupFailure) {
             // The QueryContext owns the parent spill directory and its GC retry path. Failure to
             // eagerly remove Paimon's nested directory is not evidence that Java tasks still hold
             // native memory, so it must not fence every later Paimon writer on this BE.
@@ -705,7 +710,8 @@ public class PaimonJniWriter {
             long nativeSpillSession, String path,
             long currentBytesDelta, long writeBytes, long readBytes);
 
-    static native void reconcilePaimonSpill(long nativeSpillSession) throws IOException;
+    static native void reconcilePaimonSpill(
+            long nativeSpillSession, boolean allowRelease) throws IOException;
 
     private static class PartitionBucket {
         private final BinaryRow partition;

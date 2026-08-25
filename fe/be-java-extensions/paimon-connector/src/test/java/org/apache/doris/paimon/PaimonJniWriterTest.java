@@ -17,8 +17,12 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.disk.BufferFileWriter;
+import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.memory.Buffer;
+import org.apache.paimon.memory.MemorySegment;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,6 +37,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonJniWriterTest {
     @TempDir
@@ -169,6 +175,8 @@ public class PaimonJniWriterTest {
                 throw new IOException("injected cleanup failure");
             }
         };
+        AtomicLong currentBytes = new AtomicLong();
+        AtomicBoolean finalReconcile = new AtomicBoolean();
         DorisIOManager.SpillAccountant accountant = new DorisIOManager.SpillAccountant() {
             @Override
             public String[] getSpillDirectories() {
@@ -177,10 +185,12 @@ public class PaimonJniWriterTest {
 
             @Override
             public void reserve(String path, long bytes) {
+                currentBytes.addAndGet(bytes);
             }
 
             @Override
             public void rollback(String path, long bytes) {
+                currentBytes.addAndGet(-bytes);
             }
 
             @Override
@@ -193,18 +203,32 @@ public class PaimonJniWriterTest {
 
             @Override
             public void release(String path, long bytes) {
+                currentBytes.addAndGet(-bytes);
             }
 
             @Override
-            public void reconcile() {
+            public void reconcile(boolean allowRelease) {
+                finalReconcile.set(allowRelease);
             }
         };
+        DorisIOManager ioManager = new DorisIOManager(failingCloseManager, accountant);
+        FileIOChannel.ID channel = ioManager.createChannel();
+        BufferFileWriter spillWriter = ioManager.createBufferFileWriter(channel);
+        spillWriter.writeBlock(Buffer.create(MemorySegment.wrap(new byte[8]), 8));
+        spillWriter.close();
+        Assertions.assertEquals(12, currentBytes.get());
+
         PaimonJniWriter writer = new PaimonJniWriter();
         Field ioManagerField = PaimonJniWriter.class.getDeclaredField("ioManager");
         ioManagerField.setAccessible(true);
-        ioManagerField.set(writer, new DorisIOManager(failingCloseManager, accountant));
+        ioManagerField.set(writer, ioManager);
 
         Assertions.assertDoesNotThrow(writer::close);
+        Assertions.assertTrue(finalReconcile.get());
+        Assertions.assertTrue(channel.getPathFile().exists());
+        Assertions.assertEquals(12, currentBytes.get());
         Assertions.assertDoesNotThrow(writer::close);
+        spillWriter.deleteChannel();
+        Assertions.assertEquals(0, currentBytes.get());
     }
 }

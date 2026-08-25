@@ -133,7 +133,7 @@ public:
 
     // Account files written directly below an IOManager temp directory by Paimon components which
     // do not use BufferFileWriter (for example lookup stores and RocksDB global indexes).
-    Status reconcile_direct_file_usage();
+    Status reconcile_direct_file_usage(bool allow_release);
 
 private:
     friend class SpillFileManager;
@@ -142,6 +142,7 @@ private:
         SpillDataDir* data_dir;
         std::string path;
         int64_t buffer_accounted_bytes = 0;
+        std::unordered_map<std::string, int64_t> buffer_accounted_bytes_by_path;
         int64_t direct_file_accounted_bytes = 0;
     };
 
@@ -203,12 +204,20 @@ private:
         std::string query_dir;
     };
 
+    struct PendingExternalSpillAccounting {
+        SpillDataDir* data_dir = nullptr;
+        int64_t bytes = 0;
+    };
+
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
     void _retry_pending_query_spill_directories();
     Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
+    void _transfer_external_spill_accounting(const std::string& query_dir, SpillDataDir* data_dir,
+                                             int64_t bytes);
+    void _release_pending_external_spill_accounting(const std::string& query_dir);
     void _release_external_spill_session(const ExternalSpillSession* spill_session);
     bool _has_external_spill_lease(const std::string& query_dir);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
@@ -222,6 +231,10 @@ private:
 
     std::mutex _pending_query_spill_directories_mutex;
     std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
+
+    std::mutex _pending_external_spill_accounting_mutex;
+    std::unordered_map<std::string, PendingExternalSpillAccounting>
+            _pending_external_spill_accounting;
 
     std::mutex _external_spill_leases_mutex;
     std::unordered_map<std::string, size_t> _external_spill_leases;

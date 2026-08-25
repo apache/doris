@@ -25,6 +25,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 #include "common/logging.h"
@@ -62,7 +63,12 @@ ExternalSpillSession::~ExternalSpillSession() {
             const int64_t accounted_bytes =
                     managed_path.buffer_accounted_bytes + managed_path.direct_file_accounted_bytes;
             if (accounted_bytes > 0) {
-                managed_path.data_dir->update_spill_data_usage(-accounted_bytes);
+                // A confirmed Java close can still leave files behind when eager physical cleanup
+                // fails. Keep those bytes charged after this callback object is destroyed; query
+                // directory GC releases them only after deletion actually succeeds.
+                _manager->_transfer_external_spill_accounting(
+                        managed_path.data_dir->get_spill_data_path(_query_id),
+                        managed_path.data_dir, accounted_bytes);
                 managed_path.buffer_accounted_bytes = 0;
                 managed_path.direct_file_accounted_bytes = 0;
             }
@@ -119,6 +125,7 @@ Status ExternalSpillSession::reserve(const std::string& path, int64_t bytes) {
                 path, bytes);
     }
     managed_path->buffer_accounted_bytes += bytes;
+    managed_path->buffer_accounted_bytes_by_path[path] += bytes;
     return Status::OK();
 }
 
@@ -139,7 +146,15 @@ void ExternalSpillSession::update_accounting(const std::string& path, int64_t cu
                     current_bytes_delta == std::numeric_limits<int64_t>::min()
                             ? std::numeric_limits<int64_t>::max()
                             : -current_bytes_delta;
-            released_bytes = std::min(requested_release, managed_path->buffer_accounted_bytes);
+            auto path_it = managed_path->buffer_accounted_bytes_by_path.find(path);
+            if (path_it == managed_path->buffer_accounted_bytes_by_path.end()) {
+                return;
+            }
+            released_bytes = std::min(requested_release, path_it->second);
+            path_it->second -= released_bytes;
+            if (path_it->second == 0) {
+                managed_path->buffer_accounted_bytes_by_path.erase(path_it);
+            }
             managed_path->buffer_accounted_bytes -= released_bytes;
         }
     }
@@ -156,25 +171,48 @@ void ExternalSpillSession::update_accounting(const std::string& path, int64_t cu
     }
 }
 
-Status ExternalSpillSession::reconcile_direct_file_usage() {
-    std::lock_guard lock(_mutex);
-    for (auto& managed_path : _managed_paths) {
+Status ExternalSpillSession::reconcile_direct_file_usage(bool allow_release) {
+    struct ObservedPathUsage {
+        std::string path;
+        std::unordered_set<std::string> buffer_paths;
+        uintmax_t bytes = 0;
+    };
+    std::vector<ObservedPathUsage> observed_paths;
+    {
+        std::lock_guard lock(_mutex);
+        observed_paths.reserve(_managed_paths.size());
+        for (const auto& managed_path : _managed_paths) {
+            ObservedPathUsage observed_path {.path = managed_path.path};
+            for (const auto& buffer_entry : managed_path.buffer_accounted_bytes_by_path) {
+                observed_path.buffer_paths.emplace(buffer_entry.first);
+            }
+            observed_paths.emplace_back(std::move(observed_path));
+        }
+    }
+
+    // Do not hold the session mutex while walking the filesystem. Buffer callbacks can continue to
+    // reserve and release capacity while a rate-limited raw-file observation is in progress.
+    for (auto& observed_path : observed_paths) {
         uintmax_t actual_bytes = 0;
         std::error_code ec;
-        if (std::filesystem::exists(managed_path.path, ec)) {
+        if (std::filesystem::exists(observed_path.path, ec)) {
             std::filesystem::recursive_directory_iterator iterator(
-                    managed_path.path, std::filesystem::directory_options::skip_permission_denied,
+                    observed_path.path, std::filesystem::directory_options::skip_permission_denied,
                     ec);
             const std::filesystem::recursive_directory_iterator end;
             while (!ec && iterator != end) {
                 if (iterator->is_regular_file(ec)) {
-                    const auto file_bytes = iterator->file_size(ec);
-                    if (!ec) {
-                        if (file_bytes > std::numeric_limits<uintmax_t>::max() - actual_bytes) {
-                            return Status::InternalError("Paimon spill directory size overflow: {}",
-                                                         managed_path.path);
+                    const auto file_path = iterator->path().string();
+                    if (!observed_path.buffer_paths.contains(file_path)) {
+                        const auto file_bytes = iterator->file_size(ec);
+                        if (!ec) {
+                            if (file_bytes > std::numeric_limits<uintmax_t>::max() - actual_bytes) {
+                                return Status::InternalError(
+                                        "Paimon spill directory size overflow: {}",
+                                        observed_path.path);
+                            }
+                            actual_bytes += file_bytes;
                         }
-                        actual_bytes += file_bytes;
                     }
                 }
                 iterator.increment(ec);
@@ -182,19 +220,29 @@ Status ExternalSpillSession::reconcile_direct_file_usage() {
         }
         if (ec) {
             return Status::IOError("Failed to inspect Paimon spill directory {}: {}",
-                                   managed_path.path, ec.message());
+                                   observed_path.path, ec.message());
         }
+        observed_path.bytes = actual_bytes;
+    }
 
-        // Buffer channel bytes are reserved before their writes. Everything else observed below
-        // the managed root belongs to Paimon implementations which write raw files directly.
-        const uintmax_t buffer_bytes = static_cast<uintmax_t>(managed_path.buffer_accounted_bytes);
-        const uintmax_t direct_file_bytes =
-                actual_bytes > buffer_bytes ? actual_bytes - buffer_bytes : 0;
-        if (direct_file_bytes <= static_cast<uintmax_t>(managed_path.direct_file_accounted_bytes)) {
-            // Keep this conservative while asynchronous compaction may still mutate raw files.
+    std::lock_guard lock(_mutex);
+    for (size_t i = 0; i < observed_paths.size(); ++i) {
+        auto& managed_path = _managed_paths[i];
+        // Account only files not already covered by BufferFileWriter callbacks.
+        const uintmax_t direct_file_bytes = observed_paths[i].bytes;
+        const uintmax_t accounted_direct_file_bytes =
+                static_cast<uintmax_t>(managed_path.direct_file_accounted_bytes);
+        if (direct_file_bytes < accounted_direct_file_bytes && allow_release) {
+            const int64_t released_bytes =
+                    static_cast<int64_t>(accounted_direct_file_bytes - direct_file_bytes);
+            managed_path.direct_file_accounted_bytes -= released_bytes;
+            managed_path.data_dir->update_spill_data_usage(-released_bytes);
+        }
+        if (direct_file_bytes <= accounted_direct_file_bytes) {
+            // Non-final observations stay conservative while compaction can mutate raw files.
             continue;
         }
-        const uintmax_t delta = direct_file_bytes - managed_path.direct_file_accounted_bytes;
+        const uintmax_t delta = direct_file_bytes - accounted_direct_file_bytes;
         if (delta > static_cast<uintmax_t>(std::numeric_limits<int64_t>::max())) {
             return Status::InternalError("Paimon spill directory is too large to account: {}",
                                          managed_path.path);
@@ -399,6 +447,39 @@ void SpillFileManager::_release_external_spill_session(const ExternalSpillSessio
     }
 }
 
+void SpillFileManager::_transfer_external_spill_accounting(const std::string& query_dir,
+                                                           SpillDataDir* data_dir, int64_t bytes) {
+    DCHECK(data_dir != nullptr);
+    DCHECK_GT(bytes, 0);
+    std::lock_guard lock(_pending_external_spill_accounting_mutex);
+    auto it = _pending_external_spill_accounting
+                      .try_emplace(query_dir, PendingExternalSpillAccounting {.data_dir = data_dir})
+                      .first;
+    DCHECK(it->second.data_dir == data_dir);
+    if (bytes > std::numeric_limits<int64_t>::max() - it->second.bytes) {
+        LOG(ERROR) << "Pending external spill accounting overflow for " << query_dir;
+        // Preserve the existing charge rather than risk releasing more bytes than were reserved.
+        return;
+    }
+    it->second.bytes += bytes;
+}
+
+void SpillFileManager::_release_pending_external_spill_accounting(const std::string& query_dir) {
+    PendingExternalSpillAccounting accounting;
+    {
+        std::lock_guard lock(_pending_external_spill_accounting_mutex);
+        auto it = _pending_external_spill_accounting.find(query_dir);
+        if (it == _pending_external_spill_accounting.end()) {
+            return;
+        }
+        accounting = it->second;
+        _pending_external_spill_accounting.erase(it);
+    }
+    if (accounting.bytes > 0) {
+        accounting.data_dir->update_spill_data_usage(-accounting.bytes);
+    }
+}
+
 bool SpillFileManager::_has_external_spill_lease(const std::string& query_dir) {
     std::lock_guard lock(_external_spill_leases_mutex);
     return _external_spill_leases.contains(query_dir);
@@ -442,7 +523,7 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
 
 Status SpillFileManager::_try_delete_query_spill_directory(
         const PendingQuerySpillDirectory& pending_directory) {
-    std::lock_guard lock(_external_spill_leases_mutex);
+    std::unique_lock lock(_external_spill_leases_mutex);
     if (_external_spill_leases.contains(pending_directory.query_dir)) {
         return Status::InternalError("external spill directory is still in use: {}",
                                      pending_directory.query_dir);
@@ -451,7 +532,12 @@ Status SpillFileManager::_try_delete_query_spill_directory(
         return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
     });
     const auto& fs = io::global_local_filesystem();
-    return fs->delete_directory(pending_directory.query_dir);
+    auto status = fs->delete_directory(pending_directory.query_dir);
+    lock.unlock();
+    if (status.ok()) {
+        _release_pending_external_spill_accounting(pending_directory.query_dir);
+    }
+    return status;
 }
 
 void SpillFileManager::_retry_pending_query_spill_directories() {
@@ -679,7 +765,11 @@ bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     if (_reach_disk_capacity_limit(incoming_data_size)) {
         return true;
     }
-    if (_spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {
+    // A root already at its spill limit must not be returned by the zero-byte availability probe
+    // used during path selection. Still allow a positive reservation to fill the final bytes
+    // exactly, matching try_reserve_spill_data().
+    if (_spill_data_bytes >= _spill_data_limit_bytes ||
+        incoming_data_size > _spill_data_limit_bytes - _spill_data_bytes) {
         LOG_EVERY_T(WARNING, 1) << fmt::format(
                 "spill data reach limit, path: {}, capacity: {}, limit: {}, used: {}, "
                 "available: "
