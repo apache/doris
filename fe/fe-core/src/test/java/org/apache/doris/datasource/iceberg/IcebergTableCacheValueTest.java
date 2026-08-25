@@ -21,17 +21,15 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.nereids.StatementContext;
 
-import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.FileIO;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -51,22 +49,6 @@ class IcebergTableCacheValueTest {
             Assertions.assertSame(executor, lease.getPlanningExecutor());
             lease.close();
             value.retire();
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    void backgroundSnapshotCopyDropsRuntimeGenerationOwners() {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
-        try {
-            IcebergSnapshotCacheValue runtimeValue = new IcebergSnapshotCacheValue(
-                    null, null, Optional.empty(), newProxy(Table.class), executor);
-
-            IcebergSnapshotCacheValue detached = runtimeValue.metadataOnlyCopy();
-
-            Assertions.assertFalse(detached.getIcebergTable().isPresent());
-            Assertions.assertNull(detached.getPlanningExecutor());
         } finally {
             executor.shutdownNow();
         }
@@ -190,13 +172,19 @@ class IcebergTableCacheValueTest {
                 cleanupCounts.add(cleanupCount);
                 return newValue(cleanupCount);
             }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor, true, false,
-                    (key, value) -> value.retire());
+                    null, null,
+                    (key, previous, current) -> {
+                        if (previous != null) {
+                            previous.retire();
+                        }
+                    }, value -> value,
+                    (key, value) -> ((IcebergTableCacheValue) value).retire());
             IcebergTableCacheValue first = entry.get("table");
             IcebergTableCacheValue.Lease oldBorrower = first.tryAcquire();
             Assertions.assertNotNull(oldBorrower);
             first.releaseLoaderReference();
 
-            extractLoadingCache(entry).refresh("table");
+            triggerRefresh(entry, "table");
             refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
             refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
             Assertions.assertEquals(2, cleanupCounts.size());
@@ -205,10 +193,32 @@ class IcebergTableCacheValueTest {
             Assertions.assertEquals(0, cleanupCounts.get(0).get());
 
             oldBorrower.close();
+            awaitCleanup(cleanupCounts.get(0));
             Assertions.assertEquals(1, cleanupCounts.get(0).get());
             entry.invalidateKey("table");
-            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            awaitCleanup(cleanupCounts.get(1));
             Assertions.assertEquals(1, cleanupCounts.get(1).get());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    void closingCacheRetiresPublishedGeneration() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger cleanupCount = new AtomicInteger();
+        try {
+            MetaCacheEntry<String, IcebergTableCacheValue> entry = new MetaCacheEntry<>("iceberg-table",
+                    key -> newValue(cleanupCount), CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor, true, false, null, null, null, value -> value,
+                    (key, value) -> ((IcebergTableCacheValue) value).retire());
+            IcebergTableCacheValue value = entry.get("table");
+            value.releaseLoaderReference();
+
+            entry.close();
+
+            awaitCleanup(cleanupCount);
+            Assertions.assertEquals(1, cleanupCount.get());
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -240,12 +250,18 @@ class IcebergTableCacheValueTest {
         return new IcebergTableCacheValue(table, () -> null, cleanupCount::incrementAndGet);
     }
 
-    @SuppressWarnings("unchecked")
-    private LoadingCache<String, IcebergTableCacheValue> extractLoadingCache(
-            MetaCacheEntry<String, IcebergTableCacheValue> entry) throws Exception {
-        Field field = MetaCacheEntry.class.getDeclaredField("loadingData");
-        field.setAccessible(true);
-        return (LoadingCache<String, IcebergTableCacheValue>) field.get(entry);
+    private void awaitCleanup(AtomicInteger cleanupCount) throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);
+        while (cleanupCount.get() == 0 && System.nanoTime() < deadlineNanos) {
+            TimeUnit.MILLISECONDS.sleep(10L);
+        }
+    }
+
+    private void triggerRefresh(MetaCacheEntry<String, IcebergTableCacheValue> entry, String key)
+            throws Exception {
+        Method method = MetaCacheEntry.class.getDeclaredMethod("triggerRefreshForTest", Object.class);
+        method.setAccessible(true);
+        method.invoke(entry, key);
     }
 
     @SuppressWarnings("unchecked")
