@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -141,6 +142,53 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(viewGuard, cacheGuard.child());
         // the cache guard must stay structurally distinct from the query-side guard
         Assertions.assertNotEquals(querySide, cacheSide);
+    }
+
+    /**
+     * The cache-mismatch marker around an existing non-cache guard is scoped to the guard family the cache
+     * is built for (computeGuardMask separates time-zone and other-variable dependencies): a time-zone-only
+     * cache must NOT wrap an existing "other"-family guard (e.g. a decimal multiply guarded by
+     * enable_decimal256), and an other-family-only cache must NOT wrap an existing time-zone guard -
+     * otherwise a safe cross-zone nested-view rewrite whose semantics agree through the view guard would be
+     * rejected by the isCacheGuard() gates. The outer marker is added only when the existing guard's family
+     * intersects the cache mask.
+     */
+    @Test
+    public void testCacheGuardPreservedOnlyForIntersectingFamily() {
+        Map<String, String> viewVars = ImmutableMap.of("time_zone", "+08:00", "enable_decimal256", "true");
+        Map<String, String> mvVars = ImmutableMap.of("time_zone", "+00:00", "enable_decimal256", "false");
+
+        // an "other"-family view guard: decimal multiplication depends on enable_decimal256
+        SlotReference a = new SlotReference("a", DecimalV3Type.createDecimalV3Type(27, 9));
+        SlotReference b = new SlotReference("b", DecimalV3Type.createDecimalV3Type(27, 9));
+        SessionVarGuardExpr otherViewGuard = new SessionVarGuardExpr(new Multiply(a, b), viewVars);
+
+        // a time-zone view guard: date_trunc on a TIMESTAMPTZ
+        SlotReference tzSlot = new SlotReference("ts", TimeStampTzType.of(6));
+        SessionVarGuardExpr tzViewGuard =
+                new SessionVarGuardExpr(new DateTrunc(tzSlot, new VarcharLiteral("day")), viewVars);
+
+        // a time-zone-only cache mask wraps the time-zone guard but leaves the "other"-family guard as-is
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter tzCache = new SessionVarGuardRewriter
+                .AddSessionVarGuardRewriter(mvVars, SessionVarGuardRewriter.GUARD_TIME_ZONE);
+        Expression tzWrapped = tzViewGuard.accept(tzCache, Boolean.FALSE);
+        Assertions.assertTrue(tzWrapped instanceof SessionVarGuardExpr
+                && ((SessionVarGuardExpr) tzWrapped).isCacheGuard(),
+                "time-zone guard must get the marker under a time-zone cache mask");
+        Expression otherKept = otherViewGuard.accept(tzCache, Boolean.FALSE);
+        Assertions.assertSame(otherViewGuard, otherKept,
+                "other-family guard must not get the marker under a time-zone-only cache mask");
+
+        // an other-family-only cache mask wraps the other-family guard but leaves the time-zone guard as-is
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter otherCache = new SessionVarGuardRewriter
+                .AddSessionVarGuardRewriter(mvVars, SessionVarGuardRewriter.GUARD_OTHER);
+        Expression otherWrapped = otherViewGuard.accept(otherCache, Boolean.FALSE);
+        Assertions.assertTrue(otherWrapped instanceof SessionVarGuardExpr
+                && ((SessionVarGuardExpr) otherWrapped).isCacheGuard(),
+                "other-family guard must get the marker under an other-family cache mask");
+        Expression tzKept = tzViewGuard.accept(otherCache, Boolean.FALSE);
+        Assertions.assertSame(tzViewGuard, tzKept,
+                "time-zone guard must not get the marker under an other-family-only cache mask");
     }
 
     /**
