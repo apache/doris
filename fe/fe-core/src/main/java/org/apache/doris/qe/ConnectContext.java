@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
@@ -674,6 +675,8 @@ public class ConnectContext {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
                 return Literal.of(((DecimalLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof DateLiteral) {
+                return Literal.fromLegacyLiteral(literalExpr, literalExpr.getType());
             } else if (literalExpr instanceof StringLiteral) {
                 return Literal.of(((StringLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof NullLiteral) {
