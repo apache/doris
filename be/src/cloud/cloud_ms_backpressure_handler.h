@@ -131,7 +131,6 @@ private:
 struct TableRpcThrottleDecision {
     std::chrono::steady_clock::time_point wait_until;
     double qps_limit {0};
-    double current_qps {0};
     bool dry_run {false};
 };
 
@@ -199,6 +198,7 @@ public:
     TableRpcThrottleDecision before_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
 
     bool should_log_throttle(LoadRelatedRpc rpc_type, int64_t now_us);
+    double get_current_qps(LoadRelatedRpc rpc_type, int64_t table_id) const;
 
     // Called after RPC execution, records QPS statistics
     void after_rpc(LoadRelatedRpc rpc_type, int64_t table_id);

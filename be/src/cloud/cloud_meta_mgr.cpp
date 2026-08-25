@@ -521,9 +521,11 @@ void apply_table_level_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx
     DCHECK(recorder);
     *recorder << wait_us;
     if (ctx.backpressure_handler->should_log_throttle(load_rpc, MonotonicMicros())) {
+        const double current_qps =
+                ctx.backpressure_handler->get_current_qps(load_rpc, ctx.table_id);
         LOG(INFO) << "[ms-throttle] table-level rate limiter triggered for MS RPC request"
                   << ", rpc=" << load_related_rpc_name(load_rpc) << ", table_id=" << ctx.table_id
-                  << ", wait_us=" << wait_us << ", current_qps=" << decision.current_qps
+                  << ", wait_us=" << wait_us << ", current_qps=" << current_qps
                   << ", qps_limit=" << decision.qps_limit;
     }
 

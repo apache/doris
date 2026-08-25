@@ -545,15 +545,15 @@ TableRpcThrottleDecision MSBackpressureHandler::before_rpc(LoadRelatedRpc rpc_ty
         return {.wait_until = std::chrono::steady_clock::now()};
     }
 
-    auto decision = _throttler->throttle(rpc_type, table_id, dry_run);
-    if (decision.qps_limit > 0) {
-        decision.current_qps = _qps_registry->get_qps(rpc_type, table_id);
-    }
-    return decision;
+    return _throttler->throttle(rpc_type, table_id, dry_run);
 }
 
 bool MSBackpressureHandler::should_log_throttle(LoadRelatedRpc rpc_type, int64_t now_us) {
     return _throttler->should_log(rpc_type, now_us);
+}
+
+double MSBackpressureHandler::get_current_qps(LoadRelatedRpc rpc_type, int64_t table_id) const {
+    return _qps_registry->get_qps(rpc_type, table_id);
 }
 
 void MSBackpressureHandler::after_rpc(LoadRelatedRpc rpc_type, int64_t table_id) {
