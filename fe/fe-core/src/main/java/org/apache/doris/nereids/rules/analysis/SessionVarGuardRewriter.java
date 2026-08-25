@@ -236,14 +236,17 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         public Expression visitSessionVarGuardExpr(SessionVarGuardExpr expr, Boolean context) {
             Expression child = expr.child().accept(this, Boolean.TRUE);
             Expression guarded = child != expr.child() ? expr.withChildren(ImmutableList.of(child)) : expr;
-            // A cache-building rewriter must keep a cache-mismatch marker around an existing non-cache guard:
-            // an MTMV over a view carries the view's query-side guard (cacheGuard=false) in its definition
-            // plan, so without re-marking it the guarded cache for a cross-zone query has no cache guard and
-            // the isCacheGuard() rejection in AbstractMaterializedViewRule never fires - FORCE_IN_RBO would
-            // then substitute a value materialized in the MV's creation/refresh session. Wrap the existing
-            // guard so the cache plan is structurally distinct from the query-side plan and the rejection
-            // gates see the marker.
-            if (cacheGuard && !expr.isCacheGuard() && sessionVar != null) {
+            // A cache-building rewriter must keep a cache-mismatch marker around an existing non-cache
+            // guard, but ONLY for the guard family the cache is built for: the existing guard's dependency
+            // family is re-derived from the expression it wraps (a NeedSessionVarGuard expression is the
+            // "other" family, a time-zone sensitive one is the time-zone family), and an outer marker for a
+            // family the cache does not guard (e.g. an "other"-family decimal guard under a time-zone-only
+            // cache mask) would reject a safe cross-zone nested-view rewrite whose decimal semantics agree
+            // through the view guard. Without the family scope an MTMV over a view carries the view's
+            // query-side guard (cacheGuard=false) in its definition plan and the isCacheGuard() rejection
+            // in AbstractMaterializedViewRule would never fire for the family that actually differs.
+            if (cacheGuard && !expr.isCacheGuard() && sessionVar != null
+                    && needsSessionVarGuard(guarded.child(0))) {
                 return new SessionVarGuardExpr(guarded, sessionVar, true);
             }
             return guarded;
