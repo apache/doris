@@ -772,6 +772,12 @@ class SuiteCluster {
         runRecyclerCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // Restart all Doris cloud services together while leaving FoundationDB running.
+    void restartCloudServices() {
+        runCmd("restart --wait-timeout ${START_WAIT_TIMEOUT} ${name} "
+                + "--fe-id --be-id --ms-id --recycle-id", START_WAIT_TIMEOUT + 5)
+    }
+
     // indices start from 1, not 0
     // if not specific fe indices, then drop all frontends
     void dropFrontends(boolean clean, int... indices) {

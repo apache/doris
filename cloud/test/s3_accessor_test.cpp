@@ -267,6 +267,63 @@ TEST_F(S3AccessorTest, s3) {
     test_s3_accessor(*accessor);
 }
 
+class S3ExpressAccessorLiveTest : public testing::Test {
+protected:
+    void SetUp() override {
+        const char* ak = std::getenv("DORIS_TEST_S3_EXPRESS_AK");
+        const char* sk = std::getenv("DORIS_TEST_S3_EXPRESS_SK");
+        const char* region = std::getenv("DORIS_TEST_S3_EXPRESS_REGION");
+        const char* bucket = std::getenv("DORIS_TEST_S3_EXPRESS_BUCKET");
+        if (ak == nullptr || sk == nullptr || region == nullptr || bucket == nullptr) {
+            GTEST_SKIP() << "Skipping S3 Express live test because DORIS_TEST_S3_EXPRESS_* "
+                            "environment variables are not set";
+        }
+        ak_ = ak;
+        sk_ = sk;
+        region_ = region;
+        bucket_ = bucket;
+    }
+
+    std::string ak_;
+    std::string sk_;
+    std::string region_;
+    std::string bucket_;
+};
+
+TEST_F(S3ExpressAccessorLiveTest, crud_and_non_directory_prefix_delete) {
+    std::shared_ptr<S3Accessor> accessor;
+    int ret = S3Accessor::create(
+            S3Conf {
+                    .ak = ak_,
+                    .sk = sk_,
+                    .endpoint = "s3." + region_ + ".amazonaws.com",
+                    .region = region_,
+                    .bucket = bucket_,
+                    .prefix = "vault-runs/regression/S3ExpressAccessorLiveTest/" +
+                              butil::GenerateGUID(),
+                    .provider = S3Conf::S3EXPRESS,
+            },
+            &accessor);
+    ASSERT_EQ(ret, 0);
+
+    test_s3_accessor(*accessor);
+
+    const std::string target0 = "data/20000/target_0.dat";
+    const std::string target1 = "data/20000/target_1.dat";
+    const std::string sibling = "data/20000/target-sibling_0.dat";
+    ASSERT_EQ(accessor->put_file(target0, "target-0"), 0);
+    ASSERT_EQ(accessor->put_file(target1, "target-1"), 0);
+    ASSERT_EQ(accessor->put_file(sibling, "sibling"), 0);
+
+    ASSERT_EQ(accessor->delete_prefix("data/20000/target_"), 0);
+    EXPECT_EQ(accessor->exists(target0), 1);
+    EXPECT_EQ(accessor->exists(target1), 1);
+    EXPECT_EQ(accessor->exists(sibling), 0);
+
+    EXPECT_EQ(accessor->delete_directory("data/20000"), 0);
+    EXPECT_EQ(accessor->exists(sibling), 1);
+}
+
 TEST_F(S3AccessorTest, azure) {
     std::shared_ptr<S3Accessor> accessor;
     int ret = S3Accessor::create(

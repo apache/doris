@@ -21,6 +21,8 @@
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
 
+#include <limits>
+
 #include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_express_obj_storage_client.h"
@@ -35,7 +37,7 @@ using namespace Aws::S3::Model;
 namespace doris::io {
 class MockS3Client : public Aws::S3::S3Client {
 public:
-    MockS3Client() {};
+    MockS3Client() = default;
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
@@ -175,6 +177,55 @@ TEST_F(S3ObjStorageClientMockTest, s3_express_propagates_crc32c_to_multipart_com
               .etag = std::move(*upload.etag),
               .checksum_crc32c = std::move(upload.checksum_crc32c)}});
     EXPECT_TRUE(response.ok()) << response.status.msg;
+}
+
+TEST_F(S3ObjStorageClientMockTest,
+       s3_express_recursive_delete_filters_non_matching_siblings_across_pages) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ExpressObjStorageClient>(mock_s3_client, mock_s3_client);
+
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce([](const ListObjectsV2Request& request) {
+                EXPECT_EQ(request.GetPrefix(), "dir/");
+                EXPECT_FALSE(request.ContinuationTokenHasBeenSet());
+                return ListObjectsV2Outcome(
+                        CreatePageResult("next", {"dir/target_0.dat", "dir/sibling_0.dat"}, true));
+            })
+            .WillOnce([](const ListObjectsV2Request& request) {
+                EXPECT_EQ(request.GetPrefix(), "dir/");
+                EXPECT_EQ(request.GetContinuationToken(), "next");
+                return ListObjectsV2Outcome(CreatePageResult(
+                        "", {"dir/target_1.dat", "dir/target-sibling_0.dat"}, false));
+            });
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .WillOnce([](const DeleteObjectsRequest& request) {
+                const auto& objects = request.GetDelete().GetObjects();
+                std::vector<std::string> keys;
+                for (const auto& object : objects) {
+                    keys.emplace_back(object.GetKey());
+                }
+                EXPECT_EQ(keys,
+                          (std::vector<std::string> {"dir/target_0.dat", "dir/target_1.dat"}));
+                return DeleteObjectsOutcome(DeleteObjectsResult {});
+            });
+
+    auto response =
+            delete_objects_recursively(client, {.bucket = "dummy-bucket", .prefix = "dir/target_"});
+
+    EXPECT_TRUE(response.ok()) << response.status.msg;
+}
+
+TEST_F(S3ObjStorageClientMockTest, s3_express_skips_versioning_and_lifecycle_requests) {
+    auto mock_s3_client = std::make_shared<testing::StrictMock<MockS3Client>>();
+    auto client = std::make_shared<S3ExpressObjStorageClient>(mock_s3_client, mock_s3_client);
+
+    int64_t expiration_days = 0;
+    auto response = client->check_versioning("dummy-bucket");
+    EXPECT_TRUE(response.ok()) << response.status.msg;
+
+    response = client->get_lifecycle("dummy-bucket", &expiration_days);
+    EXPECT_TRUE(response.ok()) << response.status.msg;
+    EXPECT_EQ(expiration_days, std::numeric_limits<int64_t>::max());
 }
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {

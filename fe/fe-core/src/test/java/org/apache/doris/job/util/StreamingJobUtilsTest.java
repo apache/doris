@@ -270,4 +270,36 @@ public class StreamingJobUtilsTest {
             Mockito.verify(jdbcClient).closeClient();
         }
     }
+
+    @Test
+    public void testRejectExplicitS3ExpressStreamingSource() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "s3://bucket--usw2-az1--x-s3/path/*.csv");
+        properties.put("provider", "S3EXPRESS");
+        properties.put("s3.region", "us-west-2");
+        properties.put("use_path_style", "false");
+
+        JobException exception = Assert.assertThrows(JobException.class,
+                () -> StreamingJobUtils.validateTvfSource("s3", properties, "job-id"));
+
+        Assert.assertTrue(exception.getMessage().contains(
+                "S3 Express One Zone is not supported for S3 streaming jobs"));
+    }
+
+    @Test
+    public void testRejectLegacyS3ExpressStreamingSource() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "s3://bucket--usw2-az1--x-s3/path/*.csv");
+        properties.put("provider", "S3");
+        properties.put("s3.endpoint", "s3express-usw2-az1.us-west-2.amazonaws.com");
+        properties.put("s3.region", "us-west-2");
+        properties.put("use_path_style", "false");
+
+        JobException exception = Assert.assertThrows(JobException.class,
+                () -> StreamingJobUtils.validateTvfSource("s3", properties, "job-id"));
+
+        Assert.assertTrue(exception.getMessage().contains(
+                "S3 Express One Zone is not supported for S3 streaming jobs"));
+    }
+
 }
