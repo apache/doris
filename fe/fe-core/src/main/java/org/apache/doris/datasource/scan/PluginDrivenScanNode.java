@@ -93,7 +93,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -107,9 +106,6 @@ import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -2060,7 +2056,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
-        SubmittedTaskFinalizer profileFinalizer = new SubmittedTaskFinalizer(() -> {
+        Runnable batchFinalizer = () -> {
             try {
                 List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
                         () -> scanProvider.collectScanProfiles(connectorSession));
@@ -2076,66 +2072,44 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             } finally {
                 splitAssignment.finishSchedule();
             }
-        });
-
-        Runnable dispatch = () -> {
-            try {
-                for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
-                    int end = Math.min(begin + batchSize, allPartitions.size());
-                    if (batchException.get() != null || splitAssignment.isStop()) {
-                        break;
-                    }
-                    List<String> batch = new ArrayList<>(allPartitions.subList(begin, end));
-                    profileFinalizer.taskSubmitted();
-                    try {
-                        if (!splitAssignment.submitProducer(scheduleExecutor, () -> {
-                            try {
-                                List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
-                                        () -> scanProvider.planScanForPartitionBatch(
-                                                connectorSession, batchRequest, batch));
-                                List<Split> batchSplits = new ArrayList<>(ranges.size());
-                                for (ConnectorScanRange range : ranges) {
-                                    batchSplits.add(new PluginDrivenSplit(range));
-                                }
-                                if (splitAssignment.needMoreSplit()) {
-                                    splitAssignment.addToQueue(batchSplits);
-                                }
-                            } catch (Exception e) {
-                                if (!splitAssignment.isStop()) {
-                                    publishBatchFailure(batchException, splitAssignment,
-                                            new UserException(e.getMessage(), e));
-                                }
-                            } finally {
-                                profileFinalizer.taskFinished();
-                            }
-                        })) {
-                            profileFinalizer.taskFinished();
-                            break;
-                        }
-                    } catch (Exception e) {
-                        try {
-                            publishBatchFailure(batchException, splitAssignment,
-                                    new UserException(e.getMessage(), e));
-                        } finally {
-                            profileFinalizer.taskFinished();
-                        }
-                    }
-                }
-            } finally {
-                profileFinalizer.closeDispatch();
-            }
         };
+
+        // Plan batches in one tracked background producer. Submitting child tasks back to the same bounded
+        // executor can starve when concurrent admission producers occupy every worker. Keeping one producer
+        // remains asynchronous while assignment-queue backpressure bounds how far planning can advance.
         try {
-            if (!splitAssignment.submitProducer(scheduleExecutor, dispatch)) {
-                profileFinalizer.closeDispatch();
-            }
-        } catch (Exception e) {
-            try {
-                publishBatchFailure(batchException, splitAssignment,
-                        new UserException(e.getMessage(), e));
-            } finally {
-                profileFinalizer.closeDispatch();
-            }
+            splitAssignment.submitProducer(scheduleExecutor, () -> {
+                try {
+                    for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
+                        if (splitAssignment.isStop()) {
+                            return;
+                        }
+                        int end = Math.min(begin + batchSize, allPartitions.size());
+                        List<String> batch = new ArrayList<>(allPartitions.subList(begin, end));
+                        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                                () -> scanProvider.planScanForPartitionBatch(
+                                        connectorSession, batchRequest, batch));
+                        List<Split> batchSplits = new ArrayList<>(ranges.size());
+                        for (ConnectorScanRange range : ranges) {
+                            batchSplits.add(new PluginDrivenSplit(range));
+                        }
+                        if (splitAssignment.needMoreSplit()) {
+                            splitAssignment.addToQueue(batchSplits);
+                        }
+                    }
+                } catch (Exception e) {
+                    if (!splitAssignment.isStop()) {
+                        publishBatchFailure(batchException, splitAssignment,
+                                new UserException(e.getMessage(), e));
+                    }
+                } finally {
+                    batchFinalizer.run();
+                }
+            });
+        } catch (RuntimeException e) {
+            publishBatchFailure(batchException, splitAssignment,
+                    new UserException(e.getMessage(), e));
+            batchFinalizer.run();
         }
     }
 
@@ -2183,18 +2157,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         splitAssignment.submitProducer(scheduleExecutor, () -> {
             ConnectorSplitSource source = null;
-            Closeable sourceCloser = null;
             try {
                 source = onPluginClassLoader(scanProvider,
                         () -> scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L));
                 ConnectorSplitSource registeredSource = source;
-                AtomicBoolean sourceClosed = new AtomicBoolean(false);
-                sourceCloser = () -> {
-                    if (sourceClosed.compareAndSet(false, true)) {
-                        registeredSource.close();
-                    }
-                };
-                splitAssignment.addCloseable(sourceCloser);
+                splitAssignment.addCancellationCallback(registeredSource::cancel);
                 // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
                 // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
                 // heap stays bounded for million-file scans.
@@ -2212,9 +2179,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // Close in a finally that SWALLOWS close errors (NOT try-with-resources, whose close runs
                 // before the catch): a close() failure must not fail a scan whose splits were already
                 // enumerated + finishSchedule()-d (legacy doStartSplit swallowed close errors identically).
-                if (sourceCloser != null) {
+                if (source != null) {
                     try {
-                        sourceCloser.close();
+                        source.close();
                     } catch (Exception ce) {
                         LOG.warn("Failed to close streaming split source for {}", handle, ce);
                     }

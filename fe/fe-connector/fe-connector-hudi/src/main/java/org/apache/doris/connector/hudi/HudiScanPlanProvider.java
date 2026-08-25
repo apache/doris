@@ -180,7 +180,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && !"false".equalsIgnoreCase(
+        return session != null && "true".equalsIgnoreCase(
                 session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
