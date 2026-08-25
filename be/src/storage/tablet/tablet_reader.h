@@ -183,10 +183,9 @@ public:
         // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
         // For example, use lower rowset version / segment id first.
         bool use_insert_order_when_same = false;
-        // Force a key-ordered merge across all segments even when their key ranges do not
-        // overlap. By default a rowset reader can skip the merge heap if its segments are
-        // mono-ascending and disjoint, but row-binlog scans require strict global key order
-        // (e.g. so MIN_DELTA can group consecutive same-key changes), so this flag is set.
+        // Force globally key-ordered reading for row-binlog scans (e.g. so MIN_DELTA can
+        // group consecutive same-key changes across segments). Overlapping segments use the
+        // merge iterator; segments proven non-overlapping use an ordered union.
         // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
         bool force_key_ordered_read = false;
         // num of columns for orderby key
