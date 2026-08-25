@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -59,6 +60,8 @@ public class SplitAssignment {
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
+    private final Object producerLock = new Object();
+    private int activeProducers = 0;
 
     private UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
@@ -192,11 +195,13 @@ public class SplitAssignment {
     }
 
     public void stop() {
-        if (isStop()) {
-            return;
+        List<Closeable> resources;
+        synchronized (producerLock) {
+            isStopped.set(true);
+            resources = new ArrayList<>(closeableResources);
+            closeableResources.clear();
         }
-        isStopped.set(true);
-        closeableResources.forEach((closeable) -> {
+        resources.forEach((closeable) -> {
             try {
                 closeable.close();
             } catch (Exception e) {
@@ -205,6 +210,20 @@ public class SplitAssignment {
             }
         });
         notifyAssignment();
+        boolean interrupted = false;
+        synchronized (producerLock) {
+            while (activeProducers > 0) {
+                try {
+                    producerLock.wait();
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                    LOG.warn("Interrupted while waiting for split producers to stop", e);
+                }
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
         if (exception != null) {
             throw new RuntimeException(exception);
         }
@@ -214,7 +233,48 @@ public class SplitAssignment {
         return isStopped.get();
     }
 
+    public boolean submitProducer(Executor executor, Runnable producer) {
+        synchronized (producerLock) {
+            if (isStopped.get()) {
+                return false;
+            }
+            activeProducers++;
+            try {
+                executor.execute(() -> {
+                    try {
+                        if (!isStopped.get()) {
+                            producer.run();
+                        }
+                    } finally {
+                        synchronized (producerLock) {
+                            activeProducers--;
+                            producerLock.notifyAll();
+                        }
+                    }
+                });
+                return true;
+            } catch (RuntimeException e) {
+                activeProducers--;
+                producerLock.notifyAll();
+                throw e;
+            }
+        }
+    }
+
     public void addCloseable(Closeable resource) {
-        closeableResources.add(resource);
+        boolean closeImmediately;
+        synchronized (producerLock) {
+            closeImmediately = isStopped.get();
+            if (!closeImmediately) {
+                closeableResources.add(resource);
+            }
+        }
+        if (closeImmediately) {
+            try {
+                resource.close();
+            } catch (Exception e) {
+                LOG.warn("close resource error:{}", e.getMessage(), e);
+            }
+        }
     }
 }

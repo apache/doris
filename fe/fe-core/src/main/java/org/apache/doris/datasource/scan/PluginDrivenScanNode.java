@@ -92,6 +92,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -104,8 +105,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -1477,21 +1478,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
         // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
         // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
-        String readTxnQueryId = connectorSession.getQueryId();
-        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
-                buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
-
-        // Deterministic close of the per-statement metadata scope, on the SAME query-finish hook and the SAME
-        // query-id key as the read-transaction release above. This is the PRIMARY close: getSplits runs only for
-        // coordinated scans, all of which reach unregisterQuery, so it fires after off-thread pump quiescence and
-        // leaves no dangling registry entry. Object-capture (scope::closeAll binds THIS scope instance) so a retry
-        // / prepared-EXECUTE that swaps the StatementContext field can never let this callback touch a successor
-        // scope. Skip NONE (off-thread / no-ConnectContext builds carry NONE and hold nothing to close). Non-scan
-        // statements (DDL / SHOW / EXPLAIN via Command.run) never reach here and are closed by StatementContext.
-        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
-        if (statementScope != ConnectorStatementScope.NONE) {
-            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId, statementScope::closeAll);
-        }
+        registerQueryFinishCallbacks(scanProvider);
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
@@ -1861,10 +1848,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public void startSplit(int numBackends) {
+        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            splitAssignment.setException(new UserException("Connector does not provide a scan plan provider"));
+            return;
+        }
+        registerQueryFinishCallbacks(scanProvider);
         if (streamingBatch) {
             // File-count streaming flavor (FIX-M3): pump a connector-driven lazy source instead of
             // slicing partitions. Mutually exclusive with the partition-slicing path below.
-            startStreamingSplit();
+            startStreamingSplit(scanProvider);
             return;
         }
         try {
@@ -1908,7 +1901,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         // One request for the whole batched scan; each batch re-scopes it to its own partitions. No row
         // limit and no COUNT(*) pushdown on this path (batch mode is entered before either applies),
         // matching what the batched call passed before the request object existed.
@@ -1923,46 +1915,48 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
 
-        CompletableFuture.runAsync(() -> {
-            for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
-                int end = Math.min(begin + batchSize, allPartitions.size());
-                if (batchException.get() != null || splitAssignment.isStop()) {
+        for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
+            int end = Math.min(begin + batchSize, allPartitions.size());
+            if (batchException.get() != null || splitAssignment.isStop()) {
+                break;
+            }
+            List<String> batch = new ArrayList<>(allPartitions.subList(begin, end));
+            int curBatchSize = end - begin;
+            try {
+                if (!splitAssignment.submitProducer(scheduleExecutor, () -> {
+                    try {
+                        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                                () -> scanProvider.planScanForPartitionBatch(
+                                        connectorSession, batchRequest, batch));
+                        List<Split> batchSplits = new ArrayList<>(ranges.size());
+                        for (ConnectorScanRange range : ranges) {
+                            batchSplits.add(new PluginDrivenSplit(range));
+                        }
+                        if (splitAssignment.needMoreSplit()) {
+                            splitAssignment.addToQueue(batchSplits);
+                        }
+                    } catch (Exception e) {
+                        if (!splitAssignment.isStop()) {
+                            batchException.compareAndSet(null, new UserException(e.getMessage(), e));
+                        }
+                    } finally {
+                        UserException failure = batchException.get();
+                        if (failure != null) {
+                            splitAssignment.setException(failure);
+                        }
+                        if (numFinishedPartitions.addAndGet(curBatchSize) == allPartitions.size()) {
+                            splitAssignment.finishSchedule();
+                        }
+                    }
+                })) {
                     break;
                 }
-                List<String> batch = allPartitions.subList(begin, end);
-                int curBatchSize = end - begin;
-                try {
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
-                                    () -> scanProvider.planScanForPartitionBatch(
-                                            connectorSession, batchRequest, batch));
-                            List<Split> batchSplits = new ArrayList<>(ranges.size());
-                            for (ConnectorScanRange range : ranges) {
-                                batchSplits.add(new PluginDrivenSplit(range));
-                            }
-                            if (splitAssignment.needMoreSplit()) {
-                                splitAssignment.addToQueue(batchSplits);
-                            }
-                        } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
-                        } finally {
-                            if (batchException.get() != null) {
-                                splitAssignment.setException(batchException.get());
-                            }
-                            if (numFinishedPartitions.addAndGet(curBatchSize) == allPartitions.size()) {
-                                splitAssignment.finishSchedule();
-                            }
-                        }
-                    }, scheduleExecutor);
-                } catch (Exception e) {
-                    batchException.set(new UserException(e.getMessage(), e));
-                }
-                if (batchException.get() != null) {
-                    splitAssignment.setException(batchException.get());
-                }
+            } catch (RuntimeException e) {
+                batchException.compareAndSet(null, new UserException(e.getMessage(), e));
+                splitAssignment.setException(batchException.get());
+                break;
             }
-        }, scheduleExecutor);
+        }
     }
 
     /**
@@ -1972,7 +1966,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * flavor stays on the {@link #startSplit} partition-slicing path. Deliberately does NOT push the limit
      * (passes {@code -1}): the LIMIT-split optimization stays on the non-batch {@link #getSplits} path only.
      */
-    private void startStreamingSplit() {
+    private void startStreamingSplit(ConnectorScanPlanProvider scanProvider) {
         try {
             checkSysTableScanConstraints();
         } catch (UserException e) {
@@ -2006,13 +2000,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        CompletableFuture.runAsync(() -> {
+        splitAssignment.submitProducer(scheduleExecutor, () -> {
             ConnectorSplitSource source = null;
+            Closeable sourceCloser = null;
             try {
                 source = onPluginClassLoader(scanProvider,
                         () -> scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L));
+                ConnectorSplitSource registeredSource = source;
+                AtomicBoolean sourceClosed = new AtomicBoolean(false);
+                sourceCloser = () -> {
+                    if (sourceClosed.compareAndSet(false, true)) {
+                        registeredSource.close();
+                    }
+                };
+                splitAssignment.addCloseable(sourceCloser);
                 // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
                 // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
                 // heap stays bounded for million-file scans.
@@ -2023,20 +2025,36 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 }
                 splitAssignment.finishSchedule();
             } catch (Exception e) {
-                splitAssignment.setException(new UserException(e.getMessage(), e));
+                if (!splitAssignment.isStop()) {
+                    splitAssignment.setException(new UserException(e.getMessage(), e));
+                }
             } finally {
                 // Close in a finally that SWALLOWS close errors (NOT try-with-resources, whose close runs
                 // before the catch): a close() failure must not fail a scan whose splits were already
                 // enumerated + finishSchedule()-d (legacy doStartSplit swallowed close errors identically).
-                if (source != null) {
+                if (sourceCloser != null) {
                     try {
-                        source.close();
+                        sourceCloser.close();
                     } catch (Exception ce) {
                         LOG.warn("Failed to close streaming split source for {}", handle, ce);
                     }
                 }
             }
-        }, scheduleExecutor);
+        });
+    }
+
+    private void registerQueryFinishCallbacks(ConnectorScanPlanProvider scanProvider) {
+        String queryId = connectorSession.getQueryId();
+        // Normal MySQL cleanup unregisters the query before Coordinator.close(). Put every scan's stop callback
+        // ahead of ordinary cleanup callbacks so all asynchronous producers quiesce before the first statement
+        // scope is closed. Later scan nodes prepend their stop callback as well, preserving that global ordering.
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallbackFirst(queryId, this::stop);
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(queryId,
+                buildReadTransactionReleaseCallback(scanProvider, queryId));
+        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
+        if (statementScope != ConnectorStatementScope.NONE) {
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(queryId, statementScope::closeAll);
+        }
     }
 
     @Override

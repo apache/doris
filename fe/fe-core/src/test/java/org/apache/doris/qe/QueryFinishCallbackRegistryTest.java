@@ -63,6 +63,19 @@ public class QueryFinishCallbackRegistryTest {
         Assert.assertEquals(Lists.newArrayList(1, 2, 3), order);
     }
 
+    @Test
+    public void testFirstCallbacksRunBeforeOrdinaryCleanup() {
+        QueryFinishCallbackRegistry registry = new QueryFinishCallbackRegistry();
+        List<String> order = Lists.newArrayList();
+        registry.register("q1", () -> order.add("close-scope"));
+        registry.registerFirst("q1", () -> order.add("stop-scan-1"));
+        registry.registerFirst("q1", () -> order.add("stop-scan-2"));
+
+        registry.runAndClear("q1");
+
+        Assert.assertEquals(Lists.newArrayList("stop-scan-2", "stop-scan-1", "close-scope"), order);
+    }
+
     // The early lock-release path can drain a query before its final drain at
     // unregisterQuery. The second drain must be a no-op so cleanup runs once.
     @Test

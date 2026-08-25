@@ -45,6 +45,8 @@ public interface QeProcessor {
      */
     void registerQueryFinishCallback(String queryId, Runnable callback);
 
+    void registerQueryFinishCallbackFirst(String queryId, Runnable callback);
+
     Map<String, QueryStatisticsItem> getQueryStatistics();
 
     String getCurrentQueryByQueryId(TUniqueId queryId);

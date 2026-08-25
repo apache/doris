@@ -38,7 +38,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SplitAssignmentTest {
 
@@ -375,5 +378,53 @@ public class SplitAssignmentTest {
 
         // Init should complete immediately without waiting
         Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+    }
+
+    @Test
+    void stopWaitsForRunningProducer() throws Exception {
+        CountDownLatch producerStarted = new CountDownLatch(1);
+        CountDownLatch allowProducerExit = new CountDownLatch(1);
+        CountDownLatch stopReturned = new CountDownLatch(1);
+        Assertions.assertTrue(splitAssignment.submitProducer(command -> new Thread(command).start(), () -> {
+            producerStarted.countDown();
+            try {
+                allowProducerExit.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        Assertions.assertTrue(producerStarted.await(5, TimeUnit.SECONDS));
+
+        Thread stopThread = new Thread(() -> {
+            splitAssignment.stop();
+            stopReturned.countDown();
+        });
+        stopThread.start();
+        Assertions.assertFalse(stopReturned.await(100, TimeUnit.MILLISECONDS));
+        allowProducerExit.countDown();
+        Assertions.assertTrue(stopReturned.await(5, TimeUnit.SECONDS));
+        stopThread.join(1000);
+    }
+
+    @Test
+    void stopRejectsLaterProducerAndClosesLaterResource() {
+        AtomicBoolean ran = new AtomicBoolean(false);
+        AtomicInteger closes = new AtomicInteger(0);
+        splitAssignment.stop();
+
+        Assertions.assertFalse(splitAssignment.submitProducer(Runnable::run, () -> ran.set(true)));
+        splitAssignment.addCloseable(closes::incrementAndGet);
+
+        Assertions.assertFalse(ran.get());
+        Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
+    void rejectedExecutionDoesNotLeakProducer() {
+        Assertions.assertThrows(RejectedExecutionException.class,
+                () -> splitAssignment.submitProducer(command -> {
+                    throw new RejectedExecutionException("rejected");
+                }, () -> { }));
+        Assertions.assertDoesNotThrow(splitAssignment::stop);
     }
 }
