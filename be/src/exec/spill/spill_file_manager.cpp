@@ -527,8 +527,7 @@ Status SpillFileManager::_try_delete_query_spill_directory(const std::string& qu
         return Status::OK();
     }
     if (it->second.external_leases > 0) {
-        return Status::InternalError("external spill directory is still in use: {}",
-                                     query_dir);
+        return Status::InternalError("external spill directory is still in use: {}", query_dir);
     }
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::delete_query_spill_directory", {
         return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
@@ -583,8 +582,8 @@ void SpillFileManager::_retry_pending_query_spill_directories() {
         }
         if (failed_count % log_interval == 0) {
             LOG(WARNING) << fmt::format(
-                    "failed to retry deleting spill query directory, dir {}, error: {}",
-                    query_dir, status.to_string());
+                    "failed to retry deleting spill query directory, dir {}, error: {}", query_dir,
+                    status.to_string());
         }
     }
 }
