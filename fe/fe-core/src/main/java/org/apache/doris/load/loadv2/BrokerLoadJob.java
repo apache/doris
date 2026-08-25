@@ -150,27 +150,33 @@ public class BrokerLoadJob extends BulkLoadJob {
             // before transactionId was assigned (e.g. edit log write failure), and the pending
             // task retry would otherwise burn all retries on this exception and cancel the job
             // with a misleading "Label has already been used".
-            Long ownTxnId = findSelfPreparedTxnByLabel();
-            if (ownTxnId == null) {
+            TransactionState ownTxn = findSelfTxnByLabel();
+            if (ownTxn == null) {
                 throw e;
             }
-            LOG.info("broker load job {} adopts its own prepared txn {} for label {} on pending task retry",
-                    id, ownTxnId, label);
-            transactionId = ownTxnId;
+            transactionId = ownTxn.getTransactionId();
+            if (ownTxn.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                LOG.info("broker load job {} recovers its own visible txn {} for label {}",
+                        id, transactionId, label);
+                afterVisible(ownTxn, true);
+            } else {
+                LOG.info("broker load job {} adopts its own prepared txn {} for label {} on pending task retry",
+                        id, transactionId, label);
+            }
         }
     }
 
-    private Long findSelfPreparedTxnByLabel() {
+    private TransactionState findSelfTxnByLabel() {
         try {
-            Long txnId = Env.getCurrentGlobalTransactionMgr().getTransactionIdByLabel(dbId, label,
-                    Lists.newArrayList(TransactionStatus.PREPARE));
+            Long txnId = Env.getCurrentGlobalTransactionMgr().getTransactionId(dbId, label);
             if (txnId == null) {
                 return null;
             }
             TransactionState existingTxn = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
             if (existingTxn != null && existingTxn.getCallbackId() == id
-                    && existingTxn.getTransactionStatus() == TransactionStatus.PREPARE) {
-                return txnId;
+                    && (existingTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                        || existingTxn.getTransactionStatus() == TransactionStatus.VISIBLE)) {
+                return existingTxn;
             }
         } catch (Exception lookupException) {
             LOG.warn("broker load job {} failed to look up txn by label {}", id, label, lookupException);
