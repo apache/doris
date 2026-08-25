@@ -289,6 +289,56 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTablesInvalidRpcType) {
     EXPECT_TRUE(top_tables.empty());
 }
 
+TEST_F(TableRpcQpsRegistryTest, CleanupKeepsActiveCounters) {
+    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::minutes(1));
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+
+    EXPECT_EQ(registry.cleanup_inactive_tables(), 0);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+}
+
+TEST_F(TableRpcQpsRegistryTest, CleanupRemovesInactiveCounters) {
+    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::milliseconds(0));
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
+
+    EXPECT_EQ(registry.cleanup_inactive_tables(), 2);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 0);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::COMMIT_ROWSET), 0);
+}
+
+TEST_F(TableRpcQpsRegistryTest, CleanupThreadRunsIndependently) {
+    TableRpcQpsRegistry registry(std::chrono::milliseconds(10), std::chrono::milliseconds(50));
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+
+    for (int i = 0;
+         i < 100 && registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET) != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 0);
+}
+
+TEST_F(TableRpcQpsRegistryTest, ConcurrentRecordAndCleanup) {
+    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::milliseconds(0));
+
+    std::thread recorder([&registry]() {
+        for (int i = 0; i < 10000; ++i) {
+            registry.record(LoadRelatedRpc::PREPARE_ROWSET, i % 100);
+        }
+    });
+    std::thread cleaner([&registry]() {
+        for (int i = 0; i < 1000; ++i) {
+            registry.cleanup_inactive_tables();
+        }
+    });
+    recorder.join();
+    cleaner.join();
+
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    EXPECT_GE(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+}
+
 // ============== TableRpcThrottler Tests ==============
 
 class TableRpcThrottlerTest : public testing::Test {

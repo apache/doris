@@ -32,6 +32,19 @@
 
 namespace doris::cloud {
 
+namespace {
+
+constexpr std::chrono::milliseconds kQpsRegistryCleanupInterval = std::chrono::minutes(1);
+constexpr std::chrono::milliseconds kQpsRegistryMinInactiveTimeout = std::chrono::minutes(1);
+
+std::chrono::milliseconds qps_registry_inactive_timeout() {
+    return std::max(kQpsRegistryMinInactiveTimeout,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::seconds(config::ms_rpc_table_qps_window_sec)));
+}
+
+} // namespace
+
 // Global bvar metrics
 bvar::Adder<uint64_t> g_backpressure_upgrade_count("ms_rpc_backpressure_upgrade_count");
 bvar::Window<bvar::Adder<uint64_t>> g_backpressure_upgrade_60s("ms_rpc_backpressure_upgrade_60s",
@@ -119,6 +132,7 @@ TableRpcQpsCounter::TableRpcQpsCounter(int64_t table_id, LoadRelatedRpc rpc_type
 }
 
 void TableRpcQpsCounter::increment() {
+    _last_record_time_us.store(MonotonicMicros(), std::memory_order_relaxed);
     (*_counter) << 1;
 }
 
@@ -128,27 +142,44 @@ double TableRpcQpsCounter::get_qps() const {
 
 // ============== TableRpcQpsRegistry ==============
 
-TableRpcQpsRegistry::TableRpcQpsRegistry() = default;
+TableRpcQpsRegistry::TableRpcQpsRegistry()
+        : TableRpcQpsRegistry(kQpsRegistryCleanupInterval, qps_registry_inactive_timeout()) {}
 
-void TableRpcQpsRegistry::record(LoadRelatedRpc rpc_type, int64_t table_id) {
-    auto* counter = get_or_create_counter(rpc_type, table_id);
-    if (counter) {
-        counter->increment();
+TableRpcQpsRegistry::TableRpcQpsRegistry(std::chrono::milliseconds cleanup_interval,
+                                         std::chrono::milliseconds inactive_timeout)
+        : _cleanup_interval(cleanup_interval),
+          _inactive_timeout(inactive_timeout),
+          _cleanup_stop_latch(1) {
+    DORIS_CHECK_GT(_cleanup_interval.count(), 0);
+    DORIS_CHECK_GE(_inactive_timeout.count(), 0);
+
+    auto st = Thread::create(
+            "TableRpcQpsRegistry", "cleanup_thread", [this]() { this->_cleanup_thread_callback(); },
+            &_cleanup_thread);
+    if (!st.ok()) {
+        LOG(WARNING) << "[ms-throttle] failed to create table QPS registry cleanup thread: " << st;
     }
 }
 
-TableRpcQpsCounter* TableRpcQpsRegistry::get_or_create_counter(LoadRelatedRpc rpc_type,
-                                                               int64_t table_id) {
+TableRpcQpsRegistry::~TableRpcQpsRegistry() {
+    _cleanup_stop_latch.count_down();
+    if (_cleanup_thread) {
+        _cleanup_thread->join();
+    }
+}
+
+void TableRpcQpsRegistry::record(LoadRelatedRpc rpc_type, int64_t table_id) {
     size_t idx = static_cast<size_t>(rpc_type);
     if (idx >= static_cast<size_t>(LoadRelatedRpc::COUNT)) {
-        return nullptr;
+        return;
     }
 
     {
         std::shared_lock lock(_mutex);
         auto it = _counters[idx].find(table_id);
         if (it != _counters[idx].end()) {
-            return it->second.get();
+            it->second->increment();
+            return;
         }
     }
 
@@ -156,14 +187,14 @@ TableRpcQpsCounter* TableRpcQpsRegistry::get_or_create_counter(LoadRelatedRpc rp
     // Double check after acquiring exclusive lock
     auto it = _counters[idx].find(table_id);
     if (it != _counters[idx].end()) {
-        return it->second.get();
+        it->second->increment();
+        return;
     }
 
     auto counter = std::make_unique<TableRpcQpsCounter>(table_id, rpc_type,
                                                         config::ms_rpc_table_qps_window_sec);
-    auto* ptr = counter.get();
+    counter->increment();
     _counters[idx][table_id] = std::move(counter);
-    return ptr;
 }
 
 std::vector<std::pair<int64_t, double>> TableRpcQpsRegistry::get_top_k_tables(
@@ -220,18 +251,55 @@ double TableRpcQpsRegistry::get_qps(LoadRelatedRpc rpc_type, int64_t table_id) c
     return 0;
 }
 
-void TableRpcQpsRegistry::cleanup_inactive_tables() {
-    std::unique_lock lock(_mutex);
+size_t TableRpcQpsRegistry::cleanup_inactive_tables() {
+    const int64_t inactive_before_us =
+            MonotonicMicros() -
+            std::chrono::duration_cast<std::chrono::microseconds>(_inactive_timeout).count();
+    std::array<std::vector<int64_t>, static_cast<size_t>(LoadRelatedRpc::COUNT)> candidates;
 
+    {
+        std::shared_lock lock(_mutex);
+        for (size_t idx = 0; idx < static_cast<size_t>(LoadRelatedRpc::COUNT); ++idx) {
+            for (const auto& [table_id, counter] : _counters[idx]) {
+                if (counter->last_record_time_us() <= inactive_before_us) {
+                    candidates[idx].push_back(table_id);
+                }
+            }
+        }
+    }
+
+    size_t removed = 0;
+    std::unique_lock lock(_mutex);
     for (size_t idx = 0; idx < static_cast<size_t>(LoadRelatedRpc::COUNT); ++idx) {
         auto& counter_map = _counters[idx];
-        for (auto it = counter_map.begin(); it != counter_map.end();) {
-            // Remove counters with zero QPS for a long time
-            if (it->second->get_qps() < 0.01) {
-                it = counter_map.erase(it);
-            } else {
-                ++it;
+        for (int64_t table_id : candidates[idx]) {
+            auto it = counter_map.find(table_id);
+            if (it != counter_map.end() &&
+                it->second->last_record_time_us() <= inactive_before_us) {
+                counter_map.erase(it);
+                ++removed;
             }
+        }
+    }
+    return removed;
+}
+
+size_t TableRpcQpsRegistry::get_tracked_table_count(LoadRelatedRpc rpc_type) const {
+    size_t idx = static_cast<size_t>(rpc_type);
+    if (idx >= static_cast<size_t>(LoadRelatedRpc::COUNT)) {
+        return 0;
+    }
+
+    std::shared_lock lock(_mutex);
+    return _counters[idx].size();
+}
+
+void TableRpcQpsRegistry::_cleanup_thread_callback() {
+    while (!_cleanup_stop_latch.wait_for(_cleanup_interval)) {
+        size_t removed = cleanup_inactive_tables();
+        if (removed > 0) {
+            LOG(INFO) << "[ms-throttle] cleaned up inactive table QPS counters: removed="
+                      << removed;
         }
     }
 }

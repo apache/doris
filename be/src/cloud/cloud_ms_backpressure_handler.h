@@ -73,6 +73,10 @@ public:
     // Get current QPS (average over the configured time window)
     double get_qps() const;
 
+    int64_t last_record_time_us() const {
+        return _last_record_time_us.load(std::memory_order_relaxed);
+    }
+
     int64_t table_id() const { return _table_id; }
     LoadRelatedRpc rpc_type() const { return _rpc_type; }
 
@@ -82,13 +86,16 @@ private:
 
     std::unique_ptr<bvar::Adder<int64_t>> _counter;
     std::unique_ptr<bvar::PerSecond<bvar::Adder<int64_t>>> _qps;
+    std::atomic<int64_t> _last_record_time_us {0};
 };
 
 // Registry managing QPS counters for all tables
 class TableRpcQpsRegistry {
 public:
     TableRpcQpsRegistry();
-    ~TableRpcQpsRegistry() = default;
+    TableRpcQpsRegistry(std::chrono::milliseconds cleanup_interval,
+                        std::chrono::milliseconds inactive_timeout);
+    ~TableRpcQpsRegistry();
 
     // Record one RPC call for the given table
     void record(LoadRelatedRpc rpc_type, int64_t table_id);
@@ -101,11 +108,12 @@ public:
     double get_qps(LoadRelatedRpc rpc_type, int64_t table_id) const;
 
     // Clean up counters for tables that have been inactive for a long time
-    void cleanup_inactive_tables();
+    size_t cleanup_inactive_tables();
+
+    size_t get_tracked_table_count(LoadRelatedRpc rpc_type) const;
 
 private:
-    // Get or create counter for (rpc_type, table_id)
-    TableRpcQpsCounter* get_or_create_counter(LoadRelatedRpc rpc_type, int64_t table_id);
+    void _cleanup_thread_callback();
 
     mutable std::shared_mutex _mutex;
 
@@ -113,6 +121,11 @@ private:
     std::array<std::unordered_map<int64_t, std::unique_ptr<TableRpcQpsCounter>>,
                static_cast<size_t>(LoadRelatedRpc::COUNT)>
             _counters;
+
+    const std::chrono::milliseconds _cleanup_interval;
+    const std::chrono::milliseconds _inactive_timeout;
+    std::shared_ptr<Thread> _cleanup_thread;
+    CountDownLatch _cleanup_stop_latch;
 };
 
 struct TableRpcThrottleDecision {
