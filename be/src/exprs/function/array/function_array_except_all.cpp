@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
@@ -37,12 +38,12 @@ template <PrimitiveType PType>
 struct ArrayExceptAllCountMap {
     using ElementType = typename ColumnElementView<PType>::ElementType;
     using KeyType = typename NativeType<ElementType>::Type;
-    using Type = phmap::flat_hash_map<KeyType, size_t>;
+    using Type = doris::flat_hash_map<KeyType, size_t>;
 };
 
 template <>
 struct ArrayExceptAllCountMap<TYPE_STRING> {
-    using Type = phmap::flat_hash_map<StringRef, size_t, StringRefHash>;
+    using Type = doris::flat_hash_map<StringRef, size_t, StringRefHash>;
 };
 
 class FunctionArrayExceptAll : public IFunction {
@@ -53,8 +54,6 @@ public:
     String get_name() const override { return name; }
     bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
-    bool use_default_implementation_for_constants() const override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return arguments[0];
     }
