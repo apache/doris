@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.proc.TabletSchedulerDetailProcDir;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 public class RowBinlogTabletLocalityTest {
@@ -81,10 +83,14 @@ public class RowBinlogTabletLocalityTest {
         RowBinlogTabletLocality.RowBinlogHealthResult result = getHealth(pair);
 
         Assertions.assertEquals(TabletStatus.HEALTHY, result.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.NONE, result.getRepairReason());
         Assertions.assertEquals(pair.baseTablet, result.getBaseTablet());
         Assertions.assertEquals(
                 ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L),
                 result.getRequiredDestPathHashByBackend());
+        Assertions.assertEquals(
+                ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L),
+                result.getObservedPathHashByBackend());
         Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L), result.getRequiredBackends());
     }
 
@@ -97,6 +103,9 @@ public class RowBinlogTabletLocalityTest {
         RowBinlogTabletLocality.RowBinlogHealthResult result = getHealth(pair);
 
         Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, result.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.BACKEND_MISMATCH, result.getRepairReason());
+        Assertions.assertEquals(ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L),
+                result.getObservedPathHashByBackend());
         Assertions.assertEquals(Priority.HIGH, result.getTabletHealth().priority);
         Assertions.assertEquals(40L, result.getRequiredDestPathHashByBackend().get(4L));
         Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L, 4L), result.getRequiredBackends());
@@ -115,8 +124,27 @@ public class RowBinlogTabletLocalityTest {
         result.applyTo(tabletCtx);
 
         Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L, 4L), tabletCtx.getColocateBackendsSet());
+        Assertions.assertEquals(BASE_TABLET_ID, tabletCtx.getRowBinlogBaseTabletId());
+        Assertions.assertEquals(RowBinlogRepairReason.BACKEND_MISMATCH,
+                tabletCtx.getRowBinlogRepairReason());
         Assertions.assertEquals(ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L, 4L, 40L),
                 tabletCtx.getRowBinlogRequiredDestPathHashByBackend());
+        Assertions.assertEquals(ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L),
+                tabletCtx.getRowBinlogObservedPathHashByBackend());
+
+        List<String> brief = tabletCtx.getBrief();
+        Assertions.assertEquals(TabletSchedulerDetailProcDir.TITLE_NAMES.size(), brief.size());
+        Assertions.assertEquals("BACKEND_MISMATCH", brief.get(
+                TabletSchedulerDetailProcDir.TITLE_NAMES.indexOf("RowBinlogRepairReason")));
+        Assertions.assertEquals(String.valueOf(BASE_TABLET_ID), brief.get(
+                TabletSchedulerDetailProcDir.TITLE_NAMES.indexOf("BaseTabletId")));
+        Assertions.assertEquals("1:10,2:20,3:30,4:40", brief.get(
+                TabletSchedulerDetailProcDir.TITLE_NAMES.indexOf("ExpectedLocations")));
+        Assertions.assertEquals("1:10,2:20,3:30", brief.get(
+                TabletSchedulerDetailProcDir.TITLE_NAMES.indexOf("ObservedLocations")));
+        Assertions.assertEquals("reason: BACKEND_MISMATCH, base tablet id: 100, "
+                + "expected locations: 1:10,2:20,3:30,4:40, observed locations: 1:10,2:20,3:30",
+                tabletCtx.getRowBinlogRepairInfo());
     }
 
     @Test
@@ -125,9 +153,26 @@ public class RowBinlogTabletLocalityTest {
                 replicas(1, 2, 3),
                 replicas(replicaSpec(1, 10), replicaSpec(2, 200), replicaSpec(3, 30)));
 
-        TabletHealth health = getHealth(pair).getTabletHealth();
+        RowBinlogTabletLocality.RowBinlogHealthResult result = getHealth(pair);
 
-        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, health.status);
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, result.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.PATH_MISMATCH, result.getRepairReason());
+        Assertions.assertEquals(ImmutableMap.of(1L, 10L, 2L, 200L, 3L, 30L),
+                result.getObservedPathHashByBackend());
+    }
+
+    @Test
+    public void backendMismatchTakesPriorityWhenPathAlsoMismatches() {
+        TabletPair pair = createTabletPair(
+                replicas(1, 2, 3),
+                replicas(replicaSpec(1, 100), replicaSpec(2, 20)));
+
+        RowBinlogTabletLocality.RowBinlogHealthResult result = getHealth(pair);
+
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, result.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.BACKEND_MISMATCH, result.getRepairReason());
+        Assertions.assertEquals(ImmutableMap.of(1L, 100L, 2L, 20L),
+                result.getObservedPathHashByBackend());
     }
 
     @Test
@@ -155,11 +200,11 @@ public class RowBinlogTabletLocalityTest {
                 replicas(1),
                 replicas(replicaSpec(1, 100)));
 
-        TabletHealth health = RowBinlogTabletLocality.getRowBinlogHealth(
-                pair.partition, pair.rowBinlogTablet, new ReplicaAllocation((short) 1), VISIBLE_VERSION)
-                .getTabletHealth();
+        RowBinlogTabletLocality.RowBinlogHealthResult result = RowBinlogTabletLocality.getRowBinlogHealth(
+                pair.partition, pair.rowBinlogTablet, new ReplicaAllocation((short) 1), VISIBLE_VERSION);
 
-        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, health.status);
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, result.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.PATH_MISMATCH, result.getRepairReason());
     }
 
     @Test
@@ -230,8 +275,11 @@ public class RowBinlogTabletLocalityTest {
                 RowBinlogTabletLocality.getCompletePairCount(
                         afterRowBinlogCatchup.baseTablet, afterRowBinlogCatchup.rowBinlogTablet,
                         VISIBLE_VERSION, true));
-        Assertions.assertEquals(TabletStatus.COLOCATE_REDUNDANT,
-                getHealth(afterRowBinlogCatchup).getTabletHealth().status);
+        RowBinlogTabletLocality.RowBinlogHealthResult redundantResult = getHealth(afterRowBinlogCatchup);
+        Assertions.assertEquals(TabletStatus.COLOCATE_REDUNDANT, redundantResult.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.REDUNDANT, redundantResult.getRepairReason());
+        Assertions.assertEquals(ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L, 4L, 40L),
+                redundantResult.getObservedPathHashByBackend());
     }
 
     @Test
@@ -275,6 +323,10 @@ public class RowBinlogTabletLocalityTest {
         healthResult.applyTo(tabletCtx);
         Assertions.assertTrue(tabletCtx.getRowBinlogRequiredDestPathHashByBackend().isEmpty());
         Assertions.assertTrue(tabletCtx.getColocateBackendsSet().isEmpty());
+        Assertions.assertEquals(-1L, tabletCtx.getRowBinlogBaseTabletId());
+        Assertions.assertEquals(RowBinlogRepairReason.NONE, tabletCtx.getRowBinlogRepairReason());
+        Assertions.assertEquals(ImmutableMap.of(1L, 10L, 2L, 20L, 3L, 30L),
+                tabletCtx.getRowBinlogObservedPathHashByBackend());
 
         IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
                 () -> RowBinlogTabletLocality.getRowBinlogTablet(pair.partition, pair.baseTablet));

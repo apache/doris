@@ -121,7 +121,7 @@ public class RowBinlogRebalancerTest {
         // The same rollup is dynamically movable, so this isolates the TabletMeta fast-path filter.
         TabletMeta fastFilteredMeta = tabletMeta(ROLLUP_INDEX_ID, true);
         TabletMeta ordinaryBaseMeta = new TabletMeta(DB_ID, ORDINARY_TABLE_ID, ORDINARY_PARTITION_ID,
-                ORDINARY_BASE_INDEX_ID, 0, TStorageMedium.HDD);
+                ORDINARY_BASE_INDEX_ID, 0, TStorageMedium.HDD, false /* isRowBinlog */);
         for (Rebalancer rebalancer : rebalancers) {
             Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(baseMeta));
             Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(rowBinlogMeta));

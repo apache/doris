@@ -82,7 +82,7 @@ public class LocalReplica extends Replica {
      * Row-binlog locality health skips this base replica temporarily to avoid clone/delete loops.
      */
     private long binlogMissingSetTime = -1;
-    private int leftBinlogMissingCount = 0;
+    private int remainingBinlogMissingRetries = 0;
 
     // During full clone, the replica's state is CLONE, it will not load the data.
     // After full clone finished, even if the replica's version = partition's visible version,
@@ -283,7 +283,7 @@ public class LocalReplica extends Replica {
 
     @Override
     public boolean isBinlogMissing() {
-        return leftBinlogMissingCount > 0
+        return remainingBinlogMissingRetries > 0
                 && System.currentTimeMillis() < binlogMissingSetTime
                 + Config.tablet_binlog_missing_timeout_second * 1000;
     }
@@ -292,16 +292,16 @@ public class LocalReplica extends Replica {
     public void setBinlogMissing(boolean binlogMissing) {
         if (binlogMissing) {
             binlogMissingSetTime = System.currentTimeMillis();
-            leftBinlogMissingCount = Config.tablet_binlog_missing_max_times;
+            remainingBinlogMissingRetries = Config.tablet_binlog_missing_max_times;
         } else {
-            leftBinlogMissingCount = 0;
+            remainingBinlogMissingRetries = 0;
             binlogMissingSetTime = -1;
         }
     }
 
     @Override
-    public void incrBinlogMissingCount() {
-        leftBinlogMissingCount--;
+    public void consumeBinlogMissingRetry() {
+        remainingBinlogMissingRetries--;
     }
 
     @Override

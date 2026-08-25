@@ -30,8 +30,10 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/object_pool.h"
@@ -47,12 +49,14 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
+#include "storage/rowset_builder.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet_info.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/txn/txn_manager.h"
+#include "testutil/creators.h"
 
 namespace doris {
 class OlapMeta;
@@ -173,6 +177,150 @@ public:
     }
 
     static void TearDownTestSuite() { tear_down(); }
+
+protected:
+    struct RowBinlogGroupLoadContext {
+        TCreateTabletReq base_request;
+        TCreateTabletReq row_binlog_request;
+        TabletSharedPtr base_tablet;
+        TabletSharedPtr row_binlog_tablet;
+        std::shared_ptr<OlapTableSchemaParam> schema_param;
+        WriteRequest data_request;
+        WriteRequest row_binlog_request_for_write;
+        WriteRequest group_request;
+    };
+
+    void create_row_binlog_group_load_context(int64_t base_tablet_id,
+                                              int64_t row_binlog_tablet_id,
+                                              int64_t transaction_id,
+                                              RowBinlogGroupLoadContext* context) {
+        RuntimeProfile create_tablet_profile("CreateRowBinlogTablets");
+        context->base_request = testutil::create_tablet_request(
+                base_tablet_id, base_tablet_id + 1000, base_tablet_id + 2000, 1,
+                TKeysType::UNIQUE_KEYS,
+                {{"k1", TPrimitiveType::INT, true}, {"v1", TPrimitiveType::INT, false}});
+        context->base_request.__set_enable_unique_key_merge_on_write(true);
+        testutil::enable_row_binlog(&context->base_request);
+        Status status = engine_ref->create_tablet(context->base_request, &create_tablet_profile);
+        ASSERT_TRUE(status.ok()) << status;
+
+        context->base_tablet =
+                engine_ref->tablet_manager()->get_tablet(context->base_request.tablet_id);
+        ASSERT_NE(context->base_tablet, nullptr);
+
+        context->row_binlog_request = context->base_request;
+        context->row_binlog_request.tablet_id = row_binlog_tablet_id;
+        context->row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
+                context->base_request.tablet_schema,
+                context->base_request.tablet_schema.schema_hash + 1);
+        context->row_binlog_request.__set_base_tablet_id(base_tablet_id);
+        context->row_binlog_request.__set_tablet_role(
+                TTabletRole::TABLET_ROLE_ROW_BINLOG);
+        status = engine_ref->create_tablet(context->row_binlog_request, &create_tablet_profile);
+        ASSERT_TRUE(status.ok()) << status;
+
+        context->row_binlog_tablet =
+                engine_ref->tablet_manager()->get_tablet(row_binlog_tablet_id);
+        ASSERT_NE(context->row_binlog_tablet, nullptr);
+        ASSERT_TRUE(context->row_binlog_tablet->is_row_binlog_tablet());
+        ASSERT_EQ(context->base_tablet->data_dir(), context->row_binlog_tablet->data_dir());
+
+        const int64_t index_id = base_tablet_id + 3000;
+        const int64_t row_binlog_index_id = base_tablet_id + 4000;
+        TDescriptorTable descriptor_table = testutil::create_descriptor_table(
+                {{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
+        context->schema_param = testutil::create_table_schema_param(
+                descriptor_table, index_id, context->base_request.tablet_schema.schema_hash,
+                context->base_request.tablet_schema.columns, row_binlog_index_id,
+                context->row_binlog_request.tablet_schema.schema_hash,
+                &context->row_binlog_request.tablet_schema.columns);
+        ASSERT_NE(context->schema_param, nullptr);
+
+        context->data_request.tablet_id = base_tablet_id;
+        context->data_request.schema_hash = context->base_request.tablet_schema.schema_hash;
+        context->data_request.txn_id = transaction_id;
+        context->data_request.partition_id = context->base_request.partition_id;
+        context->data_request.index_id = index_id;
+        context->data_request.binlog_tablet_id = row_binlog_tablet_id;
+        context->data_request.load_id.set_hi(transaction_id);
+        context->data_request.load_id.set_lo(transaction_id);
+        context->data_request.table_schema_param = context->schema_param;
+        context->data_request.write_req_type = WriteRequestType::DATA;
+
+        context->row_binlog_request_for_write = context->data_request;
+        context->row_binlog_request_for_write.tablet_id = row_binlog_tablet_id;
+        context->row_binlog_request_for_write.schema_hash =
+                context->row_binlog_request.tablet_schema.schema_hash;
+        context->row_binlog_request_for_write.index_id = row_binlog_index_id;
+        context->row_binlog_request_for_write.write_req_type = WriteRequestType::ROW_BINLOG;
+
+        context->group_request = context->data_request;
+        context->group_request.write_req_type = WriteRequestType::GROUP;
+    }
+
+    static DataDir* other_store(const TabletSharedPtr& tablet) {
+        if (tablet->data_dir()->path() == path1) {
+            return engine_ref->get_store(path2);
+        }
+        return engine_ref->get_store(path1);
+    }
+
+    static Status migrate(const TabletSharedPtr& tablet, DataDir* dest_store) {
+        EngineStorageMigrationTask migration_task(*engine_ref, tablet, dest_store);
+        return migration_task.execute();
+    }
+
+    static void assert_related_transaction(const RowBinlogGroupLoadContext& context,
+                                           bool expected) {
+        int64_t found_partition_id = -1;
+        std::set<int64_t> transaction_ids;
+        engine_ref->txn_manager()->get_tablet_related_txns(
+                context->row_binlog_tablet->tablet_id(),
+                context->row_binlog_tablet->tablet_uid(), &found_partition_id,
+                &transaction_ids);
+        if (expected) {
+            ASSERT_EQ(found_partition_id, context->data_request.partition_id);
+            ASSERT_EQ(transaction_ids,
+                      std::set<int64_t> {context->data_request.txn_id});
+        } else {
+            ASSERT_TRUE(transaction_ids.empty());
+        }
+    }
+
+    static void publish_group_transaction(const RowBinlogGroupLoadContext& context,
+                                          int64_t version) {
+        std::map<TabletInfo, RowsetSharedPtr> tablet_related_rowsets;
+        std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> tablet_related_txn_infos;
+        engine_ref->txn_manager()->get_txn_related_tablets(
+                context->data_request.txn_id, context->data_request.partition_id,
+                &tablet_related_rowsets, &tablet_related_txn_infos);
+
+        const TabletInfo base_tablet_info = context->base_tablet->get_tablet_info();
+        auto rowset_it = tablet_related_rowsets.find(base_tablet_info);
+        auto txn_info_it = tablet_related_txn_infos.find(base_tablet_info);
+        ASSERT_NE(rowset_it, tablet_related_rowsets.end());
+        ASSERT_NE(txn_info_it, tablet_related_txn_infos.end());
+        ASSERT_EQ(txn_info_it->second->attach_row_binlog.tablet.get(),
+                  context->row_binlog_tablet.get());
+        ASSERT_NE(txn_info_it->second->attach_row_binlog.rowset, nullptr);
+
+        TabletPublishTxnTask publish_task(
+                *engine_ref, nullptr, context->base_tablet, rowset_it->second,
+                txn_info_it->second->attach_row_binlog, context->data_request.partition_id,
+                context->data_request.txn_id, Version(version, version), base_tablet_info, -1);
+        publish_task.handle();
+        ASSERT_TRUE(publish_task.result().ok()) << publish_task.result();
+    }
+
+    static void drop_row_binlog_group(const RowBinlogGroupLoadContext& context) {
+        Status status = engine_ref->tablet_manager()->drop_tablet(
+                context->row_binlog_request.tablet_id,
+                context->row_binlog_request.replica_id, false);
+        ASSERT_TRUE(status.ok()) << status;
+        status = engine_ref->tablet_manager()->drop_tablet(
+                context->base_request.tablet_id, context->base_request.replica_id, false);
+        ASSERT_TRUE(status.ok()) << status;
+    }
 };
 
 TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
@@ -283,6 +431,116 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
+}
+
+TEST_F(TestEngineStorageMigrationTask, row_binlog_prepared_txn_blocks_migration) {
+    RowBinlogGroupLoadContext context;
+    create_row_binlog_group_load_context(11005, 11006, 21005, &context);
+    DataDir* dest_store = other_store(context.row_binlog_tablet);
+    ASSERT_NE(dest_store, nullptr);
+    ASSERT_NE(dest_store, context.row_binlog_tablet->data_dir());
+
+    {
+        RuntimeProfile load_profile("PreparedRowBinlogGroupLoad");
+        GroupRowsetBuilder builder(*engine_ref, context.group_request, context.data_request,
+                                   context.row_binlog_request_for_write, &load_profile);
+        Status status = builder.init();
+        ASSERT_TRUE(status.ok()) << status;
+        assert_related_transaction(context, true);
+
+        status = engine_ref->txn_manager()->attach_row_binlog_tablet_to_txn(
+                context.data_request.partition_id, context.data_request.txn_id,
+                context.base_tablet->get_tablet_info(), context.row_binlog_tablet);
+        ASSERT_TRUE(status.ok()) << status;
+
+        status = engine_ref->txn_manager()->attach_row_binlog_tablet_to_txn(
+                context.data_request.partition_id, context.data_request.txn_id,
+                context.base_tablet->get_tablet_info(), context.base_tablet);
+        ASSERT_TRUE(status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) << status;
+
+        status = engine_ref->txn_manager()->attach_row_binlog_tablet_to_txn(
+                context.data_request.partition_id, context.data_request.txn_id + 1,
+                context.base_tablet->get_tablet_info(), context.row_binlog_tablet);
+        ASSERT_TRUE(status.is<ErrorCode::TRANSACTION_NOT_EXIST>()) << status;
+
+        const TabletUid old_uid = context.row_binlog_tablet->tablet_uid();
+        const std::string old_path = context.row_binlog_tablet->tablet_path();
+        status = migrate(context.row_binlog_tablet, dest_store);
+        ASSERT_FALSE(status.ok());
+        ASSERT_NE(status.to_string().find("unfinished txns"), std::string::npos) << status;
+
+        TabletSharedPtr current_tablet = engine_ref->tablet_manager()->get_tablet(
+                context.row_binlog_tablet->tablet_id(), old_uid);
+        ASSERT_EQ(current_tablet.get(), context.row_binlog_tablet.get());
+        ASSERT_EQ(current_tablet->tablet_uid(), old_uid);
+        ASSERT_EQ(current_tablet->tablet_path(), old_path);
+    }
+
+    // Destroying an uncommitted group builder rolls back the base transaction and removes the
+    // attached row-binlog relation.
+    assert_related_transaction(context, false);
+    drop_row_binlog_group(context);
+}
+
+TEST_F(TestEngineStorageMigrationTask, row_binlog_committed_txn_blocks_migration_until_publish) {
+    RowBinlogGroupLoadContext context;
+    create_row_binlog_group_load_context(12005, 12006, 22005, &context);
+    DataDir* dest_store = other_store(context.row_binlog_tablet);
+    ASSERT_NE(dest_store, nullptr);
+    ASSERT_NE(dest_store, context.row_binlog_tablet->data_dir());
+
+    RuntimeProfile load_profile("CommittedRowBinlogGroupLoad");
+    GroupRowsetBuilder builder(*engine_ref, context.group_request, context.data_request,
+                               context.row_binlog_request_for_write, &load_profile);
+    Status status = builder.init();
+    ASSERT_TRUE(status.ok()) << status;
+    status = builder.rowset_writer()->flush();
+    ASSERT_TRUE(status.ok()) << status;
+    status = builder.build_rowset();
+    ASSERT_TRUE(status.ok()) << status;
+    status = builder.commit_txn();
+    ASSERT_TRUE(status.ok()) << status;
+    assert_related_transaction(context, true);
+
+    const TabletUid old_uid = context.row_binlog_tablet->tablet_uid();
+    const std::string old_path = context.row_binlog_tablet->tablet_path();
+    status = migrate(context.row_binlog_tablet, dest_store);
+    ASSERT_FALSE(status.ok());
+    ASSERT_NE(status.to_string().find("unfinished txns"), std::string::npos) << status;
+
+    TabletSharedPtr current_tablet = engine_ref->tablet_manager()->get_tablet(
+            context.row_binlog_tablet->tablet_id(), old_uid);
+    ASSERT_EQ(current_tablet.get(), context.row_binlog_tablet.get());
+    ASSERT_EQ(current_tablet->tablet_uid(), old_uid);
+    ASSERT_EQ(current_tablet->tablet_path(), old_path);
+
+    constexpr int64_t publish_version = 2;
+    publish_group_transaction(context, publish_version);
+    assert_related_transaction(context, false);
+    ASSERT_NE(context.base_tablet->get_rowset_by_version(
+                      Version(publish_version, publish_version)),
+              nullptr);
+    ASSERT_NE(context.row_binlog_tablet->get_rowset_by_version(
+                      Version(publish_version, publish_version)),
+              nullptr);
+
+    // Give the reloaded tablet a newer creation time than the source tablet.
+    sleep(1);
+    EngineStorageMigrationTask migration_task(*engine_ref, context.row_binlog_tablet, dest_store);
+    status = migration_task.execute();
+    ASSERT_TRUE(status.ok()) << status;
+
+    TabletSharedPtr migrated_tablet =
+            engine_ref->tablet_manager()->get_tablet(context.row_binlog_tablet->tablet_id());
+    ASSERT_NE(migrated_tablet, nullptr);
+    ASSERT_NE(migrated_tablet.get(), context.row_binlog_tablet.get());
+    ASSERT_NE(migrated_tablet->tablet_uid(), old_uid);
+    ASSERT_EQ(migrated_tablet->data_dir(), dest_store);
+    ASSERT_NE(migrated_tablet->get_rowset_by_version(
+                      Version(publish_version, publish_version)),
+              nullptr);
+
+    drop_row_binlog_group(context);
 }
 
 } // namespace doris

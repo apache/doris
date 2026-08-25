@@ -115,6 +115,7 @@ public class RowBinlogTabletSchedulerTest {
         tabletCtx.setRowBinlogRequiredDestPathHashByBackend(
                 ImmutableMap.of(destBackendId, requiredPathHash));
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(destBackendId));
+        markRowBinlogRepair(tabletCtx, RowBinlogRepairReason.BACKEND_MISMATCH);
         AgentBatchTask batchTask = new AgentBatchTask();
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
@@ -124,6 +125,8 @@ public class RowBinlogTabletSchedulerTest {
         Assert.assertEquals(destBackendId, cloneTask.getBackendId());
         Assert.assertEquals(TStorageMedium.HDD, cloneTask.getStorageMedium());
         Assert.assertEquals(requiredPathHash, cloneTask.toThrift().getDestPathHash());
+        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
     }
 
     @Test
@@ -164,6 +167,7 @@ public class RowBinlogTabletSchedulerTest {
         TabletSchedCtx tabletCtx = createTabletCtx(rowBinlogTablet, (short) 1);
         tabletCtx.setRowBinlogRequiredDestPathHashByBackend(ImmutableMap.of(backendId, requiredPathHash));
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(backendId));
+        markRowBinlogRepair(tabletCtx, RowBinlogRepairReason.PATH_MISMATCH);
         AgentBatchTask batchTask = new AgentBatchTask();
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
@@ -180,9 +184,76 @@ public class RowBinlogTabletSchedulerTest {
         Assert.assertEquals(backendId, task.getBackendId());
         Assert.assertEquals("/required", task.getDataDir());
         Assert.assertEquals(TStorageMedium.HDD, task.getToStorageMedium());
+        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
 
         tabletScheduler.updateDestPathHash(tabletCtx);
         Assert.assertEquals(requiredPathHash, replica.getPathHash());
+    }
+
+    @Test
+    public void upgradedMixedMediumPairConvergesAfterBaseMigration() {
+        long backendId = 10001L;
+        long oldHddPathHash = 70001L;
+        long newSsdPathHash = 70002L;
+        RootPathLoadStatistic newBasePath = path(
+                backendId, "/base-ssd", newSsdPathHash, TStorageMedium.SSD);
+        setLoadStatistics(backendId, newBasePath);
+        tabletScheduler.getBackendsWorkingSlots().put(backendId, new TabletScheduler.PathSlot(
+                ImmutableMap.of(oldHddPathHash, TStorageMedium.HDD, newSsdPathHash, TStorageMedium.SSD),
+                backendId));
+
+        MaterializedIndex baseIndex = new MaterializedIndex(4L, IndexState.NORMAL);
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(7L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        LocalTablet baseTablet = new LocalTablet(5L);
+        LocalTablet rowBinlogTablet = new LocalTablet(6L);
+        baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        Replica baseReplica = replica(8L, backendId, 10L, oldHddPathHash);
+        Replica rowBinlogReplica = replica(9L, backendId, 10L, oldHddPathHash);
+        baseTablet.addReplica(baseReplica, true);
+        rowBinlogTablet.addReplica(rowBinlogReplica, true);
+        baseIndex.addTablet(baseTablet, null, true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        Partition partition = new Partition(3L, "p1", baseIndex, null);
+        partition.updateVisibleVersion(10L);
+        partition.createRollupIndex(rowBinlogIndex);
+
+        RowBinlogTabletLocality.RowBinlogHealthResult initialHealth =
+                RowBinlogTabletLocality.getRowBinlogHealth(
+                        partition, rowBinlogTablet, new ReplicaAllocation((short) 1), 10L);
+        Assert.assertEquals(TabletStatus.HEALTHY, initialHealth.getTabletHealth().status);
+
+        // Simulate the next BE report after the configured-medium migration moves the base replica first.
+        baseReplica.setPathHash(newSsdPathHash);
+        RowBinlogTabletLocality.RowBinlogHealthResult healthResult =
+                RowBinlogTabletLocality.getRowBinlogHealth(
+                        partition, rowBinlogTablet, new ReplicaAllocation((short) 1), 10L);
+        Assert.assertEquals(TabletStatus.COLOCATE_MISMATCH, healthResult.getTabletHealth().status);
+        Assert.assertEquals(RowBinlogRepairReason.PATH_MISMATCH, healthResult.getRepairReason());
+        Assert.assertEquals(ImmutableMap.of(backendId, newSsdPathHash),
+                healthResult.getRequiredDestPathHashByBackend());
+
+        TabletSchedCtx tabletCtx = createTabletCtx(rowBinlogTablet, rowBinlogIndex.getId(), (short) 1);
+        tabletCtx.setTabletHealth(healthResult.getTabletHealth());
+        healthResult.applyTo(tabletCtx);
+        AgentBatchTask batchTask = new AgentBatchTask();
+
+        Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
+
+        Assert.assertEquals(1, batchTask.getTaskNum());
+        StorageMediaMigrationTask task = (StorageMediaMigrationTask) batchTask.getAllTasks().get(0);
+        Assert.assertEquals(backendId, task.getBackendId());
+        Assert.assertEquals("/base-ssd", task.getDataDir());
+        Assert.assertEquals(TStorageMedium.SSD, task.getToStorageMedium());
+
+        tabletScheduler.updateDestPathHash(tabletCtx);
+        RowBinlogTabletLocality.RowBinlogHealthResult repairedHealth =
+                RowBinlogTabletLocality.getRowBinlogHealth(
+                        partition, rowBinlogTablet, new ReplicaAllocation((short) 1), 10L);
+        Assert.assertEquals(TabletStatus.HEALTHY, repairedHealth.getTabletHealth().status);
+        Assert.assertEquals(RowBinlogRepairReason.NONE, repairedHealth.getRepairReason());
     }
 
     @Test
@@ -213,6 +284,7 @@ public class RowBinlogTabletSchedulerTest {
                 existingBackendId, existingRequiredPathHash,
                 missingBackendId, missingRequiredPathHash));
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(existingBackendId, missingBackendId));
+        markRowBinlogRepair(tabletCtx, RowBinlogRepairReason.BACKEND_MISMATCH);
         AgentBatchTask batchTask = new AgentBatchTask();
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
@@ -223,6 +295,37 @@ public class RowBinlogTabletSchedulerTest {
         Assert.assertEquals(missingBackendId, cloneTask.getBackendId());
         Assert.assertEquals(missingRequiredPathHash, cloneTask.toThrift().getDestPathHash());
         Assert.assertEquals(TStorageMedium.HDD, cloneTask.getStorageMedium());
+        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
+    }
+
+    @Test
+    public void colocateMismatchUsesOnlyColocateCounter() {
+        long requiredBackendId = 10001L;
+        TabletSchedCtx tabletCtx = createTabletCtx(new LocalTablet(5L), (short) 1);
+        tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(requiredBackendId));
+
+        Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+                tabletScheduler, "handleColocateMismatch", tabletCtx, new AgentBatchTask()));
+
+        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
+    }
+
+    @Test
+    public void colocateRedundantUsesOnlyColocateCounter() {
+        long backendId = 10001L;
+        LocalTablet tablet = new LocalTablet(5L);
+        tablet.addReplica(replica(6L, backendId, 10L, 70001L), true);
+        TabletSchedCtx tabletCtx = createTabletCtx(tablet, (short) 1);
+        tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(backendId));
+
+        SchedException exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+                tabletScheduler, "handleColocateRedundant", tabletCtx, new AgentBatchTask()));
+
+        Assert.assertEquals(Status.UNRECOVERABLE, exception.getStatus());
+        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaRowBinlogRedundant.get());
+        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaColocateRedundant.get());
     }
 
     @Test
@@ -257,19 +360,63 @@ public class RowBinlogTabletSchedulerTest {
     }
 
     @Test
-    public void basePreferredPathIsClearedBeforeEverySchedulingAttempt() {
-        MaterializedIndex baseIndex = new MaterializedIndex(4L, IndexState.NORMAL);
-        LocalTablet baseTablet = new LocalTablet(5L);
-        baseIndex.addTablet(baseTablet, null, true);
-        Partition partition = new Partition(3L, "p1", baseIndex, null);
-        TabletSchedCtx tabletCtx = createTabletCtx(baseTablet, (short) 1);
-        tabletCtx.setBasePreferredDestPathHashByBackend(ImmutableMap.of(10001L, 70001L));
+    public void replicaMissingUsesRowBinlogPreferredPathForBaseRepair() {
+        BaseRepairFixture fixture = createBaseRepairFixture(true);
+        setTabletStatus(fixture.tabletCtx, TabletStatus.REPLICA_MISSING);
+        AgentBatchTask batchTask = new AgentBatchTask();
 
-        Deencapsulation.invoke(tabletScheduler, "setBasePreferredDestPathIfNecessary",
-                tabletCtx, partition, baseIndex, baseTablet, TabletStatus.HEALTHY);
+        Deencapsulation.invoke(tabletScheduler, "handleReplicaMissing",
+                fixture.tabletCtx, batchTask, fixture.partition, fixture.baseIndex);
 
-        Assert.assertFalse(tabletCtx.hasBasePreferredDestPathHash());
-        Assert.assertTrue(tabletCtx.getBasePreferredDestPathHashByBackend().isEmpty());
+        assertCloneUsesPath(batchTask, fixture.preferredBackendId, fixture.preferredPathHash);
+    }
+
+    @Test
+    public void replicaRelocatingFallbackUsesRowBinlogPreferredPathForBaseRepair() {
+        BaseRepairFixture fixture = createBaseRepairFixture(true);
+        setTabletStatus(fixture.tabletCtx, TabletStatus.REPLICA_RELOCATING);
+        AgentBatchTask batchTask = new AgentBatchTask();
+
+        Deencapsulation.invoke(tabletScheduler, "handleReplicaRelocating",
+                fixture.tabletCtx, batchTask, fixture.partition, fixture.baseIndex);
+
+        assertCloneUsesPath(batchTask, fixture.preferredBackendId, fixture.preferredPathHash);
+    }
+
+    @Test
+    public void versionIncompleteFallbackUsesRowBinlogPreferredPathForBaseRepair() {
+        BaseRepairFixture fixture = createBaseRepairFixture(true);
+        setTabletStatus(fixture.tabletCtx, TabletStatus.VERSION_INCOMPLETE);
+        AgentBatchTask batchTask = new AgentBatchTask();
+
+        Deencapsulation.invoke(tabletScheduler, "handleReplicaVersionIncomplete",
+                fixture.tabletCtx, batchTask, fixture.partition, fixture.baseIndex);
+
+        assertCloneUsesPath(batchTask, fixture.preferredBackendId, fixture.preferredPathHash);
+    }
+
+    @Test
+    public void replicaMissingForTagUsesRowBinlogPreferredPathForBaseRepair() {
+        BaseRepairFixture fixture = createBaseRepairFixture(true);
+        setTabletStatus(fixture.tabletCtx, TabletStatus.REPLICA_MISSING_FOR_TAG);
+        AgentBatchTask batchTask = new AgentBatchTask();
+
+        Deencapsulation.invoke(tabletScheduler, "handleReplicaMissingForTag",
+                fixture.tabletCtx, batchTask, fixture.partition, fixture.baseIndex);
+
+        assertCloneUsesPath(batchTask, fixture.preferredBackendId, fixture.preferredPathHash);
+    }
+
+    @Test
+    public void unavailableRowBinlogPreferredPathFallsBackToNormalSelection() {
+        BaseRepairFixture fixture = createBaseRepairFixture(false);
+        setTabletStatus(fixture.tabletCtx, TabletStatus.REPLICA_MISSING);
+        AgentBatchTask batchTask = new AgentBatchTask();
+
+        Deencapsulation.invoke(tabletScheduler, "handleReplicaMissing",
+                fixture.tabletCtx, batchTask, fixture.partition, fixture.baseIndex);
+
+        assertCloneUsesPath(batchTask, fixture.preferredBackendId, fixture.fallbackPathHash);
     }
 
     @Test
@@ -331,14 +478,17 @@ public class RowBinlogTabletSchedulerTest {
             tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(backendId, backendId + 1));
             tabletCtx.setRowBinlogRequiredDestPathHashByBackend(
                     ImmutableMap.of(backendId, 70001L, backendId + 1, 70002L));
+            markRowBinlogRepair(tabletCtx, RowBinlogRepairReason.REDUNDANT);
             AgentBatchTask batchTask = new AgentBatchTask();
 
             exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
-                    tabletScheduler, "handleRowBinlogColocateRedundant", tabletCtx, batchTask));
+                    tabletScheduler, "handleColocateRedundant", tabletCtx, batchTask));
             Assert.assertEquals(Status.SCHEDULE_FAILED, exception.getStatus());
             Assert.assertEquals(2, rowBinlogTablet.getReplicas().size());
             Assert.assertEquals(0, batchTask.getTaskNum());
             Assert.assertFalse(baseReplica.isBinlogMissing());
+            Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogRedundant.get());
+            Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateRedundant.get());
         } finally {
             Config.tablet_binlog_missing_timeout_second = previousTimeout;
             Config.tablet_binlog_missing_max_times = previousMaxTimes;
@@ -346,14 +496,85 @@ public class RowBinlogTabletSchedulerTest {
     }
 
     private TabletSchedCtx createTabletCtx(LocalTablet tablet, short replicaNum) {
+        return createTabletCtx(tablet, 4L, replicaNum);
+    }
+
+    private TabletSchedCtx createTabletCtx(LocalTablet tablet, long indexId, short replicaNum) {
         TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.REPAIR,
-                1L, 2L, 3L, 4L, tablet.getId(), new ReplicaAllocation(replicaNum), System.currentTimeMillis());
+                1L, 2L, 3L, indexId, tablet.getId(),
+                new ReplicaAllocation(replicaNum), System.currentTimeMillis());
         tabletCtx.setTablet(tablet);
         tabletCtx.updateTabletSize();
         tabletCtx.setVersionInfo(10L, 10L);
         tabletCtx.setSchemaHash(100);
         tabletCtx.setStorageMedium(TStorageMedium.SSD);
         return tabletCtx;
+    }
+
+    private BaseRepairFixture createBaseRepairFixture(boolean preferredPathAvailable) {
+        long sourceBackendId = 10001L;
+        long preferredBackendId = 10002L;
+        long sourcePathHash = 60001L;
+        long preferredPathHash = 70001L;
+        long fallbackPathHash = 70002L;
+        RootPathLoadStatistic preferredPath = path(
+                preferredBackendId, "/row-binlog-preferred", preferredPathHash, TStorageMedium.SSD);
+        RootPathLoadStatistic fallbackPath = path(
+                preferredBackendId, "/normal-fallback", fallbackPathHash, TStorageMedium.SSD);
+        if (preferredPathAvailable) {
+            setLoadStatistics(preferredBackendId, preferredPath, fallbackPath);
+        } else {
+            setLoadStatistics(preferredBackendId, fallbackPath);
+        }
+        infoService.addBackend(backend(sourceBackendId, "127.0.0.2"));
+        tabletScheduler.getBackendsWorkingSlots().put(sourceBackendId, new TabletScheduler.PathSlot(
+                ImmutableMap.of(sourcePathHash, TStorageMedium.SSD), sourceBackendId));
+        tabletScheduler.getBackendsWorkingSlots().put(preferredBackendId, new TabletScheduler.PathSlot(
+                preferredPathAvailable
+                        ? ImmutableMap.of(preferredPathHash, TStorageMedium.SSD,
+                                fallbackPathHash, TStorageMedium.SSD)
+                        : ImmutableMap.of(fallbackPathHash, TStorageMedium.SSD),
+                preferredBackendId));
+
+        MaterializedIndex baseIndex = new MaterializedIndex(4L, IndexState.NORMAL);
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(7L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        LocalTablet baseTablet = new LocalTablet(5L);
+        LocalTablet rowBinlogTablet = new LocalTablet(6L);
+        baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        baseTablet.addReplica(replica(8L, sourceBackendId, 10L, sourcePathHash), true);
+        rowBinlogTablet.addReplica(replica(9L, preferredBackendId, 10L, preferredPathHash), true);
+        baseIndex.addTablet(baseTablet, null, true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        Partition partition = new Partition(3L, "p1", baseIndex, null);
+        partition.updateVisibleVersion(10L);
+        partition.createRollupIndex(rowBinlogIndex);
+        invertedIndex.addTablet(baseTablet.getId(), new TabletMeta(
+                1L, 2L, 3L, baseIndex.getId(), 100, TStorageMedium.SSD, false));
+
+        TabletSchedCtx tabletCtx = createTabletCtx(baseTablet, baseIndex.getId(), (short) 2);
+        return new BaseRepairFixture(partition, baseIndex, tabletCtx,
+                preferredBackendId, preferredPathHash, fallbackPathHash);
+    }
+
+    private void setTabletStatus(TabletSchedCtx tabletCtx, TabletStatus status) {
+        TabletHealth tabletHealth = new TabletHealth();
+        tabletHealth.status = status;
+        tabletCtx.setTabletHealth(tabletHealth);
+    }
+
+    private void assertCloneUsesPath(AgentBatchTask batchTask, long backendId, long pathHash) {
+        Assert.assertEquals(1, batchTask.getTaskNum());
+        Assert.assertTrue(batchTask.getAllTasks().get(0) instanceof CloneTask);
+        CloneTask cloneTask = (CloneTask) batchTask.getAllTasks().get(0);
+        Assert.assertEquals(backendId, cloneTask.getBackendId());
+        Assert.assertEquals(pathHash, cloneTask.toThrift().getDestPathHash());
+    }
+
+    private void markRowBinlogRepair(TabletSchedCtx tabletCtx, RowBinlogRepairReason repairReason) {
+        tabletCtx.setRowBinlogBaseTabletId(9000L);
+        tabletCtx.setRowBinlogRepairReason(repairReason);
     }
 
     private void setLoadStatistics(long backendId, RootPathLoadStatistic... paths) {
@@ -368,10 +589,23 @@ public class RowBinlogTabletSchedulerTest {
             return pathList.stream().filter(path -> path.getPathHash() == pathHash).findFirst().orElse(null);
         });
         Mockito.when(backendLoadStatistic.getPathStatistics()).thenReturn(pathList);
+        Mockito.when(backendLoadStatistic.isFit(Mockito.anyLong(), Mockito.any(TStorageMedium.class),
+                Mockito.anyList(), Mockito.anyBoolean())).thenAnswer(invocation -> {
+                    TStorageMedium storageMedium = invocation.getArgument(1);
+                    List<RootPathLoadStatistic> resultPaths = invocation.getArgument(2);
+                    boolean isSupplement = invocation.getArgument(3);
+                    pathList.stream()
+                            .filter(path -> isSupplement || path.getStorageMedium() == storageMedium)
+                            .forEach(resultPaths::add);
+                    return resultPaths.isEmpty()
+                            ? new BalanceStatus(BalanceStatus.ErrCode.COMMON_ERROR) : BalanceStatus.OK;
+                });
 
         LoadStatisticForTag loadStatistic = Mockito.mock(LoadStatisticForTag.class);
         Mockito.when(loadStatistic.getBackendLoadStatistic(backendId)).thenReturn(backendLoadStatistic);
         Mockito.when(loadStatistic.getBackendLoadStatistics()).thenReturn(Lists.newArrayList(backendLoadStatistic));
+        Mockito.when(loadStatistic.getSortedBeLoadStats(null))
+                .thenReturn(Lists.newArrayList(backendLoadStatistic));
         tabletScheduler.getStatisticMap().clear();
         tabletScheduler.getStatisticMap().put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
     }
@@ -392,5 +626,24 @@ public class RowBinlogTabletSchedulerTest {
     private RootPathLoadStatistic path(long backendId, String path, long pathHash, TStorageMedium storageMedium) {
         return new RootPathLoadStatistic(backendId, path, pathHash, storageMedium,
                 1024L * 1024L * 1024L * 1024L, 1024L, DiskState.ONLINE);
+    }
+
+    private static class BaseRepairFixture {
+        private final Partition partition;
+        private final MaterializedIndex baseIndex;
+        private final TabletSchedCtx tabletCtx;
+        private final long preferredBackendId;
+        private final long preferredPathHash;
+        private final long fallbackPathHash;
+
+        private BaseRepairFixture(Partition partition, MaterializedIndex baseIndex, TabletSchedCtx tabletCtx,
+                long preferredBackendId, long preferredPathHash, long fallbackPathHash) {
+            this.partition = partition;
+            this.baseIndex = baseIndex;
+            this.tabletCtx = tabletCtx;
+            this.preferredBackendId = preferredBackendId;
+            this.preferredPathHash = preferredPathHash;
+            this.fallbackPathHash = fallbackPathHash;
+        }
     }
 }

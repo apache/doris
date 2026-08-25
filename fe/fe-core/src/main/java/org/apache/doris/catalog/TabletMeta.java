@@ -37,11 +37,6 @@ public class TabletMeta {
     private final boolean isRowBinlog;
 
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium) {
-        this(dbId, tableId, partitionId, indexId, schemaHash, storageMedium, false);
-    }
-
-    public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
             TStorageMedium storageMedium, boolean isRowBinlog) {
         this.dbId = dbId;
         this.tableId = tableId;

@@ -40,7 +40,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.RowBinlogTabletLocality;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -633,10 +632,11 @@ public class ReportHandler extends Daemon {
                 cooldownConfToPush,
                 cooldownConfToUpdate);
 
-        // tabletReport holds the inverted-index read lock. Resolve table/index metadata only after it
-        // returns, otherwise a concurrent table write that updates the inverted index can deadlock.
+        // The partition storage medium remains authoritative for base tablets. Let a paired base tablet
+        // migrate first, then let row-binlog locality repair move its companion to the base tablet's new
+        // exact path. A row-binlog tablet itself must never choose a storage medium independently.
         if (!Config.disable_storage_medium_check && !tabletMigrationMap.isEmpty()) {
-            filterRowBinlogPairedTabletMigration(tabletMigrationMap, backendId);
+            filterRowBinlogTabletMigration(tabletMigrationMap, backendId);
         }
 
         // 2. sync
@@ -1281,7 +1281,7 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    static void filterRowBinlogPairedTabletMigration(
+    static void filterRowBinlogTabletMigration(
             ListMultimap<TStorageMedium, Long> tabletMigrationMap, long backendId) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Long> skippedTabletIds = Lists.newArrayListWithCapacity(10);
@@ -1291,7 +1291,8 @@ public class ReportHandler extends Daemon {
             Map.Entry<TStorageMedium, Long> entry = iterator.next();
             long tabletId = entry.getValue();
             TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-            if (RowBinlogTabletLocality.canMoveTabletIndependently(tabletMeta)) {
+            if (tabletMeta != null && tabletMeta != TabletInvertedIndex.NOT_EXIST_TABLET_META
+                    && !tabletMeta.isRowBinlog()) {
                 continue;
             }
             iterator.remove();
@@ -1302,7 +1303,7 @@ public class ReportHandler extends Daemon {
         }
         if (skippedTabletNum > 0) {
             LOG.info("skip independent storage medium migration for {} tablets on backend {} because they are "
-                            + "row-binlog companions, paired base tablets, or their metadata is no longer available. "
+                            + "row-binlog companions or their metadata is no longer available. "
                             + "sample tablet ids: {}",
                     skippedTabletNum, backendId, skippedTabletIds);
         }

@@ -300,7 +300,12 @@ public class TabletScheduler extends MasterDaemon {
 
         pendingTablets.offer(tablet);
         if (!contains) {
-            LOG.info("Add tablet to pending queue, {}", tablet);
+            if (tablet.isRowBinlogRepair()) {
+                LOG.info("Add row binlog tablet to pending queue, {}, {}",
+                        tablet, tablet.getRowBinlogRepairInfo());
+            } else {
+                LOG.info("Add tablet to pending queue, {}", tablet);
+            }
         }
 
         return addResult;
@@ -437,6 +442,10 @@ public class TabletScheduler extends MasterDaemon {
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
                 tabletCtx.setErrMsg(e.getMessage());
+                if (tabletCtx.isRowBinlogRepair() && e.getStatus() == Status.SCHEDULE_FAILED) {
+                    LOG.warn("failed to schedule row binlog repair: {}, {}, sub code: {}",
+                            tabletCtx, tabletCtx.getRowBinlogRepairInfo(), e.getSubCode());
+                }
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
                     boolean isExceedLimit = tabletCtx.onSchedFailedAndCheckExceedLimit(e.getSubCode());
                     if (isExceedLimit) {
@@ -462,8 +471,13 @@ public class TabletScheduler extends MasterDaemon {
                 }
                 continue;
             } catch (Exception e) {
-                LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
-                        tabletCtx.getTabletId(), e);
+                if (tabletCtx.isRowBinlogRepair()) {
+                    LOG.warn("got unexpected exception during row binlog repair. tablet: {}, {}",
+                            tabletCtx, tabletCtx.getRowBinlogRepairInfo(), e);
+                } else {
+                    LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
+                            tabletCtx.getTabletId(), e);
+                }
                 stat.counterTabletScheduledFailed.incrementAndGet();
                 tabletCtx.setSchedFailedCode(SubCode.NONE);
                 tabletCtx.setErrMsg(e.getMessage());
@@ -474,6 +488,10 @@ public class TabletScheduler extends MasterDaemon {
             Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING, tabletCtx.getState());
             stat.counterTabletScheduledSucceeded.incrementAndGet();
             addToRunningTablets(tabletCtx);
+            if (tabletCtx.isRowBinlogRepair()) {
+                LOG.info("execute row binlog repair: {}, {}",
+                        tabletCtx, tabletCtx.getRowBinlogRepairInfo());
+            }
         }
 
         // must send task after adding tablet info to runningTablets.
@@ -661,31 +679,24 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.setVersionInfo(partition.getVisibleVersion(), partition.getCommittedVersion());
             tabletCtx.setSchemaHash(tbl.getSchemaHashByIndexId(idx.getId()));
             tabletCtx.setStorageMedium(tbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium());
-            setBasePreferredDestPathIfNecessary(tabletCtx, partition, idx, tablet, tabletHealth.status);
 
-            handleTabletByTypeAndStatus(tabletHealth.status, tabletCtx, batchTask);
+            handleTabletByTypeAndStatus(tabletHealth.status, tabletCtx, batchTask, partition, idx);
         } finally {
             tbl.writeUnlock();
         }
     }
 
-    private void setBasePreferredDestPathIfNecessary(TabletSchedCtx tabletCtx, Partition partition,
-            MaterializedIndex idx, Tablet tablet, TabletStatus status) throws SchedException {
-        tabletCtx.setBasePreferredDestPathHashByBackend(Collections.emptyMap());
+    private Map<Long, Long> computeBasePreferredDestPathHashByBackend(
+            TabletSchedCtx tabletCtx, Partition partition, MaterializedIndex idx) throws SchedException {
         if (idx.isRowBinlog() || idx.getId() != partition.getBaseIndex().getId()) {
-            return;
+            return Collections.emptyMap();
         }
-        if (status != TabletStatus.REPLICA_MISSING && status != TabletStatus.REPLICA_RELOCATING) {
-            return;
-        }
-        Map<Long, Long> preferredDestPathHashByBackend;
         try {
-            preferredDestPathHashByBackend = RowBinlogTabletLocality
-                    .getPreferredBaseRepairPathByBackend(partition, tablet, tabletCtx.getVisibleVersion());
+            return RowBinlogTabletLocality.getPreferredBaseRepairPathByBackend(
+                    partition, tabletCtx.getTablet(), tabletCtx.getVisibleVersion());
         } catch (IllegalStateException e) {
             throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
         }
-        tabletCtx.setBasePreferredDestPathHashByBackend(preferredDestPathHashByBackend);
     }
 
     private void checkDiskBalanceLastSuccTime(long beId, long pathHash) throws SchedException {
@@ -717,20 +728,20 @@ public class TabletScheduler extends MasterDaemon {
         pathSlot.updateDiskBalanceLastSuccTime(pathHash);
     }
 
-    private void handleTabletByTypeAndStatus(TabletStatus status, TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
-            throws SchedException {
+    private void handleTabletByTypeAndStatus(TabletStatus status, TabletSchedCtx tabletCtx,
+            AgentBatchTask batchTask, Partition partition, MaterializedIndex idx) throws SchedException {
         if (tabletCtx.getType() == Type.REPAIR) {
             switch (status) {
                 case REPLICA_MISSING:
-                    handleReplicaMissing(tabletCtx, batchTask);
+                    handleReplicaMissing(tabletCtx, batchTask, partition, idx);
                     break;
                 case VERSION_INCOMPLETE:
                 case NEED_FURTHER_REPAIR:
                     // same as version incomplete, it prefers to the dest replica which need further repair
-                    handleReplicaVersionIncomplete(tabletCtx, batchTask);
+                    handleReplicaVersionIncomplete(tabletCtx, batchTask, partition, idx);
                     break;
                 case REPLICA_RELOCATING:
-                    handleReplicaRelocating(tabletCtx, batchTask);
+                    handleReplicaRelocating(tabletCtx, batchTask, partition, idx);
                     break;
                 case REDUNDANT:
                     handleRedundantReplica(tabletCtx, false);
@@ -739,7 +750,7 @@ public class TabletScheduler extends MasterDaemon {
                     handleRedundantReplica(tabletCtx, true);
                     break;
                 case REPLICA_MISSING_FOR_TAG:
-                    handleReplicaMissingForTag(tabletCtx, batchTask);
+                    handleReplicaMissingForTag(tabletCtx, batchTask, partition, idx);
                     break;
                 case COLOCATE_MISMATCH:
                     handleColocateMismatch(tabletCtx, batchTask);
@@ -777,7 +788,8 @@ public class TabletScheduler extends MasterDaemon {
      *
      * 3. send clone task to destination backend
      */
-    private void handleReplicaMissing(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
+    private void handleReplicaMissing(TabletSchedCtx tabletCtx, AgentBatchTask batchTask,
+            Partition partition, MaterializedIndex idx) throws SchedException {
         stat.counterReplicaMissingErr.incrementAndGet();
         // check compaction too slow file is recovered
         if (tabletCtx.compactionRecovered()) {
@@ -786,8 +798,12 @@ public class TabletScheduler extends MasterDaemon {
 
         // find proper tag
         Tag tag = chooseProperTag(tabletCtx, true);
-        // find an available dest backend and path
-        RootPathLoadStatistic destPath = chooseBasePreferredDestPath(tabletCtx, tag);
+        // Compute the soft pair preference only at the point of use. If it is unavailable, ordinary
+        // destination selection remains the fallback and no retry-local state survives in TabletSchedCtx.
+        Map<Long, Long> preferredDestPathHashByBackend =
+                computeBasePreferredDestPathHashByBackend(tabletCtx, partition, idx);
+        RootPathLoadStatistic destPath = chooseBasePreferredDestPath(
+                tabletCtx, tag, preferredDestPathHashByBackend);
         if (destPath == null) {
             destPath = chooseAvailableDestPath(tabletCtx, tag, false /* not for colocate */);
         }
@@ -802,12 +818,12 @@ public class TabletScheduler extends MasterDaemon {
         incrDestPathCopingSize(tabletCtx);
     }
 
-    private RootPathLoadStatistic chooseBasePreferredDestPath(TabletSchedCtx tabletCtx, Tag tag)
-            throws SchedException {
-        if (!tabletCtx.hasBasePreferredDestPathHash()) {
+    private RootPathLoadStatistic chooseBasePreferredDestPath(TabletSchedCtx tabletCtx, Tag tag,
+            Map<Long, Long> preferredDestPathHashByBackend) throws SchedException {
+        if (preferredDestPathHashByBackend.isEmpty()) {
             return null;
         }
-        for (Map.Entry<Long, Long> entry : tabletCtx.getBasePreferredDestPathHashByBackend().entrySet()) {
+        for (Map.Entry<Long, Long> entry : preferredDestPathHashByBackend.entrySet()) {
             long backendId = entry.getKey();
             long pathHash = entry.getValue();
             if (pathHash == -1L) {
@@ -896,8 +912,8 @@ public class TabletScheduler extends MasterDaemon {
      * 2. find a healthy replica as source replica
      * 3. send clone task
      */
-    private void handleReplicaVersionIncomplete(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
-            throws SchedException {
+    private void handleReplicaVersionIncomplete(TabletSchedCtx tabletCtx, AgentBatchTask batchTask,
+            Partition partition, MaterializedIndex idx) throws SchedException {
         stat.counterReplicaVersionMissingErr.incrementAndGet();
         try {
             tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots);
@@ -915,7 +931,7 @@ public class TabletScheduler extends MasterDaemon {
                 }
                 tabletCtx.releaseResource(this, true);
                 tabletCtx.setTabletStatus(TabletStatus.REPLICA_MISSING);
-                handleReplicaMissing(tabletCtx, batchTask);
+                handleReplicaMissing(tabletCtx, batchTask, partition, idx);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("succeed to find new backend for VERSION_INCOMPLETE task. tablet id: {}",
                             tabletCtx.getTabletId());
@@ -947,11 +963,11 @@ public class TabletScheduler extends MasterDaemon {
      * If we don't choose D as dest BE to do the new relocating, it will choose new backend E to
      * store the new replicas. So back and forth, the number of replicas will increase forever.
      */
-    private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
-            throws SchedException {
+    private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask,
+            Partition partition, MaterializedIndex idx) throws SchedException {
         stat.counterReplicaUnavailableErr.incrementAndGet();
         tabletCtx.setTabletStatus(TabletStatus.VERSION_INCOMPLETE);
-        handleReplicaVersionIncomplete(tabletCtx, batchTask);
+        handleReplicaVersionIncomplete(tabletCtx, batchTask, partition, idx);
     }
 
     /**
@@ -1266,10 +1282,15 @@ public class TabletScheduler extends MasterDaemon {
     private boolean handleColocateRedundant(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
         Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
-        if (tabletCtx.hasRowBinlogRequiredDestPathHash()) {
+        if (tabletCtx.isRowBinlogRepair()) {
+            Preconditions.checkState(tabletCtx.getRowBinlogRepairReason() == RowBinlogRepairReason.REDUNDANT,
+                    tabletCtx);
+            Preconditions.checkState(tabletCtx.hasRowBinlogRequiredDestPathHash(), tabletCtx);
+            stat.counterReplicaRowBinlogRedundant.incrementAndGet();
             handleRowBinlogColocateRedundant(tabletCtx, batchTask);
             return true;
         }
+        stat.counterReplicaColocateRedundant.incrementAndGet();
         for (Replica replica : tabletCtx.getReplicas()) {
             if (tabletCtx.getColocateBackendsSet().contains(replica.getBackendIdWithoutException())
                     && !replica.isBad()) {
@@ -1490,7 +1511,7 @@ public class TabletScheduler extends MasterDaemon {
                         ? completePairCount - 1 : completePairCount;
         if (completePairCountAfterDelete < tabletCtx.getReplicaAlloc().getTotalReplicaNum()) {
             if (baseReplica.isBinlogMissing()) {
-                baseReplica.incrBinlogMissingCount();
+                baseReplica.consumeBinlogMissingRetry();
             }
             throw new SchedException(Status.SCHEDULE_FAILED,
                     "wait row binlog replica to complete before deleting base replica " + baseReplica.getId());
@@ -1644,10 +1665,10 @@ public class TabletScheduler extends MasterDaemon {
      * Treat it as replica missing, and in handleReplicaMissing(),
      * it will find a property backend to create new replica.
      */
-    private void handleReplicaMissingForTag(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
-            throws SchedException {
+    private void handleReplicaMissingForTag(TabletSchedCtx tabletCtx, AgentBatchTask batchTask,
+            Partition partition, MaterializedIndex idx) throws SchedException {
         stat.counterReplicaMissingForTagErr.incrementAndGet();
-        handleReplicaMissing(tabletCtx, batchTask);
+        handleReplicaMissing(tabletCtx, batchTask, partition, idx);
     }
 
     /**
@@ -1664,10 +1685,21 @@ public class TabletScheduler extends MasterDaemon {
     private void handleColocateMismatch(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
         Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
 
-        stat.counterReplicaColocateMismatch.incrementAndGet();
+        if (tabletCtx.isRowBinlogRepair()) {
+            Preconditions.checkState(
+                    tabletCtx.getRowBinlogRepairReason() == RowBinlogRepairReason.BACKEND_MISMATCH
+                            || tabletCtx.getRowBinlogRepairReason() == RowBinlogRepairReason.PATH_MISMATCH,
+                    tabletCtx);
+            stat.counterReplicaRowBinlogMismatch.incrementAndGet();
+        } else {
+            stat.counterReplicaColocateMismatch.incrementAndGet();
+        }
         // A row-binlog tablet may be missing a required backend and have a wrong-path replica at the same time.
         // Clone the missing backend first; migrate in place only after backend locality is complete.
-        if (tabletCtx.hasRowBinlogRequiredDestPathHash()
+        if (tabletCtx.isRowBinlogRepair()) {
+            Preconditions.checkState(tabletCtx.hasRowBinlogRequiredDestPathHash(), tabletCtx);
+        }
+        if (tabletCtx.isRowBinlogRepair()
                 && tabletCtx.getTablet().getBackendIds().containsAll(tabletCtx.getColocateBackendsSet())) {
             for (Replica replica : tabletCtx.getReplicas()) {
                 if (isRowBinlogWrongPathReplica(tabletCtx, replica)) {
@@ -1879,6 +1911,9 @@ public class TabletScheduler extends MasterDaemon {
             }
 
             if (tabletCtx.hasRowBinlogRequiredDestPathHash()) {
+                // Row-binlog locality is a hard constraint for this repair attempt, even across storage
+                // media. Report-driven migration moves the base tablet toward the partition medium first;
+                // a later locality repair then moves the row-binlog companion to this exact base path.
                 long requiredPathHash = tabletCtx.getRowBinlogRequiredDestPathHash(bes.getBeId());
                 RootPathLoadStatistic requiredPath = bes.getPathStatisticByPathHash(requiredPathHash);
                 if (requiredPath == null) {
@@ -2171,7 +2206,12 @@ public class TabletScheduler extends MasterDaemon {
         runningTablets.remove(tabletCtx.getTabletId());
         allTabletTypes.remove(tabletCtx.getTabletId());
         schedHistory.add(tabletCtx);
-        LOG.info("remove the tablet {}. because: {}", tabletCtx, reason);
+        if (tabletCtx.isRowBinlogRepair()) {
+            LOG.info("remove the row binlog tablet {}, {}. because: {}",
+                    tabletCtx, tabletCtx.getRowBinlogRepairInfo(), reason);
+        } else {
+            LOG.info("remove the tablet {}. because: {}", tabletCtx, reason);
+        }
     }
 
     // get next batch of tablets from queue.
@@ -2263,6 +2303,10 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.finishCloneTask(cloneTask, request);
         } catch (SchedException e) {
             tabletCtx.setErrMsg(e.getMessage());
+            if (tabletCtx.isRowBinlogRepair() && e.getStatus() == Status.RUNNING_FAILED) {
+                LOG.warn("row binlog repair task failed: {}, {}",
+                        tabletCtx, tabletCtx.getRowBinlogRepairInfo());
+            }
             if (e.getStatus() == Status.RUNNING_FAILED) {
                 tabletCtx.increaseFailedRunningCounter();
                 if (!tabletCtx.isExceedFailedRunningLimit()) {

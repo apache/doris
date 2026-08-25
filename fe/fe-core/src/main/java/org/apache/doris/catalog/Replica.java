@@ -346,8 +346,8 @@ public abstract class Replica {
         }
     }
 
-    public void incrBinlogMissingCount() {
-        throw new UnsupportedOperationException("incrBinlogMissingCount is not supported in Replica");
+    public void consumeBinlogMissingRetry() {
+        throw new UnsupportedOperationException("consumeBinlogMissingRetry is not supported in Replica");
     }
 
     public long getFurtherRepairWatermarkTxnTd() {

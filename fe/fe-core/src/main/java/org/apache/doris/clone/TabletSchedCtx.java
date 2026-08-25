@@ -188,8 +188,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private Set<Long> colocateBackendsSet = null;
     private int tabletOrderIdx = -1;
+    private long rowBinlogBaseTabletId = -1L;
+    private RowBinlogRepairReason rowBinlogRepairReason = RowBinlogRepairReason.NONE;
     private Map<Long, Long> rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap();
-    private Map<Long, Long> basePreferredDestPathHashByBackend = Maps.newHashMap();
+    private Map<Long, Long> rowBinlogObservedPathHashByBackend = Maps.newHashMap();
 
     private SystemInfoService infoService;
 
@@ -600,6 +602,26 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return colocateBackendsSet;
     }
 
+    public void setRowBinlogBaseTabletId(long baseTabletId) {
+        this.rowBinlogBaseTabletId = baseTabletId;
+    }
+
+    public long getRowBinlogBaseTabletId() {
+        return rowBinlogBaseTabletId;
+    }
+
+    public boolean isRowBinlogRepair() {
+        return rowBinlogBaseTabletId > 0;
+    }
+
+    public void setRowBinlogRepairReason(RowBinlogRepairReason repairReason) {
+        this.rowBinlogRepairReason = repairReason;
+    }
+
+    public RowBinlogRepairReason getRowBinlogRepairReason() {
+        return rowBinlogRepairReason;
+    }
+
     public void setRowBinlogRequiredDestPathHashByBackend(Map<Long, Long> requiredDestPathHashByBackend) {
         this.rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
     }
@@ -616,16 +638,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return rowBinlogRequiredDestPathHashByBackend;
     }
 
-    public void setBasePreferredDestPathHashByBackend(Map<Long, Long> preferredDestPathHashByBackend) {
-        this.basePreferredDestPathHashByBackend = Maps.newHashMap(preferredDestPathHashByBackend);
+    public void setRowBinlogObservedPathHashByBackend(Map<Long, Long> observedPathHashByBackend) {
+        this.rowBinlogObservedPathHashByBackend = Maps.newHashMap(observedPathHashByBackend);
     }
 
-    public boolean hasBasePreferredDestPathHash() {
-        return !basePreferredDestPathHashByBackend.isEmpty();
-    }
-
-    public Map<Long, Long> getBasePreferredDestPathHashByBackend() {
-        return basePreferredDestPathHashByBackend;
+    public Map<Long, Long> getRowBinlogObservedPathHashByBackend() {
+        return rowBinlogObservedPathHashByBackend;
     }
 
     public void setTabletOrderIdx(int idx) {
@@ -1389,7 +1407,31 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(committedVersion));
         result.add(Strings.nullToEmpty(errMsg));
+        result.add(rowBinlogRepairReason.name());
+        result.add(String.valueOf(rowBinlogBaseTabletId));
+        result.add(formatBackendPathMap(rowBinlogRequiredDestPathHashByBackend));
+        result.add(formatBackendPathMap(rowBinlogObservedPathHashByBackend));
         return result;
+    }
+
+    private static String formatBackendPathMap(Map<Long, Long> pathHashByBackend) {
+        List<Long> backendIds = Lists.newArrayList(pathHashByBackend.keySet());
+        Collections.sort(backendIds);
+        StringBuilder result = new StringBuilder();
+        for (long backendId : backendIds) {
+            if (result.length() > 0) {
+                result.append(",");
+            }
+            result.append(backendId).append(":").append(pathHashByBackend.get(backendId));
+        }
+        return result.toString();
+    }
+
+    public String getRowBinlogRepairInfo() {
+        return "reason: " + rowBinlogRepairReason.name()
+                + ", base tablet id: " + rowBinlogBaseTabletId
+                + ", expected locations: " + formatBackendPathMap(rowBinlogRequiredDestPathHashByBackend)
+                + ", observed locations: " + formatBackendPathMap(rowBinlogObservedPathHashByBackend);
     }
 
     /*

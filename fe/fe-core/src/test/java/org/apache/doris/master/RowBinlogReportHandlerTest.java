@@ -17,18 +17,9 @@
 
 package org.apache.doris.master;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HashDistributionInfo;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.LinkedListMultimap;
@@ -39,8 +30,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-
-import java.util.ArrayList;
 
 public class RowBinlogReportHandlerTest {
     private static final long DB_ID = 1L;
@@ -58,16 +47,9 @@ public class RowBinlogReportHandlerTest {
 
     @Before
     public void setUp() {
-        Database db = new Database(DB_ID, "test_db");
-        createRowBinlogTable(db);
-        createOrdinaryTable(db);
-
-        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
-        Mockito.when(catalog.getDbNullable(DB_ID)).thenReturn(db);
         invertedIndex = Mockito.mock(TabletInvertedIndex.class);
 
         mockedEnvStatic = Mockito.mockStatic(Env.class);
-        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
     }
 
@@ -77,7 +59,7 @@ public class RowBinlogReportHandlerTest {
     }
 
     @Test
-    public void storageMediumMigrationKeepsRollupAndOrdinaryTabletsOnly() {
+    public void storageMediumMigrationKeepsPairedBaseRollupAndOrdinaryTablets() {
         long baseTabletId = 100L;
         long rowBinlogTabletId = 101L;
         long rollupTabletId = 102L;
@@ -91,6 +73,8 @@ public class RowBinlogReportHandlerTest {
                 ROLLUP_INDEX_ID));
         Mockito.when(invertedIndex.getTabletMeta(ordinaryTabletId)).thenReturn(tabletMeta(ORDINARY_TABLE_ID,
                 ORDINARY_PARTITION_ID, ORDINARY_BASE_INDEX_ID));
+        Mockito.when(invertedIndex.getTabletMeta(missingTabletId))
+                .thenReturn(TabletInvertedIndex.NOT_EXIST_TABLET_META);
 
         ListMultimap<TStorageMedium, Long> migrationMap = LinkedListMultimap.create();
         migrationMap.put(TStorageMedium.SSD, baseTabletId);
@@ -99,37 +83,18 @@ public class RowBinlogReportHandlerTest {
         migrationMap.put(TStorageMedium.SSD, ordinaryTabletId);
         migrationMap.put(TStorageMedium.SSD, missingTabletId);
 
-        ReportHandler.filterRowBinlogPairedTabletMigration(migrationMap, 10001L);
+        ReportHandler.filterRowBinlogTabletMigration(migrationMap, 10001L);
 
-        Assert.assertEquals(2, migrationMap.size());
+        Assert.assertEquals(3, migrationMap.size());
+        Assert.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, baseTabletId));
         Assert.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, rollupTabletId));
         Assert.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, ordinaryTabletId));
-    }
-
-    private void createRowBinlogTable(Database db) {
-        MaterializedIndex baseIndex = new MaterializedIndex(BASE_INDEX_ID, IndexState.NORMAL);
-        Partition partition = new Partition(PARTITION_ID, "p0", baseIndex, new HashDistributionInfo());
-        MaterializedIndex rowBinlogIndex = new MaterializedIndex(ROW_BINLOG_INDEX_ID, IndexState.NORMAL);
-        rowBinlogIndex.setIsRowBinlog(true);
-        partition.createRollupIndex(rowBinlogIndex);
-        partition.createRollupIndex(new MaterializedIndex(ROLLUP_INDEX_ID, IndexState.NORMAL));
-
-        OlapTable table = new OlapTable(TABLE_ID, "row_binlog_table", new ArrayList<>(), KeysType.DUP_KEYS,
-                new RangePartitionInfo(), new HashDistributionInfo());
-        table.addPartition(partition);
-        db.registerTable(table);
-    }
-
-    private void createOrdinaryTable(Database db) {
-        MaterializedIndex baseIndex = new MaterializedIndex(ORDINARY_BASE_INDEX_ID, IndexState.NORMAL);
-        Partition partition = new Partition(ORDINARY_PARTITION_ID, "p0", baseIndex, new HashDistributionInfo());
-        OlapTable table = new OlapTable(ORDINARY_TABLE_ID, "ordinary_table", new ArrayList<>(), KeysType.DUP_KEYS,
-                new RangePartitionInfo(), new HashDistributionInfo());
-        table.addPartition(partition);
-        db.registerTable(table);
+        Assert.assertFalse(migrationMap.containsEntry(TStorageMedium.SSD, rowBinlogTabletId));
+        Assert.assertFalse(migrationMap.containsEntry(TStorageMedium.SSD, missingTabletId));
     }
 
     private TabletMeta tabletMeta(long tableId, long partitionId, long indexId) {
-        return new TabletMeta(DB_ID, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
+        return new TabletMeta(DB_ID, tableId, partitionId, indexId, 0, TStorageMedium.HDD,
+                indexId == ROW_BINLOG_INDEX_ID);
     }
 }

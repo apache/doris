@@ -129,7 +129,8 @@ public class MaterializedIndexTest {
 
     @Test
     public void testGetTabletsReturnsImmutableSnapshot() {
-        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
+                false /* isRowBinlog */);
         index.addTablet(new LocalTablet(1L), tabletMeta, true);
 
         List<Tablet> snapshot = index.getTablets();
@@ -283,7 +284,8 @@ public class MaterializedIndexTest {
         // A reader repeatedly snapshots and iterates getTablets() while a writer keeps
         // adding tablets. Copy-on-write guarantees the reader never observes a partially
         // built list or throws ConcurrentModificationException.
-        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
+                false /* isRowBinlog */);
         AtomicReference<Throwable> error = new AtomicReference<>();
         AtomicBoolean stop = new AtomicBoolean(false);
 

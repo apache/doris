@@ -111,13 +111,18 @@ public class RowBinlogTabletLocality {
     public static class RowBinlogHealthResult {
         private final TabletHealth tabletHealth;
         private final Tablet baseTablet;
+        private final RowBinlogRepairReason repairReason;
         private final Map<Long, Long> requiredDestPathHashByBackend;
+        private final Map<Long, Long> observedPathHashByBackend;
 
         private RowBinlogHealthResult(TabletHealth tabletHealth, Tablet baseTablet,
-                Map<Long, Long> requiredDestPathHashByBackend) {
+                RowBinlogRepairReason repairReason, Map<Long, Long> requiredDestPathHashByBackend,
+                Map<Long, Long> observedPathHashByBackend) {
             this.tabletHealth = tabletHealth;
             this.baseTablet = baseTablet;
-            this.requiredDestPathHashByBackend = requiredDestPathHashByBackend;
+            this.repairReason = repairReason;
+            this.requiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
+            this.observedPathHashByBackend = Maps.newHashMap(observedPathHashByBackend);
         }
 
         public TabletHealth getTabletHealth() {
@@ -128,8 +133,16 @@ public class RowBinlogTabletLocality {
             return baseTablet;
         }
 
+        public RowBinlogRepairReason getRepairReason() {
+            return repairReason;
+        }
+
         public Map<Long, Long> getRequiredDestPathHashByBackend() {
             return requiredDestPathHashByBackend;
+        }
+
+        public Map<Long, Long> getObservedPathHashByBackend() {
+            return observedPathHashByBackend;
         }
 
         public Set<Long> getRequiredBackends() {
@@ -137,8 +150,14 @@ public class RowBinlogTabletLocality {
         }
 
         public void applyTo(TabletSchedCtx tabletCtx) {
+            // Reuse the scheduler's colocate backend-set carrier for the effective backends of the
+            // paired base tablet. This does not mean that the row-binlog tablet belongs to, or follows,
+            // a user-defined colocate group layout.
             tabletCtx.setColocateGroupBackendIds(getRequiredBackends());
+            tabletCtx.setRowBinlogBaseTabletId(baseTablet == null ? -1L : baseTablet.getId());
+            tabletCtx.setRowBinlogRepairReason(repairReason);
             tabletCtx.setRowBinlogRequiredDestPathHashByBackend(requiredDestPathHashByBackend);
+            tabletCtx.setRowBinlogObservedPathHashByBackend(observedPathHashByBackend);
         }
     }
 
@@ -152,13 +171,16 @@ public class RowBinlogTabletLocality {
                     rowBinlogTablet.getId(), partition.getId(), e.getMessage());
             TabletHealth tabletHealth = new TabletHealth();
             tabletHealth.status = TabletStatus.UNRECOVERABLE;
-            return new RowBinlogHealthResult(tabletHealth, null, Maps.newHashMap());
+            return new RowBinlogHealthResult(tabletHealth, null, RowBinlogRepairReason.NONE,
+                    Maps.newHashMap(), getReplicaPathHashByBackend(rowBinlogTablet));
         }
         Tablet baseTablet = tabletPair.getBaseTablet();
         rowBinlogTablet = tabletPair.getRowBinlogTablet();
 
         Map<Long, Long> requiredDestPathHashByBackend = getEffectiveBaseReplicaPathByBackend(
                 baseTablet, visibleVersion, false);
+        Map<Long, Long> observedPathHashByBackend = getReplicaPathHashByBackend(rowBinlogTablet);
+        RowBinlogRepairReason repairReason = RowBinlogRepairReason.NONE;
         TabletHealth tabletHealth;
         if (requiredDestPathHashByBackend.isEmpty()) {
             tabletHealth = new TabletHealth();
@@ -166,9 +188,14 @@ public class RowBinlogTabletLocality {
         } else {
             tabletHealth = rowBinlogTablet.getColocateHealth(
                     visibleVersion, replicaAlloc, requiredDestPathHashByBackend.keySet());
-            if (tabletHealth.status == TabletStatus.HEALTHY
+            if (tabletHealth.status == TabletStatus.COLOCATE_MISMATCH) {
+                repairReason = RowBinlogRepairReason.BACKEND_MISMATCH;
+            } else if (tabletHealth.status == TabletStatus.COLOCATE_REDUNDANT) {
+                repairReason = RowBinlogRepairReason.REDUNDANT;
+            } else if (tabletHealth.status == TabletStatus.HEALTHY
                     && hasWrongPathReplica(rowBinlogTablet, requiredDestPathHashByBackend)) {
                 tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
+                repairReason = RowBinlogRepairReason.PATH_MISMATCH;
             }
             if (tabletHealth.status != TabletStatus.HEALTHY
                     && tabletHealth.status != TabletStatus.UNRECOVERABLE
@@ -176,7 +203,16 @@ public class RowBinlogTabletLocality {
                 tabletHealth.priority = Priority.HIGH;
             }
         }
-        return new RowBinlogHealthResult(tabletHealth, baseTablet, requiredDestPathHashByBackend);
+        return new RowBinlogHealthResult(tabletHealth, baseTablet, repairReason,
+                requiredDestPathHashByBackend, observedPathHashByBackend);
+    }
+
+    private static Map<Long, Long> getReplicaPathHashByBackend(Tablet tablet) {
+        Map<Long, Long> pathHashByBackend = Maps.newHashMap();
+        for (Replica replica : tablet.getReplicas()) {
+            pathHashByBackend.put(replica.getBackendIdWithoutException(), replica.getPathHash());
+        }
+        return pathHashByBackend;
     }
 
     public static Map<Long, Long> getEffectiveBaseReplicaPathByBackend(Tablet baseTablet,

@@ -76,7 +76,8 @@ public class TabletTest {
         mockedEnvStatic.when(Env::isCheckpointThread).thenReturn(false);
 
         tablet = new LocalTablet(1);
-        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
+                false /* isRowBinlog */);
         invertedIndex.addTablet(1, tabletMeta);
         replica1 = new LocalReplica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         replica2 = new LocalReplica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -111,7 +112,8 @@ public class TabletTest {
     @Test
     public void testGetReplicaStatsOnlyUsesNormalReplicas() {
         Tablet statsTablet = new LocalTablet(2);
-        invertedIndex.addTablet(2, new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD));
+        invertedIndex.addTablet(2, new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
+                false /* isRowBinlog */));
         statsTablet.addReplica(new LocalReplica(11L, 1L, 100L, 0, 10L, 0L, 100L, ReplicaState.NORMAL, 0L, 100L));
         statsTablet.addReplica(new LocalReplica(12L, 2L, 100L, 0, 20L, 0L, 200L, ReplicaState.NORMAL, 0L, 100L));
         statsTablet.addReplica(new LocalReplica(13L, 3L, 100L, 0, 0L, 0L, 300L, ReplicaState.NORMAL, 0L, 100L));
@@ -157,7 +159,7 @@ public class TabletTest {
     }
 
     @Test
-    public void testLocalReplicaBinlogMissingTimeoutAndCount() {
+    public void testLocalReplicaBinlogMissingTimeoutAndRetryBudget() {
         long originTimeoutSecond = Config.tablet_binlog_missing_timeout_second;
         int originMaxTimes = Config.tablet_binlog_missing_max_times;
         try {
@@ -167,9 +169,9 @@ public class TabletTest {
             replica1.setBinlogMissing(true);
             Assert.assertTrue(replica1.isBinlogMissing());
 
-            replica1.incrBinlogMissingCount();
+            replica1.consumeBinlogMissingRetry();
             Assert.assertTrue(replica1.isBinlogMissing());
-            replica1.incrBinlogMissingCount();
+            replica1.consumeBinlogMissingRetry();
             Assert.assertFalse(replica1.isBinlogMissing());
 
             replica1.setBinlogMissing(true);
