@@ -115,6 +115,12 @@ public class IcebergScanPlanProviderTest {
     @TempDir
     Path tempDir;
 
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new IcebergConnectorProvider().getType() + ".";
+        Assertions.assertTrue(IcebergScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
+
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
             Types.NestedField.optional(2, "name", Types.StringType.get()));
