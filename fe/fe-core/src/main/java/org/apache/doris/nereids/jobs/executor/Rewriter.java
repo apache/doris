@@ -52,6 +52,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectLimitAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
@@ -393,6 +394,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("Push project and filter on cte consumer to cte producer",
                                     topDown(
                                             new CollectFilterAboveConsumer(),
+                                            new CollectLimitAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
                             topic("eliminate join according unique or foreign key",
@@ -768,6 +770,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
+                                new CollectLimitAboveConsumer(),
                                 new CollectCteConsumerOutput()
                         )
                 ),
