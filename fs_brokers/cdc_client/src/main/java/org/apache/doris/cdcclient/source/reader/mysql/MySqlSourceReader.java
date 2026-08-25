@@ -1000,9 +1000,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.jdbcProperties(jdbcProperteis);
 
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
-        dbzProps.setProperty(
-                MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
-                DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+        // Do not override KEEP_ALIVE_INTERVAL_MS: connection liveness is independent from CDC
+        // progress heartbeats.
         dbzProps.setProperty(
                 EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT,
                 Boolean.toString(excludeHeartbeatFromEventCount()));
