@@ -109,6 +109,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
     private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
+    static final String SCAN_REUSE_NAMESPACE = "hudi.scan-reuse";
 
     // Scan-node prop carrying the base64 native-reader schema-evolution dictionary (current_schema_id +
     // history_schema_info). getScanNodeProperties builds it; populateScanLevelParams copies it onto the real
@@ -170,7 +171,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         if (!isExternalScanTaskReuseEnabled(session)) {
             return doPlanScan(session, request);
         }
-        String memoKey = "hudi.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+        String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
         HudiScanReuseKey reuseKey = hudiScanReuseKey((HudiTableHandle) request.getTableHandle());

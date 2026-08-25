@@ -117,6 +117,12 @@ public class PaimonScanPlanProviderTest {
     private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new PaimonConnectorProvider().getType() + ".";
+        Assertions.assertTrue(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
+
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
         for (String name : columnNames) {
