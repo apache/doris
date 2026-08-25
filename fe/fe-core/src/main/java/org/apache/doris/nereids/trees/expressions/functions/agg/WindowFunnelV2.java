@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -50,6 +51,9 @@ public class WindowFunnelV2 extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, TimeStampTzType.WILDCARD,
+                            BooleanType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE,
                             BooleanType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.WILDCARD,
@@ -100,7 +104,7 @@ public class WindowFunnelV2 extends NullableAggregateFunction
         }
         if (!getArgumentType(2).isDateLikeType()) {
             throw new AnalysisException("The 3rd param of " + functionName
-                    + " function must be DATE, DATETIME or TIMESTAMPTZ");
+                    + " function must be DATE, DATETIME, TIMESTAMP_NS or TIMESTAMPTZ");
         }
         for (int i = 3; i < arity(); i++) {
             if (!getArgumentType(i).isBooleanType()) {

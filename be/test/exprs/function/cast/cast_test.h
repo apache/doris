@@ -163,6 +163,8 @@ struct FunctionCastTest : public testing::Test {
             return "datev2";
         case TYPE_DATETIMEV2: /* 26 */
             return precision > 0 ? fmt::format("datetimev2{}", precision) : "datetimev2";
+        case TYPE_TIMESTAMP_NS:
+            return "timestamp_ns";
         case TYPE_TIMEV2: /* 27 */
             return "time";
         case TYPE_DECIMAL32: /* 28 */

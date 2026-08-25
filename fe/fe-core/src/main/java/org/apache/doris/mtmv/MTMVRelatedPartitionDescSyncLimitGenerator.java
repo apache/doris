@@ -21,18 +21,19 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -121,7 +122,7 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
         if (syncLimit > 1) {
             nowLiteral = dateSub(nowLiteral, timeUnit, syncLimit - 1);
         }
-        return ((DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue().longValue();
+        return ZonedDateTime.of(nowLiteral.toJavaDateType(), TimeUtils.getDorisZoneId()).toEpochSecond();
     }
 
     private DateTimeV2Literal dateSub(DateTimeV2Literal date, MTMVPartitionSyncTimeUnit timeUnit, int num)

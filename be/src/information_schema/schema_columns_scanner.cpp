@@ -134,6 +134,8 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::DATETIME:
     case TPrimitiveType::DATETIMEV2:
         return "datetime";
+    case TPrimitiveType::TIMESTAMP_NS:
+        return "timestamp_ns";
     case TPrimitiveType::TIMESTAMPTZ:
         return "timestamp";
     case TPrimitiveType::DECIMAL32:
@@ -237,6 +239,8 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         }
         return fmt::to_string(debug_string_buffer);
     }
+    case TPrimitiveType::TIMESTAMP_NS:
+        return "timestamp_ns";
     case TPrimitiveType::TIMESTAMPTZ: {
         fmt::memory_buffer debug_string_buffer;
         if (!desc.__isset.columnScale || desc.columnScale == 0) {
@@ -550,7 +554,8 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnPrecision &&
-                data_type != TPrimitiveType::DATETIMEV2) {
+                data_type != TPrimitiveType::DATETIMEV2 &&
+                data_type != TPrimitiveType::TIMESTAMP_NS) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnPrecision;
                 datas[i] = srcs.data() + i;
             } else {
@@ -565,7 +570,8 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
-                data_type != TPrimitiveType::DATETIMEV2) {
+                data_type != TPrimitiveType::DATETIMEV2 &&
+                data_type != TPrimitiveType::TIMESTAMP_NS) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
             } else {
@@ -581,6 +587,7 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
                 (data_type == TPrimitiveType::DATETIMEV2 ||
+                 data_type == TPrimitiveType::TIMESTAMP_NS ||
                  data_type == TPrimitiveType::TIMESTAMPTZ)) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
@@ -661,7 +668,8 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
-                data_type != TPrimitiveType::DATETIMEV2) {
+                data_type != TPrimitiveType::DATETIMEV2 &&
+                data_type != TPrimitiveType::TIMESTAMP_NS) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
             } else {

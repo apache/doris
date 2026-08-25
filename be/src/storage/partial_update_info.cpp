@@ -28,6 +28,8 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/value/bitmap_value.h"
+#include "core/value/timestamp_ns_value.h"
+#include "exec/common/int_exp.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
@@ -291,6 +293,32 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                         default_value += timezone;
                     }
                 }
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS &&
+                                to_lower(column.has_default_value_expr()
+                                                 ? column.default_value_expr()
+                                                 : column.default_value())
+                                                .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                        std::string::npos)) {
+                const auto& default_value_expr = column.has_default_value_expr()
+                                                         ? column.default_value_expr()
+                                                         : column.default_value();
+                auto pos = to_lower(default_value_expr).find('(');
+                DateV2Value<DateTimeV2ValueType> dtv;
+                uint16_t nanosecond_remainder = 0;
+                if (pos == std::string::npos) {
+                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
+                } else {
+                    int precision = std::stoi(default_value_expr.substr(pos + 1));
+                    dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
+                    if (precision > 6) {
+                        const int64_t factor = static_cast<int64_t>(int_exp10(9 - precision));
+                        const int64_t truncated_nanos = nano_seconds / factor * factor;
+                        nanosecond_remainder = static_cast<uint16_t>(truncated_nanos % 1000);
+                    }
+                }
+                TimeStampNsValue timestamp_ns;
+                DORIS_CHECK(timestamp_ns.from_datetime(dtv, nanosecond_remainder));
+                default_value = timestamp_ns.to_string();
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {

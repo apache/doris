@@ -390,4 +390,15 @@ TEST_F(AsofIndexVariantTest, EmplaceUint64Groups) {
               99999999999ULL);
 }
 
+TEST_F(AsofIndexVariantTest, EmplaceInt64Groups) {
+    AsofIndexVariant variant;
+    auto& groups = variant.emplace<std::vector<AsofIndexGroup<int64_t>>>();
+    groups.emplace_back();
+    groups[0].add_row(-1, 1);
+    groups[0].add_row(0, 2);
+    groups[0].sort_and_finalize();
+    EXPECT_TRUE(std::holds_alternative<std::vector<AsofIndexGroup<int64_t>>>(variant));
+    EXPECT_EQ(std::get<std::vector<AsofIndexGroup<int64_t>>>(variant)[0].asof_values[0], -1);
+}
+
 } // namespace doris

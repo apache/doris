@@ -146,6 +146,8 @@ public class ExprGsonSerializationTest {
         samples.put(StringLiteral.class, new StringLiteral("expr-gson"));
         samples.put(StructLiteral.class, new StructLiteral(new StructType(),
                 new IntLiteral(7L), new StringLiteral("field")));
+        samples.put(TimeStampNsLiteral.class,
+                new TimeStampNsLiteral(2024, 4, 27, 12, 34, 56, 123456789));
         samples.put(TimeV2Literal.class, new TimeV2Literal(12, 34, 56, 123456, 6, false));
         samples.put(VarBinaryLiteral.class, new VarBinaryLiteral("bin".getBytes(StandardCharsets.UTF_8)));
         samples.put(BetweenPredicate.class, createBetweenPredicate());

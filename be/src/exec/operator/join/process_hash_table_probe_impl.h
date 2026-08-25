@@ -482,6 +482,10 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                           }
                           return probe_with_index(groups,
                                                   assert_cast<const ColumnTimeStampTz*>(probe_col));
+                      },
+                      [&](std::vector<AsofIndexGroup<int64_t>>& groups) -> uint32_t {
+                          return probe_with_index(groups,
+                                                  assert_cast<const ColumnTimeStampNs*>(probe_col));
                       }},
             shared_state->asof_index_groups);
 

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
@@ -42,6 +43,12 @@ public class DateDiff extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .args(DateTimeV2Type.WILDCARD, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));

@@ -40,8 +40,10 @@ class IColumn;
 
 class DataTypeTimeV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2> {
 public:
+    static constexpr UInt32 MAX_SCALE = 6;
+
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
-        if (UNLIKELY(scale > 6)) {
+        if (UNLIKELY(scale > static_cast<int>(MAX_SCALE))) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {

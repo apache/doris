@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -45,6 +48,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -200,6 +204,48 @@ public class ComputeSignatureHelperTest {
         Assertions.assertTrue(signature.getArgType(0) instanceof ArrayType);
         Assertions.assertTrue(((ArrayType) signature.getArgType(0)).getItemType() instanceof BigIntType);
         Assertions.assertTrue(signature.getArgType(1) instanceof BigIntType);
+    }
+
+    @Test
+    void testArrayTimestampNsWithExactDateTimeV2LiteralImplementAnyDataTypeWithIndex() {
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
+        List<Expression> arguments = Lists.newArrayList(
+                new SlotReference("values", ArrayType.of(TimeStampNsType.INSTANCE)),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), 2024, 1, 2, 3, 4, 5, 123456));
+
+        signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
+
+        Assertions.assertEquals(TimeStampNsType.INSTANCE,
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, signature.getArgType(1));
+    }
+
+    @Test
+    void testDateTimeV2ArrayWithExactTimestampNsLiteralImplementAnyDataTypeWithIndex() {
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
+        List<Expression> arguments = Lists.newArrayList(
+                new SlotReference("values", ArrayType.of(DateTimeV2Type.of(6))),
+                new TimeStampNsLiteral("2024-01-02 03:04:05.123456000"));
+
+        signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
+
+        Assertions.assertEquals(DateTimeV2Type.of(6),
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(DateTimeV2Type.of(6), signature.getArgType(1));
+    }
+
+    @Test
+    void testTimestampNsAndDateTimeV2ColumnsRejectIndexedAnyCommonType() {
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
+        List<Expression> arguments = Lists.newArrayList(
+                new SlotReference("values", ArrayType.of(TimeStampNsType.INSTANCE)),
+                new SlotReference("value", DateTimeV2Type.of(6)));
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments));
     }
 
     @Test

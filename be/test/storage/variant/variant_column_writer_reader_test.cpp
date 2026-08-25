@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -387,6 +388,109 @@ TEST(VariantPathBuilderTest, CachedBinarySerdeFollowsFloatingPromotion) {
     ASSERT_TRUE(builder.write_sparse_cell(1, &binary).ok());
     ASSERT_FALSE(binary.empty());
     EXPECT_EQ(static_cast<FieldType>(binary.front()), FieldType::OLAP_FIELD_TYPE_BIGINT);
+}
+
+TEST(VariantPathBuilderTest, MaterializesTimestampNsWithoutLosingNanoseconds) {
+    VariantBatchBuilder value_builder;
+    auto before_epoch = value_builder.begin_row();
+    before_epoch.add_timestamp_nanos(-1, false);
+    before_epoch.finish();
+    auto epoch = value_builder.begin_row();
+    epoch.add_timestamp_nanos(0, false);
+    epoch.finish();
+    auto normal = value_builder.begin_row();
+    normal.add_timestamp_nanos(123456789, false);
+    normal.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder builder(PathInData("timestamp_ns"));
+    ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+    ASSERT_TRUE(builder.append(values.value_at(2), 2).ok());
+    ASSERT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_TIMESTAMP_NS);
+
+    ColumnPtr materialized;
+    ASSERT_TRUE(builder.materialize(&materialized).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+    const auto& data =
+            assert_cast<const ColumnTimeStampNs&>(nullable.get_nested_column()).get_data();
+    ASSERT_EQ(data.size(), 3);
+    EXPECT_EQ(data[0].epoch_nanos(), -1);
+    EXPECT_EQ(data[1].epoch_nanos(), 0);
+    EXPECT_EQ(data[2].epoch_nanos(), 123456789);
+}
+
+TEST(VariantPathBuilderTest, PromotesTimestampMicrosAndNanosInEitherOrder) {
+    const auto verify = [](bool nanos_first) {
+        VariantBatchBuilder value_builder;
+        auto first = value_builder.begin_row();
+        if (nanos_first) {
+            first.add_timestamp_nanos(123456789, false);
+        } else {
+            first.add_timestamp_micros(-1, false);
+        }
+        first.finish();
+        auto second = value_builder.begin_row();
+        if (nanos_first) {
+            second.add_timestamp_micros(-1, false);
+        } else {
+            second.add_timestamp_nanos(123456789, false);
+        }
+        second.finish();
+        VariantBatchBuilder values = value_builder.finish_batch();
+
+        segment_v2::VariantPathBuilder builder(PathInData("mixed_timestamp"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        ASSERT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_TIMESTAMP_NS);
+
+        ColumnPtr materialized;
+        ASSERT_TRUE(builder.materialize(&materialized).ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+        const auto& data =
+                assert_cast<const ColumnTimeStampNs&>(nullable.get_nested_column()).get_data();
+        ASSERT_EQ(data.size(), 2);
+        EXPECT_EQ(data[nanos_first ? 0 : 1].epoch_nanos(), 123456789);
+        EXPECT_EQ(data[nanos_first ? 1 : 0].epoch_nanos(), -1000);
+    };
+
+    verify(false);
+    verify(true);
+}
+
+TEST(VariantPathBuilderTest, PreservesOutOfRangeTimestampWhenPromotingToNanos) {
+    const auto verify = [](bool nanos_first) {
+        VariantBatchBuilder value_builder;
+        const auto append = [&](bool nanos) {
+            auto row = value_builder.begin_row();
+            if (nanos) {
+                row.add_timestamp_nanos(123456789, false);
+            } else {
+                // 2500-01-01 is valid for DATETIMEV2 but outside TIMESTAMP_NS's Int64 range.
+                row.add_timestamp_micros(16725225600000000, false);
+            }
+            row.finish();
+        };
+        append(nanos_first);
+        append(!nanos_first);
+        VariantBatchBuilder values = value_builder.finish_batch();
+
+        segment_v2::VariantPathBuilder builder(PathInData("mixed_timestamp"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+        EXPECT_EQ(builder.non_null_rows(), 2);
+
+        ColumnPtr materialized;
+        ASSERT_TRUE(builder.materialize(&materialized).ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+        ASSERT_EQ(nullable.size(), 2);
+        EXPECT_FALSE(nullable.is_null_at(0));
+        EXPECT_FALSE(nullable.is_null_at(1));
+    };
+
+    verify(false);
+    verify(true);
 }
 
 TEST(VariantPathBuilderTest, PromotesCompatibleDecimalScalesInEitherOrderAndInsideArrays) {

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
@@ -48,6 +49,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -329,6 +331,37 @@ public class StmtExecutorTest extends TestWithFeService {
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryTimestampNsResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+
+        String value = "2025-01-01 01:02:03.123456789";
+        List<List<String>> rows = Lists.newArrayList();
+        rows.add(Lists.newArrayList(value));
+        ResultSet resultSet = new CommonResultSet(
+                new CommonResultSetMetaData(Lists.newArrayList(
+                        new Column("timestamp_ns", ScalarType.createTimeStampNsType()))),
+                rows);
+        Mockito.doAnswer(invocation -> {
+            byte[] valueBytes = value.getBytes(StandardCharsets.UTF_8);
+            byte[] expected = new byte[valueBytes.length + 3];
+            expected[2] = (byte) valueBytes.length;
+            System.arraycopy(valueBytes, 0, expected, 3, valueBytes.length);
+            ByteBuffer buffer = invocation.getArgument(0);
+            Assertions.assertArrayEquals(expected, buffer.array());
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, new OriginStatement("", 1), false);
         executor.sendBinaryResultRow(resultSet);
     }
 

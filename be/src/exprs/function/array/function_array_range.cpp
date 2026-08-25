@@ -92,8 +92,9 @@ struct RangeImplUtil {
     static DataTypePtr get_data_type() { return std::make_shared<DataType>(); }
 
     static constexpr const char* get_function_name() {
-        if constexpr (std::is_same_v<SourceDataType, DateV2Value<DateTimeV2ValueType>> &&
-                      !std::is_same_v<TimeUnitOrVoid, void>) {
+        if constexpr ((std::is_same_v<SourceDataType, DateV2Value<DateTimeV2ValueType>> ||
+                       std::is_same_v<SourceDataType,
+                                      TimeStampNsValue>)&&!std::is_same_v<TimeUnitOrVoid, void>) {
             if constexpr (std::is_same_v<TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::YEAR>>) {
                 return "array_range_year_unit";
@@ -205,11 +206,8 @@ private:
                     dest_offsets.push_back(offset);
                 }
             } else {
-                const auto& idx_0 = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(idx);
-                const auto& end_row_cast =
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(end_row);
-                bool is_null = !idx_0.is_valid_date();
-                bool is_end_row_invalid = !end_row_cast.is_valid_date();
+                bool is_null = !idx.is_valid_date();
+                bool is_end_row_invalid = !end_row.is_valid_date();
                 if (args_null_map_row || step_row <= 0 || is_null || is_end_row_invalid) {
                     args_null_map[row] = 1;
                     dest_offsets.push_back(dest_offsets.back());
@@ -220,8 +218,7 @@ private:
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
                     int move = 0;
-                    while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
-                                                DateTimeV2ValueType>(idx, end_row) > 0) {
+                    while (doris::datetime_diff<UNIT::value>(idx, end_row) > 0) {
                         if (move > max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
@@ -230,8 +227,17 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(idx,
-                                                                                        step_row);
+                        if constexpr (SourceDataPType == TYPE_TIMESTAMP_NS) {
+                            auto next = idx;
+                            if (!next.template date_add_interval<UNIT::value>(
+                                        TimeInterval(UNIT::value, step_row, false))) {
+                                break;
+                            }
+                            idx = next;
+                        } else {
+                            idx = doris::date_time_add<UNIT::value, SourceDataPType, Int32>(
+                                    idx, step_row);
+                        }
                     }
                     dest_offsets.push_back(offset);
                 }
@@ -305,6 +311,7 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
     /// Two arguments, for Int32 and DateTimeV2 without Interval
     factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_INT>>>();
     factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_DATETIMEV2>>>();
+    factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_TIMESTAMP_NS>>>();
 
     /// Three arguments, for Int32 and DateTimeV2 with YEAR to SECOND Interval
     factory.register_function<FunctionArrayRange<RangeThreeImpl<TYPE_INT>>>();
@@ -324,6 +331,22 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
             RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::YEAR>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::QUARTER>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::MONTH>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::WEEK>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::DAY>>>>();
+    factory.register_function<FunctionArrayRange<
+            RangeThreeImpl<TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::HOUR>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_TIMESTAMP_NS, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
 
     // alias
     factory.register_alias("array_range", "sequence");

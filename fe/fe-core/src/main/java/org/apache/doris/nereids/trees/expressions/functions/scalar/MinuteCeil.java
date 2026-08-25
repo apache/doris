@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.RoundingMonotonic.Ro
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
@@ -41,11 +42,18 @@ public class MinuteCeil extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable, DateCeilFloorMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(TimeStampNsType.INSTANCE).args(TimeStampNsType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, IntegerType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE, DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD),

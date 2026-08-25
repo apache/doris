@@ -670,7 +670,8 @@ struct HashJoinSharedState : public JoinSharedState {
     bool asof_inequality_is_strict = false;
 
     // ASOF JOIN pre-sorted index with inline values for O(log K) branchless lookup
-    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for DateTimeV2/TimestampTZ)
+    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for
+    // DateTimeV2/TimestampTZ, int64_t for TimestampNs)
     AsofIndexVariant asof_index_groups;
     // build_row_index -> bucket_id for O(1) reverse lookup
     std::vector<uint32_t> asof_build_row_to_bucket;

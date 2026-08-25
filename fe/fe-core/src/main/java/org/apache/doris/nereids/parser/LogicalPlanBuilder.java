@@ -4203,7 +4203,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     defaultValue = Optional.of(DefaultValue
                             .currentTimeStampDefaultValueWithPrecision(
-                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
+                                    Long.valueOf(ctx.defaultValuePrecision.getText()), colType));
                 }
             } else if (ctx.CURRENT_DATE() != null) {
                 defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
@@ -4221,7 +4221,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 onUpdateDefaultValue = Optional.of(DefaultValue
                         .currentTimeStampDefaultValueWithPrecision(
-                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
+                                Long.valueOf(ctx.onUpdateValuePrecision.getText()), colType));
             }
         }
         AggregateType aggType = null;

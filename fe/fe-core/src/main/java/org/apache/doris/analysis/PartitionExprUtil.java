@@ -36,6 +36,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -100,6 +101,11 @@ public class PartitionExprUtil {
 
     public static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
             throws AnalysisException {
+        LocalDateTime endTime = getRangeEnd(beginTime.getTimeFormatter(), intervalInfo);
+        return endTime == null ? null : new DateLiteral(endTime, beginTime.getType());
+    }
+
+    private static LocalDateTime getRangeEnd(LocalDateTime beginTime, FunctionIntervalInfo intervalInfo) {
         String timeUnit = intervalInfo.timeUnit;
         long interval = intervalInfo.interval;
         switch (timeUnit) {
@@ -161,11 +167,21 @@ public class PartitionExprUtil {
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 Type partitionColumnType = partitionColumn.get(0).getType();
-                DateLiteral beginDateTime = DateLiteralUtils.createDateLiteral(beginTime, partitionColumnType);
+                LiteralExpr beginDateTime = DateLiteralUtils.createLiteral(beginTime, partitionColumnType);
+                LocalDateTime beginLocalDateTime = beginDateTime instanceof DateLiteral
+                        ? ((DateLiteral) beginDateTime).getTimeFormatter()
+                        : ((TimeStampNsLiteral) beginDateTime).toLocalDateTime();
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
-                    beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
-                    beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());
-                DateLiteral endDateTime = getRangeEnd(beginDateTime, intervalInfo);
+                        beginLocalDateTime.getYear(), beginLocalDateTime.getMonthValue(),
+                        beginLocalDateTime.getDayOfMonth(), beginLocalDateTime.getHour(),
+                        beginLocalDateTime.getMinute(), beginLocalDateTime.getSecond());
+                LocalDateTime rangeStart = isMinimumTimeStampNs(beginDateTime)
+                        && "date_trunc".equals(intervalInfo.fnName)
+                        ? dateTrunc(beginLocalDateTime, intervalInfo.timeUnit) : beginLocalDateTime;
+                LocalDateTime endLocalDateTime = getRangeEnd(rangeStart, intervalInfo);
+                LiteralExpr endDateTime = beginDateTime instanceof DateLiteral
+                        ? new DateLiteral(endLocalDateTime, beginDateTime.getType())
+                        : new TimeStampNsLiteral(endLocalDateTime);
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
                 List<List<PartitionValue>> listValues = new ArrayList<>();
@@ -232,8 +248,8 @@ public class PartitionExprUtil {
         return result;
     }
 
-    private static PartitionKeyDesc createPartitionKeyDescWithRange(DateLiteral beginDateTime,
-            DateLiteral endDateTime, Type partitionColumnType) throws AnalysisException {
+    private static PartitionKeyDesc createPartitionKeyDescWithRange(LiteralExpr beginDateTime,
+            LiteralExpr endDateTime, Type partitionColumnType) throws AnalysisException {
         PartitionValue lowerValue = getPartitionFromDate(partitionColumnType, beginDateTime);
         PartitionValue upperValue = getPartitionFromDate(partitionColumnType, endDateTime);
         return PartitionKeyDesc.createFixed(
@@ -241,7 +257,7 @@ public class PartitionExprUtil {
                 Collections.singletonList(upperValue));
     }
 
-    private static PartitionValue getPartitionFromDate(Type partitionColumnType, DateLiteral dateLiteral)
+    private static PartitionValue getPartitionFromDate(Type partitionColumnType, LiteralExpr dateLiteral)
             throws AnalysisException {
         // check out of range.
         try {
@@ -252,21 +268,58 @@ public class PartitionExprUtil {
             return PartitionValue.MAX_VALUE;
         }
 
+        if (isMinimumTimeStampNs(dateLiteral)) {
+            return new PartitionValue(dateLiteral.getStringValue());
+        }
+
+        LocalDateTime dateTime = dateLiteral instanceof DateLiteral
+                ? ((DateLiteral) dateLiteral).getTimeFormatter()
+                : ((TimeStampNsLiteral) dateLiteral).toLocalDateTime();
         String timeString;
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
-            timeString = String.format(DATE_FORMATTER, dateLiteral.getYear(), dateLiteral.getMonth(),
-                    dateLiteral.getDay());
+            timeString = String.format(DATE_FORMATTER, dateTime.getYear(), dateTime.getMonthValue(),
+                    dateTime.getDayOfMonth());
         } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()
+                || partitionColumnType.isTimeStampNs()
                 || partitionColumnType.isTimeStampTz()) {
             timeString = String.format(DATETIME_FORMATTER,
-                    dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
-                    dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond());
+                    dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                    dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
         } else {
             throw new AnalysisException(
                     "not support range partition with column type : " + partitionColumnType.toString());
         }
 
         return new PartitionValue(timeString);
+    }
+
+    private static boolean isMinimumTimeStampNs(LiteralExpr value) {
+        return value instanceof TimeStampNsLiteral
+                && ((Number) value.getRealValue()).longValue() == Long.MIN_VALUE;
+    }
+
+    private static LocalDateTime dateTrunc(LocalDateTime value, String timeUnit) throws AnalysisException {
+        switch (timeUnit) {
+            case "year":
+                return LocalDateTime.of(value.getYear(), 1, 1, 0, 0);
+            case "quarter":
+                return LocalDateTime.of(value.getYear(), (value.getMonthValue() - 1) / 3 * 3 + 1, 1, 0, 0);
+            case "month":
+                return LocalDateTime.of(value.getYear(), value.getMonthValue(), 1, 0, 0);
+            case "week":
+                return value.minusDays(value.getDayOfWeek().getValue() - 1L)
+                        .withHour(0).withMinute(0).withSecond(0).withNano(0);
+            case "day":
+                return value.withHour(0).withMinute(0).withSecond(0).withNano(0);
+            case "hour":
+                return value.withMinute(0).withSecond(0).withNano(0);
+            case "minute":
+                return value.withSecond(0).withNano(0);
+            case "second":
+                return value.withNano(0);
+            default:
+                throw new AnalysisException("Unsupported date_trunc time unit: " + timeUnit);
+        }
     }
 
     private static String getFormatPartitionValue(String value) {
