@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -410,7 +411,22 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         } else {
             updateClusterToSecondaryBe(clusterId, pickBeId);
         }
+        discardRouteIfBackendVanished(pickBeId);
         return pickBeId;
+    }
+
+    /**
+     * Discard a route if its selected backend disappeared while it was being published.
+     */
+    public boolean discardRouteIfBackendVanished(long beId) {
+        if (!Config.enable_cloud_replica_stale_route_clean) {
+            return true;
+        }
+        if (Env.getCurrentSystemInfo().getBackend(beId) == null) {
+            removeInvalidRoutes();
+            return false;
+        }
+        return true;
     }
 
     public Backend getPrimaryBackend(String clusterId, boolean setIfAbsent) {
@@ -424,6 +440,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 try {
                     beId = getBackendIdImpl(clusterId);
                     updateClusterToPrimaryBe(clusterId, beId);
+                    discardRouteIfBackendVanished(beId);
                     return Env.getCurrentSystemInfo().getBackend(beId);
                 } catch (ComputeGroupException e) {
                     return null;
@@ -629,6 +646,35 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         secondaryClusterToBackends.remove(cluster);
     }
 
+    /**
+     * Drop route entries whose backend no longer exists.
+     *
+     * @return number of removed entries
+     */
+    public int removeInvalidRoutes() {
+        if (!Config.enable_cloud_replica_stale_route_clean || FeConstants.runningUnitTest) {
+            return 0;
+        }
+        SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+        int removed = 0;
+        for (Map.Entry<String, Pair<Long, Long>> entry : secondaryClusterToBackends.entrySet()) {
+            if (systemInfo.getBackend(entry.getValue().key()) == null
+                    && secondaryClusterToBackends.remove(entry.getKey(), entry.getValue())) {
+                removed++;
+            }
+        }
+        for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
+            List<Long> backendIds = entry.getValue();
+            if (backendIds != null && !backendIds.isEmpty()
+                    && systemInfo.getBackend(backendIds.get(0)) == null
+                    && !secondaryClusterToBackends.containsKey(entry.getKey())
+                    && primaryClusterToBackends.remove(entry.getKey(), backendIds)) {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
     // ATTN: This func is only used by redundant tablet report clean in bes.
     // Only the master node will do the diff logic,
     // so just only need to clean up secondaryClusterToBackends on the master node.
@@ -676,5 +722,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
             this.primaryClusterToBackend = null;
         }
+        removeInvalidRoutes();
     }
 }

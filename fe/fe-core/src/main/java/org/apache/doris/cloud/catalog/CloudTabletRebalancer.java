@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
+import com.google.common.annotations.VisibleForTesting;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,6 +97,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private Map<String, List<Long>> clusterToBes;
 
     private Set<Long> allBes;
+    // backend baseline and remaining sweep rounds, see staleRouteSweepNeeded()
+    private Set<Long> lastSweptBackends = null;
+    private int pendingSweepRounds = 0;
 
     // partitionId -> indexId -> be -> tablet
     private ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>> partitionToTablets;
@@ -938,9 +942,33 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
+    /**
+     * Decide whether this round should sweep stale route entries.
+     */
+    @VisibleForTesting
+    boolean staleRouteSweepNeeded(Set<Long> currentBes) {
+        if (!Config.enable_cloud_replica_stale_route_clean) {
+            lastSweptBackends = null;
+            pendingSweepRounds = 0;
+            return false;
+        }
+        if (lastSweptBackends == null || !currentBes.containsAll(lastSweptBackends)) {
+            pendingSweepRounds = 2;
+        }
+        lastSweptBackends = currentBes;
+        if (pendingSweepRounds > 0) {
+            pendingSweepRounds--;
+            return true;
+        }
+        return false;
+    }
+
     private boolean completeRouteInfo() {
         List<UpdateCloudReplicaInfo> updateReplicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         long[] assignedErrNum = {0L};
+        long[] staleRouteNum = {0L};
+        boolean sweepStaleRoutes = staleRouteSweepNeeded(allBes);
+        String sweepTicket = sweepStaleRoutes ? clusterToBes.keySet().stream().findFirst().orElse(null) : null;
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean assigned = false;
@@ -950,6 +978,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
+                    if (cluster.equals(sweepTicket)) {
+                        staleRouteNum[0] += replica.removeInvalidRoutes();
+                    }
                     // clean secondary map
                     replica.checkAndClearSecondaryClusterToBe(cluster, needRehashDeadTime);
                     InfightTablet taskKey = new InfightTablet(tablet.getId(), cluster);
@@ -1016,7 +1047,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         });
 
-        LOG.info("collect to editlog route {} infos, error num {}", updateReplicaInfos.size(), assignedErrNum[0]);
+        LOG.info("collect to editlog route {} infos, error num {}, swept stale routes {}, entries dropped {}",
+                updateReplicaInfos.size(), assignedErrNum[0], sweepStaleRoutes, staleRouteNum[0]);
 
         if (updateReplicaInfos.isEmpty()) {
             return true;
@@ -1633,6 +1665,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
 
             cloudReplica.updateClusterToPrimaryBe(clusterId, destBe);
+            if (!cloudReplica.discardRouteIfBackendVanished(destBe)) {
+                LOG.info("compute group {} lost backend {} while warming up tablet {}, dropping the route",
+                        clusterId, destBe, pickedTablet.getId());
+                return;
+            }
             UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(cloudReplica.getDbId(),
                     cloudReplica.getTableId(), cloudReplica.getPartitionId(), cloudReplica.getIndexId(),
                     pickedTablet.getId(), cloudReplica.getId(), clusterId, destBe);
