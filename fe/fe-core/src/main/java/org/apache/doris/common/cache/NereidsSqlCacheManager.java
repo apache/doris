@@ -81,7 +81,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -489,14 +488,6 @@ public class NereidsSqlCacheManager {
             TableIf tableIf = findTableIf(env, fullTableName);
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
-                Collection<Long> partitionIds = scanTable.getScanPartitions();
-                try {
-                    olapTable.getVersionInBatchForCloudMode(partitionIds);
-                } catch (RpcException e) {
-                    LOG.warn("failed to get version in batch for table {}", fullTableName, e);
-                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
-                }
-
                 for (Long scanPartitionId : scanTable.getScanPartitions()) {
                     Partition partition = olapTable.getPartition(scanPartitionId);
                     // partition == null: is this partition truncated?
