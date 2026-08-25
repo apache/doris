@@ -174,4 +174,47 @@ suite("test_zonemap_always_true_count_on_index", "p0, nonConcurrent") {
     sql """ set enable_profile = false; """
 
     sql """ DROP TABLE IF EXISTS ${pageSkipTable} """
+
+    // __DORIS_VERSION_COL__ holds 0 on disk because the writer cannot know the version yet; the
+    // reader fills in the rowset version. A zone map read straight off the file therefore says
+    // [0, 0] about a column no row will read as 0, which is wrong in both directions: it proves
+    // `= 0` true for every row and rules out the version that is really there. The answers below
+    // never name the version number, so they hold whatever it turns out to be.
+    def versionTable = "test_zonemap_version_placeholder"
+    sql "DROP TABLE IF EXISTS ${versionTable}"
+    sql """
+        CREATE TABLE ${versionTable} (
+            k INT,
+            v INT
+        ) ENGINE=OLAP
+        UNIQUE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "disable_auto_compaction" = "true"
+        );
+    """
+    sql "INSERT INTO ${versionTable} VALUES (1, 10), (2, 20), (3, 30);"
+    sql "sync"
+    sql "SET show_hidden_columns = true;"
+
+    // No row carries version 0, so these must not match anything.
+    qt_version_eq_placeholder "SELECT count(*) FROM ${versionTable} WHERE __DORIS_VERSION_COL__ = 0"
+    qt_version_in_placeholder "SELECT count(*) FROM ${versionTable} WHERE __DORIS_VERSION_COL__ IN (0)"
+    qt_version_below_one "SELECT count(*) FROM ${versionTable} WHERE __DORIS_VERSION_COL__ < 1"
+    // The same question asked through a pushed-down expression rather than a column predicate.
+    // Every k is below 10, so only the version half could let a row through.
+    qt_version_or_expr """
+        SELECT count(*) FROM ${versionTable} WHERE __DORIS_VERSION_COL__ < 1 OR k > 10
+    """
+
+    // Every row carries the real version, which is at least 1.
+    qt_version_above_zero "SELECT count(*) FROM ${versionTable} WHERE __DORIS_VERSION_COL__ > 0"
+    qt_version_not_placeholder """
+        SELECT count(*) FROM ${versionTable} WHERE __DORIS_VERSION_COL__ != 0
+    """
+
+    sql "SET show_hidden_columns = false;"
+    sql "DROP TABLE IF EXISTS ${versionTable}"
 }

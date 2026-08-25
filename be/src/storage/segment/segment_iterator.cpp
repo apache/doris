@@ -1178,12 +1178,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
-            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
-                // skip untrustworthy tso placeholder zonemap
-                // if possible already be pruned as a whole before,
-                // so just skip
-                continue;
-            }
             // do not check zonemap if predicate does not support zonemap
             if (!_opts.col_id_to_predicates.at(cid)->support_zonemap()) {
                 VLOG_DEBUG << "skip zonemap for column " << cid;

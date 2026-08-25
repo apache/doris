@@ -207,25 +207,16 @@ public:
         }
     }
 
-    // The tso column (__DORIS_BINLOG_TSO__) is a NULL placeholder on disk on a
-    // single-version binlog segment, replaced with the real commit_tso at read time
-    // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
-    // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
-    // Returns false for range (compaction) segments whose on-disk value is real.
-    bool is_tso_placeholder_col(int cid, const ReadSchema& schema,
-                                const StorageReadOptions& read_options) const;
-
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
-    // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
+    // Readers are cached per column and the first asker wins, so everyone asks the same way. A
+    // column whose value is replaced at read time comes back as a ConstantColumnReader holding
+    // that value, which projection, predicates and zone maps then all see.
+    // Return NOT_FOUND if not found reader in this segment.
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
-
-    // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
+                             const StorageReadOptions& read_options);
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
+                             const StorageReadOptions& read_options);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
 
@@ -240,6 +231,12 @@ public:
             const io::FileReaderSPtr& file_reader);
 
 private:
+    // Three hidden columns store a placeholder on disk that the reader replaces with a value it
+    // only learns at read time: __DORIS_COMMIT_TSO_COL__, __DORIS_BINLOG_TSO__ and
+    // __DORIS_VERSION_COL__.
+    std::optional<Field> _read_time_const_value(int32_t col_uid,
+                                                const StorageReadOptions& read_options) const;
+
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
             InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo());
