@@ -762,14 +762,14 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
     timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(third_struct));
 
     auto source_block = std::make_shared<Block>();
-    source_block->insert(ColumnWithTypeAndName(timestamp_ns_column->get_ptr(),
-                                               nullable_timestamp_ns_type, "ts"));
+    source_block->insert(
+            ColumnWithTypeAndName(timestamp_ns_column->get_ptr(), nullable_timestamp_ns_type, "0"));
     source_block->insert(ColumnWithTypeAndName(timestamp_ns_array_column->get_ptr(),
-                                               timestamp_ns_array_type, "ts_array"));
-    source_block->insert(ColumnWithTypeAndName(timestamp_ns_map_column->get_ptr(),
-                                               timestamp_ns_map_type, "ts_map"));
+                                               timestamp_ns_array_type, "1"));
+    source_block->insert(
+            ColumnWithTypeAndName(timestamp_ns_map_column->get_ptr(), timestamp_ns_map_type, "2"));
     source_block->insert(ColumnWithTypeAndName(timestamp_ns_struct_column->get_ptr(),
-                                               timestamp_ns_struct_type, "ts_struct"));
+                                               timestamp_ns_struct_type, "3"));
 
     std::shared_ptr<arrow::Schema> schema;
     status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
