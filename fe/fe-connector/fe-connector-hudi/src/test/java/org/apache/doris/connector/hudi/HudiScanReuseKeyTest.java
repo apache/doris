@@ -179,6 +179,21 @@ class HudiScanReuseKeyTest {
         Assertions.assertEquals(2, provider.planCalls, "disabled split reuse must bypass the statement memo");
     }
 
+    @Test
+    void missingReusePropertyIsDisabledForMixedVersionSessions() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        ConnectorSession session = new MemoSession(new MemoScope(), Collections.emptyMap());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle().toBuilder().prunedPartitionPaths(null).build(),
+                Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        provider.planScan(session, request);
+        provider.planScan(session, request);
+
+        Assertions.assertEquals(2, provider.planCalls,
+                "a session from an older planning FE must not implicitly enable split reuse");
+    }
+
     private static final class RecordingScanProvider extends HudiScanPlanProvider {
         private static final ConnectorScanRange RANGE = Collections::emptyMap;
         private int planCalls;
@@ -212,7 +227,7 @@ class HudiScanReuseKeyTest {
         private final Map<String, String> sessionProperties;
 
         private MemoSession(ConnectorStatementScope scope) {
-            this(scope, Collections.emptyMap());
+            this(scope, Collections.singletonMap("enable_external_scan_task_reuse", "true"));
         }
 
         private MemoSession(ConnectorStatementScope scope, Map<String, String> sessionProperties) {
