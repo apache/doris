@@ -171,11 +171,19 @@ Status SniiIndexColumnWriter::init() {
                     close_on_error();
                     return status;
                 }
-                _config = ::doris::snii::format::IndexConfig::kDocsPositionsScoring;
             } else if (_common_grams_metadata_seed.has_value()) {
                 close_on_error();
                 return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "SNII CommonGrams metadata cannot be attached to a plain analyzer");
+            }
+            // Scoring rides on ANALYSIS, not on CommonGrams. Any analyzed index
+            // with positions persists per-document norms and therefore reaches
+            // the scoring tier -- CommonGrams only changes what the semantic
+            // token count means, not whether one exists. Gating this on
+            // _uses_common_grams is what made an ordinary SNII index
+            // unscoreable while V1/V2/V3 scored the same index.
+            if (_has_positions) {
+                _config = ::doris::snii::format::IndexConfig::kDocsPositionsScoring;
             }
             _analyzer = analyzer_provider->get_analyzer(
                     _uses_common_grams ? inverted_index::AnalysisPurpose::kSniiTransientIndex
@@ -239,6 +247,10 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
                 _has_positions ? position_base + cast_set<uint32_t>(token_position) : 0;
         _term_buffer->add_token(term, docid, position, retain_positions);
         *max_position = std::max(*max_position, position);
+        // Document length for BM25. The CommonGrams branch below keeps its own
+        // count because it must exclude the gram tokens it also emits; every
+        // token that reaches here is a semantic one.
+        ++*semantic_length;
     };
 
     if (!_should_analyzer) {
@@ -330,7 +342,7 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
         uint32_t max_position = 0;
         uint32_t semantic_length = 0;
         RETURN_IF_ERROR(_add_value_tokens(*v, _rid, 0, &max_position, &semantic_length));
-        if (_uses_common_grams) {
+        if (_writes_norms()) {
             _encoded_norms.push_back(::doris::snii::query::encode_norm(semantic_length));
             _report_encoded_norms_capacity();
             _scoring_token_count += semantic_length;
@@ -359,6 +371,9 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     for (size_t i = 0; i < count; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
         uint32_t position_base = 0;
+        // One ARRAY row is one scored document, so its length is the token count
+        // of every element together -- not per element.
+        uint64_t row_semantic_length = 0;
         for (auto j = start_off; j < start_off + array_elem_size; ++j) {
             if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                 continue;
@@ -370,6 +385,12 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
             RETURN_IF_ERROR(_add_value_tokens(*value, _rid, position_base, &max_position,
                                               &semantic_length));
             position_base = max_position + 1;
+            row_semantic_length += semantic_length;
+        }
+        if (_writes_norms()) {
+            _encoded_norms.push_back(::doris::snii::query::encode_norm(row_semantic_length));
+            _report_encoded_norms_capacity();
+            _scoring_token_count += row_semantic_length;
         }
         start_off += array_elem_size;
         ++_rid;
@@ -422,7 +443,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
         _null_docids.push_back(_rid + i);
     }
     _rid += count;
-    if (_uses_common_grams) {
+    if (_writes_norms()) {
         _encoded_norms.insert(_encoded_norms.end(), count, ::doris::snii::query::encode_norm(0));
         _report_encoded_norms_capacity();
     }
@@ -463,8 +484,10 @@ Status SniiIndexColumnWriter::finish() {
     _report_null_docids_capacity(/*release_all=*/true);
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
-    if (_uses_common_grams) {
+    if (_writes_norms()) {
         options.encoded_norms = std::move(_encoded_norms);
+    }
+    if (_uses_common_grams) {
         options.common_grams_metadata = _build_common_grams_metadata();
         options.common_grams_posting_policy =
                 ::doris::snii::format::CommonGramsPostingPolicy::kHybridV1;

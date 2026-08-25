@@ -207,13 +207,16 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
             return corrupted("core metadata: scoring index requires a norms region");
         }
     }
-    if (has_scoring_tier ||
-        (out->common_grams_metadata.has_value() &&
-         out->common_grams_metadata->scoring_coverage == ScoringCoverage::kComplete)) {
+    // The scoring tier no longer implies CommonGrams: an ordinary analyzed index
+    // reaches it too, and its physical statistics are already the semantic ones.
+    // Only a CommonGrams segment carries a separate semantic view that has to be
+    // cross-checked against the physical numbers before anything trusts it.
+    if (out->common_grams_metadata.has_value() &&
+        out->common_grams_metadata->scoring_coverage == ScoringCoverage::kComplete) {
         RETURN_IF_ERROR(validate_snii_scoring_metadata(
-                out->common_grams_metadata ? &*out->common_grams_metadata : nullptr,
-                out->stats.doc_count, out->stats.sum_total_term_freq, has_scoring_tier,
-                has_positions(out->index_config), out->section_refs.norms.length != 0));
+                &*out->common_grams_metadata, out->stats.doc_count, out->stats.sum_total_term_freq,
+                has_scoring_tier, has_positions(out->index_config),
+                out->section_refs.norms.length != 0));
     }
     return Status::OK();
 }

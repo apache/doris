@@ -348,9 +348,13 @@ Status IndexFileWriter::add_snii_index_streamed(
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "SNII index file writer is null for {}", _index_path_prefix);
     }
+    // Scoring requires one norm per document. CommonGrams metadata is an
+    // ADDITIONAL property of a scoring index, not a precondition for one: an
+    // ordinary analyzed index reaches the scoring tier with norms and no
+    // CommonGrams metadata at all. It must never appear without scoring, though.
     const bool has_scoring = doris::snii::format::has_scoring(index_config);
     const bool valid_scoring_shape =
-            has_scoring ? common_grams_metadata.has_value() && encoded_norms.size() == doc_count
+            has_scoring ? encoded_norms.size() == doc_count
                         : !common_grams_metadata.has_value() && encoded_norms.empty();
     if (!valid_scoring_shape) {
         return Status::InternalError(

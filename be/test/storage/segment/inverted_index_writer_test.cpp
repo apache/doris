@@ -1866,8 +1866,13 @@ TEST_F(InvertedIndexWriterTest, CommonGramsDisabledBuildSwitchSnapshotWritesPlai
     auto logical_result = file_reader.open_snii_index(&index_meta);
     ASSERT_TRUE(logical_result.has_value()) << logical_result.error();
     auto logical = std::move(logical_result.value());
+    // The build switch being off means NO CommonGrams identity and no gram
+    // postings -- the point of this case. The index is still analyzed with
+    // positions, so it keeps the scoring tier and stays rankable.
     EXPECT_EQ(logical->common_grams_metadata(), nullptr);
-    EXPECT_EQ(logical->tier(), snii::format::tier_of(snii::format::IndexConfig::kDocsPositions));
+    EXPECT_EQ(logical->tier(),
+              snii::format::tier_of(snii::format::IndexConfig::kDocsPositionsScoring));
+    EXPECT_GT(logical->section_refs().norms.length, 0);
     std::vector<uint32_t> docids;
     ASSERT_TRUE(snii::query::term_query(*logical, marker_leading_value, &docids).ok());
     EXPECT_EQ(docids, (std::vector<uint32_t> {0}));

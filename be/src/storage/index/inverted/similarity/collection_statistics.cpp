@@ -47,13 +47,29 @@ Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(
         bool has_positions, bool has_semantic_norms) {
     using namespace segment_v2::inverted_index;
     const auto* metadata_ptr = metadata ? &*metadata : nullptr;
+    if (metadata_ptr == nullptr) {
+        // No CommonGrams metadata means an ORDINARY analyzed index, not a defect.
+        // Its postings hold no gram tokens, so the physical statistics already
+        // ARE the semantic ones and its term keys are raw. It still needs the
+        // scoring tier: without norms and freq regions there is nothing to score
+        // with.
+        if (!has_scoring_tier || !has_positions || !has_semantic_norms) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                    "SNII index does not persist scoring data (scoring tier {}, positions {}, "
+                    "norms {})",
+                    has_scoring_tier, has_positions, has_semantic_norms));
+        }
+        return SniiScoringSegmentStats {.doc_count = index_doc_count,
+                                        .token_count = physical_sum_total_term_freq,
+                                        .plain_term_key_version = PlainTermKeyVersion::kLegacyRaw,
+                                        .base_analyzer_fingerprint = {}};
+    }
     auto validation_status = validate_snii_scoring_metadata(
             metadata_ptr, index_doc_count, physical_sum_total_term_freq, has_scoring_tier,
             has_positions, has_semantic_norms);
     if (!validation_status.ok()) {
         return ResultError(std::move(validation_status));
     }
-    DORIS_CHECK(metadata_ptr != nullptr);
 
     return SniiScoringSegmentStats {
             .doc_count = metadata_ptr->scoring_doc_count,
@@ -266,7 +282,6 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     logical_reader->has_positions(),
                     logical_reader->section_refs().norms.length != 0, &key_version,
                     &segment_accumulator));
-            DORIS_CHECK(common_grams_metadata != nullptr);
 
             ::doris::snii::reader::DictBlockCache dict_block_cache;
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
@@ -288,10 +303,14 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 uint64_t prx_base = 0;
                 RETURN_IF_ERROR(logical_reader->lookup(physical_term, &found, &entry, &frq_base,
                                                        &prx_base, &dict_block_cache));
-                if (found && entry.df > common_grams_metadata->scoring_doc_count) {
+                // Bound df by the segment's PHYSICAL document count. For a
+                // CommonGrams segment validate_snii_scoring_metadata already
+                // proved scoring_doc_count == this number, and a plain segment
+                // has no separate semantic count at all.
+                if (found && entry.df > logical_reader->stats().doc_count) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
-                            "SNII term document frequency {} exceeds scoring document count {}",
-                            entry.df, common_grams_metadata->scoring_doc_count);
+                            "SNII term document frequency {} exceeds segment document count {}",
+                            entry.df, logical_reader->stats().doc_count);
                 }
                 collection_statistics_detail::add_term_doc_frequency(
                         &segment_accumulator.term_doc_freqs, ws_field_name, logical_term,
@@ -378,15 +397,30 @@ Status CollectionStatistics::admit_snii_scoring_segment(
     }
 
     const auto& base_analyzer_fingerprint = segment_stats->base_analyzer_fingerprint;
-    if (base_analyzer_fingerprint != expected_base_analyzer_fingerprint) {
+    // Only a CommonGrams segment records a base-analyzer identity, because its
+    // term keys are derived from the dictionary. A plain segment stores raw keys
+    // and no fingerprint -- V1/V2/V3 score the same shape with no such check.
+    // The staged/collected comparisons below still run, so an empty fingerprint
+    // and a real one can never be combined for one field.
+    if (!base_analyzer_fingerprint.empty() &&
+        base_analyzer_fingerprint != expected_base_analyzer_fingerprint) {
         clear();
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII scoring segment base analyzer does not match the request analyzer for field "
                 "{}",
                 StringHelper::to_string(field_name));
     }
+    // An empty fingerprint means "this segment records no analyzer identity",
+    // which is the ordinary analyzed shape -- not "a different analyzer". Only
+    // CommonGrams segments record one, because their term keys depend on the
+    // dictionary. Comparing an absent identity against a present one would
+    // reject a table whose segments were written with the SAME analyzer while
+    // enable_common_grams_index_build was toggled, even though their statistics
+    // are perfectly combinable.
     auto staged_fingerprint = segment_accumulator->base_analyzer_fingerprints.find(field_name);
-    if (staged_fingerprint != segment_accumulator->base_analyzer_fingerprints.end() &&
+    if (!base_analyzer_fingerprint.empty() &&
+        staged_fingerprint != segment_accumulator->base_analyzer_fingerprints.end() &&
+        !staged_fingerprint->second.empty() &&
         staged_fingerprint->second != base_analyzer_fingerprint) {
         clear();
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -394,15 +428,21 @@ Status CollectionStatistics::admit_snii_scoring_segment(
                 StringHelper::to_string(field_name));
     }
     auto collected_fingerprint = _snii_base_analyzer_fingerprints.find(field_name);
-    if (collected_fingerprint != _snii_base_analyzer_fingerprints.end() &&
+    if (!base_analyzer_fingerprint.empty() &&
+        collected_fingerprint != _snii_base_analyzer_fingerprints.end() &&
+        !collected_fingerprint->second.empty() &&
         collected_fingerprint->second != base_analyzer_fingerprint) {
         clear();
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII scoring cannot combine segments with different base analyzers for field {}",
                 StringHelper::to_string(field_name));
     }
-    segment_accumulator->base_analyzer_fingerprints.insert_or_assign(field_name,
-                                                                     base_analyzer_fingerprint);
+    // Never let a plain segment's absent identity erase one a CommonGrams
+    // segment already recorded for this field.
+    if (!base_analyzer_fingerprint.empty()) {
+        segment_accumulator->base_analyzer_fingerprints.insert_or_assign(field_name,
+                                                                         base_analyzer_fingerprint);
+    }
 
     if (!segment_accumulator->token_counts.empty() &&
         segment_accumulator->doc_count != segment_stats->doc_count) {

@@ -500,8 +500,11 @@ TEST(SniiCommonGramsWriter, PlainControlKeepsRawTermsAndLegacyConfig) {
     EXPECT_TRUE(std::ranges::none_of(postings, [](const auto& posting) {
         return posting.term.starts_with(doris::segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX);
     }));
-    EXPECT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions);
-    EXPECT_TRUE(writer.encoded_norms_for_test().empty());
+    // The plain lane keeps RAW term keys and no CommonGrams identity -- that is
+    // what this control asserts. It DOES reach the scoring tier and persist
+    // norms, because scoring follows analysis, not CommonGrams.
+    EXPECT_EQ(writer.config_for_test(), IndexConfig::kDocsPositionsScoring);
+    EXPECT_FALSE(writer.encoded_norms_for_test().empty());
     EXPECT_FALSE(writer.has_common_grams_metadata_seed_for_test());
 }
 

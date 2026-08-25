@@ -1076,7 +1076,7 @@ Status Compaction::do_inverted_index_compaction() {
     std::unique_ptr<snii::compaction::ValidatedRowIdConversion> validated_snii_rowid_conversion;
     if (_cur_tablet_schema->get_inverted_index_storage_format() ==
         InvertedIndexStorageFormatPB::SNII) {
-        const size_t spill_threshold =
+        const auto spill_threshold =
                 static_cast<size_t>(config::inverted_index_ram_buffer_size * 1024 * 1024);
         // Mirror the merge's live build bytes into the process-wide SNII
         // index-build observation tracker, the same line ingestion feeds: index
@@ -1198,8 +1198,8 @@ Status Compaction::do_inverted_index_compaction() {
                         auto* destination_writer =
                                 inverted_index_file_writers[cast_set<int>(destination_ordinal)]
                                         .get();
-                        if (merge_eligibility.kind ==
-                            snii::compaction::SniiStreamedMergeKind::kCommonGramsT3) {
+                        if (snii::compaction::streamed_merge_carries_norms(
+                                    merge_eligibility.kind)) {
                             merge_status = destination_writer->add_snii_index_streamed(
                                     index_meta, dest_segment_num_rows[destination_ordinal],
                                     merge_plan->take_destination_null_docids(destination_ordinal),

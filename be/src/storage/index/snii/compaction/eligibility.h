@@ -53,9 +53,20 @@ using AnalyzerProviderFactory = std::function<segment_v2::inverted_index::Analyz
         const InvertedIndexAnalyzerConfig&)>;
 
 enum class SniiStreamedMergeKind : uint8_t {
+    // No norms: the index is not analyzed, or was written before an analyzed
+    // index reached the scoring tier.
     kPlainT2,
+    // Analyzed, scoring, no CommonGrams. Carries norms to remap, but its
+    // physical statistics are already the semantic ones, so there is no
+    // CommonGrams metadata to seed and no semantic token count to late-bind.
+    kPlainT3,
     kCommonGramsT3,
 };
+
+// True for the shapes whose destination segments carry a norms vector.
+inline bool streamed_merge_carries_norms(SniiStreamedMergeKind kind) {
+    return kind == SniiStreamedMergeKind::kPlainT3 || kind == SniiStreamedMergeKind::kCommonGramsT3;
+}
 
 // Validated destination shape for one streamed merge. CommonGrams metadata is a
 // static identity seed: destination doc_count is bound when its session starts,

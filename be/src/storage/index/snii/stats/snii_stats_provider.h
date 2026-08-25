@@ -71,7 +71,9 @@ public:
     Status total_term_freq(std::string_view term, uint64_t* ttf) const;
 
     // 1-byte encoded doc-length norm for docid (raw byte from the norms POD).
-    // Out-of-range docid -> InvalidArgument; index without norms -> InvalidArgument.
+    // Out-of-range docid -> InvalidArgument. An index WITHOUT norms yields the
+    // neutral byte 0, which decode_norm maps to unit length, so such a segment
+    // still scores -- just without length normalisation.
     Status encoded_norm(uint32_t docid, uint8_t* out) const;
 
     bool has_norms() const { return has_norms_; }

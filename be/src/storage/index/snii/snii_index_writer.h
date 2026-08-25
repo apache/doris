@@ -109,6 +109,12 @@ private:
     const bool _is_char;
     const bool _common_grams_build_enabled;
     bool _uses_common_grams = false;
+
+    // An index persists per-document norms exactly when it is analyzed and keeps
+    // positions -- the same condition that puts it on the scoring tier. This is
+    // deliberately NOT "_uses_common_grams": CommonGrams changes what a semantic
+    // token count means, it does not decide whether the index can be scored.
+    bool _writes_norms() const { return _should_analyzer && _has_positions; }
     // Latch: set_direct_load() ran. The first call wins; a repeat or late call
     // is ignored (and logged) so one index keeps one stable compression-tier
     // decision.
