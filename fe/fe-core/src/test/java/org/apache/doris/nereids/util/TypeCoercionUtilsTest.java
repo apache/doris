@@ -511,6 +511,12 @@ public class TypeCoercionUtilsTest {
             Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
                     TypeCoercionUtils.characterLiteralTypeCoercion("2004-12-31", TimeStampTzType.MAX)
                             .get().getDataType());
+            Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
+                    TypeCoercionUtils.characterLiteralTypeCoercion(
+                            "2023-08-17T01:41:18+08:17", TimeStampTzType.SYSTEM_DEFAULT)
+                            .get().getDataType());
+            Assertions.assertTrue(TypeCoercionUtils.characterLiteralTypeCoercion(
+                    "2023-08-17T01:41:18-13:00", TimeStampTzType.SYSTEM_DEFAULT).isEmpty());
         } finally {
             ConnectContext.remove();
         }

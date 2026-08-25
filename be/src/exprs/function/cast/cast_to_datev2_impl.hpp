@@ -518,7 +518,9 @@ FRAC:
                 SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[0])),
                                          "invalid hour offset '{}'", std::string {ptr, end});
             }
-            SET_PARAMS_RET_FALSE_IFN(part[0] <= 14, "invalid hour offset '{}'", part[0]);
+            const uint32_t max_hour_offset = sign == '-' ? 12 : 14;
+            SET_PARAMS_RET_FALSE_IFN(part[0] <= max_hour_offset, "invalid hour offset '{}'",
+                                     part[0]);
             if (ptr < end) {
                 if (*ptr == ':') {
                     ++ptr;
@@ -526,10 +528,10 @@ FRAC:
                 // minute
                 SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
                                          "invalid minute offset '{}'", std::string {ptr, end});
-                SET_PARAMS_RET_FALSE_IFN((part[1] == 0 || part[1] == 30 || part[1] == 45),
-                                         "invalid minute offset '{}'", part[1]);
+                SET_PARAMS_RET_FALSE_IFN(part[1] < 60, "invalid minute offset '{}'", part[1]);
             }
-            SET_PARAMS_RET_FALSE_IFN(part[0] != 14 || part[1] == 0, "invalid timezone offset '{}'",
+            SET_PARAMS_RET_FALSE_IFN(part[0] != max_hour_offset || part[1] == 0,
+                                     "invalid timezone offset '{}'",
                                      combine_tz_offset(sign, part[0], part[1]));
 
             SET_PARAMS_RET_FALSE_IFN(TimezoneUtils::find_cctz_time_zone(
@@ -703,18 +705,19 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
             } else {
                 PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
             }
-            SET_PARAMS_RET_FALSE_IFN(hour_offset <= 14, "invalid hour offset {}", hour_offset);
+            const uint32_t max_hour_offset = sign == '-' ? 12 : 14;
+            SET_PARAMS_RET_FALSE_IFN(hour_offset <= max_hour_offset, "invalid hour offset {}",
+                                     hour_offset);
             if (ptr < end) {
                 if (*ptr == ':') {
                     ++ptr;
                 }
                 // minute
                 PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, minute_offset)));
-                SET_PARAMS_RET_FALSE_IFN(
-                        (minute_offset == 0 || minute_offset == 30 || minute_offset == 45),
-                        "invalid minute offset {}", minute_offset);
+                SET_PARAMS_RET_FALSE_IFN(minute_offset < 60, "invalid minute offset {}",
+                                         minute_offset);
             }
-            SET_PARAMS_RET_FALSE_IFN(hour_offset != 14 || minute_offset == 0,
+            SET_PARAMS_RET_FALSE_IFN(hour_offset != max_hour_offset || minute_offset == 0,
                                      "invalid timezone offset '{}'",
                                      combine_tz_offset(sign, hour_offset, minute_offset));
 
