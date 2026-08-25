@@ -216,7 +216,7 @@ struct TMultiCastDataStreamSink {
     2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
-// [deprecated] two phase read is replaced by topn lazy materialize. TFetchOption is not used.
+// [deprecated] Two-phase read is replaced by TopN lazy materialization.
 struct TFetchOption {
     1: optional bool use_two_phase_fetch;
     // Nodes in this cluster, used for second phase fetch
@@ -230,6 +230,7 @@ struct TFetchOption {
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
+    // [deprecated] Two-phase read is replaced by TopN lazy materialization.
     3: optional TFetchOption fetch_option;
 }
 

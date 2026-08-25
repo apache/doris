@@ -552,7 +552,7 @@ protected:
     void build(const TabletSchemaSPtr& schema, size_t num_rows,
                const std::function<void(MutableColumns&)>& fill) {
         _schema = schema;
-        _block = schema->create_block();
+        _block = schema->create_storage_block();
         {
             auto guard = _block.mutate_columns_scoped();
             fill(guard.mutable_columns());
@@ -694,7 +694,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         // 3. Fill the block from kAllKeyData. Cluster-key schemas keep the sort
         // columns in table order and reverse the primary-key source rows.
         _schema = schema;
-        _block = schema->create_block();
+        _block = schema->create_storage_block();
         auto timezone = cctz::utc_time_zone();
         DataTypeSerDe::FormatOptions format_options;
         format_options.timezone = &timezone;

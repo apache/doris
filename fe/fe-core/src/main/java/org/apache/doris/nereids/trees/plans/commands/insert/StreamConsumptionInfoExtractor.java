@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -55,12 +56,9 @@ public class StreamConsumptionInfoExtractor {
                     LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan;
                     if (!streamScan.isSnapshot()) {
                         OlapTableStreamWrapper wrapper = streamScan.getTable();
-                        // The analyzed plan retains scans that the Cloud rewrite later eliminates, for example
-                        // `WHERE FALSE`. No partition was read in that case, so there is no Offset to advance.
-                        if (Config.isCloudMode() && !wrapper.hasCloudReadStates()) {
-                            return;
-                        }
-                        AbstractTableStreamUpdate update = wrapper.hasCloudReadStates()
+                        Preconditions.checkState(Config.isNotCloudMode() || wrapper.hasCloudReadStates(),
+                                "Cloud Table Stream read state must be installed during relation analysis");
+                        AbstractTableStreamUpdate update = Config.isCloudMode()
                                 ? toCloudOlapTableStreamUpdate(wrapper, streamScan.getSelectedPartitionIds())
                                 : toOlapTableStreamUpdate(wrapper);
                         if (hasUpdates(update)) {

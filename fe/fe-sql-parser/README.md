@@ -58,6 +58,19 @@ mvn -pl fe-sql-parser -am package
 
 Output: `fe/fe-sql-parser/target/doris-fe-sql-parser.jar` (~1.3 MB). This jar contains only the parser classes; it expects `org.antlr:antlr4-runtime:4.13.1` to be provided by the consuming project's classpath.
 
+### Parser microbenchmarks
+
+The optional `benchmark` profile builds a self-contained JMH jar without adding JMH to the default parser jar or its runtime dependencies:
+
+```bash
+# From the fe/ directory
+mvn -Pbenchmark -pl fe-sql-parser-benchmark -am package -DskipTests
+java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
+  '.*StringLiteralBenchmark.*' -prof gc -rf json -rff /tmp/string-literal-benchmark.json
+```
+
+Use the same JDK, corpus parameters, JMH arguments, and machine state for baseline and candidate runs. Run the same baseline artifact twice before comparing a change; the raw JSON and artifact hash should be retained with the result summary.
+
 To install it to your local Maven repository so other projects can resolve it:
 
 ```bash

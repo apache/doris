@@ -135,7 +135,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             EXPECT_TRUE(st.ok());
 
             ColumnIteratorUPtr iter;
-            st = reader->new_iterator(&iter);
+            st = reader->new_iterator(&iter, nullptr);
             EXPECT_TRUE(st.ok());
 
             ColumnIteratorOptions iter_opts;
@@ -186,7 +186,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             EXPECT_TRUE(st.ok());
 
             ColumnIteratorUPtr iter;
-            st = reader->new_iterator(&iter);
+            st = reader->new_iterator(&iter, nullptr);
             EXPECT_TRUE(st.ok());
 
             EXPECT_TRUE(st.ok());

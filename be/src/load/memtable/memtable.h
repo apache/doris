@@ -38,7 +38,6 @@
 
 namespace doris {
 
-class Schema;
 class SlotDescriptor;
 class TabletSchema;
 struct TabletAddRowsPayload;

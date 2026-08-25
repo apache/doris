@@ -804,17 +804,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             return getOutputByIndex(selectedIndexId);
         }
         List<Column> baseSchema = table.getBaseSchema(true);
-        boolean skipBinlogBeforeColumn = scanParams.isPresent() && scanParams.get().incrementalRead();
-        List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema, skipBinlogBeforeColumn);
+        List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
 
         Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < baseSchema.size(); i++) {
             final int index = i;
             Column col = baseSchema.get(i);
-            if (skipBinlogBeforeColumn && col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
-                continue;
-            }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> slotFromColumn.get(index));
             slots.add(slot);
@@ -932,22 +928,31 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return scoreRangeInfo;
     }
 
-    private List<SlotReference> createSlotsVectorized(List<Column> columns, boolean skipBinlogBeforeColumn) {
+    protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
         List<String> qualified = qualified();
         SlotReference[] slots = new SlotReference[columns.size()];
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < columns.size(); i++) {
-            if (skipBinlogBeforeColumn && columns.get(i).getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
-                continue;
-            }
             ExprId nextId = exprIdGenerator.getNextId();
-            slots[i] = SlotReference.fromColumn(nextId, table, columns.get(i), qualified);
+            slots[i] = SlotReference.fromColumn(nextId, table, getOutputColumn(columns.get(i)), qualified);
         }
         return Arrays.asList(slots);
     }
 
-    protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
-        return createSlotsVectorized(columns, false);
+    /**
+     * BE needs the {@code __BEFORE__} columns to build before-images on an {@code @incr} read, but
+     * they are storage bookkeeping: {@code SELECT * FROM t@incr(...)} should return t's own columns,
+     * not the mirrors behind them. The flag is set on a copy because these Column instances belong
+     * to the table's persisted metadata and are shared across statements.
+     */
+    private Column getOutputColumn(Column column) {
+        if (scanParams.isPresent() && scanParams.get().incrementalRead()
+                && column.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+            Column outputColumn = new Column(column);
+            outputColumn.setIsVisible(false);
+            return outputColumn;
+        }
+        return column;
     }
 
     @Override

@@ -290,8 +290,12 @@ protected:
         _snii_file_reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), "./ut_dir/missing_snii_analysis_purpose",
                 InvertedIndexStorageFormatPB::SNII);
+        // The file does not exist -- these cases only exercise the analysis-purpose
+        // router, never the count fast path -- so the segment shape is nominal.
         _snii_reader = SniiIndexReader::create_shared(&_meta, _snii_file_reader,
-                                                      InvertedIndexReaderType::FULLTEXT);
+                                                      InvertedIndexReaderType::FULLTEXT,
+                                                      /*rows_of_segment=*/0,
+                                                      /*column_is_array=*/false);
     }
 
     void TearDown() override {
@@ -407,10 +411,10 @@ protected:
     }
 
     template <typename Reader, typename Provider>
-    void expect_raw_cache_hit_before_analysis(const std::shared_ptr<Reader>& reader,
-                                              const std::shared_ptr<IndexFileReader>& file_reader,
-                                              const std::shared_ptr<Provider>& provider,
-                                              bool common_grams_query_plan_enabled) {
+    void expect_raw_cache_hit_after_segment_admission(
+            const std::shared_ptr<Reader>& reader,
+            const std::shared_ptr<IndexFileReader>& file_reader,
+            const std::shared_ptr<Provider>& provider, bool common_grams_query_plan_enabled) {
         QueryExecutionContext execution(/*scoring=*/false);
         InvertedIndexAnalyzerCtx analyzer_ctx;
         analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
@@ -447,7 +451,7 @@ protected:
         EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 0);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
-        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 0);
+        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 1);
         EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
     }
 
@@ -562,6 +566,7 @@ TEST(InvertedIndexAnalyzerCtxTest, UsesProviderCommonGramsIdentityWithoutCopying
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest,
        SniiRawCacheLookupIsIndependentOfRequestAnalyzerIdentity) {
+    preload_legacy_searcher_cache_entries();
     const bool original = config::enable_common_grams_query_plan;
     Defer restore([original] {
         EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
@@ -577,14 +582,14 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest,
             .common_grams_fingerprint = "grams:complete"};
     const inverted_index::CommonGramsQueryIdentity empty_identity;
     for (const auto& identity : {complete_identity, empty_identity}) {
-        expect_raw_cache_hit_before_analysis(
+        expect_raw_cache_hit_after_segment_admission(
                 _snii_reader, _snii_file_reader,
                 std::make_shared<IdentityFailingAnalyzerProvider>(identity),
                 config::enable_common_grams_query_plan);
     }
-    expect_raw_cache_hit_before_analysis(_snii_reader, _snii_file_reader,
-                                         std::make_shared<RecordingFailingAnalyzerProvider>(),
-                                         config::enable_common_grams_query_plan);
+    expect_raw_cache_hit_after_segment_admission(
+            _snii_reader, _snii_file_reader, std::make_shared<RecordingFailingAnalyzerProvider>(),
+            config::enable_common_grams_query_plan);
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupCountOrInsert) {

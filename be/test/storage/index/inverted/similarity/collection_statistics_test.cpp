@@ -257,6 +257,7 @@ public:
     MockRowsetReader(std::shared_ptr<MockRowset> rowset) : _rowset(rowset) {}
 
     Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override {
+        _read_schema = read_context->read_schema;
         return Status::OK();
     }
 
@@ -286,6 +287,8 @@ public:
 
     RowsetSharedPtr rowset() override { return _rowset; }
 
+    const ReadSchema& read_schema() const override { return *_read_schema; }
+
     int64_t filtered_rows() override { return 0; }
 
     uint64_t merged_rows() override { return 0; }
@@ -302,6 +305,7 @@ public:
 
 private:
     std::shared_ptr<MockRowset> _rowset;
+    ReadSchemaSPtr _read_schema;
 };
 
 } // namespace collection_statistics
