@@ -70,11 +70,10 @@ private:
     Status _load_writer_class(JNIEnv* env, jclass* writer_class);
     void _refresh_memory_profile();
 
-    // JNI global references — live for the duration of this backend.
-    jclass _jni_writer_cls = nullptr;
+    // JNI global writer reference — also keeps its defining class loaded.
     jobject _jni_writer_obj = nullptr;
 
-    // Cached JNI method IDs for the PaimonJniWriter Java methods.
+    // Cached method IDs remain valid while _jni_writer_obj keeps the defining class loaded.
     jmethodID _write_id = nullptr;
     jmethodID _prepare_commit_id = nullptr;
     jmethodID _abort_id = nullptr;
