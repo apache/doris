@@ -26,6 +26,9 @@ jobs:
   java-checkstyle:
     name: "CheckStyle"
     runs-on: ubuntu-latest
+    concurrency:
+      group: fe-code-style-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout
@@ -56,4 +59,3 @@ jobs:
         if: steps.filter.outputs.fe_changes == 'true'
         run:
           cd fe && mvn clean checkstyle:check
-

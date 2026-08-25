@@ -28,6 +28,9 @@ jobs:
   gitleaks:
     name: Check for secrets
     runs-on: ubuntu-latest
+    concurrency:
+      group: gitleaks-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
     env:
       GITLEAKS_VERSION: 8.30.0
       GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
