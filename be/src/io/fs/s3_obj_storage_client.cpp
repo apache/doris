@@ -275,6 +275,25 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
     return ObjectStorageResponse::OK();
 }
 
+ObjectStorageResponse S3ObjStorageClient::abort_multipart_upload(
+        const ObjectStoragePathOptions& opts) {
+    if (!opts.upload_id.has_value()) {
+        return {convert_to_obj_response(Status::InvalidArgument("Missing multipart upload id"))};
+    }
+    Aws::S3::Model::AbortMultipartUploadRequest request;
+    request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
+    auto outcome = _client->AbortMultipartUpload(request);
+    if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
+        return {convert_to_obj_response(
+                        s3fs_error(outcome.GetError(),
+                                   fmt::format("failed to abort multipart upload {}", opts.key))),
+                static_cast<int>(outcome.GetError().GetResponseCode()),
+                outcome.GetError().GetRequestId()};
+    }
+    return ObjectStorageResponse::OK();
+}
+
 ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);

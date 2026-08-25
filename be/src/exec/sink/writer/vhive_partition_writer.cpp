@@ -21,10 +21,13 @@
 
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
+#include "exec/sink/writer/external_file_report_compatibility.h"
+#include "exec/sink/writer/hive_multipart_compatibility.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_transformer.h"
 #include "io/file_factory.h"
+#include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
 
@@ -50,9 +53,13 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
           _hive_serde_properties(hive_serde_properties),
-          _hadoop_conf(hadoop_conf) {}
+          _hadoop_conf(hadoop_conf),
+          _supports_deferred_azure_multipart(
+                  t_sink.hive_table_sink.__isset.supports_deferred_azure_multipart &&
+                  t_sink.hive_table_sink.supports_deferred_azure_multipart) {}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options(), "Hive"));
     _state = state;
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
@@ -64,6 +71,16 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
+    if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
+        s3_fs != nullptr &&
+        !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
+                                           _supports_deferred_azure_multipart)) {
+        // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
+        // compatibility fence, so reject before creating an upload that it could corrupt.
+        return Status::NotSupported(
+                "Azure Hive writes require a coordinator that supports deferred multipart "
+                "completion");
+    }
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
@@ -132,6 +149,7 @@ Status VHivePartitionWriter::close(const Status& status) {
                                         result_status.to_string());
         }
     }
+    _register_rejected_report_cleanup();
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok) {
         _add_s3_mpu_pending_upload_for_rollback();
@@ -150,6 +168,21 @@ Status VHivePartitionWriter::close(const Status& status) {
         _state->add_hive_partition_updates(partition_update);
     }
     return result_status;
+}
+
+void VHivePartitionWriter::_register_rejected_report_cleanup() {
+    if (_rejected_report_cleanup_registered || _write_info.file_type != TFileType::FILE_S3 ||
+        _file_writer == nullptr) {
+        return;
+    }
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(_file_writer.get());
+    if (s3_writer == nullptr || s3_writer->upload_id().empty()) {
+        return;
+    }
+    // The writer can be destroyed before the final RPC result; the cleanup owns only the client
+    // and immutable upload identity needed when FE explicitly rejects ownership.
+    _state->add_rejected_external_file_report_cleanup(s3_writer->rejected_report_cleanup());
+    _rejected_report_cleanup_registered = true;
 }
 
 Status VHivePartitionWriter::write(Block& block) {
@@ -209,7 +242,6 @@ void VHivePartitionWriter::_add_s3_mpu_pending_upload_for_rollback() {
     if (!_build_s3_mpu_pending_upload(&s3_mpu_pending_upload)) {
         return;
     }
-
     THivePartitionUpdate hive_partition_update;
     hive_partition_update.__set_name(_partition_name);
     hive_partition_update.__set_update_mode(_update_mode);

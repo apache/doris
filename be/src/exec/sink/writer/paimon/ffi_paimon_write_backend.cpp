@@ -27,6 +27,10 @@ Status FfiPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>*) {
     return Status::NotSupported("Paimon Rust FFI writer is not implemented");
 }
 
+Status FfiPaimonWriteBackend::prepare_close_for_commit() {
+    return Status::NotSupported("Paimon Rust FFI writer is not implemented");
+}
+
 Status FfiPaimonWriteBackend::close() {
     return Status::OK();
 }

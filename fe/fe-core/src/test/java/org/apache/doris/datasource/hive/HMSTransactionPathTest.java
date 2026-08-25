@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.LocalDfsFileSystem;
@@ -26,6 +27,7 @@ import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TS3MPUPendingUpload;
@@ -42,9 +44,15 @@ import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class HMSTransactionPathTest {
     private ConnectContext connectContext;
@@ -89,6 +97,34 @@ public class HMSTransactionPathTest {
 
         String notSubdir = "hdfs://host:8020/warehouse/other";
         Assert.assertNull(HMSTransaction.getImmediateChildPath(parent, notSubdir));
+    }
+
+    @Test
+    public void testFinalReportRejectedAfterRollbackStarts() throws Exception {
+        HMSTransaction transaction = createTransaction(Mockito.mock(FileSystem.class));
+        THivePartitionUpdate update = new THivePartitionUpdate().setRowCount(1);
+        CountDownLatch transactionFetched = new CountDownLatch(1);
+        CountDownLatch resumeFinalReport = new CountDownLatch(1);
+        AtomicReference<Throwable> reportFailure = new AtomicReference<>();
+        Thread finalReport = new Thread(() -> {
+            transactionFetched.countDown();
+            try {
+                resumeFinalReport.await();
+                transaction.updateHivePartitionUpdates(Collections.singletonList(update));
+            } catch (Throwable t) {
+                reportFailure.set(t);
+            }
+        });
+        finalReport.start();
+        Assert.assertTrue(transactionFetched.await(5, TimeUnit.SECONDS));
+
+        transaction.rollback();
+        resumeFinalReport.countDown();
+        finalReport.join(TimeUnit.SECONDS.toMillis(5));
+
+        Assert.assertFalse(finalReport.isAlive());
+        Assert.assertTrue(reportFailure.get() instanceof IllegalStateException);
+        Assert.assertTrue(transaction.getHivePartitionUpdates().isEmpty());
     }
 
     // Ensures NOT_FOUND results from list operations are treated as no-op cleanup.
@@ -312,5 +348,61 @@ public class HMSTransactionPathTest {
         Assert.assertEquals("test-bucket", request.getValue().bucket());
         Assert.assertEquals("warehouse/table/data-0.parquet", request.getValue().key());
         Assert.assertEquals("upload-id-1", request.getValue().uploadId());
+    }
+
+    @Test
+    public void testMergePreservesLaterMultipartRecordsAfterLegacyNullList() {
+        HMSTransaction tx = createTransaction(Mockito.mock(FileSystem.class));
+        THivePartitionUpdate legacy = new THivePartitionUpdate()
+                .setName("part=1").setFileSize(1).setRowCount(1)
+                .setFileNames(new ArrayList<>(Collections.singletonList("old.parquet")));
+        TS3MPUPendingUpload upload = new TS3MPUPendingUpload()
+                .setBucket("bucket").setKey("new.parquet").setUploadId("upload-id");
+        THivePartitionUpdate current = new THivePartitionUpdate()
+                .setName("part=1").setFileSize(2).setRowCount(2)
+                .setFileNames(new ArrayList<>(Collections.singletonList("new.parquet")))
+                .setS3MpuPendingUploads(new ArrayList<>(Collections.singletonList(upload)));
+
+        THivePartitionUpdate merged = tx.mergePartitions(Arrays.asList(legacy, current)).get(0);
+
+        Assert.assertEquals(Collections.singletonList(upload), merged.getS3MpuPendingUploads());
+        Assert.assertEquals(Arrays.asList("old.parquet", "new.parquet"), merged.getFileNames());
+    }
+
+    @Test
+    public void testObjectStoreCommitRequiresOneCompleteRecordPerFile() {
+        HMSTransaction tx = createTransaction(Mockito.mock(FileSystem.class));
+        tx.fileType = TFileType.FILE_S3;
+        THivePartitionUpdate update = new THivePartitionUpdate()
+                .setName("").setFileSize(1).setRowCount(1)
+                .setFileNames(Collections.singletonList("data.parquet"));
+        tx.updateHivePartitionUpdates(Collections.singletonList(update));
+
+        IllegalStateException error = Assert.assertThrows(IllegalStateException.class,
+                () -> tx.finishInsertTable(NameMapping.createForTest("db", "table")));
+
+        Assert.assertTrue(error.getMessage().contains("reported 1 file(s)"));
+    }
+
+    @Test
+    public void testObjectStoreCommitRejectsGappedMultipartParts() {
+        HMSTransaction tx = createTransaction(Mockito.mock(FileSystem.class));
+        tx.fileType = TFileType.FILE_S3;
+        Map<Integer, String> etags = new LinkedHashMap<>();
+        etags.put(1, "etag-1");
+        etags.put(3, "etag-3");
+        TS3MPUPendingUpload upload = new TS3MPUPendingUpload()
+                .setBucket("bucket").setKey("data.parquet").setUploadId("upload-id")
+                .setEtags(etags);
+        THivePartitionUpdate update = new THivePartitionUpdate()
+                .setName("").setFileSize(1).setRowCount(1)
+                .setFileNames(Collections.singletonList("data.parquet"))
+                .setS3MpuPendingUploads(Collections.singletonList(upload));
+        tx.updateHivePartitionUpdates(Collections.singletonList(update));
+
+        IllegalStateException error = Assert.assertThrows(IllegalStateException.class,
+                () -> tx.finishInsertTable(NameMapping.createForTest("db", "table")));
+
+        Assert.assertTrue(error.getMessage().contains("valid multipart completion record"));
     }
 }

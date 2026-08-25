@@ -234,7 +234,8 @@ public class ExternalUtilTest {
         Map<Integer, String> base64InitialDefaults = new HashMap<>();
         base64InitialDefaults.put(col2.getUniqueId(), "AAEC/w==");
         ExternalUtil.initSchemaInfoForAllColumn(
-                params, schemaId, columns, nameMapping, base64InitialDefaults);
+                params, schemaId, columns, nameMapping, true, base64InitialDefaults,
+                Collections.emptySet(), Collections.singletonMap(col1.getUniqueId(), false));
 
         Assert.assertEquals(schemaId.longValue(), params.getCurrentSchemaId());
         List<TSchema> history = params.getHistorySchemaInfo();
@@ -252,7 +253,7 @@ public class ExternalUtilTest {
 
         Assert.assertEquals(col1.getName(), field1.getName());
         Assert.assertEquals(col1.getUniqueId(), field1.getId());
-        Assert.assertEquals(col1.isAllowNull(), field1.isIsOptional());
+        Assert.assertFalse(field1.isIsOptional());
         Assert.assertEquals(col1.getType().toColumnTypeThrift(), field1.getType());
         Assert.assertEquals(Arrays.asList("m_c1"), field1.getNameMapping());
         Assert.assertTrue(field1.isNameMappingIsAuthoritative());
@@ -267,6 +268,22 @@ public class ExternalUtilTest {
         Assert.assertTrue(field2.isNameMappingIsAuthoritative());
         Assert.assertEquals("AAEC/w==", field2.getInitialDefaultValue());
         Assert.assertTrue(field2.isInitialDefaultValueIsBase64());
+    }
+
+    @Test
+    public void testBinarySourceMarkerDoesNotRequireDirectDefault() {
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        Column column = new Column("binary_leaf", Type.VARCHAR, false);
+        column.setUniqueId(103);
+
+        ExternalUtil.initSchemaInfoForAllColumn(params, 501L, Collections.singletonList(column),
+                Collections.emptyMap(), false, Collections.emptyMap(),
+                Collections.singleton(column.getUniqueId()), Collections.emptyMap());
+
+        TField field = params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr();
+        Assert.assertFalse(field.isSetInitialDefaultValue());
+        Assert.assertTrue(field.isInitialDefaultValueIsBase64());
     }
 
     @Test

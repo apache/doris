@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -70,12 +71,13 @@ public:
                        : std::string();
     }
 
+    std::function<void()> rejected_report_cleanup() const;
+
     Status close(bool non_block = false) override;
     Status try_finish_close() override;
 
 private:
     Status _close_impl();
-    Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();

@@ -42,6 +42,9 @@ struct FileSystemProperties;
 
 namespace doris::format::iceberg {
 
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             bool decode_complex_defaults = true);
+
 // Iceberg table-level reader.
 // It reuses TableReader for split orchestration, dynamic partition pruning and table-block
 // finalization, while composing a FileReader for physical data-file reads instead of inheriting
@@ -56,6 +59,9 @@ public:
     }
 
     Status prepare_split(const format::SplitReadOptions& options) override;
+    Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
+                                     format::ProjectedColumnBuildContext* context,
+                                     format::ColumnDefinition* column) const override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
         const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
@@ -70,6 +76,7 @@ public:
 protected:
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
+        options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
         options->allow_idless_complex_wrapper_projection =
                 supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
     }

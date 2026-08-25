@@ -287,6 +287,23 @@ public class PaimonJniWriter {
     }
 
     /**
+     * Stop SDK writers before the coordinator can accept commit messages, while retaining the
+     * table and prepared messages needed to abort a rejected report.
+     */
+    public void prepareCloseForCommit() throws Exception {
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            if (preExecutionAuthenticator != null) {
+                preExecutionAuthenticator.execute(() -> {
+                    closePreparedResources();
+                    return null;
+                });
+            } else {
+                closePreparedResources();
+            }
+        }
+    }
+
+    /**
      * Close: release all resources.
      */
     public void close() throws Exception {
@@ -535,6 +552,30 @@ public class PaimonJniWriter {
                 allocator.close();
                 allocator = null;
             }
+        }
+    }
+
+    private void closePreparedResources() throws Exception {
+        if (sdkCloseFailed) {
+            throw new IllegalStateException(
+                    "A previous Paimon SDK close failed; native memory cannot be released safely");
+        }
+        Exception failure = closeResource(writer, null);
+        failure = closeResource(globalIndexAssigner, failure);
+        failure = closeResource(ioManager, failure);
+        writer = null;
+        hashBucketAssigner = null;
+        dynamicBucketExtractor = null;
+        globalIndexAssigner = null;
+        ioManager = null;
+        fullCompactionBuckets.clear();
+        if (allocator != null) {
+            failure = closeResource(allocator, failure);
+            allocator = null;
+        }
+        if (failure != null) {
+            sdkCloseFailed = true;
+            throw failure;
         }
     }
 

@@ -162,6 +162,20 @@ Status JniPaimonWriteBackend::close() {
     return close_status;
 }
 
+Status JniPaimonWriteBackend::prepare_close_for_commit() {
+    JNIEnv* env = nullptr;
+    // Use the shared JNI attachment path so this method follows the branch-wide environment
+    // lifetime invariant instead of relying on a backend helper that does not exist here.
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    if (_jni_writer_obj == nullptr || _prepare_close_for_commit_id == nullptr) {
+        return Status::InternalError("Paimon prepared writer close method is unavailable");
+    }
+    env->CallVoidMethod(_jni_writer_obj, _prepare_close_for_commit_id);
+    Status status = _check_jni_exception(env, "prepare-close PaimonJniWriter");
+    _refresh_memory_profile();
+    return status;
+}
+
 Status JniPaimonWriteBackend::_check_jni_exception(JNIEnv* env, const std::string& method_name) {
     if (env->ExceptionCheck()) {
         Status st =
@@ -284,6 +298,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _write_id = env->GetMethodID(_jni_writer_cls, "writeArrow", "(JJ)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
+    _prepare_close_for_commit_id =
+            env->GetMethodID(_jni_writer_cls, "prepareCloseForCommit", "()V");
     _close_id = env->GetMethodID(_jni_writer_cls, "close", "()V");
     RETURN_IF_ERROR(_check_jni_exception(env, "GetMethodID"));
 

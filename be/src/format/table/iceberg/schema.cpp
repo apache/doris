@@ -17,6 +17,8 @@
 
 #include "format/table/iceberg/schema.h"
 
+#include <functional>
+
 namespace doris::iceberg {
 #include "common/compile_check_begin.h"
 
@@ -25,10 +27,26 @@ const int Schema::DEFAULT_SCHEMA_ID = 0;
 
 Schema::Schema(int schema_id, std::vector<NestedField> columns)
         : _schema_id(schema_id), _root_struct(std::move(columns)) {
-    _id_to_field.reserve(_root_struct.fields().size());
+    FieldPath path;
+    std::function<void(const NestedField&)> index_field = [&](const NestedField& field) {
+        path.push_back(&field);
+        _id_to_field[field.field_id()] = &field;
+        _id_to_field_path[field.field_id()] = path;
+        Type* type = field.field_type();
+        if (type->is_struct_type()) {
+            for (const auto& child : type->as_struct_type()->fields()) {
+                index_field(child);
+            }
+        } else if (type->is_list_type()) {
+            index_field(type->as_list_type()->element_field());
+        } else if (type->is_map_type()) {
+            index_field(type->as_map_type()->key_field());
+            index_field(type->as_map_type()->value_field());
+        }
+        path.pop_back();
+    };
     for (const auto& field : _root_struct.fields()) {
-        int field_id = field.field_id();
-        _id_to_field[field_id] = &field;
+        index_field(field);
     }
 }
 Schema::Schema(std::vector<NestedField> columns) : Schema(DEFAULT_SCHEMA_ID, std::move(columns)) {}
@@ -47,6 +65,11 @@ const NestedField* Schema::find_field(int id) const {
         return it->second;
     }
     return nullptr;
+}
+
+const Schema::FieldPath* Schema::find_field_path(int id) const {
+    auto it = _id_to_field_path.find(id);
+    return it == _id_to_field_path.end() ? nullptr : &it->second;
 }
 
 #include "common/compile_check_end.h"

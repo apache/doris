@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <queue>
 #include <vector>
@@ -40,6 +41,24 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+struct SorterReserveMemory {
+    size_t retained_growth = 0;
+    size_t retained_growth_trigger_bytes = 0;
+    size_t retained_sorted_destination = 0;
+    size_t transient_workspace = 0;
+
+    size_t total() const {
+        const size_t retained =
+                retained_growth > std::numeric_limits<size_t>::max() - retained_sorted_destination
+                        ? std::numeric_limits<size_t>::max()
+                        : retained_growth + retained_sorted_destination;
+        return retained > std::numeric_limits<size_t>::max() - transient_workspace
+                       ? std::numeric_limits<size_t>::max()
+                       : retained + transient_workspace;
+    }
+};
+
 class ObjectPool;
 class RowDescriptor;
 } // namespace doris
@@ -196,6 +215,19 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
 
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t sort_threshold_bytes) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t incoming_rows,
+                                                        size_t incoming_bytes) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t incoming_rows, size_t incoming_bytes,
+                                                        size_t sort_threshold_bytes) const;
+
     Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
                                      bool* eos) override;
     void reset() override;
@@ -209,7 +241,7 @@ public:
     Status do_sort();
 
 private:
-    bool _reach_limit() {
+    bool _reach_limit() const {
         return _state->unsorted_block()->allocated_bytes() >= _max_buffered_block_bytes;
     }
 

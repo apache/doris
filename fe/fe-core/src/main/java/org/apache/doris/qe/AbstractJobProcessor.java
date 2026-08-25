@@ -84,14 +84,20 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     }
 
     @Override
-    public final void updateFragmentExecStatus(TReportExecStatusParams params) {
+    public final boolean updateFragmentExecStatus(TReportExecStatusParams params) {
         if (params.status.status_code == TStatusCode.FINISHED) {
             params.status = new TStatus(TStatusCode.OK);
         }
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
+        boolean transfersExternalFileOwnership = params.isDone()
+                && (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages());
         if (fragmentTask == null) {
-            return;
+            if (transfersExternalFileOwnership) {
+                throw new IllegalStateException("Missing fragment handler for external-file report");
+            }
+            return false;
         }
 
         TUniqueId queryId = coordinatorContext.queryId;
@@ -117,6 +123,8 @@ public abstract class AbstractJobProcessor implements JobProcessor {
             }
         }
         doProcessReportExecStatus(params, fragmentTask);
+        // A legacy periodic vector is informational; only EOS requires durable acceptance.
+        return !transfersExternalFileOwnership || fragmentTask.isDone();
     }
 
     private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(

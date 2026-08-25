@@ -73,6 +73,16 @@ ObjectStorageResponse RateLimitedObjStorageClient::complete_multipart_upload(
     return _inner->complete_multipart_upload(opts, completed_parts);
 }
 
+ObjectStorageResponse RateLimitedObjStorageClient::abort_multipart_upload(
+        const ObjectStoragePathOptions& opts) {
+    S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
+    if (!guard.ok()) {
+        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
+    }
+    // Forward aborts explicitly; the base no-op is only valid for providers without abort support.
+    return _inner->abort_multipart_upload(opts);
+}
+
 ObjectStorageHeadResponse RateLimitedObjStorageClient::head_object(
         const ObjectStoragePathOptions& opts) {
     S3RateLimitGuard guard(S3RateLimitType::GET, 0);

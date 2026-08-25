@@ -83,6 +83,41 @@ protected:
         return expr;
     }
 
+    TTypeDesc _nested_int_struct_type_desc() {
+        TTypeNode struct_node;
+        struct_node.__set_type(TTypeNodeType::STRUCT);
+        TStructField child;
+        child.__set_name("part");
+        child.__set_contains_null(true);
+        struct_node.__set_struct_fields({child});
+
+        TTypeNode int_node;
+        int_node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar;
+        scalar.__set_type(TPrimitiveType::INT);
+        int_node.__set_scalar_type(scalar);
+
+        TTypeDesc type_desc;
+        type_desc.__set_types({struct_node, int_node});
+        type_desc.__set_is_nullable(true);
+        return type_desc;
+    }
+
+    TExpr _make_nested_source_expr() {
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::SLOT_REF);
+        node.__set_num_children(0);
+        TSlotRef slot_ref;
+        slot_ref.__set_slot_id(_nested_source_slot_id);
+        slot_ref.__set_tuple_id(_tuple_id);
+        node.__set_slot_ref(slot_ref);
+        node.__set_type(_nested_int_struct_type_desc());
+        node.__set_is_nullable(true);
+        TExpr expr;
+        expr.nodes.emplace_back(std::move(node));
+        return expr;
+    }
+
     TMergePartitionInfo _make_base_merge_info(bool insert_random) {
         TMergePartitionInfo merge_info;
         merge_info.__set_operation_expr(
@@ -180,6 +215,13 @@ protected:
                                        .column_name("delete_key")
                                        .column_pos(4)
                                        .build());
+        TTypeDesc nested_type = _nested_int_struct_type_desc();
+        tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .set_slotType(nested_type)
+                                       .nullable(true)
+                                       .column_name("nested_source")
+                                       .column_pos(5)
+                                       .build());
         tuple_builder.build(&dtb);
         TDescriptorTable thrift_tbl = dtb.desc_tbl();
 
@@ -205,11 +247,13 @@ protected:
         _row_id_slot_id = find_slot_id("row_id");
         _insert_key_slot_id = find_slot_id("insert_key");
         _delete_key_slot_id = find_slot_id("delete_key");
+        _nested_source_slot_id = find_slot_id("nested_source");
 
         ASSERT_GE(_operation_slot_id, 0);
         ASSERT_GE(_row_id_slot_id, 0);
         ASSERT_GE(_insert_key_slot_id, 0);
         ASSERT_GE(_delete_key_slot_id, 0);
+        ASSERT_GE(_nested_source_slot_id, 0);
     }
 
     ObjectPool _pool;
@@ -220,6 +264,7 @@ protected:
     TSlotId _row_id_slot_id = -1;
     TSlotId _insert_key_slot_id = -1;
     TSlotId _delete_key_slot_id = -1;
+    TSlotId _nested_source_slot_id = -1;
 };
 
 TEST_F(MergePartitionerTest, TestInsertDeleteUpdatePartitioning) {
@@ -314,6 +359,52 @@ TEST_F(MergePartitionerTest, TestInsertPartitionFieldsIdentity) {
     const auto& channel_ids = partitioner.get_channel_ids();
     ASSERT_EQ(2, channel_ids.size());
     EXPECT_EQ(channel_ids[0], channel_ids[1]);
+
+    ASSERT_TRUE(partitioner.close(&_state).ok());
+}
+
+TEST_F(MergePartitionerTest, TestNestedInsertPartitionFieldPreservesParentNulls) {
+    ScopedConfigValue<int32_t> max_partition_guard(
+            config::table_sink_partition_write_max_partition_nums_per_writer, 0);
+
+    TMergePartitionInfo merge_info = _make_base_merge_info(false);
+    TIcebergPartitionField field;
+    field.__set_transform("bucket[8]");
+    field.__set_source_expr(_make_nested_source_expr());
+    field.__set_name("payload_part");
+    field.__set_source_id(3);
+    field.__set_source_field_path({0});
+    merge_info.__set_insert_partition_fields({field});
+
+    MergePartitioner partitioner(8, merge_info, false);
+    ASSERT_TRUE(partitioner.init({}).ok());
+    ASSERT_TRUE(partitioner.prepare(&_state, *_row_desc).ok());
+    ASSERT_TRUE(partitioner.open(&_state).ok());
+
+    Block block = _build_block({1, 1, 1, 1}, {"p1", "p2", "p3", "p4"}, {1, 2, 3, 4},
+                               {10, 11, 12, 13}, {"d1", "d2", "d3", "d4"});
+    auto values = ColumnInt32::create();
+    values->insert_value(9);
+    values->insert_value(9);
+    values->insert_value(7);
+    values->insert_value(8);
+    auto child_nulls = ColumnUInt8::create(4, 0);
+    ColumnPtr child = ColumnNullable::create(std::move(values), std::move(child_nulls));
+    auto struct_column = ColumnStruct::create(Columns {std::move(child)});
+    auto parent_nulls = ColumnUInt8::create();
+    parent_nulls->get_data().assign({0, 0, 1, 1});
+    DataTypePtr child_type = make_nullable(std::make_shared<DataTypeInt32>());
+    DataTypePtr struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {"part"});
+    block.insert(ColumnWithTypeAndName(
+            ColumnNullable::create(std::move(struct_column), std::move(parent_nulls)),
+            make_nullable(struct_type), "nested_source"));
+
+    ASSERT_TRUE(partitioner.do_partitioning(&_state, &block).ok());
+    const auto& channel_ids = partitioner.get_channel_ids();
+    ASSERT_EQ(4, channel_ids.size());
+    EXPECT_EQ(channel_ids[0], channel_ids[1]);
+    EXPECT_EQ(channel_ids[2], channel_ids[3]);
 
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }

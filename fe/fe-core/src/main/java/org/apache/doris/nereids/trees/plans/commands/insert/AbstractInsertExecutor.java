@@ -138,6 +138,10 @@ public abstract class AbstractInsertExecutor {
         listeners.remove(listener);
     }
 
+    protected void handleAfterCompleteFailure(Exception e) throws Exception {
+        throw e;
+    }
+
     public Coordinator getCoordinator() {
         return coordinator;
     }
@@ -257,8 +261,9 @@ public abstract class AbstractInsertExecutor {
      * execute insert txn for insert into select command.
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
-        beforeExec();
         try {
+            // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
+            beforeExec();
             executor.updateProfile(false);
             execImpl(executor);
             checkStrictModeAndFilterRatio();
@@ -267,7 +272,11 @@ public abstract class AbstractInsertExecutor {
             }
             onComplete();
             for (InsertExecutorListener listener : listeners) {
-                listener.afterComplete(this, executor, jobId);
+                try {
+                    listener.afterComplete(this, executor, jobId);
+                } catch (Exception e) {
+                    handleAfterCompleteFailure(e);
+                }
             }
         } catch (Throwable t) {
             onFail(t);
@@ -290,8 +299,10 @@ public abstract class AbstractInsertExecutor {
      * needs to commit a partition delete.
      */
     public void executeEmptyInsert(StmtExecutor executor) throws Exception {
-        beforeExec();
         try {
+            // Empty inserts may create external transaction resources during preflight, so failures
+            // must enter the same rollback scope as completion failures.
+            beforeExec();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }

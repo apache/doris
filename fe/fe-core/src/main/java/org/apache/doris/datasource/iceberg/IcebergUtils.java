@@ -98,6 +98,7 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
@@ -784,6 +785,13 @@ public class IcebergUtils {
     }
 
     public static void validateWriteSchema(Table table, List<Column> columns) {
+        try {
+            validateNestedPartitionWriteBackendCompatibility(table.spec(), table.schema(),
+                    Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+        } catch (AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Failed to check backend compatibility for nested Iceberg partition writes", e);
+        }
         if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
             return;
         }
@@ -835,6 +843,26 @@ public class IcebergUtils {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "Iceberg Variant writes are unavailable while backend "
                                 + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static void validateNestedPartitionWriteBackendCompatibility(
+            PartitionSpec spec, Schema schema, Iterable<Backend> backends) throws AnalysisException {
+        Set<Integer> topLevelIds = schema.columns().stream()
+                .map(Types.NestedField::fieldId).collect(Collectors.toSet());
+        boolean hasNestedSource = spec.fields().stream()
+                .anyMatch(field -> !topLevelIds.contains(field.sourceId()));
+        if (!hasNestedSource) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isQueryAvailable() && backend.isSmoothUpgradeSrc()) {
+                // Old writers index partition sources only by top-level field ID and can route a
+                // nested source through column zero, so mixed-version scheduling is unsafe.
+                throw new AnalysisException("Nested Iceberg partition writes are unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
             }
         }
     }
@@ -1406,8 +1434,12 @@ public class IcebergUtils {
         return resSchema;
     }
 
-    private static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
+    static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
             boolean enableMappingTimestampTz) {
+        if (type.isNestedType()) {
+            // BE consumes Iceberg's field-id keyed single-value representation for complex defaults.
+            return SingleValueParser.toJson(type, value);
+        }
         String humanValue = Transforms.identity(type).toHumanString(type, value);
         if (type.typeId() == TypeID.TIMESTAMP) {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
@@ -1444,6 +1476,23 @@ public class IcebergUtils {
             result.put(field.fieldId(), serializeBinaryInitialDefault(field.type(), field.initialDefault()));
         }
         return result;
+    }
+
+    /**
+     * Return every binary-like source field, including leaves that only occur inside a parent
+     * complex default. BE needs this independent marker when VARBINARY mapping is disabled.
+     */
+    public static Set<Integer> getBinaryLikeFieldIds(Schema schema) {
+        return TypeUtil.indexById(schema.asStruct()).values().stream()
+                .filter(field -> isBinaryLike(field.type()))
+                .map(Types.NestedField::fieldId)
+                .collect(Collectors.toSet());
+    }
+
+    /** Keep Iceberg requiredness request-scoped instead of changing cached Doris Column semantics. */
+    public static Map<Integer, Boolean> getFieldOptionality(Schema schema) {
+        return TypeUtil.indexById(schema.asStruct()).values().stream()
+                .collect(Collectors.toMap(Types.NestedField::fieldId, Types.NestedField::isOptional));
     }
 
     private static boolean isBinaryLike(org.apache.iceberg.types.Type type) {

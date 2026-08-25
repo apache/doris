@@ -43,6 +43,8 @@ import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -187,6 +189,19 @@ public class AzureObjStorageTest {
         // for (RemoteFile i : result) {
         //     System.out.println(i.getName());
         // }
+    }
+
+    @Test
+    public void testMultipartCompletionUsesExactStagedBlockIds() {
+        Map<Integer, String> parts = new HashMap<>();
+        parts.put(2, "writer-b-part-2");
+        parts.put(1, "writer-b-part-1");
+
+        Assertions.assertEquals(
+                Arrays.asList("writer-b-part-1", "writer-b-part-2"),
+                AzureObjStorage.multipartBlockIds(parts));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureObjStorage.multipartBlockIds(Collections.singletonMap(1, "")));
     }
 
     /**

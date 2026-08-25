@@ -53,12 +53,127 @@
 #include "runtime/thread_context.h"
 #include "storage/id_manager.h"
 #include "storage/storage_engine.h"
+#include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
+
+Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data) {
+    ThriftSerializer serializer(false, 256);
+    uint32_t serialized_size = 0;
+    uint8_t* buffer = nullptr;
+    RETURN_IF_ERROR(serializer.serialize(&iceberg_commit_data, &serialized_size, &buffer));
+
+    // This is an early per-vector guard only; the assembled RPC is measured again before send.
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = coordinator_thrift_message_limit();
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    // Parallel task states share this budget because FE receives their vectors in one fragment report.
+    if (_external_file_report_state->iceberg_serialized_bytes + serialized_size + sizeof(uint32_t) >
+        commit_data_limit) {
+        return Status::InternalError(
+                "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
+    }
+    std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
+    _external_file_report_state->iceberg_serialized_bytes += serialized_size + sizeof(uint32_t);
+    _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
+    return Status::OK();
+}
+
+size_t RuntimeState::coordinator_thrift_message_limit() const {
+    int32_t effective_thrift_limit = std::max(config::thrift_max_message_size, 0);
+    if (_query_options.__isset.coordinator_thrift_max_message_size &&
+        _query_options.coordinator_thrift_max_message_size > 0) {
+        // An older FE omits this field; otherwise the receiver's smaller limit is authoritative.
+        effective_thrift_limit = std::min(effective_thrift_limit,
+                                          _query_options.coordinator_thrift_max_message_size);
+    }
+    return static_cast<size_t>(effective_thrift_limit);
+}
+
+void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* params,
+                                                    bool final_report) const {
+    if (!final_report) {
+        // Ownership-bearing commit vectors must only appear in the final report that transfers them.
+        return;
+    }
+    if (auto updates = hive_partition_updates(); !updates.empty()) {
+        params->__isset.hive_partition_updates = true;
+        params->hive_partition_updates.insert(params->hive_partition_updates.end(), updates.begin(),
+                                              updates.end());
+    }
+    append_iceberg_commit_datas(&params->iceberg_commit_datas);
+    if (!params->iceberg_commit_datas.empty()) {
+        params->__isset.iceberg_commit_datas = true;
+    }
+    if (auto commit_datas = mc_commit_datas(); !commit_datas.empty()) {
+        params->__isset.mc_commit_datas = true;
+        params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
+                                       commit_datas.end());
+    }
+    if (auto commit_messages = paimon_commit_messages(); !commit_messages.empty()) {
+        // branch-4.1 still carries Paimon commit messages in the shared external-file report.
+        params->__isset.paimon_commit_messages = true;
+        params->paimon_commit_messages.insert(params->paimon_commit_messages.end(),
+                                              commit_messages.begin(), commit_messages.end());
+    }
+}
+
+void RuntimeState::add_rejected_external_file_report_cleanup(std::function<void()> cleanup) {
+    add_external_file_report_finalizer(
+            [cleanup = std::move(cleanup)](ExternalFileReportOutcome outcome) {
+                if (outcome == ExternalFileReportOutcome::REJECTED) {
+                    cleanup();
+                }
+            });
+}
+
+void RuntimeState::add_external_file_report_finalizer(
+        std::function<void(ExternalFileReportOutcome)> finalizer) {
+    std::optional<ExternalFileReportOutcome> terminal_outcome;
+    {
+        std::lock_guard lock(_external_file_report_state->mutex);
+        terminal_outcome = _external_file_report_state->terminal_outcome;
+        if (!terminal_outcome.has_value()) {
+            _external_file_report_state->report_finalizers.emplace_back(std::move(finalizer));
+        }
+    }
+    // Async writers can register after cancellation has completed the final report; replaying the
+    // terminal result is what keeps their file ownership from escaping cleanup.
+    if (terminal_outcome.has_value()) {
+        finalizer(*terminal_outcome);
+    }
+}
+
+void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome) {
+    std::vector<std::function<void(ExternalFileReportOutcome)>> finalizers;
+    {
+        std::lock_guard lock(_external_file_report_state->mutex);
+        if (_external_file_report_state->terminal_outcome.has_value()) {
+            return;
+        }
+        if (outcome == ExternalFileReportOutcome::AMBIGUOUS) {
+            // Once an ACK can have been lost, a later rejection cannot prove FE never accepted the files.
+            _external_file_report_state->ownership_may_have_transferred = true;
+            return;
+        }
+        if (outcome == ExternalFileReportOutcome::REJECTED &&
+            _external_file_report_state->ownership_may_have_transferred) {
+            return;
+        }
+        _external_file_report_state->terminal_outcome = outcome;
+        finalizers.swap(_external_file_report_state->report_finalizers);
+    }
+    for (auto& finalizer : finalizers) {
+        finalizer(outcome);
+    }
+}
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,

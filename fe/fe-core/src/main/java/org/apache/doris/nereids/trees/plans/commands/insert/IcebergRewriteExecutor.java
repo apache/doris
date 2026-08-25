@@ -54,6 +54,23 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
+    protected void onComplete() {
+        // Group executors only contribute files; the parent owns the single rewrite commit boundary.
+    }
+
+    @Override
+    protected void onFail(Throwable failure) {
+        // The parent must observe any failed group before it can delete that group's source files.
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure instanceof Error) {
+            throw (Error) failure;
+        }
+        throw new RuntimeException(failure);
+    }
+
+    @Override
     protected TransactionType transactionType() {
         return TransactionType.ICEBERG;
     }
