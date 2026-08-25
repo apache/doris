@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
@@ -973,20 +971,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
     @Override
     public List<RewriteJob> getJobs() {
         return rewriteJobs;
-    }
-
-    @Override
-    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
-        if (rewriteJob instanceof CostBasedRewriteJob) {
-            if (runCboRules) {
-                jobContext.setRemainJobs(jobs.subList(jobIndex + 1, jobs.size()));
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return true;
-        }
     }
 
     @Override
