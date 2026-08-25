@@ -39,6 +39,9 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
     if (argument_types[2]->get_primitive_type() == TYPE_DATETIMEV2) {
         return creator_without_type::create<AggregateFunctionWindowFunnel<TYPE_DATETIMEV2>>(
                 argument_types, result_is_nullable, attr);
+    } else if (argument_types[2]->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+        return creator_without_type::create<AggregateFunctionWindowFunnel<TYPE_TIMESTAMP_NS>>(
+                argument_types, result_is_nullable, attr);
     } else if (argument_types[2]->get_primitive_type() == TYPE_TIMESTAMPTZ) {
         return creator_without_type::create<AggregateFunctionWindowFunnel<TYPE_TIMESTAMPTZ>>(
                 argument_types, result_is_nullable, attr);

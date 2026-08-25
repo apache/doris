@@ -66,6 +66,7 @@ public enum PrimitiveType {
     AGG_STATE("AGG_STATE", 16, TPrimitiveType.AGG_STATE, true),
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
+    TIMESTAMP_NS("TIMESTAMP_NS", 8, TPrimitiveType.TIMESTAMP_NS, true),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
     TIMESTAMPTZ("TIMESTAMPTZ", 8, TPrimitiveType.TIMESTAMPTZ, false),
     LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION, false),
@@ -135,6 +136,7 @@ public enum PrimitiveType {
         supportedTypes.add(DATETIME);
         supportedTypes.add(DATEV2);
         supportedTypes.add(DATETIMEV2);
+        supportedTypes.add(TIMESTAMP_NS);
         supportedTypes.add(TIMEV2);
         supportedTypes.add(TIMESTAMPTZ);
         supportedTypes.add(IPV4);
@@ -213,6 +215,8 @@ public enum PrimitiveType {
                 return DATEV2;
             case DATETIMEV2:
                 return DATETIMEV2;
+            case TIMESTAMP_NS:
+                return TIMESTAMP_NS;
             case IPV4:
                 return IPV4;
             case IPV6:
@@ -328,11 +332,12 @@ public enum PrimitiveType {
     }
 
     public boolean isDateLikeType() {
-        return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
+        return this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2
+                || this == TIMESTAMP_NS || this == TIMESTAMPTZ;
     }
 
     public boolean isDateV2LikeType() {
-        return (this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
+        return this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMP_NS || this == TIMESTAMPTZ;
     }
 
     public boolean isTimeStampTzType() {
@@ -428,6 +433,7 @@ public enum PrimitiveType {
             case DATEV2:
                 return MysqlColType.MYSQL_TYPE_DATE;
             case TIMESTAMPTZ:
+            case TIMESTAMP_NS:
                 return MysqlColType.MYSQL_TYPE_STRING;
             case DATETIME:
             case DATETIMEV2: {
@@ -463,6 +469,7 @@ public enum PrimitiveType {
                 return DATEV2_INDEX_LEN;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 return DATETIME_INDEX_LEN;
             case VARCHAR:

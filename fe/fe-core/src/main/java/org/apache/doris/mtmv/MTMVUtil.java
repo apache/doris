@@ -49,6 +49,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -202,6 +203,14 @@ public class MTMVUtil {
         }
         if (expr instanceof org.apache.doris.analysis.DateLiteral) {
             return ((org.apache.doris.analysis.DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        }
+        if (expr instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
+            org.apache.doris.analysis.TimeStampNsLiteral timestampNs
+                    = (org.apache.doris.analysis.TimeStampNsLiteral) expr;
+            if (timestampNs.isMinValue()) {
+                return Long.MIN_VALUE;
+            }
+            return ZonedDateTime.of(timestampNs.toLocalDateTime(), TimeUtils.getDorisZoneId()).toEpochSecond();
         }
         if (!dateFormatOptional.isPresent()) {
             throw new AnalysisException("expr is not DateLiteral and DateFormat is not present.");

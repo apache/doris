@@ -165,6 +165,35 @@ public class ComputeSignatureHelper {
         }
     }
 
+    private static void collectAnyDataTypeExpression(DataType sigType, DataType expressionType,
+            Expression expression, Map<Integer, List<Expression>> indexToArgumentExpressions) {
+        if (expressionType instanceof NullType) {
+            if (sigType instanceof ArrayType) {
+                collectAnyDataTypeExpression(((ArrayType) sigType).getItemType(), NullType.INSTANCE,
+                        expression, indexToArgumentExpressions);
+            } else if (sigType instanceof MapType) {
+                collectAnyDataTypeExpression(((MapType) sigType).getKeyType(), NullType.INSTANCE,
+                        expression, indexToArgumentExpressions);
+                collectAnyDataTypeExpression(((MapType) sigType).getValueType(), NullType.INSTANCE,
+                        expression, indexToArgumentExpressions);
+            } else if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
+                indexToArgumentExpressions.computeIfAbsent(
+                        ((AnyDataType) sigType).getIndex(), i -> Lists.newArrayList()).add(expression);
+            }
+        } else if (sigType instanceof ArrayType && expressionType instanceof ArrayType) {
+            collectAnyDataTypeExpression(((ArrayType) sigType).getItemType(),
+                    ((ArrayType) expressionType).getItemType(), expression, indexToArgumentExpressions);
+        } else if (sigType instanceof MapType && expressionType instanceof MapType) {
+            collectAnyDataTypeExpression(((MapType) sigType).getKeyType(),
+                    ((MapType) expressionType).getKeyType(), expression, indexToArgumentExpressions);
+            collectAnyDataTypeExpression(((MapType) sigType).getValueType(),
+                    ((MapType) expressionType).getValueType(), expression, indexToArgumentExpressions);
+        } else if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
+            indexToArgumentExpressions.computeIfAbsent(
+                    ((AnyDataType) sigType).getIndex(), i -> Lists.newArrayList()).add(expression);
+        }
+    }
+
     private static void collectFollowToAnyDataType(DataType sigType, DataType expressionType,
             Map<Integer, List<DataType>> indexToArgumentTypes, Set<Integer> allNullTypeIndex) {
         if (expressionType instanceof NullType) {
@@ -290,6 +319,7 @@ public class ComputeSignatureHelper {
             FunctionSignature signature, List<Expression> arguments) {
         // collect all any data type with index
         Map<Integer, List<DataType>> indexToArgumentTypes = Maps.newHashMap();
+        Map<Integer, List<Expression>> indexToArgumentExpressions = Maps.newHashMap();
         Map<Integer, Optional<DataType>> indexToCommonTypes = Maps.newHashMap();
         for (int i = 0; i < arguments.size(); i++) {
             DataType sigType;
@@ -301,6 +331,7 @@ public class ComputeSignatureHelper {
             }
             DataType expressionType = arguments.get(i).getDataType();
             collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
+            collectAnyDataTypeExpression(sigType, expressionType, arguments.get(i), indexToArgumentExpressions);
         }
         // if all any data type's expression is NULL, we should use follow to any data type to do type coercion
         Set<Integer> allNullTypeIndex = Sets.newHashSetWithExpectedSize(indexToArgumentTypes.size());
@@ -332,8 +363,17 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
+            boolean hasTimeStampNs = dataTypes.getValue().stream().anyMatch(DataType::isTimeStampNsType);
+            boolean hasOtherDateLike = dataTypes.getValue().stream().anyMatch(type -> type.isDateLikeType()
+                    && !type.isTimeStampNsType());
             Optional<DataType> dataType;
-            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            if (hasTimeStampNs && hasOtherDateLike) {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForIndexedAny(
+                        dataTypes.getValue(), indexToArgumentExpressions.get(dataTypes.getKey()));
+                if (!dataType.isPresent()) {
+                    throw new AnalysisException("Cannot find an exact common type for indexed ANY arguments");
+                }
+            } else if (GlobalVariable.enableNewTypeCoercionBehavior) {
                 dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
             } else {
                 dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());

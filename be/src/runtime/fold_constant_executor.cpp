@@ -265,6 +265,11 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const DataTypeP
         result = CastToString::from_datetimev2(value, type->get_scale());
         break;
     }
+    case TYPE_TIMESTAMP_NS: {
+        const auto value = TimeStampNsValue(*reinterpret_cast<int64_t*>(src));
+        result = value.to_string();
+        break;
+    }
     case TYPE_TIMESTAMPTZ: {
         auto value = binary_cast<uint64_t, TimestampTzValue>(*(int64_t*)src);
         result = CastToString::from_timestamptz(value, type->get_scale(), options.timezone);

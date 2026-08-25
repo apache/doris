@@ -128,11 +128,17 @@ public:
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
+    bool has_default_value_expr() const { return _has_default_value_expr; }
+    const std::string& default_value_expr() const { return _default_value_expr; }
     int32_t length() const { return _length; }
     void set_length(int32_t length) { _length = length; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;
+    }
+    void set_default_value_expr(const std::string& default_value_expr) {
+        _default_value_expr = default_value_expr;
+        _has_default_value_expr = true;
     }
     int32_t index_length() const { return _index_length; }
     void set_index_length(int32_t index_length) { _index_length = index_length; }
@@ -299,6 +305,8 @@ private:
 
     bool _has_default_value = false;
     std::string _default_value;
+    bool _has_default_value_expr = false;
+    std::string _default_value_expr;
 
     bool _is_decimal = false;
     int32_t _precision = -1;

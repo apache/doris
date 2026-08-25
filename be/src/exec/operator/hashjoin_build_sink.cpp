@@ -410,7 +410,7 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Unsupported ASOF column type for inline optimization");
         } else {
-            using IntType = typename ColType::value_type::underlying_value;
+            using IntType = typename AsofColumnIntType<ColType>::type;
             const auto& col_data = typed_col->get_data();
 
             auto& groups = _shared_state->asof_index_groups

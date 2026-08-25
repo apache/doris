@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -314,6 +315,9 @@ public class TimeV2Literal extends Literal {
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(time.getYear(), time.getMonth(), time.getDay(), time.getHour(), time.getMinute(),
                     time.getSecond());
+        } else if (targetType instanceof TimeStampNsType) {
+            return new TimeStampNsLiteral(time.getYear(), time.getMonth(), time.getDay(),
+                    time.getHour(), time.getMinute(), time.getSecond(), time.getMicroSecond() * 1000L);
         } else if (targetType.isDateTimeV2Type()) {
             return time;
         }

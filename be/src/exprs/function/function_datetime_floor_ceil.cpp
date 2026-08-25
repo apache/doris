@@ -358,9 +358,11 @@ struct DateTimeFloorCeilCore {
     static void vector_const_const(const PaddedPODArray<DateValueType>& dates, const Int32 period,
                                    DateValueType origin_date, PaddedPODArray<DateValueType>& res,
                                    const NullMap& result_null_map, FunctionContext* context) {
-        if (auto cast_date = origin_date; cast_date == DateValueType::FIRST_DAY) {
-            vector_const_period(dates, period, res, result_null_map, context);
-            return;
+        if constexpr (!std::is_same_v<DateValueType, TimeStampNsValue>) {
+            if (auto cast_date = origin_date; cast_date == DateValueType::FIRST_DAY) {
+                vector_const_period(dates, period, res, result_null_map, context);
+                return;
+            }
         }
 
         // expand codes for const input periods
@@ -507,24 +509,37 @@ struct DateTimeFloorCeilCore {
     template <int const_period = 0>
     static bool time_round_reinterpret_two_args(DateValueType date, Int32 period,
                                                 DateValueType& res, FunctionContext* context) {
-        auto ts_arg = date;
-        auto& ts_res = res;
-
-        if constexpr (const_period == 0) {
-            if (can_use_optimize(period)) {
-                floor_opt(ts_arg, ts_res, period);
-                return true;
-            } else {
-                ts_res = DateValueType::FIRST_DAY;
-                return time_round_two_args(ts_arg, period, ts_res, context);
+        if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
+            auto legacy_date = date.to_datetime();
+            if (date.nanosecond_remainder() != 0 && legacy_date.microsecond() == 0) {
+                legacy_date.template unchecked_set_time_unit<TimeUnit::MICROSECOND>(1);
             }
+            auto legacy_result = DateV2Value<DateTimeV2ValueType>::FIRST_DAY;
+            if (!DateTimeFloorCeilCore<Flag, TYPE_DATETIMEV2>::template time_round_two_args<
+                        const_period>(legacy_date, period, legacy_result, context)) {
+                return false;
+            }
+            return res.from_datetime(legacy_result);
         } else {
-            if (can_use_optimize(const_period)) {
-                floor_opt(ts_arg, ts_res, const_period);
-                return true;
+            auto ts_arg = date;
+            auto& ts_res = res;
+
+            if constexpr (const_period == 0) {
+                if (can_use_optimize(period)) {
+                    floor_opt(ts_arg, ts_res, period);
+                    return true;
+                } else {
+                    ts_res = DateValueType::FIRST_DAY;
+                    return time_round_two_args(ts_arg, period, ts_res, context);
+                }
             } else {
-                ts_res = DateValueType::FIRST_DAY;
-                return time_round_two_args<const_period>(ts_arg, const_period, ts_res, context);
+                if (can_use_optimize(const_period)) {
+                    floor_opt(ts_arg, ts_res, const_period);
+                    return true;
+                } else {
+                    ts_res = DateValueType::FIRST_DAY;
+                    return time_round_two_args<const_period>(ts_arg, const_period, ts_res, context);
+                }
             }
         }
     }
@@ -739,6 +754,86 @@ struct DateTimeFloorCeilCore {
                 trivial_part_ts_arg = calc_arg.microsecond();
                 trivial_part_ts_res = calc_origin.microsecond();
             }
+        } else if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
+            const auto nanos_since_midnight = [](const TimeStampNsValue& value) {
+                return value.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
+                       value.nanosecond();
+            };
+            const auto nanos_since_date = [&](const TimeStampNsValue& value, uint8_t month,
+                                              uint8_t day) {
+                return (value.daynr() - calc_daynr(value.year(), month, day)) * HOUR_PER_DAY *
+                               SECOND_PER_HOUR * TimeStampNsValue::NANOS_PER_SECOND +
+                       nanos_since_midnight(value);
+            };
+
+            if constexpr (Flag::Unit == YEAR) {
+                diff = ts_arg.year() - ts_origin.year();
+                const auto calendar_remainder = [&](const TimeStampNsValue& value) {
+                    return (static_cast<int64_t>(value.month()) * 32 + value.day()) * HOUR_PER_DAY *
+                                   SECOND_PER_HOUR * TimeStampNsValue::NANOS_PER_SECOND +
+                           nanos_since_midnight(value);
+                };
+                trivial_part_ts_arg = calendar_remainder(ts_arg);
+                trivial_part_ts_res = calendar_remainder(ts_origin);
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                const int64_t total_months = (ts_arg.year() - ts_origin.year()) * 12 +
+                                             ts_arg.month() - ts_origin.month();
+                diff = total_months / 3;
+                const int64_t remaining_months = total_months % 3;
+                if (remaining_months != 0) {
+                    trivial_part_ts_arg = remaining_months;
+                    trivial_part_ts_res = 0;
+                } else {
+                    trivial_part_ts_arg = nanos_since_date(ts_arg, ts_arg.month(), 1);
+                    trivial_part_ts_res = nanos_since_date(ts_origin, ts_origin.month(), 1);
+                }
+            }
+            if constexpr (Flag::Unit == MONTH) {
+                diff = (ts_arg.year() - ts_origin.year()) * 12 +
+                       (ts_arg.month() - ts_origin.month());
+                trivial_part_ts_arg = nanos_since_date(ts_arg, ts_arg.month(), 1);
+                trivial_part_ts_res = nanos_since_date(ts_origin, ts_origin.month(), 1);
+            }
+            if constexpr (Flag::Unit == WEEK) {
+                diff = ts_arg.daynr() / 7 - ts_origin.daynr() / 7;
+                trivial_part_ts_arg = ts_arg.daynr() % 7 * HOUR_PER_DAY * SECOND_PER_HOUR *
+                                              TimeStampNsValue::NANOS_PER_SECOND +
+                                      nanos_since_midnight(ts_arg);
+                trivial_part_ts_res = ts_origin.daynr() % 7 * HOUR_PER_DAY * SECOND_PER_HOUR *
+                                              TimeStampNsValue::NANOS_PER_SECOND +
+                                      nanos_since_midnight(ts_origin);
+            }
+            if constexpr (Flag::Unit == DAY) {
+                diff = ts_arg.daynr() - ts_origin.daynr();
+                trivial_part_ts_arg = nanos_since_midnight(ts_arg);
+                trivial_part_ts_res = nanos_since_midnight(ts_origin);
+            }
+            if constexpr (Flag::Unit == HOUR) {
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * HOUR_PER_DAY + ts_arg.hour() -
+                       ts_origin.hour();
+                trivial_part_ts_arg = (ts_arg.minute() * SECOND_PER_MINUTE + ts_arg.second()) *
+                                              TimeStampNsValue::NANOS_PER_SECOND +
+                                      ts_arg.nanosecond();
+                trivial_part_ts_res =
+                        (ts_origin.minute() * SECOND_PER_MINUTE + ts_origin.second()) *
+                                TimeStampNsValue::NANOS_PER_SECOND +
+                        ts_origin.nanosecond();
+            }
+            if constexpr (Flag::Unit == MINUTE) {
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * HOUR_PER_DAY * SECOND_PER_MINUTE +
+                       (ts_arg.hour() - ts_origin.hour()) * SECOND_PER_MINUTE + ts_arg.minute() -
+                       ts_origin.minute();
+                trivial_part_ts_arg =
+                        ts_arg.second() * TimeStampNsValue::NANOS_PER_SECOND + ts_arg.nanosecond();
+                trivial_part_ts_res = ts_origin.second() * TimeStampNsValue::NANOS_PER_SECOND +
+                                      ts_origin.nanosecond();
+            }
+            if constexpr (Flag::Unit == SECOND) {
+                diff = ts_arg.datetime_diff_in_seconds(ts_origin);
+                trivial_part_ts_arg = ts_arg.nanosecond();
+                trivial_part_ts_res = ts_origin.nanosecond();
+            }
         }
 
         //round down/up to specific time-unit(HOUR/DAY/MONTH...) by increase/decrease diff variable
@@ -785,6 +880,10 @@ struct DateTimeFloorCeilCore {
 
     /// optimized path
     constexpr static bool can_use_optimize(int period) {
+        if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
+            return false;
+        }
+
         // For TimestampTzValue on date-based units, disable optimization to ensure timezone conversion
         if constexpr (std::is_same_v<DateValueType, TimestampTzValue>) {
             if constexpr (Flag::Unit == YEAR || Flag::Unit == QUARTER || Flag::Unit == MONTH ||
@@ -926,6 +1025,12 @@ struct DateTimeFloorCeilCore {
             FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2>;                                 \
     using FunctionDateTimeV2ThreeArg##IMPL##DELTA =                                              \
             FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 3>;                                 \
+    using FunctionTimestampNsOneArg##IMPL##DELTA =                                               \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_TIMESTAMP_NS, 1>;                               \
+    using FunctionTimestampNsTwoArg##IMPL##DELTA =                                               \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_TIMESTAMP_NS, 2>;                               \
+    using FunctionTimestampNsThreeArg##IMPL##DELTA =                                             \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_TIMESTAMP_NS, 3>;                               \
     using FunctionTimestamptzOneArg##IMPL##DELTA =                                               \
             FunctionDateTimeFloorCeil<IMPL, TYPE_TIMESTAMPTZ, 1>;                                \
     using FunctionTimestamptzTwoArg##IMPL##DELTA =                                               \
@@ -944,6 +1049,8 @@ struct DateTimeFloorCeilCore {
     using FunctionDateV2TwoArg##IMPL = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 2, true>; \
     using FunctionDateTimeV2TwoArg##IMPL =                                                    \
             FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2, true>;                        \
+    using FunctionTimestampNsTwoArg##IMPL =                                                   \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_TIMESTAMP_NS, 2, true>;                      \
     using FunctionTimestamptzTwoArg##IMPL =                                                   \
             FunctionDateTimeFloorCeil<IMPL, TYPE_TIMESTAMPTZ, 2, true>;
 
@@ -973,10 +1080,14 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2OneArg##IMPL##DELTA>();    \
     factory.register_function<FunctionDateTimeV2TwoArg##IMPL##DELTA>();    \
     factory.register_function<FunctionDateTimeV2ThreeArg##IMPL##DELTA>();  \
+    factory.register_function<FunctionTimestampNsOneArg##IMPL##DELTA>();   \
+    factory.register_function<FunctionTimestampNsTwoArg##IMPL##DELTA>();   \
+    factory.register_function<FunctionTimestampNsThreeArg##IMPL##DELTA>(); \
     factory.register_function<FunctionTimestamptzOneArg##IMPL##DELTA>();   \
     factory.register_function<FunctionTimestamptzTwoArg##IMPL##DELTA>();   \
     factory.register_function<FunctionTimestamptzThreeArg##IMPL##DELTA>(); \
     factory.register_function<FunctionDateTimeV2TwoArg##IMPL>();           \
+    factory.register_function<FunctionTimestampNsTwoArg##IMPL>();          \
     factory.register_function<FunctionDateV2TwoArg##IMPL>();               \
     factory.register_function<FunctionTimestamptzTwoArg##IMPL>();
 

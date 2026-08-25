@@ -30,6 +30,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/null_predicate.h"
@@ -90,6 +91,7 @@ Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
         FROM_FE_STRING_CASE(TYPE_DATETIME);
         FROM_FE_STRING_CASE(TYPE_DATEV2);
         FROM_FE_STRING_CASE(TYPE_DATETIMEV2);
+        FROM_FE_STRING_CASE(TYPE_TIMESTAMP_NS);
         FROM_FE_STRING_CASE(TYPE_TIMESTAMPTZ);
         FROM_FE_STRING_CASE(TYPE_BOOLEAN);
         FROM_FE_STRING_CASE(TYPE_IPV4);
@@ -361,6 +363,10 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return valid_datetime(value_str, column.frac());
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS: {
+        int64_t epoch_nanos = 0;
+        return parse_timestamp_ns(StringRef(value_str), &epoch_nanos).ok();
+    }
     case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
     case FieldType::OLAP_FIELD_TYPE_IPV4:

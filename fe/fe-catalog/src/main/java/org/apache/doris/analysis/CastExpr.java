@@ -101,7 +101,8 @@ public class CastExpr extends Expr {
         if (type.isFixedPointType() && getChild(0).getType().isFixedPointType()) {
             return true;
         }
-        if (type.isDateType() && getChild(0).getType().isDateType()) {
+        if (type.isDateType() && getChild(0).getType().isDateType()
+                && !type.isTimeStampNs() && !getChild(0).getType().isTimeStampNs()) {
             return true;
         }
         return false;

@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -56,14 +60,13 @@ public class DateTimeFormatterUtils {
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
             .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // HH[:mm][:ss][.microsecond]
+    // HH[:mm][:ss][.fraction]
     public static final DateTimeFormatter TIME_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
-            // microsecond maxWidth is 7, we may need 7th digit to judge overflow
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, TimeStampNsType.SCALE, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Time without delimiter: HHmmss[.microsecond]
     private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
@@ -71,7 +74,7 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, TimeStampNsType.SCALE, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // yyyymmdd
     private static final DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()
@@ -150,18 +153,24 @@ public class DateTimeFormatterUtils {
      * @param isTimeFormat true when invoked via time_format, false for date_format
      * @return formatted string or null when pattern requires missing date fields
      */
-    public static String toFormatStringConservative(DateTimeV2Literal datetime, StringLikeLiteral format,
+    public static String toFormatStringConservative(DateLiteral datetime, StringLikeLiteral format,
             boolean isTimeFormat) {
-        int year = isTimeFormat ? 0 : (int) datetime.getYear();
-        int month = isTimeFormat ? 0 : (int) datetime.getMonth();
-        int day = isTimeFormat ? 0 : (int) datetime.getDay();
-        int hour = (int) datetime.getHour();
-        int minute = (int) datetime.getMinute();
-        int second = (int) datetime.getSecond();
-        int microsecond = (int) datetime.getMicroSecond();
+        LocalDateTime dateTime = datetime.toJavaDateType();
+        int nanosecond = datetime instanceof TimeStampNsLiteral || datetime instanceof DateTimeV2Literal
+                ? dateTime.getNano() : -1;
+        return toFormatStringConservative(datetime, format, isTimeFormat, nanosecond);
+    }
 
+    /** Format a datetime literal with an explicit nanosecond fraction. */
+    public static String toFormatStringConservative(DateLiteral datetime, StringLikeLiteral format,
+            boolean isTimeFormat, int nanosecond) {
+        LocalDateTime dateTime = datetime.toJavaDateType();
+        int year = isTimeFormat ? 0 : dateTime.getYear();
+        int month = isTimeFormat ? 0 : dateTime.getMonthValue();
+        int day = isTimeFormat ? 0 : dateTime.getDayOfMonth();
         String pattern = trimFormat(format.getValue());
-        return formatTemporalLiteral(year, month, day, hour, minute, second, microsecond, pattern);
+        return formatTemporalLiteral(year, month, day, dateTime.getHour(), dateTime.getMinute(),
+                dateTime.getSecond(), dateTime.getNano() / 1000, nanosecond, pattern);
     }
 
     /**
@@ -176,11 +185,27 @@ public class DateTimeFormatterUtils {
     public static String toFormatStringConservative(TimeV2Literal time, StringLikeLiteral format) {
         String pattern = trimFormat(format.getValue());
         String res = formatTemporalLiteral(0, 0, 0, time.getHour(), time.getMinute(),
-                time.getSecond(), time.getMicroSecond(), pattern);
+                time.getSecond(), time.getMicroSecond(), time.getMicroSecond() * 1000, pattern);
         if (time.isNegative()) {
             res = "-" + res;
         }
         return res;
+    }
+
+    /**
+     * Return whether a MySQL-style format contains the specified conversion.
+     * For example, {@code "%s.%n"} contains {@code 'n'}, but {@code "%s.%%n"} only prints
+     * the literal text {@code "%n"} and therefore does not.
+     */
+    public static boolean containsFormatSpecifier(String pattern, char specifier) {
+        for (int i = 0; i + 1 < pattern.length(); i++) {
+            if (pattern.charAt(i) == '%') {
+                if (pattern.charAt(++i) == specifier) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static int calcWeekNumber(int year, int month, int day, int mode) {
@@ -292,7 +317,7 @@ public class DateTimeFormatterUtils {
 
     // MySQL-compatible time_format for TIME/DATE/DATETIME literals.
     private static String formatTemporalLiteral(int year, int month, int day, int hour, int minute,
-            int second, int microsecond, String pattern) {
+            int second, int microsecond, int nanosecond, String pattern) {
         StringBuilder builder = new StringBuilder(pattern.length() + 16);
 
         for (int i = 0; i < pattern.length(); i++) {
@@ -390,6 +415,13 @@ public class DateTimeFormatterUtils {
                 }
                 case 'f':
                     appendWithPad(builder, microsecond, 6, '0');
+                    break;
+                case 'n':
+                    if (nanosecond < 0) {
+                        builder.append(spec);
+                    } else {
+                        appendWithPad(builder, nanosecond, 9, '0');
+                    }
                     break;
                 case 'j':
                     if (month == 0 || day == 0) {
