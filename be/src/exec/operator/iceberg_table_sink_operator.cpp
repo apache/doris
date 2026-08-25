@@ -63,6 +63,7 @@ Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status
 
     DCHECK(_writer);
     Status final_status = exec_status;
+    // Observe cancellation before close so a known-cancelled write is not finalized as successful.
     if (final_status.ok() && state->is_cancelled()) {
         final_status = state->cancel_reason();
     }
@@ -70,6 +71,7 @@ Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status
     if (final_status.ok() && !writer_status.ok()) {
         final_status = writer_status;
     }
+    // close() may block on sort/merge/file I/O, so cancellation can arrive while it is running.
     if (final_status.ok() && state->is_cancelled()) {
         final_status = state->cancel_reason();
     }
