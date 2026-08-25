@@ -17,16 +17,10 @@
 
 package org.apache.doris.catalog.stream;
 
-
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class TableStreamBuildFactory {
     public static class BuildParams {
@@ -54,19 +48,9 @@ public class TableStreamBuildFactory {
         Preconditions.checkNotNull(params, "The factory isn't initialized.");
         Preconditions.checkNotNull(params.tableStreamName, "Stream name isn't initialized.");
         Preconditions.checkNotNull(params.baseTable, "Stream base table isn't initialized.");
-        List<Column> schema = new java.util.ArrayList<>(params.baseTable.getBaseSchema());
-        // filter irrelevant invisible columns
-        schema = schema.stream().filter(Column::isVisible).collect(Collectors.toList());
-        // extra columns
-        Column sequenceColumn = new Column(Column.STREAM_SEQ_COL, Type.BIGINT);
-        sequenceColumn.setIsVisible(false);
-        schema.add(sequenceColumn);
-        Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
-        changeTypeColumn.setIsVisible(false);
-        schema.add(changeTypeColumn);
         switch (params.baseTable.getType()) {
             case OLAP:
-                return new OlapTableStream(params.tableStreamName, schema, params.baseTable);
+                return new OlapTableStream(params.tableStreamName, params.baseTable);
             default:
                 throw new DdlException("unsupported stream base table type: " + params.baseTable.getType());
         }

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBinlogScanType;
@@ -33,6 +34,7 @@ import com.google.gson.annotations.SerializedName;
 
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -100,16 +102,16 @@ public abstract class BaseTableStream extends Table {
         super(TableType.STREAM);
     }
 
-    public BaseTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, TableType.STREAM, fullSchema);
+    public BaseTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, TableType.STREAM, ImmutableList.of());
         this.baseTableInfo = new TableStreamBaseTableInfo(baseTable);
         this.baseTable = baseTable;
         this.disabled = false;
         this.stale = false;
     }
 
-    public BaseTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public BaseTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     public TableIf getBaseTableNullable() {
@@ -117,6 +119,70 @@ public abstract class BaseTableStream extends Table {
             baseTable = baseTableInfo.getTableNullable();
         }
         return baseTable;
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        Table table = lockBaseTableForSchema();
+        try {
+            List<Column> baseSchema = table.getBaseSchema(false);
+            ImmutableList.Builder<Column> schema =
+                    ImmutableList.builderWithExpectedSize(baseSchema.size() + 2);
+            schema.addAll(baseSchema);
+            schema.add(new Column(Column.STREAM_SEQ_VIRTUAL_COLUMN));
+            schema.add(new Column(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN));
+            return schema.build();
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    @Override
+    public List<Column> getBaseSchema() {
+        return getBaseSchema(Util.showHiddenColumns());
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        List<Column> schema = getFullSchema();
+        if (full) {
+            return schema;
+        }
+        ImmutableList.Builder<Column> visibleSchema = ImmutableList.builder();
+        schema.stream().filter(Column::isVisible).forEach(visibleSchema::add);
+        return visibleSchema.build();
+    }
+
+    @Override
+    public List<Column> getBaseSchemaOrEmpty() {
+        return getBaseSchema();
+    }
+
+    @Override
+    public void setNewFullSchema(List<Column> newSchema) {
+        throw new UnsupportedOperationException("Table Stream schema is derived from its base table");
+    }
+
+    @Override
+    public Column getColumn(String name) {
+        return getFullSchema().stream()
+                .filter(column -> column.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return new ArrayList<>(getFullSchema());
+    }
+
+    private Table lockBaseTableForSchema() {
+        Table table = (Table) getBaseTableOrException(
+                tableName -> new IllegalStateException(String.format("Unknown base table '%s'", tableName)));
+        if (!table.readLockIfExist()) {
+            throw new IllegalStateException(String.format("Unknown base table '%s'", baseTableInfo.getTableName()));
+        }
+        return table;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {

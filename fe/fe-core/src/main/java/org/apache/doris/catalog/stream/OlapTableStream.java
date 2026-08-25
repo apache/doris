@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog.stream;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -58,8 +57,8 @@ public class OlapTableStream extends BaseTableStream {
         super();
     }
 
-    public OlapTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, fullSchema, baseTable);
+    public OlapTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, baseTable);
         Preconditions.checkArgument(baseTable instanceof OlapTable);
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
@@ -67,8 +66,8 @@ public class OlapTableStream extends BaseTableStream {
         this.baseTable = baseTable;
     }
 
-    public OlapTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public OlapTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     @Override
