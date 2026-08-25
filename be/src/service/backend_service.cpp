@@ -275,8 +275,13 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete downloaded success file " << file << " due to error";
             }
-            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
-            LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
+            auto cleanup_status = io::global_local_filesystem()->batch_delete(paths);
+            if (!cleanup_status.ok()) {
+                LOG(WARNING) << "failed to delete downloaded success files due to error " << tstatus
+                             << ", cleanup status: " << cleanup_status;
+            } else {
+                LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
+            }
         }
 
         if (ingest_binlog_tstatus) {
