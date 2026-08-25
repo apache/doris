@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonJniWriterTest {
 
@@ -117,5 +118,20 @@ public class PaimonJniWriterTest {
             thread.setContextClassLoader(originalClassLoader);
             testClassLoader.close();
         }
+    }
+
+    @Test
+    public void testCloseResourceCanRetryAfterOutOfMemoryError() {
+        AtomicInteger closeAttempts = new AtomicInteger();
+        OutOfMemoryError firstFailure = new OutOfMemoryError("test OOM during close");
+        AutoCloseable resource = () -> {
+            if (closeAttempts.getAndIncrement() == 0) {
+                throw firstFailure;
+            }
+        };
+
+        Assertions.assertSame(firstFailure, PaimonJniWriter.closeResource(resource));
+        Assertions.assertNull(PaimonJniWriter.closeResource(resource));
+        Assertions.assertEquals(2, closeAttempts.get());
     }
 }

@@ -111,7 +111,6 @@ public class PaimonJniWriter {
     private boolean fullCompactionChangelog;
     private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
     private List<CommitMessage> preparedCommitMessages = Collections.emptyList();
-    private boolean sdkCloseFailed;
 
     public PaimonJniWriter() {
         // Imported C Data vectors reference Doris-owned buffers; this allocator owns only Arrow's
@@ -196,7 +195,7 @@ public class PaimonJniWriter {
                     try {
                         closeResources();
                     } catch (Throwable closeFailure) {
-                        t.addSuppressed(closeFailure);
+                        mergeFailure(t, closeFailure);
                     }
                     throw new RuntimeException("PaimonJniWriter open failed", t);
                 }
@@ -265,8 +264,12 @@ public class PaimonJniWriter {
     }
 
     /**
-     * Abort: discard all written data files and close the SDK writer.
+     * Abort an already prepared commit, if present, and close the SDK writer.
      * Called from C++ when write or prepareCommit fails.
+     *
+     * <p>Do not call prepareCommit from this error path: preparing may flush and compact data,
+     * which needs more heap precisely when the caller is recovering from an OOM. Files without a
+     * prepared commit message remain uncommitted and are handled by Paimon's orphan cleanup.
      */
     public void abort() throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
@@ -526,16 +529,24 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void closeResources() throws Exception {
+        Throwable failure = null;
         try {
             closeWriter();
-        } finally {
-            writeSchema = null;
-            arrowAdapter = null;
-            if (allocator != null) {
-                allocator.close();
+        } catch (Throwable closeFailure) {
+            failure = closeFailure;
+        }
+
+        writeSchema = null;
+        arrowAdapter = null;
+        if (allocator != null) {
+            Throwable allocatorFailure = closeResource(allocator);
+            if (allocatorFailure == null) {
                 allocator = null;
+            } else {
+                failure = mergeFailure(failure, allocatorFailure);
             }
         }
+        throwIfFailed(failure);
     }
 
     private List<CommitMessage> prepareCommitMessages() throws Exception {
@@ -572,33 +583,74 @@ public class PaimonJniWriter {
     }
 
     private void closeWriter() throws Exception {
-        if (sdkCloseFailed) {
-            throw new IllegalStateException(
-                    "A previous Paimon SDK close failed; native memory cannot be released safely");
+        Throwable failure = null;
+
+        Throwable writerFailure = closeResource(writer);
+        if (writerFailure == null) {
+            writer = null;
+        } else {
+            failure = writerFailure;
         }
-        Exception failure = closeResource(writer, null);
-        failure = closeResource(globalIndexAssigner, failure);
-        failure = closeResource(ioManager, failure);
-        clearWriterState();
-        if (failure != null) {
-            sdkCloseFailed = true;
-            throw failure;
+
+        Throwable indexAssignerFailure = closeResource(globalIndexAssigner);
+        if (indexAssignerFailure == null) {
+            globalIndexAssigner = null;
+        } else {
+            failure = mergeFailure(failure, indexAssignerFailure);
         }
+
+        Throwable ioManagerFailure = closeResource(ioManager);
+        if (ioManagerFailure == null) {
+            ioManager = null;
+        } else {
+            failure = mergeFailure(failure, ioManagerFailure);
+        }
+
+        if (writer == null && globalIndexAssigner == null && ioManager == null) {
+            clearWriterState();
+        }
+        throwIfFailed(failure);
     }
 
-    private static Exception closeResource(AutoCloseable resource, Exception previousFailure) {
+    static Throwable closeResource(AutoCloseable resource) {
         if (resource == null) {
-            return previousFailure;
+            return null;
         }
         try {
             resource.close();
-        } catch (Exception closeFailure) {
-            if (previousFailure == null) {
-                return closeFailure;
+            return null;
+        } catch (Throwable closeFailure) {
+            return closeFailure;
+        }
+    }
+
+    private static Throwable mergeFailure(Throwable previousFailure, Throwable closeFailure) {
+        if (previousFailure == null) {
+            return closeFailure;
+        }
+        // Adding a suppressed exception may itself allocate. Do not turn an OOM cleanup path into
+        // another allocation failure; the first failure remains the most useful one to propagate.
+        if (!(previousFailure instanceof OutOfMemoryError)) {
+            try {
+                previousFailure.addSuppressed(closeFailure);
+            } catch (Throwable ignored) {
+                // Best-effort diagnostics only.
             }
-            previousFailure.addSuppressed(closeFailure);
         }
         return previousFailure;
+    }
+
+    private static void throwIfFailed(Throwable failure) throws Exception {
+        if (failure == null) {
+            return;
+        }
+        if (failure instanceof Error) {
+            throw (Error) failure;
+        }
+        if (failure instanceof Exception) {
+            throw (Exception) failure;
+        }
+        throw new RuntimeException(failure);
     }
 
     private void clearWriterState() {
@@ -617,11 +669,9 @@ public class PaimonJniWriter {
     }
 
     private void abortWriter() throws Exception {
+        Throwable failure = null;
         try {
             List<CommitMessage> messages = preparedCommitMessages;
-            if (messages.isEmpty() && writer != null) {
-                messages = prepareCommitMessages();
-            }
             if (!messages.isEmpty()) {
                 InnerTableCommit committer = table.newCommit(commitUser);
                 try {
@@ -630,9 +680,15 @@ public class PaimonJniWriter {
                     committer.close();
                 }
             }
-        } finally {
-            closeWriter();
+        } catch (Throwable abortFailure) {
+            failure = abortFailure;
         }
+        try {
+            closeWriter();
+        } catch (Throwable closeFailure) {
+            failure = mergeFailure(failure, closeFailure);
+        }
+        throwIfFailed(failure);
     }
 
     // ────────────────────────────────────────────────────────────
