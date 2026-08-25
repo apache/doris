@@ -3352,6 +3352,13 @@ public class Config extends ConfigBase {
                     + "other BEs in cloud mode.")
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
+                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
+                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
+                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+    public static boolean enable_cloud_replica_stale_route_clean = true;
+
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
