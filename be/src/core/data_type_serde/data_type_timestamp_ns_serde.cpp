@@ -17,6 +17,7 @@
 
 #include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 
+#include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
 #include <algorithm>
@@ -24,16 +25,44 @@
 #include <limits>
 #include <string>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "util/mysql_row_buffer.h"
 #include "util/unaligned.h"
 
 namespace doris {
+
+namespace {
+
+Status get_nanos_per_arrow_timestamp_unit(arrow::TimeUnit::type unit, int64_t* nanos_per_unit) {
+    switch (unit) {
+    case arrow::TimeUnit::SECOND:
+        *nanos_per_unit = TimeStampNsValue::NANOS_PER_SECOND;
+        break;
+    case arrow::TimeUnit::MILLI:
+        *nanos_per_unit = TimeStampNsValue::NANOS_PER_MILLISECOND;
+        break;
+    case arrow::TimeUnit::MICRO:
+        *nanos_per_unit = TimeStampNsValue::NANOS_PER_MICROSECOND;
+        break;
+    case arrow::TimeUnit::NANO:
+        *nanos_per_unit = 1;
+        break;
+    default:
+        return Status::InvalidArgument("Unsupported Arrow timestamp unit: {}",
+                                       static_cast<int>(unit));
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
                           const cctz::time_zone* local_time_zone) {
     std::string input(str.data, str.size);
@@ -211,15 +240,75 @@ Status DataTypeTimeStampNsSerDe::write_column_to_arrow(const IColumn& column,
                                                        const NullMap* null_map,
                                                        arrow::ArrayBuilder* array_builder,
                                                        int64_t start, int64_t end,
-                                                       const cctz::time_zone& ctz) const {
-    return Status::NotSupported("DataTypeTimeStampNsSerDe::write_column_to_arrow");
+                                                       const cctz::time_zone&) const {
+    const auto& data = assert_cast<const ColumnTimeStampNs&>(column).get_data();
+    auto& builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
+    const auto timestamp_type =
+            std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
+    int64_t nanos_per_unit = 0;
+    RETURN_IF_ERROR(get_nanos_per_arrow_timestamp_unit(timestamp_type->unit(), &nanos_per_unit));
+
+    for (int64_t i = start; i < end; ++i) {
+        if (null_map != nullptr && (*null_map)[i]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+            continue;
+        }
+
+        const int64_t epoch_nanos = data[i].epoch_nanos();
+        // The default Arrow schema uses NANO. If a caller supplies a coarser timestamp schema,
+        // accept it only when conversion is exact instead of silently discarding nanoseconds.
+        if (epoch_nanos % nanos_per_unit != 0) {
+            return Status::InvalidArgument(
+                    "TIMESTAMP_NS value {} cannot be represented exactly as Arrow timestamp unit "
+                    "{}",
+                    epoch_nanos, static_cast<int>(timestamp_type->unit()));
+        }
+        RETURN_IF_ERROR(
+                checkArrowStatus(builder.Append(epoch_nanos / nanos_per_unit), column, builder));
+    }
+    return Status::OK();
 }
 
 Status DataTypeTimeStampNsSerDe::read_column_from_arrow(IColumn& column,
                                                         const arrow::Array* arrow_array,
                                                         int64_t start, int64_t end,
-                                                        const cctz::time_zone& ctz) const {
-    return Status::NotSupported("DataTypeTimeStampNsSerDe::read_column_from_arrow");
+                                                        const cctz::time_zone&) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_array_range(*arrow_array, start, end);
+    }
+    if (arrow_array->type_id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument("Cannot convert Arrow type {} to TIMESTAMP_NS",
+                                       arrow_array->type()->name());
+    }
+
+    const auto* timestamp_array = assert_cast<const arrow::TimestampArray*>(arrow_array);
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*timestamp_array, sizeof(arrow::TimestampArray::value_type));
+    }
+    const auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
+    int64_t nanos_per_unit = 0;
+    RETURN_IF_ERROR(get_nanos_per_arrow_timestamp_unit(timestamp_type->unit(), &nanos_per_unit));
+
+    auto& data = assert_cast<ColumnTimeStampNs&>(column).get_data();
+    const auto* raw_values = reinterpret_cast<const uint8_t*>(timestamp_array->raw_values());
+    for (int64_t i = start; i < end; ++i) {
+        // Nullable SerDe has already copied the validity bitmap. Avoid converting the unspecified
+        // payload of a null Arrow slot, which could otherwise produce a spurious overflow error.
+        if (timestamp_array->IsNull(i)) {
+            data.emplace_back();
+            continue;
+        }
+
+        const int64_t value = unaligned_load<int64_t>(raw_values + i * sizeof(int64_t));
+        int64_t epoch_nanos = 0;
+        if (__builtin_mul_overflow(value, nanos_per_unit, &epoch_nanos)) {
+            return Status::DataQualityError(
+                    "Arrow timestamp {} in unit {} is outside the TIMESTAMP_NS range", value,
+                    static_cast<int>(timestamp_type->unit()));
+        }
+        data.emplace_back(epoch_nanos);
+    }
+    return Status::OK();
 }
 
 Status DataTypeTimeStampNsSerDe::write_column_to_mysql_binary(const IColumn& column,
