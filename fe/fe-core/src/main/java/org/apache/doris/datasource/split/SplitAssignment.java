@@ -36,7 +36,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -60,13 +59,9 @@ public class SplitAssignment {
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
-    private final Object producerLock = new Object();
-    private int activeProducers = 0;
-    private final Set<Thread> producerThreads = new HashSet<>();
 
     private UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
-    private final List<Runnable> cancellationCallbacks = new ArrayList<>();
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -197,26 +192,11 @@ public class SplitAssignment {
     }
 
     public void stop() {
-        List<Closeable> resources;
-        List<Thread> threads;
-        List<Runnable> cancellations;
-        synchronized (producerLock) {
-            isStopped.set(true);
-            resources = new ArrayList<>(closeableResources);
-            closeableResources.clear();
-            threads = new ArrayList<>(producerThreads);
-            cancellations = new ArrayList<>(cancellationCallbacks);
-            cancellationCallbacks.clear();
+        if (isStop()) {
+            return;
         }
-        cancellations.forEach((cancel) -> {
-            try {
-                cancel.run();
-            } catch (Exception e) {
-                LOG.warn("cancel resource error:{}", e.getMessage(), e);
-            }
-        });
-        threads.forEach(Thread::interrupt);
-        resources.forEach((closeable) -> {
+        isStopped.set(true);
+        closeableResources.forEach((closeable) -> {
             try {
                 closeable.close();
             } catch (Exception e) {
@@ -225,20 +205,6 @@ public class SplitAssignment {
             }
         });
         notifyAssignment();
-        boolean interrupted = false;
-        synchronized (producerLock) {
-            while (activeProducers > 0) {
-                try {
-                    producerLock.wait();
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                    LOG.warn("Interrupted while waiting for split producers to stop", e);
-                }
-            }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
         if (exception != null) {
             throw new RuntimeException(exception);
         }
@@ -248,73 +214,7 @@ public class SplitAssignment {
         return isStopped.get();
     }
 
-    public boolean submitProducer(Executor executor, Runnable producer) {
-        synchronized (producerLock) {
-            if (isStopped.get()) {
-                return false;
-            }
-            activeProducers++;
-        }
-        try {
-            executor.execute(() -> {
-                try {
-                    synchronized (producerLock) {
-                        if (isStopped.get()) {
-                            return;
-                        }
-                        // The producer owns its resources, so cancellation interrupts the worker instead of
-                        // closing a non-thread-safe split source from the query-finalization thread.
-                        producerThreads.add(Thread.currentThread());
-                    }
-                    if (!isStopped.get()) {
-                        producer.run();
-                    }
-                } finally {
-                    synchronized (producerLock) {
-                        producerThreads.remove(Thread.currentThread());
-                        activeProducers--;
-                        producerLock.notifyAll();
-                    }
-                }
-            });
-            return true;
-        } catch (RuntimeException e) {
-            synchronized (producerLock) {
-                activeProducers--;
-                producerLock.notifyAll();
-            }
-            throw e;
-        }
-    }
-
     public void addCloseable(Closeable resource) {
-        boolean closeImmediately;
-        synchronized (producerLock) {
-            closeImmediately = isStopped.get();
-            if (!closeImmediately) {
-                closeableResources.add(resource);
-            }
-        }
-        if (closeImmediately) {
-            try {
-                resource.close();
-            } catch (Exception e) {
-                LOG.warn("close resource error:{}", e.getMessage(), e);
-            }
-        }
+        closeableResources.add(resource);
     }
-
-    public void addCancellationCallback(Runnable cancel) {
-        boolean cancelImmediately;
-        synchronized (producerLock) {
-            cancelImmediately = isStopped.get();
-            if (!cancelImmediately) {
-                cancellationCallbacks.add(cancel);
-            }
-        }
-        if (cancelImmediately) {
-            cancel.run();
-        }
-    }
-
 }
