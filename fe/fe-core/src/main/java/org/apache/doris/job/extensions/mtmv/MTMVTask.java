@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
@@ -288,7 +287,7 @@ public class MTMVTask extends AbstractTask {
             LOG.debug("mtmv task run, taskId: {}", super.getTaskId());
         }
         mtmvSchemaChangeVersion = mtmv.getSchemaChangeVersion();
-        ConnectContext ctx = createTaskContext();
+        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         try {
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
@@ -304,7 +303,6 @@ public class MTMVTask extends AbstractTask {
             this.relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
                     queryAnalysis.getOneLevelTables());
             beforeMTMVRefresh();
-            installTaskSnapshots(ctx.getStatementContext());
             List<TableIf> tableIfs = Lists.newArrayList(queryAnalysis.getAllLevelTables());
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
@@ -626,7 +624,7 @@ public class MTMVTask extends AbstractTask {
         IvmIncrRefreshResult ivmResult = null;
         for (int partitionSyncRetryCount = 0;
                 partitionSyncRetryCount < ivmAttemptLimit; partitionSyncRetryCount++) {
-            ivmResult = executeSingleIvmAttempt(currentRefreshContext, ctx);
+            ivmResult = executeSingleIvmAttempt(currentRefreshContext);
             if (ivmResult.isSuccess()) {
                 return AttemptResultType.SUCCESS;
             }
@@ -650,8 +648,7 @@ public class MTMVTask extends AbstractTask {
                 + mtmv.getName() + ", detail=" + ivmResult.getDetailMessage());
     }
 
-    private IvmIncrRefreshResult executeSingleIvmAttempt(
-            MTMVRefreshContext refreshContext, ConnectContext taskContext)
+    private IvmIncrRefreshResult executeSingleIvmAttempt(MTMVRefreshContext refreshContext)
             throws JobException {
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         this.partitionSnapshots = Maps.newConcurrentMap();
@@ -680,18 +677,14 @@ public class MTMVTask extends AbstractTask {
             ivmResult = executeWithRetry(() -> {
                 ConnectContext ivmConnectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-                try {
-                    setupComputeGroup(ivmConnectContext);
-                    IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
-                            ivmConnectContext,
-                            getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
-                            this::recordQueryId,
-                            this::registerExecutor);
-                    mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
-                    return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
-                } finally {
-                    closeExecutionContext(ivmConnectContext, taskContext);
-                }
+                setupComputeGroup(ivmConnectContext);
+                IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
+                        ivmConnectContext,
+                        getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
+                        this::recordQueryId,
+                        this::registerExecutor);
+                mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
+                return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
             }, "IVM refresh");
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
@@ -810,7 +803,7 @@ public class MTMVTask extends AbstractTask {
                             execPartitionNames);
             try {
                 IvmPlanSignature batchPlanSignature = refreshPartitionsWithRetry(
-                        execPartitionNames, tableWithPartKey, rewriteContext, refreshMode, ctx);
+                        execPartitionNames, tableWithPartKey, rewriteContext, refreshMode);
                 if (capturePlanSignature) {
                     batchPlanSignature = Objects.requireNonNull(batchPlanSignature,
                             "IVM COMPLETE refresh did not produce a plan signature");
@@ -881,11 +874,10 @@ public class MTMVTask extends AbstractTask {
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
             Map<TableIf, String> tableWithPartKey,
-            Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode,
-            ConnectContext taskContext)
+            Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey,
-                        rewriteContext, refreshMode, taskContext),
+                        rewriteContext, refreshMode),
                 "partition refresh, execPartitionNames=" + execPartitionNames);
     }
 
@@ -942,8 +934,7 @@ public class MTMVTask extends AbstractTask {
 
     private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey,
-            Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode,
-            ConnectContext taskContext)
+            Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         // Create MTMV context first so that new StatementContext() captures the
         // correct thread-local ConnectContext (with MTMV disabled rules, etc.).
@@ -956,75 +947,33 @@ public class MTMVTask extends AbstractTask {
         // LogicalPlanBuilder.withHints().  Without this assignment the
         // StatementContext is null and a NullPointerException is thrown.
         mtmvCtx.setStatementContext(statementContext);
-        try {
-            statementContext.setConnectContext(mtmvCtx);
-            statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
-            statementContext.setIvmRewriteContext(rewriteContext);
-            for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
-                statementContext.setSnapshot(entry.getKey(), entry.getValue());
-            }
-            // if SELF_MANAGE mv, only have default partition, will not have partitionItem, so we give empty set
-            UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                    .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                            ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-            setupComputeGroup(mtmvCtx);
-            AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
-            try {
-                MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                        getRefreshAuditStmt(refreshMode, refreshPartitionNames),
-                        createRefreshConsumer(signatureRef));
-            } finally {
-                recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
-            }
-            if (getStatus() == TaskStatus.CANCELED) {
-                throw new JobException("task is CANCELED");
-            }
-            if (!rewriteContext.isPresent()) {
-                return null;
-            }
-            return Objects.requireNonNull(signatureRef.get(),
-                    "IVM COMPLETE refresh did not produce a plan signature");
-        } finally {
-            closeExecutionContext(mtmvCtx, taskContext);
-        }
-    }
-
-    private static void closeExecutionContext(ConnectContext ctx) {
-        closeExecutionContext(ctx, null);
-    }
-
-    private ConnectContext createTaskContext() {
-        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
-                mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        ctx.setStatementContext(new StatementContext());
-        return ctx;
-    }
-
-    private static void closeExecutionContext(ConnectContext ctx, ConnectContext taskContext) {
-        try {
-            if (ctx.queryId() != null) {
-                QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
-            }
-        } finally {
-            try {
-                StatementContext statementContext = ctx.getStatementContext();
-                if (statementContext != null) {
-                    statementContext.close();
-                }
-            } finally {
-                if (taskContext == null) {
-                    ConnectContext.remove();
-                } else {
-                    taskContext.setThreadLocalInfo();
-                }
-            }
-        }
-    }
-
-    private void installTaskSnapshots(StatementContext statementContext) {
+        statementContext.setConnectContext(mtmvCtx);
+        statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+        statementContext.setIvmRewriteContext(rewriteContext);
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }
+        // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
+        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
+                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
+                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
+        setupComputeGroup(mtmvCtx);
+        AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
+        try {
+            MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
+                    getRefreshAuditStmt(refreshMode, refreshPartitionNames),
+                    createRefreshConsumer(signatureRef));
+        } finally {
+            recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+        }
+        if (getStatus() == TaskStatus.CANCELED) {
+            throw new JobException("task is CANCELED");
+        }
+        if (!rewriteContext.isPresent()) {
+            return null;
+        }
+        return Objects.requireNonNull(signatureRef.get(),
+                "IVM COMPLETE refresh did not produce a plan signature");
     }
 
     /**

@@ -33,13 +33,9 @@ import java.io.Closeable;
  * <p>Implementations MUST defer the heavy planning (e.g. iceberg {@code TableScan.planFiles()})
  * until ranges are actually consumed, and MUST release the underlying resources in {@link #close()}.
  * Instances are single-pass and not thread-safe; the engine drives one source from a single
- * background task. The sole cross-thread operation is {@link #cancel()}, which must be thread-safe
- * and wake a consumer blocked in {@link #hasNext()} or {@link #next()}.</p>
+ * background task.</p>
  */
 public interface ConnectorSplitSource extends Closeable {
-
-    /** Requests cancellation without taking ownership of final resource cleanup. */
-    void cancel();
 
     /**
      * Returns whether more ranges remain. May advance over internally-skipped tasks (e.g. files
