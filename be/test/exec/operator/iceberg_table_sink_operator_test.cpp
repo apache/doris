@@ -20,18 +20,24 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <limits>
 #include <memory>
+#include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 #include "exec/sink/writer/async_result_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
+#include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
 
@@ -153,12 +159,34 @@ protected:
         local_state->_writer->_current_writer.store(std::move(current_writer));
     }
 
-    void mark_spilled(VIcebergSortWriter* writer) {
-        writer->_sorted_spill_files.emplace_back(nullptr);
+    void mark_spilled(VIcebergSortWriter* writer, size_t count = 1) {
+        for (size_t i = 0; i < count; ++i) {
+            writer->_sorted_spill_files.emplace_back(nullptr);
+        }
+    }
+
+    void initialize_sort_writer_for_write(VIcebergSortWriter* writer, RuntimeState* state,
+                                          const DataTypePtr& data_type) {
+        _sort_row_desc =
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &_pool);
+        writer->_runtime_state = state;
+        writer->_ordering_expr_ctxs = MockSlotRef::create_mock_contexts(0, data_type);
+        writer->_sort_info.is_asc_order = {true};
+        writer->_sort_info.nulls_first = {false};
+        writer->_sorter = FullSorter::create_unique(
+                writer->_ordering_expr_ctxs, -1, 0, &writer->_pool, writer->_sort_info.is_asc_order,
+                writer->_sort_info.nulls_first, *_sort_row_desc, state, nullptr);
+        writer->_sorter->set_enable_spill();
+        writer->_target_file_size_bytes = std::numeric_limits<int64_t>::max();
+    }
+
+    std::pair<size_t, size_t> spill_batch_state(const VIcebergSortWriter& writer) const {
+        return {writer._avg_row_bytes, writer._spill_block_batch_row_count};
     }
 
     ObjectPool _pool;
     RowDescriptor _row_desc;
+    std::unique_ptr<MockRowDescriptor> _sort_row_desc;
     VExprContextSPtrs _output_exprs;
     RuntimeProfile _parent_profile {"IcebergTableSinkOperatorTest"};
 };
@@ -282,6 +310,7 @@ TEST_F(IcebergTableSinkOperatorTest, SpillSinkReservesEosAdmissionAndLargestPart
 
     auto empty_writer = std::make_shared<VIcebergSortWriter>(nullptr, TSortInfo {}, 0);
     auto spilled_writer = std::make_shared<VIcebergSortWriter>(nullptr, TSortInfo {}, 0);
+    auto* spilled_writer_ptr = spilled_writer.get();
     mark_spilled(spilled_writer.get());
     EXPECT_EQ(spilled_writer->get_reserve_mem_size(&state, true),
               static_cast<size_t>(state.spill_sort_merge_mem_limit_bytes()));
@@ -289,12 +318,38 @@ TEST_F(IcebergTableSinkOperatorTest, SpillSinkReservesEosAdmissionAndLargestPart
     EXPECT_EQ(local_state.get_reserve_mem_size(&state, true),
               static_cast<size_t>(state.spill_sort_merge_mem_limit_bytes()));
 
+    mark_spilled(spilled_writer_ptr, 7);
+    EXPECT_EQ(local_state.get_reserve_mem_size(&state, true), 72 * 1024 * 1024);
+
     TQueryOptions query_options = state.query_options();
     query_options.__set_spill_buffer_size_bytes(256 * 1024 * 1024);
     query_options.__set_spill_sort_merge_mem_limit_bytes(1024 * 1024);
     state.set_query_options(query_options);
-    EXPECT_EQ(local_state.get_reserve_mem_size(&state, true), 512 * 1024 * 1024);
+    EXPECT_EQ(local_state.get_reserve_mem_size(&state, true), 768 * 1024 * 1024);
     ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, SortWriterSamplesSpillBatchBeforeConsumingInput) {
+    MockRuntimeState state;
+    TQueryOptions query_options = state.query_options();
+    query_options.__set_spill_buffer_size_bytes(1024 * 1024);
+    state.set_query_options(query_options);
+
+    auto data_type = std::make_shared<DataTypeString>();
+    VIcebergSortWriter writer(nullptr, TSortInfo {}, std::numeric_limits<int64_t>::max());
+    initialize_sort_writer_for_write(&writer, &state, data_type);
+
+    std::string wide_value(64 * 1024, 'x');
+    Block block = ColumnHelper::create_block<DataTypeString>(
+            {wide_value, wide_value, wide_value, wide_value});
+    const size_t expected_avg_row_bytes = block.bytes() / block.rows();
+    const size_t expected_batch_rows =
+            (state.spill_buffer_size_bytes() + expected_avg_row_bytes - 1) / expected_avg_row_bytes;
+
+    ASSERT_TRUE(writer.write(block).ok());
+    EXPECT_EQ(block.rows(), 0);
+    EXPECT_EQ(spill_batch_state(writer),
+              std::make_pair(expected_avg_row_bytes, expected_batch_rows));
 }
 
 TEST_F(IcebergTableSinkOperatorTest, SpillSinkAccountsAndRevokesAllEosPartitions) {

@@ -58,9 +58,10 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 Status VIcebergSortWriter::write(Block& block) {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
 
+    // FullSorter consumes the input block, so derive the spill batch size before append_block().
+    _update_spill_block_batch_row_count(block);
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));
-    _update_spill_block_batch_row_count(block);
 
     // When accumulated data size reaches the target file size threshold,
     // sort the data in memory and flush it directly to a Parquet/ORC file.
@@ -88,9 +89,13 @@ size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) c
         const size_t merge_limit = static_cast<size_t>(state->spill_sort_merge_mem_limit_bytes());
         const size_t max_fan_in = std::max<size_t>(2, merge_limit / buffer_size);
         // Reservation is computed before sink(), so a non-empty EOS can add one final spill run.
-        const size_t pending_runs = _sorted_spill_files.size() + 1;
-        const size_t input_fan_in_size = std::min(pending_runs, max_fan_in) * buffer_size;
-        reserve_size = std::max({reserve_size, merge_limit, input_fan_in_size});
+        const size_t selected_streams = std::min(_sorted_spill_files.size(), max_fan_in - 1) + 1;
+        // Every selected cursor eagerly owns one input block. A multiway merge also builds a
+        // separate output block while those inputs remain live.
+        const size_t merge_buffer_count = selected_streams + (selected_streams > 1 ? 1 : 0);
+        DORIS_CHECK(buffer_size <= std::numeric_limits<size_t>::max() / merge_buffer_count);
+        const size_t merge_reserve_size = merge_buffer_count * buffer_size;
+        reserve_size = std::max({reserve_size, merge_limit, merge_reserve_size});
     }
     return reserve_size;
 }
