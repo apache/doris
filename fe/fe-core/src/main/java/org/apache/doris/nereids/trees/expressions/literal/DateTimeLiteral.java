@@ -339,7 +339,9 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     public long getFractionalSecondInNanoseconds() {
-        return microSecond * 1000L;
+        // Legacy DATETIME has second precision. Some protocol/cast paths retain an internal
+        // microsecond payload, but it must not make two DATETIME values compare differently.
+        return dataType instanceof DateTimeType ? 0 : microSecond * 1000L;
     }
 
     @Override
