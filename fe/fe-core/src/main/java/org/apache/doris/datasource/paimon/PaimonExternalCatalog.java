@@ -25,6 +25,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
@@ -185,12 +186,18 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     protected Catalog createCatalog() {
         try {
+            paimonProperties.setDisableSdkMetadataCacheByDefault(isMetaCacheWeightGoverned());
             return paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
                     .getOrderedStoragePropertiesList()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to create catalog, catalog name: " + getName() + ", exception: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    /** Whether any Doris meta cache weight bound (global, catalog or entry level) applies. */
+    private boolean isMetaCacheWeightGoverned() {
+        return ExternalMetaCacheBudgetManager.appliesWeightGovernance(catalogProperty.getProperties());
     }
 
     public Map<String, String> getPaimonOptionsMap() {

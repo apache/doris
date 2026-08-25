@@ -70,7 +70,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
 
         String sourceBranch = namedArguments.getString(BRANCH);
         String desBranch = namedArguments.getString(TO);

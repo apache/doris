@@ -87,7 +87,7 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
         Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;

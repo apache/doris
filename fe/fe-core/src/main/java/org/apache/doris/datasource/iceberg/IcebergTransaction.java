@@ -293,13 +293,17 @@ public class IcebergTransaction implements Transaction {
     }
 
     private Table createTransactionTable(ExternalTable dorisTable, Table retainedTable) {
-        if (!IcebergSnapshotCacheValue.isFrozenGeneration(retainedTable)) {
+        if (!IcebergSnapshotCacheValue.isRetainedGeneration(retainedTable)) {
             return retainedTable;
         }
         // Reads stay on the retained generation; commit refreshes may follow data-only snapshots,
         // while writer-contract changes still invalidate files produced for the retained metadata.
+        // Anchor the live handle to this transaction's retained ops generation: if a
+        // credential/storage ALTER reinitialized the catalog since dispatch, acquiring the newer
+        // generation's table here would splice it with the retained ops/authenticator this
+        // transaction keeps using for begin/update/commit.
         return IcebergSnapshotCacheValue.createWritableTable(
-                retainedTable, IcebergUtils.getIcebergTable(dorisTable));
+                retainedTable, IcebergUtils.getWritableIcebergTable(dorisTable, ops));
     }
 
     /** Begin UPDATE/MERGE against the metadata generation retained by the merge sink. */

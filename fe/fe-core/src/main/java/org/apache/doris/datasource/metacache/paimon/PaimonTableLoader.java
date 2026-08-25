@@ -25,6 +25,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.paimon.table.Table;
 
 import java.io.IOException;
+import java.util.concurrent.Callable;
 
 /**
  * Loads the base Paimon table handle used by cache entries and runtime projections.
@@ -49,5 +50,15 @@ public final class PaimonTableLoader {
     public PaimonExternalCatalog catalog(NameMapping nameMapping) throws IOException {
         return (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(nameMapping.getCtlId(), id -> new IOException("Catalog not found: " + id));
+    }
+
+    public <T> T executeAuthenticated(NameMapping nameMapping, Callable<T> task) {
+        try {
+            return catalog(nameMapping).getExecutionAuthenticator().execute(task);
+        } catch (Exception e) {
+            throw new CacheException("failed to load authenticated paimon metadata %s.%s.%s: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
+                    e.getMessage());
+        }
     }
 }
