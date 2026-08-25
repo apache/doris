@@ -261,7 +261,8 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
         return Status::InvalidArgument("Lance schema output must not be null");
     }
     const auto& params = range.table_format_params.lance_params;
-    const auto storage_options = _storage_options(&scan_params);
+    std::vector<std::string> storage_options;
+    RETURN_IF_ERROR(_storage_options(&scan_params, &storage_options));
     std::vector<const char*> storage_option_ptrs;
     storage_option_ptrs.reserve(storage_options.size() + 1);
     for (const auto& option : storage_options) {
@@ -624,7 +625,8 @@ Status LanceTableReader::_validate_external_search_request() const {
 }
 
 Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range) {
-    const auto key = _dataset_key(range);
+    DatasetKey key;
+    RETURN_IF_ERROR(_dataset_key(range, &key));
     if (_dataset == nullptr) {
         RETURN_IF_ERROR(_open_dataset(key));
         _opened_dataset_key = key;
@@ -1025,47 +1027,39 @@ Status LanceTableReader::_fill_block_from_record_batch(
     return Status::OK();
 }
 
-std::vector<std::string> LanceTableReader::_storage_options(
-        const TFileScanRangeParams* scan_params) {
-    if (scan_params == nullptr || !scan_params->__isset.properties) {
-        return {};
+// The FE sends these already in Lance's own vocabulary, merged from the catalog properties and
+// from whatever the namespace vended. Re-encoding them here would drop every option this list did
+// not anticipate, so they are handed to lance-c as they arrive.
+Status LanceTableReader::_storage_options(const TFileScanRangeParams* scan_params,
+                                          std::vector<std::string>* options) {
+    options->clear();
+    if (scan_params == nullptr || !scan_params->__isset.lance_storage_options) {
+        return Status::OK();
     }
-    static constexpr std::array<std::pair<std::string_view, std::string_view>, 5> kStorageKeys = {
-            {{"AWS_ACCESS_KEY", "aws_access_key_id"},
-             {"AWS_SECRET_KEY", "aws_secret_access_key"},
-             {"AWS_TOKEN", "aws_session_token"},
-             {"AWS_ENDPOINT", "aws_endpoint"},
-             {"AWS_REGION", "aws_region"}}};
-    std::vector<std::string> options;
-    options.reserve(kStorageKeys.size() * 2);
-    for (const auto& [doris_key, lance_key] : kStorageKeys) {
-        const auto it = scan_params->properties.find(std::string(doris_key));
-        if (it != scan_params->properties.end() && !it->second.empty()) {
-            options.emplace_back(lance_key);
-            options.emplace_back(it->second);
+    options->reserve(scan_params->lance_storage_options.size() * 2);
+    for (const auto& [key, value] : scan_params->lance_storage_options) {
+        // These become C strings below, so a NUL would truncate the option here while the FE went
+        // on using the whole thing, and the two halves would open the dataset with different
+        // configuration. The FE rejects these on both paths it builds options from - its own
+        // storage configuration and what a namespace vends - so this is the last line of defence,
+        // for an FE that predates those checks. Dropping one here instead of failing would just
+        // recreate the divergence it exists to prevent.
+        if (key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
+            return Status::InvalidArgument(
+                    "Lance storage option '{}' contains a NUL and cannot reach lance-c",
+                    key.substr(0, key.find('\0')));
         }
+        options->emplace_back(key);
+        options->emplace_back(value);
     }
-    const auto endpoint = scan_params->properties.find("AWS_ENDPOINT");
-    if (endpoint != scan_params->properties.end() && endpoint->second.rfind("http://", 0) == 0) {
-        options.emplace_back("allow_http");
-        options.emplace_back("true");
-    }
-    const auto path_style = scan_params->properties.find("use_path_style");
-    if (path_style != scan_params->properties.end() && !path_style->second.empty()) {
-        const bool use_path_style = path_style->second == "true" || path_style->second == "1";
-        options.emplace_back("aws_virtual_hosted_style_request");
-        options.emplace_back(use_path_style ? "false" : "true");
-    }
-    return options;
+    return Status::OK();
 }
 
-LanceTableReader::DatasetKey LanceTableReader::_dataset_key(const TFileRangeDesc& range) const {
+Status LanceTableReader::_dataset_key(const TFileRangeDesc& range, DatasetKey* key) const {
     const auto& params = range.table_format_params.lance_params;
-    return {
-            .uri = params.dataset_uri,
-            .version = params.version,
-            .storage_options = _storage_options(_scan_params),
-    };
+    key->uri = params.dataset_uri;
+    key->version = params.version;
+    return _storage_options(_scan_params, &key->storage_options);
 }
 
 Status LanceTableReader::_lance_error(std::string_view operation) {

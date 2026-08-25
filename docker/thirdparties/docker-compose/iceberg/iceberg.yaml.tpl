@@ -118,7 +118,10 @@ services:
       - ./scripts/lance_rest_server.py:/opt/lance-rest/server.py:ro
     environment:
       LANCE_REST_BEARER_TOKEN: doris-lance-rest-test-token
-      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance"}'
+      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance","all_types_unprefixed":"s3://warehouse/lance/all_types.lance"}'
+      # all_types_unprefixed serves the same dataset but vends its credentials under the
+      # unprefixed object-store spelling, which is what real namespace servers emit.
+      LANCE_REST_UNPREFIXED_TABLES_JSON: '["all_types_unprefixed"]'
       LANCE_S3_ACCESS_KEY: admin
       LANCE_S3_SECRET_KEY: password
       LANCE_S3_REGION: us-east-1

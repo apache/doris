@@ -95,8 +95,9 @@ private:
                                          Block* block, size_t* rows);
     Status _append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
                                   MutableColumnPtr& output_column) const;
-    static std::vector<std::string> _storage_options(const TFileScanRangeParams* scan_params);
-    DatasetKey _dataset_key(const TFileRangeDesc& range) const;
+    static Status _storage_options(const TFileScanRangeParams* scan_params,
+                                   std::vector<std::string>* options);
+    Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
     static Status _lance_error(std::string_view operation);
 
     LanceDataset* _dataset = nullptr;

@@ -86,8 +86,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private transient List<String> parentNamespace = Collections.emptyList();
     private transient String catalogType;
     private transient String rootDatabase;
-    private transient Map<String, String> javaStorageOptions = Collections.emptyMap();
-    private transient Map<String, String> backendStorageOptions = Collections.emptyMap();
+    private transient Map<String, String> namespaceStorageOptions = Collections.emptyMap();
     private transient Object namespaceLock = new Object();
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
@@ -105,11 +104,12 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            backendStorageOptions = catalogProperty.getBackendStorageProperties();
-            javaStorageOptions = LanceStorageOptions.forJavaSdk(backendStorageOptions);
+            namespaceStorageOptions = LanceStorageOptions.forUri(
+                    properties.getNamespaceStorageUri(),
+                    catalogProperty.getOrderedStoragePropertiesList());
 
             allocator = new RootAllocator(ALLOCATOR_LIMIT);
-            namespace = properties.createNamespace(allocator, javaStorageOptions);
+            namespace = properties.createNamespace(allocator, namespaceStorageOptions);
         } catch (Exception e) {
             closeLanceObjects();
             throw new RuntimeException("Failed to initialize Lance catalog '" + getName()
@@ -127,8 +127,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.forJavaSdk(
-                catalogProperty.getBackendStorageProperties());
+        Map<String, String> storageOptions = LanceStorageOptions.forUri(
+                properties.getNamespaceStorageUri(),
+                catalogProperty.getOrderedStoragePropertiesList());
         List<String> parent = LanceNamespaceName.parseParentNamespace(
                 properties.getNamespaceParent(), properties.getNamespaceDelimiter());
         String type = properties.getLanceCatalogType();
@@ -316,16 +317,16 @@ public class LanceExternalCatalog extends ExternalCatalog {
                                 "Cannot parse Lance FOR TIME AS OF value '" + snapshot.getValue() + "'");
                     }
                     version = LanceSnapshotResolver.getVersionAtOrBefore(
-                            tableAccess.datasetUri, tableAccess.javaStorageOptions, timestamp, allocator);
+                            tableAccess.datasetUri, tableAccess.storageOptions, timestamp, allocator);
                 }
-                return LanceMetadataLoader.loadVersion(tableAccess.datasetUri, tableAccess.javaStorageOptions,
-                        tableAccess.backendStorageOptions, version, allocator);
+                return LanceMetadataLoader.loadVersion(
+                        tableAccess.datasetUri, tableAccess.storageOptions, version, allocator);
             }
             return loadIndexSegments
                     ? LanceMetadataLoader.loadLatestWithIndexSegments(tableAccess.datasetUri,
-                            tableAccess.javaStorageOptions, tableAccess.backendStorageOptions, allocator)
-                    : LanceMetadataLoader.loadLatest(tableAccess.datasetUri, tableAccess.javaStorageOptions,
-                            tableAccess.backendStorageOptions, allocator);
+                            tableAccess.storageOptions, allocator)
+                    : LanceMetadataLoader.loadLatest(
+                            tableAccess.datasetUri, tableAccess.storageOptions, allocator);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
                     + ": " + sanitizedRootCauseMessage(e), safeCause(e));
@@ -340,7 +341,8 @@ public class LanceExternalCatalog extends ExternalCatalog {
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            throw indexMetadataLoadFailure(dbName, tableName, e, null, javaStorageOptions);
+            throw indexMetadataLoadFailure(
+                    dbName, tableName, e, null, namespaceStorageOptions);
         }
 
         ResolvedTableAccess tableAccess = null;
@@ -351,7 +353,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
             // The deadline below covers the Dataset/JNI index metadata read itself.
             tableAccess = resolveTableAccess(dbName, tableName);
             String datasetUri = tableAccess.datasetUri;
-            Map<String, String> storageOptions = tableAccess.javaStorageOptions;
+            Map<String, String> storageOptions = tableAccess.storageOptions;
             return LanceMetadataReadExecutor.execute(() -> {
                 // The caller may return on deadline while JNI is still running. A task-owned
                 // allocator prevents catalog close from releasing native resources prematurely.
@@ -362,7 +364,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         } catch (Exception e) {
             String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
             Map<String, String> runtimeStorageOptions = tableAccess == null
-                    ? javaStorageOptions : tableAccess.javaStorageOptions;
+                    ? namespaceStorageOptions : tableAccess.storageOptions;
             throw indexMetadataLoadFailure(
                     dbName, tableName, e, datasetUri, runtimeStorageOptions);
         }
@@ -391,13 +393,12 @@ public class LanceExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Lance namespace returned no table URI for " + dbName + "." + tableName);
         }
 
-        Map<String, String> tableJavaStorageOptions = new HashMap<>(javaStorageOptions);
-        if (table.getStorageOptions() != null) {
-            tableJavaStorageOptions.putAll(table.getStorageOptions());
-        }
-        Map<String, String> tableBackendStorageOptions = LanceStorageOptions.forBackend(
-                backendStorageOptions, table.getStorageOptions());
-        return new ResolvedTableAccess(datasetUri, tableJavaStorageOptions, tableBackendStorageOptions);
+        // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
+        // and the BE through lance-c, so neither can end up with credentials the other lacks. The
+        // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
+        Map<String, String> storageOptions = LanceStorageOptions.forVendedTable(datasetUri,
+                catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
+        return new ResolvedTableAccess(datasetUri, storageOptions);
     }
 
     private DescribeTableResponse describeTable(String dbName, String tableName) {
@@ -429,11 +430,6 @@ public class LanceExternalCatalog extends ExternalCatalog {
         result.addAll(parentNamespace);
         result.addAll(relativeNamespace);
         return result;
-    }
-
-    public Map<String, String> getBackendStorageOptions() {
-        makeSureInitialized();
-        return backendStorageOptions;
     }
 
     public String getLanceCatalogType() {
@@ -538,14 +534,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
 
     private static final class ResolvedTableAccess {
         private final String datasetUri;
-        private final Map<String, String> javaStorageOptions;
-        private final Map<String, String> backendStorageOptions;
+        private final Map<String, String> storageOptions;
 
-        private ResolvedTableAccess(String datasetUri, Map<String, String> javaStorageOptions,
-                Map<String, String> backendStorageOptions) {
+        private ResolvedTableAccess(String datasetUri, Map<String, String> storageOptions) {
             this.datasetUri = datasetUri;
-            this.javaStorageOptions = Collections.unmodifiableMap(new HashMap<>(javaStorageOptions));
-            this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
+            this.storageOptions = Collections.unmodifiableMap(new HashMap<>(storageOptions));
         }
     }
 }

@@ -34,33 +34,33 @@ public class LanceTableMetadata {
     private final List<LanceFragmentInfo> fragments;
     private final Map<String, Integer> lanceFieldIds;
     private final List<LanceIndexSegmentInfo> indexSegments;
-    private final Map<String, String> backendStorageOptions;
+    private final Map<String, String> lanceStorageOptions;
 
     public static LanceTableMetadata withoutIndexSegments(String datasetUri, long version,
             Schema schema, List<LanceFragmentInfo> fragments,
-            Map<String, String> backendStorageOptions) {
+            Map<String, String> lanceStorageOptions) {
         return new LanceTableMetadata(datasetUri, version, schema, fragments,
-                Collections.emptyMap(), Collections.emptyList(), backendStorageOptions);
+                Collections.emptyMap(), Collections.emptyList(), lanceStorageOptions);
     }
 
     public static LanceTableMetadata withIndexSegments(String datasetUri, long version,
             Schema schema, List<LanceFragmentInfo> fragments,
             Map<String, Integer> lanceFieldIds, List<LanceIndexSegmentInfo> indexSegments,
-            Map<String, String> backendStorageOptions) {
+            Map<String, String> lanceStorageOptions) {
         return new LanceTableMetadata(datasetUri, version, schema, fragments,
-                lanceFieldIds, indexSegments, backendStorageOptions);
+                lanceFieldIds, indexSegments, lanceStorageOptions);
     }
 
     private LanceTableMetadata(String datasetUri, long version, Schema schema,
             List<LanceFragmentInfo> fragments, Map<String, Integer> lanceFieldIds,
-            List<LanceIndexSegmentInfo> indexSegments, Map<String, String> backendStorageOptions) {
+            List<LanceIndexSegmentInfo> indexSegments, Map<String, String> lanceStorageOptions) {
         this.datasetUri = datasetUri;
         this.version = version;
         this.schema = schema;
         this.fragments = Collections.unmodifiableList(new ArrayList<>(fragments));
         this.lanceFieldIds = Collections.unmodifiableMap(new HashMap<>(lanceFieldIds));
         this.indexSegments = Collections.unmodifiableList(new ArrayList<>(indexSegments));
-        this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
+        this.lanceStorageOptions = Collections.unmodifiableMap(new HashMap<>(lanceStorageOptions));
     }
 
     public String getDatasetUri() {
@@ -88,8 +88,9 @@ public class LanceTableMetadata {
         return fieldId == null ? OptionalInt.empty() : OptionalInt.of(fieldId);
     }
 
-    public Map<String, String> getBackendStorageOptions() {
-        return backendStorageOptions;
+    /** Lance object-store options, understood as-is by both the FE SDK and lance-c. */
+    public Map<String, String> getLanceStorageOptions() {
+        return lanceStorageOptions;
     }
 
     public long getRowCount() {

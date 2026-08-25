@@ -32,6 +32,7 @@ import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.LanceStorageOptions;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -123,6 +124,21 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     public Map<String, String> getLocationProperties() {
         return tableValuedFunction.getBackendConnectProperties();
+    }
+
+    @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        if (tableValuedFunction.isLanceFormat()) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            // Set at ScanNode level so credentials are not serialized once per fragment split.
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
+                    tableValuedFunction.getFilePath(),
+                    Collections.singletonList(tableValuedFunction.getStorageProperties()));
+            if (!lanceStorageOptions.isEmpty()) {
+                params.setLanceStorageOptions(lanceStorageOptions);
+            }
+        }
     }
 
     @Override

@@ -45,24 +45,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class LanceFilesystemCatalogTest {
 
     @Test
-    public void testMinioStorageOptionMapping() {
-        Map<String, String> backendProperties = new HashMap<>();
-        backendProperties.put("AWS_ACCESS_KEY", "ak");
-        backendProperties.put("AWS_SECRET_KEY", "sk");
-        backendProperties.put("AWS_ENDPOINT", "http://minio:9000");
-        backendProperties.put("AWS_REGION", "us-east-1");
-        backendProperties.put("use_path_style", "true");
-
-        Map<String, String> options = LanceStorageOptions.forJavaSdk(backendProperties);
-        Assert.assertEquals("ak", options.get("aws_access_key_id"));
-        Assert.assertEquals("sk", options.get("aws_secret_access_key"));
-        Assert.assertEquals("http://minio:9000", options.get("aws_endpoint"));
-        Assert.assertEquals("us-east-1", options.get("aws_region"));
-        Assert.assertEquals("true", options.get("allow_http"));
-        Assert.assertEquals("false", options.get("aws_virtual_hosted_style_request"));
-    }
-
-    @Test
     public void testNamespaceNameRoundTrip() throws Exception {
         Assert.assertEquals(Collections.emptyList(), LanceNamespaceName.dorisDatabaseNameToNamespace(
                 LanceNamespaceName.namespaceToDorisDatabaseName(

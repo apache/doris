@@ -46,6 +46,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.LanceStorageOptions;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -169,6 +170,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public Map<String, String> getBackendConnectProperties() {
         return backendConnectProperties;
+    }
+
+    /**
+     * The typed storage configuration this function was analyzed with. Prefer this over
+     * {@link #getBrokerDesc()}, which builds a fresh {@link StorageProperties} on every call.
+     */
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
     }
 
     public List<String> getPathPartitionKeys() {
@@ -527,6 +536,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
+                    filePath, Collections.singletonList(storageProperties));
+            if (!lanceStorageOptions.isEmpty()) {
+                fileScanRangeParams.setLanceStorageOptions(lanceStorageOptions);
+            }
+        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
