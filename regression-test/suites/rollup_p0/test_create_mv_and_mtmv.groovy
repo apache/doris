@@ -52,9 +52,10 @@ suite("test_create_mv_and_mtmv") {
                  dt;
 
     """)
+    // The MTMV must read the sync MV to cover partition-column resolution through the rollup.
     explain {
         sql("""
-                    SELECT dt,advertiser,
+                    SELECT /*+ use_mv(${tableName}.${mvName}) */ dt,advertiser,
                           count(DISTINCT user_id)
                     FROM ${tableName}
                     GROUP BY dt,advertiser""")
@@ -68,7 +69,7 @@ suite("test_create_mv_and_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 1
             PROPERTIES ('replication_num' = '1') 
             AS 
-            select dt, advertiser, count(distinct user_id)
+            select /*+ use_mv(${tableName}.${mvName}) */ dt, advertiser, count(distinct user_id)
                 from ${tableName}
                 group by dt, advertiser;
     """
@@ -93,6 +94,14 @@ AND RefreshMode = '${refreshMode}';"""
     }
     wait_mtmv_refresh_finish("COMPLETE")
     qt_mtmv_init """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
+
+    // Verify that the MTMV definition can build a rewrite cache and produce a rewrite candidate.
+    // The final CBO choice is intentionally not asserted because either valid plan may be cheaper.
+    mv_rewrite_success_without_check_chosen("""
+                SELECT dt, advertiser, count(distinct user_id)
+                FROM ${tableName}
+                GROUP BY dt, advertiser
+            """, mtmvName)
 
     sql """INSERT INTO ${tableName} VALUES("2024-07-03",'b', "2024-07-03", 'b',2);"""
     refreshTime = (int) (System.currentTimeMillis() / 1000L)
