@@ -64,9 +64,10 @@ public class MasterOpExecutor extends FEOpExecutor {
     }
 
     @Override
-    public void cancel() throws Exception {
-        super.cancel();
+    public boolean cancel() throws Exception {
+        boolean cancelled = super.cancel();
         waitOnReplaying();
+        return cancelled;
     }
 
     private void waitOnReplaying() throws DdlException {

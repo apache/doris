@@ -154,7 +154,9 @@ public class KillUtils {
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, queryId);
             }
-            killCtx.kill(false);
+            if (!killCtx.kill(false)) {
+                throw new DdlException("Query " + queryId + " is already committing or finished");
+            }
             ctx.getState().setOk();
             return true;
         }
@@ -184,7 +186,10 @@ public class KillUtils {
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, connectionId);
             }
-            killCtx.kill(killConnection);
+            if (!killCtx.kill(killConnection)) {
+                throw new DdlException("Query on connection " + connectionId
+                        + " is already committing or finished");
+            }
         }
         ctx.getState().setOk();
     }

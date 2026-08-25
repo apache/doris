@@ -155,7 +155,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
-import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -199,8 +198,10 @@ public class StmtExecutor {
     private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
-    @Setter
     private volatile Coordinator coord = null;
+    private final Object cancellationLock = new Object();
+    private Status cancelReason = null;
+    private boolean transactionCommitStarted = false;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
@@ -1284,15 +1285,54 @@ public class StmtExecutor {
         }
     }
 
+    /**
+     * Publish the coordinator used by this statement.
+     *
+     * <p>Cancellation can arrive while an INSERT is still planning or initializing its transaction.
+     * Remembering the cancellation and applying it here prevents the later coordinator from escaping it.</p>
+     */
+    public void setCoord(Coordinator coord) {
+        Status pendingCancelReason;
+        synchronized (cancellationLock) {
+            this.coord = coord;
+            pendingCancelReason = cancelReason;
+        }
+        if (pendingCancelReason != null) {
+            coord.cancel(pendingCancelReason);
+        }
+    }
+
+    /**
+     * Establish the linearization point between cancelling a statement and committing its transaction.
+     */
+    public void beginTransactionCommit() throws UserException {
+        Status pendingCancelReason;
+        synchronized (cancellationLock) {
+            pendingCancelReason = cancelReason;
+            if (pendingCancelReason == null) {
+                transactionCommitStarted = true;
+                return;
+            }
+        }
+        throw new UserException(pendingCancelReason.getErrorMsg());
+    }
+
     // Because this is called by other thread
-    public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+    public boolean cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        synchronized (cancellationLock) {
+            if (transactionCommitStarted) {
+                return false;
+            }
+            if (this.cancelReason == null) {
+                this.cancelReason = cancelReason;
+            }
+        }
         if (masterOpExecutor != null) {
             try {
-                masterOpExecutor.cancel();
+                return masterOpExecutor.cancel();
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-            return;
         }
         Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
         if (insertOverwriteTableCommand.isPresent()) {
@@ -1310,10 +1350,11 @@ public class StmtExecutor {
             // Wait for the command to run or cancel completion
             insertOverwriteTableCommand.get().waitNotRunning();
         }
+        return true;
     }
 
-    public void cancel(Status cancelReason) {
-        cancel(cancelReason, true);
+    public boolean cancel(Status cancelReason) {
+        return cancel(cancelReason, true);
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {

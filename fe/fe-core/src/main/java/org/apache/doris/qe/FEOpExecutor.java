@@ -91,10 +91,10 @@ public class FEOpExecutor {
         }
     }
 
-    public void cancel() throws Exception {
+    public boolean cancel() throws Exception {
         TUniqueId queryId = ctx.queryId();
         if (queryId == null) {
-            return;
+            return false;
         }
         Preconditions.checkNotNull(feAddr, "query with id %s is not forwarded to fe", queryId);
         TMasterOpRequest request = new TMasterOpRequest();
@@ -107,6 +107,7 @@ public class FEOpExecutor {
         // just make the protocol happy
         request.setSql("");
         result = forward(request);
+        return result.getStatusCode() == 0;
     }
 
     // Send request to specific fe

@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
@@ -351,6 +352,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 }
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
                 throw new IllegalStateException(e.getMessage(), e);
+            }
+            long beforeSetCoordinatorSleepMs = DebugPointUtil.getDebugParamOrDefault(
+                    "InsertIntoTableCommand.beforeSetCoordinator.sleep", 0L);
+            if (beforeSetCoordinatorSleepMs > 0) {
+                Thread.sleep(beforeSetCoordinatorSleepMs);
             }
             stmtExecutor.setProfileType(ProfileType.LOAD);
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,

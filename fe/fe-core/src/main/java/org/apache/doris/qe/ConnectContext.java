@@ -1253,7 +1253,7 @@ public class ConnectContext {
     }
 
     // kill operation with no protect.
-    public void kill(boolean killConnection) {
+    public boolean kill(boolean killConnection) {
         LOG.warn("kill query from {}, kill {} connection: {}", getRemoteHostPortString(), getConnectType(),
                 killConnection);
 
@@ -1261,7 +1261,9 @@ public class ConnectContext {
             killConnection();
         }
         // Now, cancel running query.
-        cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
+        boolean queryCancelled = cancelQuery(
+                new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
+        return killConnection || queryCancelled;
     }
 
     // kill operation with no protect by timeout.
@@ -1285,11 +1287,12 @@ public class ConnectContext {
         }
     }
 
-    public void cancelQuery(Status cancelReason) {
+    public boolean cancelQuery(Status cancelReason) {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
-            executorRef.cancel(cancelReason);
+            return executorRef.cancel(cancelReason);
         }
+        return false;
     }
 
     public void checkTimeout(long now) {
