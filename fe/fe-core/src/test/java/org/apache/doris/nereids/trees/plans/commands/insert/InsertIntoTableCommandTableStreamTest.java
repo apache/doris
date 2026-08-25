@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -188,6 +189,82 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
         AbstractTableStreamUpdate txnUpdate = txnInfo.getUpdate();
         Assertions.assertEquals(update.getNext(), ((OlapTableStreamUpdate) txnUpdate).getNext());
+    }
+
+    @Test
+    public void testEmptyInsertStartsTransactionForStreamOffsetUpdate() throws Exception {
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.s1 where false";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+
+        resetQueryContext();
+        AbstractInsertExecutor insertExecutor = command.initPlan(
+                connectContext, new StmtExecutor(connectContext, sql), true);
+        try {
+            Assertions.assertTrue(insertExecutor.isEmptyInsert());
+            Assertions.assertFalse(insertExecutor.getStreamUpdateInfos().isEmpty());
+            Assertions.assertNotEquals(AbstractInsertExecutor.INVALID_TXN_ID, insertExecutor.getTxnId());
+        } finally {
+            insertExecutor.onFail(new RuntimeException("test cleanup"));
+            resetQueryContext();
+        }
+    }
+
+    @Test
+    public void testOrdinaryEmptyInsertStillSkipsTransaction() throws Exception {
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.tbl_stream_base where false";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+
+        resetQueryContext();
+        AbstractInsertExecutor insertExecutor = command.initPlan(
+                connectContext, new StmtExecutor(connectContext, sql), true);
+
+        Assertions.assertTrue(insertExecutor.isEmptyInsert());
+        Assertions.assertTrue(insertExecutor.getStreamUpdateInfos().isEmpty());
+        Assertions.assertFalse(insertExecutor.requiresTransaction());
+        Assertions.assertEquals(AbstractInsertExecutor.INVALID_TXN_ID, insertExecutor.getTxnId());
+    }
+
+    @Test
+    public void testEmptyInsertCommitsStreamOffsetUpdate() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        createTable("create stream if not exists test_stream.s_empty_insert_commit "
+                + "on table test_stream.tbl_stream_base properties('show_initial_rows' = 'false')");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_empty_insert_commit");
+        Map<Long, Long> originalTso = new HashMap<>();
+        Map<Long, Long> expectedTso = new HashMap<>();
+
+        for (Partition partition : baseTable.getPartitions()) {
+            originalTso.put(partition.getId(), partition.getTso());
+            long nextTso = partition.getTso() + 1000;
+            expectedTso.put(partition.getId(), nextTso);
+            partition.setVisibleVersionAndTime(
+                    partition.getVisibleVersion(), partition.getVisibleVersionTime(), nextTso);
+        }
+
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.s_empty_insert_commit where false";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        resetQueryContext();
+        connectContext.getState().reset();
+        connectContext.resetReturnRows();
+        try {
+            command.run(connectContext, new StmtExecutor(connectContext, sql));
+
+            Assertions.assertEquals(MysqlStateType.OK, connectContext.getState().getStateType());
+            Assertions.assertEquals(0L, connectContext.getReturnRows());
+            for (Map.Entry<Long, Long> entry : expectedTso.entrySet()) {
+                Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(entry.getKey()).first);
+            }
+        } finally {
+            for (Partition partition : baseTable.getPartitions()) {
+                partition.setVisibleVersionAndTime(partition.getVisibleVersion(),
+                        partition.getVisibleVersionTime(), originalTso.get(partition.getId()));
+            }
+            resetQueryContext();
+        }
     }
 
     @Test
