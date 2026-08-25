@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <memory>
 #include <type_traits>
 #include <vector>
@@ -57,6 +58,7 @@ struct FakeWriterState {
     size_t written_rows = 0;
     std::vector<Status> close_inputs;
     Status cleanup_status;
+    std::function<void()> close_hook;
 };
 
 class FakeIcebergTableWriter final : public VIcebergTableWriter {
@@ -80,6 +82,9 @@ public:
     Status close(Status status) override {
         ++_fake_state->close_count;
         _fake_state->close_inputs.emplace_back(status);
+        if (_fake_state->close_hook) {
+            _fake_state->close_hook();
+        }
         return _fake_state->close_result;
     }
 
@@ -90,6 +95,28 @@ public:
 
 private:
     std::shared_ptr<FakeWriterState> _fake_state;
+};
+
+struct FakeSortWriterState {
+    size_t data_size = 0;
+    int spill_count = 0;
+};
+
+class FakeRevocableIcebergSortWriter final : public VIcebergSortWriter {
+public:
+    explicit FakeRevocableIcebergSortWriter(std::shared_ptr<FakeSortWriterState> state)
+            : VIcebergSortWriter(nullptr, TSortInfo {}, 0), _fake_state(std::move(state)) {}
+
+    size_t data_size() const override { return _fake_state->data_size; }
+
+    Status trigger_spill() override {
+        ++_fake_state->spill_count;
+        _fake_state->data_size = 0;
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<FakeSortWriterState> _fake_state;
 };
 
 } // namespace
@@ -120,8 +147,10 @@ protected:
     void set_partition_writers(SpillIcebergTableSinkLocalState* local_state,
                                std::shared_ptr<VIcebergSortWriter> first,
                                std::shared_ptr<VIcebergSortWriter> second) {
+        auto current_writer = second;
         local_state->_writer->_partitions_to_writers.emplace("first", std::move(first));
         local_state->_writer->_partitions_to_writers.emplace("second", std::move(second));
+        local_state->_writer->_current_writer.store(std::move(current_writer));
     }
 
     void mark_spilled(VIcebergSortWriter* writer) {
@@ -183,6 +212,25 @@ TEST_F(IcebergTableSinkOperatorTest, NormalSinkConvertsOkCloseToCancellation) {
     EXPECT_TRUE(fake_state->close_inputs.front().is<ErrorCode::CANCELLED>());
 }
 
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkObservesCancellationDuringWriterClose) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    IcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+    fake_state->close_hook = [&state]() {
+        state.cancel(Status::Cancelled("cancel during normal writer close"));
+    };
+
+    Status close_status = local_state.close(&state, Status::OK());
+    EXPECT_TRUE(close_status.is<ErrorCode::CANCELLED>()) << close_status.to_string();
+    ASSERT_EQ(fake_state->close_inputs.size(), 1);
+    EXPECT_TRUE(fake_state->close_inputs.front().ok());
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::CANCELLED>());
+}
+
 TEST_F(IcebergTableSinkOperatorTest, SpillSinkFinalizesNonEmptyEos) {
     MockRuntimeState state;
     std::vector<TExpr> thrift_exprs;
@@ -240,6 +288,37 @@ TEST_F(IcebergTableSinkOperatorTest, SpillSinkReservesEosAdmissionAndLargestPart
     set_partition_writers(&local_state, std::move(empty_writer), std::move(spilled_writer));
     EXPECT_EQ(local_state.get_reserve_mem_size(&state, true),
               static_cast<size_t>(state.spill_sort_merge_mem_limit_bytes()));
+
+    TQueryOptions query_options = state.query_options();
+    query_options.__set_spill_buffer_size_bytes(256 * 1024 * 1024);
+    query_options.__set_spill_sort_merge_mem_limit_bytes(1024 * 1024);
+    state.set_query_options(query_options);
+    EXPECT_EQ(local_state.get_reserve_mem_size(&state, true), 512 * 1024 * 1024);
+    ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, SpillSinkAccountsAndRevokesAllEosPartitions) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    SpillIcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    SpillIcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+
+    auto large_state = std::make_shared<FakeSortWriterState>();
+    large_state->data_size = 1024 * 1024;
+    auto small_state = std::make_shared<FakeSortWriterState>();
+    small_state->data_size = 128 * 1024;
+    set_partition_writers(&local_state,
+                          std::make_shared<FakeRevocableIcebergSortWriter>(large_state),
+                          std::make_shared<FakeRevocableIcebergSortWriter>(small_state));
+    static_cast<void>(local_state.get_reserve_mem_size(&state, true));
+
+    EXPECT_EQ(local_state.get_revocable_mem_size(&state), large_state->data_size);
+    ASSERT_TRUE(local_state.revoke_memory(&state).ok());
+    EXPECT_EQ(large_state->spill_count, 1);
+    EXPECT_EQ(small_state->spill_count, 0);
+    EXPECT_EQ(local_state.get_revocable_mem_size(&state), 0);
     ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
 }
 

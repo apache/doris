@@ -101,12 +101,12 @@ public:
 
     inline size_t written_len() const override { return _iceberg_partition_writer->written_len(); }
 
-    size_t data_size() const;
+    virtual size_t data_size() const;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
     // Called by the memory management system to trigger spilling data to disk
-    Status trigger_spill();
+    virtual Status trigger_spill();
 
 private:
     friend class IcebergTableSinkOperatorTest;

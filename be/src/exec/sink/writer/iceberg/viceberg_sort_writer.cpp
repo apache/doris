@@ -84,8 +84,13 @@ size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) c
     std::lock_guard<std::mutex> lock(_sorter_mutex);
     size_t reserve_size = _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
     if (eos && !_sorted_spill_files.empty()) {
-        reserve_size = std::max(reserve_size,
-                                static_cast<size_t>(state->spill_sort_merge_mem_limit_bytes()));
+        const size_t buffer_size = static_cast<size_t>(state->spill_buffer_size_bytes());
+        const size_t merge_limit = static_cast<size_t>(state->spill_sort_merge_mem_limit_bytes());
+        const size_t max_fan_in = std::max<size_t>(2, merge_limit / buffer_size);
+        // Reservation is computed before sink(), so a non-empty EOS can add one final spill run.
+        const size_t pending_runs = _sorted_spill_files.size() + 1;
+        const size_t input_fan_in_size = std::min(pending_runs, max_fan_in) * buffer_size;
+        reserve_size = std::max({reserve_size, merge_limit, input_fan_in_size});
     }
     return reserve_size;
 }

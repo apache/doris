@@ -46,6 +46,8 @@ struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter {
 public:
+    using PartitionWriterSnapshot = std::vector<std::shared_ptr<VIcebergSortWriter>>;
+
     VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     virtual ~VIcebergTableWriter() = default;
@@ -73,6 +75,10 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
+    std::shared_ptr<const PartitionWriterSnapshot> partition_writers_snapshot() const {
+        return _partition_writer_snapshot.load();
+    }
+
     // Getter for the current partition writer.
     // Used by SpillIcebergTableSinkLocalState to access the current writer for
     // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
@@ -89,6 +95,7 @@ private:
     // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size may run
     // independently of the pipeline task that assigns to it.
     doris::atomic_shared_ptr<IPartitionWriterBase> _current_writer;
+    mutable doris::atomic_shared_ptr<const PartitionWriterSnapshot> _partition_writer_snapshot;
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,

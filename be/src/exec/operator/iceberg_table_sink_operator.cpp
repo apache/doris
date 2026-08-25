@@ -26,6 +26,7 @@ Status IcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo&
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _writer = std::make_unique<VIcebergTableWriter>(info.tsink, _output_vexpr_ctxs);
+    _writer->defer_file_cleanup_until_outer_close();
     auto& parent = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(parent._pool, parent._row_desc));
     return Status::OK();
@@ -69,6 +70,10 @@ Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status
     if (final_status.ok() && !writer_status.ok()) {
         final_status = writer_status;
     }
+    if (final_status.ok() && state->is_cancelled()) {
+        final_status = state->cancel_reason();
+    }
+    _writer->finish_deferred_file_cleanup(final_status);
     _writer.reset();
 
     Status base_status = Base::close(state, final_status);
