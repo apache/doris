@@ -302,10 +302,12 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_scan_params != nullptr);
 
     _ctz = _runtime_state->timezone_obj();
-    _vector_search = _scan_params->__isset.external_search_request;
+    const auto& lance_scan_params = _scan_params->lance_scan_params;
+    _vector_search = _scan_params->__isset.lance_scan_params &&
+                     lance_scan_params.__isset.external_search_request;
     if (_vector_search) {
         RETURN_IF_ERROR(_validate_external_search_request());
-        const auto& request = _scan_params->external_search_request;
+        const auto& request = lance_scan_params.external_search_request;
         const auto& vector = request.search_query.vector_search;
         const bool use_index = !request.__isset.vector_search_options ||
                                !request.vector_search_options.__isset.use_index ||
@@ -317,11 +319,12 @@ Status LanceTableReader::init(TableReadOptions&& options) {
         _scanner_profile->add_info_string("LanceUseIndex", use_index ? "true" : "false");
         _fragment_count = ADD_COUNTER(_scanner_profile, "LanceFragmentCount", TUnit::UNIT);
     }
-    if (_scan_params->__isset.lance_substrait_filter) {
+    if (_scan_params->__isset.lance_scan_params &&
+        lance_scan_params.__isset.lance_substrait_filter) {
         _scanner_profile->add_info_string("LancePushdownFormat", "SUBSTRAIT");
         _scanner_profile->add_info_string(
                 "LanceSubstraitFilterBytes",
-                std::to_string(_scan_params->lance_substrait_filter.size()));
+                std::to_string(lance_scan_params.lance_substrait_filter.size()));
     }
 
     _output_name_to_idx.clear();
@@ -522,14 +525,16 @@ Status LanceTableReader::_validate_external_search_request() const {
     // Thrift boundary. Recheck structural invariants and values used for allocation, pointer
     // arithmetic, C-string calls, and narrowing conversions before accessing them below.
     DORIS_CHECK(_scan_params != nullptr);
-    DORIS_CHECK(_scan_params->__isset.external_search_request);
-    if (_scan_params->__isset.lance_substrait_filter) {
+    DORIS_CHECK(_scan_params->__isset.lance_scan_params);
+    const auto& lance_scan_params = _scan_params->lance_scan_params;
+    DORIS_CHECK(lance_scan_params.__isset.external_search_request);
+    if (lance_scan_params.__isset.lance_substrait_filter) {
         return Status::InvalidArgument(
                 "Lance vector search cannot combine its pre-search filter with "
                 "lance_substrait_filter");
     }
 
-    const auto& request = _scan_params->external_search_request;
+    const auto& request = lance_scan_params.external_search_request;
     if (request.schema_version != 1) {
         return Status::NotSupported("unsupported external search schema version: {}",
                                     request.schema_version);
@@ -671,9 +676,10 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
     columns.emplace_back(nullptr);
 
+    const auto& lance_scan_params = _scan_params->lance_scan_params;
     const char* sql_filter = nullptr;
     if (_vector_search) {
-        const auto& request = _scan_params->external_search_request;
+        const auto& request = lance_scan_params.external_search_request;
         if (request.__isset.search_filter &&
             request.search_filter.format == TSearchFilterFormat::SQL) {
             sql_filter = request.search_filter.payload.c_str();
@@ -690,16 +696,17 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         return _lance_error("enable Lance row id output");
     }
 
-    if (_scan_params->__isset.lance_substrait_filter &&
-        !_scan_params->lance_substrait_filter.empty()) {
-        const auto& filter = _scan_params->lance_substrait_filter;
+    if (_scan_params->__isset.lance_scan_params &&
+        lance_scan_params.__isset.lance_substrait_filter &&
+        !lance_scan_params.lance_substrait_filter.empty()) {
+        const auto& filter = lance_scan_params.lance_substrait_filter;
         if (lance_scanner_set_substrait_filter(
                     scanner, reinterpret_cast<const uint8_t*>(filter.data()), filter.size()) != 0) {
             return _lance_error("set Lance Substrait filter");
         }
     }
     if (_vector_search) {
-        const auto& request = _scan_params->external_search_request;
+        const auto& request = lance_scan_params.external_search_request;
         if (request.__isset.search_filter &&
             request.search_filter.format == TSearchFilterFormat::SUBSTRAIT) {
             const auto& filter = request.search_filter.payload;
@@ -782,7 +789,10 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
 Status LanceTableReader::_configure_vector_search(LanceScanner* scanner) const {
     DORIS_CHECK(scanner != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
-    const auto& request = _scan_params->external_search_request;
+    DORIS_CHECK(_scan_params->__isset.lance_scan_params);
+    const auto& lance_scan_params = _scan_params->lance_scan_params;
+    DORIS_CHECK(lance_scan_params.__isset.external_search_request);
+    const auto& request = lance_scan_params.external_search_request;
     const auto& vector = request.search_query.vector_search;
     const auto& query = vector.query_vector;
     const auto dimension = static_cast<size_t>(query.dimension);
@@ -1033,11 +1043,13 @@ Status LanceTableReader::_fill_block_from_record_batch(
 Status LanceTableReader::_storage_options(const TFileScanRangeParams* scan_params,
                                           std::vector<std::string>* options) {
     options->clear();
-    if (scan_params == nullptr || !scan_params->__isset.lance_storage_options) {
+    if (scan_params == nullptr || !scan_params->__isset.lance_scan_params ||
+        !scan_params->lance_scan_params.__isset.lance_storage_options) {
         return Status::OK();
     }
-    options->reserve(scan_params->lance_storage_options.size() * 2);
-    for (const auto& [key, value] : scan_params->lance_storage_options) {
+    const auto& storage_options = scan_params->lance_scan_params.lance_storage_options;
+    options->reserve(storage_options.size() * 2);
+    for (const auto& [key, value] : storage_options) {
         // These become C strings below, so a NUL would truncate the option here while the FE went
         // on using the whole thing, and the two halves would open the dataset with different
         // configuration. The FE rejects these on both paths it builds options from - its own

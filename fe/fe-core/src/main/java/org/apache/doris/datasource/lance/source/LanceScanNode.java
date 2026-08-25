@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -125,8 +126,16 @@ public class LanceScanNode extends FileQueryScanNode {
         if (isExternalSearch()) {
             // Search output comes from the FunctionGenTable because it adds generated columns such
             // as _distance. The real Lance table is still retained for storage and metadata access.
-            params.setExternalSearchRequest(createFragmentSearchRequest(externalSearchRequest));
+            getOrCreateLanceScanParams()
+                    .setExternalSearchRequest(createFragmentSearchRequest(externalSearchRequest));
         }
+    }
+
+    private TLanceScanParams getOrCreateLanceScanParams() {
+        if (!params.isSetLanceScanParams()) {
+            params.setLanceScanParams(new TLanceScanParams());
+        }
+        return params.getLanceScanParams();
     }
 
     // A fragment-level LIMIT can be pushed into an ordinary Lance scan only when every predicate
@@ -162,12 +171,13 @@ public class LanceScanNode extends FileQueryScanNode {
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
         if (lanceSubstraitFilter.length > 0) {
-            params.setLanceSubstraitFilter(ByteBuffer.wrap(lanceSubstraitFilter));
+            getOrCreateLanceScanParams()
+                    .setLanceSubstraitFilter(ByteBuffer.wrap(lanceSubstraitFilter));
         }
         // Set at ScanNode level so credentials are not serialized once per fragment split.
         Map<String, String> lanceStorageOptions = plannedMetadata.getLanceStorageOptions();
         if (!lanceStorageOptions.isEmpty()) {
-            params.setLanceStorageOptions(lanceStorageOptions);
+            getOrCreateLanceScanParams().setLanceStorageOptions(lanceStorageOptions);
         }
     }
 

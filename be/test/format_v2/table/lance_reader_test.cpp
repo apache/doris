@@ -224,8 +224,10 @@ TFileScanRangeParams make_float32_vector_search_params(
         request.__set_search_filter(std::move(search_filter));
     }
 
+    TLanceScanParams lance_scan_params;
+    lance_scan_params.__set_external_search_request(std::move(request));
     TFileScanRangeParams scan_params;
-    scan_params.__set_external_search_request(std::move(request));
+    scan_params.__set_lance_scan_params(std::move(lance_scan_params));
     return scan_params;
 }
 
@@ -238,7 +240,8 @@ TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadin
     RuntimeState state(query_globals);
     RuntimeProfile profile("lance_vector_search_invalid_request");
     auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
-    scan_params.external_search_request.search_query.vector_search.query_vector.__set_dimension(4);
+    scan_params.lance_scan_params.external_search_request.search_query.vector_search.query_vector
+            .__set_dimension(4);
 
     LanceTableReader reader;
     const auto status = init_reader(&reader, columns, &state, &profile, &scan_params);
@@ -323,7 +326,8 @@ TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistanc
     state.set_query_options(query_options);
     RuntimeProfile profile("lance_vector_search_fixture");
     auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 1);
-    auto& search_options = scan_params.external_search_request.vector_search_options;
+    auto& search_options =
+            scan_params.lance_scan_params.external_search_request.vector_search_options;
     search_options.__set_nprobes(4);
     search_options.__set_refine_factor(2);
     search_options.__set_ef(16);
@@ -611,7 +615,7 @@ TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
             "Og8QRioLZG9yaXMtbGFuY2U=";
     std::string substrait_filter;
     ASSERT_TRUE(base64_decode(substrait_filter_base64, &substrait_filter));
-    scan_params.__set_lance_substrait_filter(std::move(substrait_filter));
+    scan_params.lance_scan_params.__set_lance_substrait_filter(std::move(substrait_filter));
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
@@ -686,7 +690,9 @@ void expect_filtered_row_ids(const char* profile_name, const std::string& substr
     TFileScanRangeParams scan_params;
     std::string substrait_filter;
     ASSERT_TRUE(base64_decode(substrait_filter_base64, &substrait_filter));
-    scan_params.__set_lance_substrait_filter(std::move(substrait_filter));
+    TLanceScanParams lance_scan_params;
+    lance_scan_params.__set_lance_substrait_filter(std::move(substrait_filter));
+    scan_params.__set_lance_scan_params(std::move(lance_scan_params));
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
@@ -960,8 +966,10 @@ TEST(LanceTableReaderScanTest, RejectsStorageOptionWithEmbeddedNul) {
     // using the whole thing, leaving the two halves opening the dataset with different
     // configuration. Dropping it instead of failing would only move that divergence.
     TFileScanRangeParams scan_params;
-    scan_params.__set_lance_storage_options(
+    TLanceScanParams lance_scan_params;
+    lance_scan_params.__set_lance_storage_options(
             {{std::string("aws_region\0ignored", 18), "us-east-1"}});
+    scan_params.__set_lance_scan_params(std::move(lance_scan_params));
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());

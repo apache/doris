@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -136,7 +137,8 @@ public class TVFScanNode extends FileQueryScanNode {
                     tableValuedFunction.getFilePath(),
                     Collections.singletonList(tableValuedFunction.getStorageProperties()));
             if (!lanceStorageOptions.isEmpty()) {
-                params.setLanceStorageOptions(lanceStorageOptions);
+                params.setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
             }
         }
     }
