@@ -72,6 +72,40 @@ using FunctionCenturyV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2Century =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATETIMEV2>>;
+
+using FunctionTimestampNsYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsYearOfWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearOfWeekImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsQuarter =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMonth =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDay =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsHour =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMinute =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsToDays =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMicroSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsToDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsTimestamp =
+        FunctionDateOrDateTimeToSomething<DataTypeTimeStampNs, TimeStampImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsCentury =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsToSeconds =
+        FunctionDateOrDateTimeToSomething<DataTypeInt64, ToSecondsImpl<TYPE_TIMESTAMP_NS>>;
+
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeStampV2>();
     factory.register_function<FunctionSecondV2>();
@@ -100,6 +134,22 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCenturyV2>();
     factory.register_function<FunctionDateTimeV2Century>();
     factory.register_function<FunctionToSeconds>();
+    factory.register_function<FunctionTimestampNsTimestamp>();
+    factory.register_function<FunctionTimestampNsMicroSecond>();
+    factory.register_function<FunctionTimestampNsSecond>();
+    factory.register_function<FunctionTimestampNsToDays>();
+    factory.register_function<FunctionTimestampNsMinute>();
+    factory.register_function<FunctionTimestampNsHour>();
+    factory.register_function<FunctionTimestampNsDay>();
+    factory.register_function<FunctionTimestampNsWeek>();
+    factory.register_function<FunctionTimestampNsMonth>();
+    factory.register_function<FunctionTimestampNsYear>();
+    factory.register_function<FunctionTimestampNsYearOfWeek>();
+    factory.register_function<FunctionTimestampNsQuarter>();
+    factory.register_function<FunctionTimestampNsToDate>();
+    factory.register_function<FunctionTimestampNsDate>();
+    factory.register_function<FunctionTimestampNsCentury>();
+    factory.register_function<FunctionTimestampNsToSeconds>();
     factory.register_alias("date", "datev2");
     factory.register_alias("to_date", "to_datev2");
 }

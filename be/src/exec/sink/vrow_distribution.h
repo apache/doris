@@ -130,6 +130,7 @@ public:
             auto [part_ctxs, part_funcs] = _get_partition_function();
             for (auto part_ctx : part_ctxs) {
                 RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
+                part_ctx->set_auto_partition_boundary_context();
                 RETURN_IF_ERROR(part_ctx->open(_state));
             }
         }

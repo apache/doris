@@ -132,6 +132,8 @@ public class FlightSqlSchemaHelper {
                 } else {
                     return new ArrowType.Timestamp(TimeUnit.SECOND, null);
                 }
+            case TIMESTAMP_NS:
+                return new ArrowType.Timestamp(TimeUnit.NANOSECOND, null);
             case TIMESTAMPTZ:
                 if (scale > 3) {
                     return new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC");

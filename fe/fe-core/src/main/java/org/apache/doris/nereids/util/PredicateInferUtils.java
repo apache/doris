@@ -146,10 +146,16 @@ public class PredicateInferUtils {
                     return validForInfer(child, inferType);
                 }
             } else if (dataType instanceof DateTimeType) {
+                if (childType.isTimeStampNsType()) {
+                    return Optional.empty();
+                }
                 if (!(childType instanceof DateTimeV2Type)) {
                     return validForInfer(child, inferType);
                 }
             } else if (dataType instanceof DateTimeV2Type) {
+                if (childType.isTimeStampNsType()) {
+                    return Optional.empty();
+                }
                 return validForInfer(child, inferType);
             }
         } else if (inferType == InferType.STRING) {

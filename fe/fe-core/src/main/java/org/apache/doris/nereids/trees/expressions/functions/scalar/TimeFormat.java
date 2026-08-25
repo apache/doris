@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -46,7 +47,9 @@ public class TimeFormat extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                 .args(TimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT)
+                .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT)
     );
 
     /**

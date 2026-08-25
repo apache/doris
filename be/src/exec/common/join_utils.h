@@ -28,8 +28,18 @@
 
 namespace doris {
 
+template <typename ColumnType>
+struct AsofColumnIntType {
+    using type = typename ColumnType::value_type::underlying_value;
+};
+
+template <>
+struct AsofColumnIntType<ColumnTimeStampNs> {
+    using type = int64_t;
+};
+
 // Devirtualize compare_at for ASOF JOIN supported column types.
-// ASOF JOIN only supports DateV2, DateTimeV2, and TimestampTZ.
+// ASOF JOIN only supports DateV2, DateTimeV2, TimestampNs, and TimestampTZ.
 // Dispatches to the concrete ColumnVector<T> once so that all compare_at
 // calls inside `func` are direct (non-virtual) calls.
 // `func` receives a single argument: a const pointer to the concrete column
@@ -40,6 +50,8 @@ decltype(auto) asof_column_dispatch(const IColumn* col, Func&& func) {
         return std::forward<Func>(func)(c_dv2);
     } else if (const auto* c_dtv2 = check_and_get_column<ColumnDateTimeV2>(col)) {
         return std::forward<Func>(func)(c_dtv2);
+    } else if (const auto* c_tsns = check_and_get_column<ColumnTimeStampNs>(col)) {
+        return std::forward<Func>(func)(c_tsns);
     } else if (const auto* c_tstz = check_and_get_column<ColumnTimeStampTz>(col)) {
         return std::forward<Func>(func)(c_tstz);
     } else {

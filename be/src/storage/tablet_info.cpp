@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/large_int_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -646,6 +647,13 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else if (primitive_type == TYPE_TIMESTAMP_NS) {
+            int64_t epoch_nanos = 0;
+            RETURN_IF_ERROR(parse_timestamp_ns(
+                    {t_expr.date_literal.value.data(), t_expr.date_literal.value.size()},
+                    &epoch_nanos));
+            const TimeStampNsValue dt(epoch_nanos);
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;

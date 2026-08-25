@@ -22,8 +22,8 @@ suite("doc_date_error") {
         exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: -1"
     }
     test {
-        sql """select CURRENT_TIMESTAMP(7);"""
-        exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: 7"
+        sql """select CURRENT_TIMESTAMP(10);"""
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: 10"
     }
 
     // Result not in valid date range [0000,9999]
@@ -185,14 +185,14 @@ suite("doc_date_error") {
         exception "Operation hour_add of 0000-01-01 12:00:00, -20 out of range"
     }
 
-    // LOCALTIME scale out of range
+    // LOCALTIME precision out of range
     test {
         sql """select LOCALTIME(-1);"""
         exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: -1"
     }
     test {
-        sql """select LOCALTIME(7);"""
-        exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: 7"
+        sql """select LOCALTIME(10);"""
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: 10"
     }
 
     // MAKEDATE year out of range
@@ -295,8 +295,8 @@ suite("doc_date_error") {
 
     // NOW invalid precision
     test {
-        sql """SELECT NOW(7) AS result;"""
-        exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: 7"
+        sql """SELECT NOW(10) AS result;"""
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: 10"
     }
     test {
         sql """select NOW(-1);"""
@@ -457,5 +457,3 @@ suite("doc_date_error") {
         exception "Operation year_add of 0000-01-01, -1 out of range"
     }
 }
-
-

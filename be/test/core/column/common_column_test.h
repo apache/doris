@@ -2768,7 +2768,7 @@ auto assert_column_vector_insert_range_of_integer_callback = [](auto x, const Mu
     auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
     auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
     if constexpr (std::is_same_v<T, Float32> || std::is_same_v<T, Float64> || is_date_type(PType) ||
-                  PType == TYPE_TIMESTAMPTZ) {
+                  is_timestamp_ns_type(PType) || PType == TYPE_TIMESTAMPTZ) {
         typename PrimitiveTypeTraits<PType>::CppType begin;
         typename PrimitiveTypeTraits<PType>::CppType end;
         if constexpr (PType == TYPE_DATE || PType == TYPE_DATETIME) {
@@ -3039,7 +3039,8 @@ auto assert_column_vector_get_int64_callback = [](auto x, const MutableColumnPtr
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        if constexpr (!IsDecimalNumber<T> && !is_date_type(PType) && PType != TYPE_TIMESTAMPTZ) {
+        if constexpr (!IsDecimalNumber<T> && !is_date_type(PType) && !is_timestamp_ns_type(PType) &&
+                      PType != TYPE_TIMESTAMPTZ) {
             EXPECT_EQ(col_vec_src->get_int(i), (Int64)data[i]);
         }
     }

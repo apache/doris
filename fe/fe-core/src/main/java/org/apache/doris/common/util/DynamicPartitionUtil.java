@@ -799,6 +799,7 @@ public class DynamicPartitionUtil {
             return DATE_FORMAT;
         } else if (column.getDataType().equals(PrimitiveType.DATETIME)
                 || column.getDataType().equals(PrimitiveType.DATETIMEV2)
+                || column.getDataType().equals(PrimitiveType.TIMESTAMP_NS)
                 || column.getDataType().equals(PrimitiveType.TIMESTAMPTZ)) {
             return DATETIME_FORMAT;
         } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {

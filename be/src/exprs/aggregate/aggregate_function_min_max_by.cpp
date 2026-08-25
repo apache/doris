@@ -34,6 +34,10 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, i
         }
         return true;
     };
+    if (type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+        call(DispatchDataType<TYPE_TIMESTAMP_NS>());
+        return result;
+    }
     if (dispatch_switch_scalar(type->get_primitive_type(), call)) {
         return result;
     }
