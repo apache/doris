@@ -117,6 +117,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -481,7 +482,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && !"false".equalsIgnoreCase(
+        return session != null && "true".equalsIgnoreCase(
                 session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
@@ -608,6 +609,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static ConnectorSplitSource emptySplitSource() {
         return new ConnectorSplitSource() {
             @Override
+            public void cancel() {
+            }
+
+            @Override
             public boolean hasNext() {
                 return false;
             }
@@ -672,6 +677,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private CloseableIterator<FileScanTask> iterator;
         // Look-ahead buffer so hasNext() can skip data files filtered out by the rewrite scope.
         private IcebergScanRange buffered;
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicBoolean tasksClosed = new AtomicBoolean(false);
         // Per-file invariant cache (PERF-11): per split-source = per scan; the pump is single-threaded, so the
         // 1-entry cache stays O(1) memory (never accumulates), preserving the streaming path's OOM safety.
         private final PerFileScratch scratch = new PerFileScratch();
@@ -695,13 +702,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public boolean hasNext() {
             try {
+                if (cancelled.get()) {
+                    return false;
+                }
                 if (buffered != null) {
                     return true;
                 }
                 if (iterator == null) {
                     iterator = tasks.iterator();
                 }
-                while (iterator.hasNext()) {
+                while (!cancelled.get() && iterator.hasNext()) {
                     IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
                             orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
                     if (range != null) {
@@ -727,12 +737,28 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         @Override
+        public void cancel() {
+            cancelled.set(true);
+            try {
+                closeTasks();
+            } catch (IOException e) {
+                throw new DorisConnectorException("Failed to cancel Iceberg split planning", e);
+            }
+        }
+
+        @Override
         public void close() throws IOException {
             try {
                 if (iterator != null) {
                     iterator.close();
                 }
             } finally {
+                closeTasks();
+            }
+        }
+
+        private void closeTasks() throws IOException {
+            if (tasksClosed.compareAndSet(false, true)) {
                 tasks.close();
             }
         }
