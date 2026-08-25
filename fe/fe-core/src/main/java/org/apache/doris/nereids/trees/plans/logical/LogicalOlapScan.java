@@ -948,7 +948,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return scoreRangeInfo;
     }
 
-/** Build a pre-refresh snapshot as a stream scan in snapshot mode. */
+    /** Build a pre-refresh snapshot as a stream scan in snapshot mode. */
     public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
                 stream.get(), getTable(), selectedPartitionIds);
