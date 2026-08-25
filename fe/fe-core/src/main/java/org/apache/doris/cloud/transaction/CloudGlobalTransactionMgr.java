@@ -2883,8 +2883,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     commitTxnResponse.getTxnInfo().getTxnId());
             return;
         }
+        boolean hasLastActiveClusterUpdate = commitTxnResponse.getTxnInfo().hasLoadClusterId()
+                && !commitTxnResponse.getTxnInfo().getLoadClusterId().isEmpty()
+                && commitTxnResponse.getLastActiveTabletIdsCount() > 0;
         if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
-                || !Config.enable_notify_be_after_load_txn_commit) {
+                || (!Config.enable_notify_be_after_load_txn_commit && !hasLastActiveClusterUpdate)) {
             return;
         }
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
@@ -2913,10 +2916,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
 
             long updateVersionVisibleTime = commitTxnResponse.getVersionUpdateTimeMs();
+            String loadClusterId = commitTxnResponse.getTxnInfo().hasLoadClusterId()
+                    ? commitTxnResponse.getTxnInfo().getLoadClusterId() : "";
+            Set<Long> lastActiveTabletIds =
+                    new HashSet<>(commitTxnResponse.getLastActiveTabletIdsList());
 
             // Send tasks to notify BEs
             sendMakeCloudTmpRsVisibleTasks(txnId, tTabletCommitInfos,
-                    partitionVersionMap, updateVersionVisibleTime);
+                    partitionVersionMap, updateVersionVisibleTime, loadClusterId, lastActiveTabletIds);
         } catch (Throwable t) {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
@@ -2935,17 +2942,23 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @param commitInfos tablet commit infos containing backend and tablet mapping
      * @param partitionVersionMap partition id to version mapping
      * @param updateVersionVisibleTime visible time for the version
+     * @param loadClusterId cluster that performed the load
+     * @param lastActiveTabletIds tablets whose owner changed in this commit
      */
     public void sendMakeCloudTmpRsVisibleTasks(long txnId,
                                                List<TTabletCommitInfo> commitInfos,
                                                Map<Long, Long> partitionVersionMap,
-                                               long updateVersionVisibleTime) {
+                                               long updateVersionVisibleTime,
+                                               String loadClusterId,
+                                               Set<Long> lastActiveTabletIds) {
         if (commitInfos == null || commitInfos.isEmpty()) {
             LOG.info("no commit infos to send make cloud tmp rs visible tasks, txn_id: {}", txnId);
             return;
         }
 
         // Group tablet_ids by backend_id
+        Set<Long> ownerChangedTabletIds = lastActiveTabletIds == null
+                ? Collections.emptySet() : lastActiveTabletIds;
         Map<Long, List<Long>> beToTabletIds = Maps.newHashMap();
         for (TTabletCommitInfo commitInfo : commitInfos) {
             long backendId = commitInfo.getBackendId();
@@ -2963,9 +2976,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
             long backendId = entry.getKey();
             List<Long> tabletIds = entry.getValue();
+            List<Long> backendLastActiveTabletIds = tabletIds.stream()
+                    .filter(ownerChangedTabletIds::contains).collect(Collectors.toList());
 
             MakeCloudTmpRsVisibleTask task = new MakeCloudTmpRsVisibleTask(
-                    backendId, txnId, tabletIds, partitionVersionMap, updateVersionVisibleTime);
+                    backendId, txnId, tabletIds, partitionVersionMap, updateVersionVisibleTime,
+                    loadClusterId, backendLastActiveTabletIds);
             batchTask.addTask(task);
 
             if (LOG.isDebugEnabled()) {

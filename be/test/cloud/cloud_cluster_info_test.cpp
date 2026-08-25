@@ -205,6 +205,14 @@ TEST_F(CloudClusterInfoTest, TabletLastActiveClusterInfo) {
     _tablet->set_last_active_cluster_info("cluster_y", now + 1000);
     EXPECT_EQ(_tablet->last_active_cluster_id(), "cluster_y");
     EXPECT_EQ(_tablet->last_active_time_ms(), now + 1000);
+
+    EXPECT_FALSE(_tablet->update_last_active_cluster_info("cluster_old", now));
+    EXPECT_EQ(_tablet->last_active_cluster_id(), "cluster_y");
+    EXPECT_EQ(_tablet->last_active_time_ms(), now + 1000);
+
+    EXPECT_TRUE(_tablet->update_last_active_cluster_info("cluster_z", now + 2000));
+    EXPECT_EQ(_tablet->last_active_cluster_id(), "cluster_z");
+    EXPECT_EQ(_tablet->last_active_time_ms(), now + 2000);
 }
 
 // Case 9: Active cluster is NORMAL but version count exceeds 80% threshold, force compaction

@@ -56,8 +56,10 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -300,24 +302,37 @@ public class CloudGlobalTransactionMgrTest {
     @Test
     public void testMakeTmpRsVisibleForNonLazyCommit() throws Exception {
         CommitTxnResponse response = CommitTxnResponse.newBuilder()
-                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12348L).build())
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12348L)
+                        .setLoadClusterId("cluster_b").build())
                 .setIsLazyCommit(false)
                 .setIsLazyCommitIncomplete(false)
+                .addLastActiveTabletIds(10001L)
                 .build();
 
-        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response, false));
     }
 
     private boolean invokeNotifyBesMakeTmpRsVisible(CommitTxnResponse response) throws Exception {
+        return invokeNotifyBesMakeTmpRsVisible(response, true);
+    }
+
+    private boolean invokeNotifyBesMakeTmpRsVisible(
+            CommitTxnResponse response, boolean enableRowsetNotification) throws Exception {
         boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
         try {
-            Config.enable_notify_be_after_load_txn_commit = true;
+            Config.enable_notify_be_after_load_txn_commit = enableRowsetNotification;
             AtomicBoolean notified = new AtomicBoolean(false);
             CloudGlobalTransactionMgr transactionMgr = new CloudGlobalTransactionMgr() {
                 @Override
                 public void sendMakeCloudTmpRsVisibleTasks(long txnId,
                         List<TTabletCommitInfo> commitInfos, Map<Long, Long> partitionVersionMap,
-                        long updateVersionVisibleTime) {
+                        long updateVersionVisibleTime, String loadClusterId,
+                        Set<Long> lastActiveTabletIds) {
+                    String expectedLoadClusterId = response.getTxnInfo().hasLoadClusterId()
+                            ? response.getTxnInfo().getLoadClusterId() : "";
+                    Assert.assertEquals(expectedLoadClusterId, loadClusterId);
+                    Assert.assertEquals(new HashSet<>(response.getLastActiveTabletIdsList()),
+                            lastActiveTabletIds);
                     notified.set(true);
                 }
             };

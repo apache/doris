@@ -996,8 +996,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
 
             // Sync last active cluster info for compaction read-write separation
             if (config::enable_compaction_rw_separation && stats.has_last_active_cluster_id()) {
-                tablet->set_last_active_cluster_info(stats.last_active_cluster_id(),
-                                                     stats.last_active_time_ms());
+                tablet->update_last_active_cluster_info(stats.last_active_cluster_id(),
+                                                        stats.last_active_time_ms());
             }
         }
         return Status::OK();

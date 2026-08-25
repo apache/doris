@@ -42,6 +42,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -2523,7 +2524,7 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
 void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
                                               const TAgentTaskRequest& req) {
-    if (!config::enable_cloud_make_rs_visible_on_be) {
+    if (!config::enable_cloud_make_rs_visible_on_be && !config::enable_compaction_rw_separation) {
         return;
     }
     LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
@@ -2537,6 +2538,13 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
     int64_t version_update_time_ms = make_visible_req.__isset.version_update_time_ms
                                              ? make_visible_req.version_update_time_ms
                                              : 0;
+    std::string load_cluster_id =
+            make_visible_req.__isset.load_cluster_id ? make_visible_req.load_cluster_id : "";
+    std::unordered_set<int64_t> last_active_tablet_ids;
+    if (make_visible_req.__isset.last_active_tablet_ids) {
+        last_active_tablet_ids.insert(make_visible_req.last_active_tablet_ids.begin(),
+                                      make_visible_req.last_active_tablet_ids.end());
+    }
 
     // Process each tablet involved in this transaction on this BE
     for (int64_t tablet_id : make_visible_req.tablet_ids) {
@@ -2549,6 +2557,14 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
             continue;
         }
         auto cloud_tablet = tablet_result.value();
+
+        if (config::enable_compaction_rw_separation && !load_cluster_id.empty() &&
+            version_update_time_ms > 0 && last_active_tablet_ids.contains(tablet_id)) {
+            cloud_tablet->update_last_active_cluster_info(load_cluster_id, version_update_time_ms);
+        }
+        if (!config::enable_cloud_make_rs_visible_on_be) {
+            continue;
+        }
 
         int64_t partition_id = cloud_tablet->partition_id();
         auto version_iter = make_visible_req.partition_version_map.find(partition_id);
