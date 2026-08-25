@@ -21,7 +21,7 @@ suite("inner_join_range_date_increment_create", "increment_create") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=false"
-
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
     sql """
     drop table if exists orders_inner_2
     """

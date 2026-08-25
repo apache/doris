@@ -47,6 +47,12 @@ public class AdminRotateTdeRootKeyCommand extends Command implements ForwardWith
 
     public static final String DORIS_TDE_KEY_REGION = "doris_tde_key_region";
 
+    // File path containing the new key for local key rotation.
+    public static final String DORIS_TDE_KEY_NEW_KEY_FILE = "doris_tde_key_new_key_file";
+
+    // File path containing the original key for verification during local key rotation.
+    public static final String DORIS_TDE_KEY_ORIGINAL_KEY_FILE = "doris_tde_key_original_key_file";
+
     private final Map<String, String> properties;
 
     public AdminRotateTdeRootKeyCommand(Map<String, String> properties) {

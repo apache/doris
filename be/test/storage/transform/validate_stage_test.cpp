@@ -137,10 +137,10 @@ TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
               (V {"Validate", "FixedPartialUpdateFill", "VariantParse", "RowStoreFill"}));
 }
 
-// Flexible partial update only gets validated by the chain for now: the vertical
-// writer still owns its fill, parse and row-store work. The flexible fill stage
-// takes this slot when it moves into the chain.
-TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdateValidateOnly) {
+// TYPE_DIRECT + flexible PU -> the flexible fill stage sits after Validate; the
+// legacy flexible path rebuilt RowStore before parsing the filled variants, the
+// reverse of the fixed order.
+TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     using V = std::vector<std::string_view>;
     auto fschema = create_flexible_mow_schema();
     auto flexible = std::make_shared<PartialUpdateInfo>();
@@ -150,29 +150,74 @@ TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdateValidateOnly) {
                         .ok());
     RowsetWriterContext fc = direct_rwc(fschema);
     fc.partial_update_info = flexible;
-    EXPECT_EQ(build_transform_chain(fc).stage_names(), (V {"Validate"}));
+    EXPECT_EQ(build_transform_chain(fc).stage_names(),
+              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
 }
 
-// Binlog sub-writers keep deriving inside RowBinlogSegmentWriter for now, so
-// their chain stays empty for every write type. The derive stage takes this
-// slot when it moves into the chain.
-TEST_F(ValidateStageTest, CompositionBinlogEmpty) {
+// Binlog sub-writers derive their rows in the chain: a direct write picks the
+// Plain or MoW derive stage, every other write type keeps an empty chain
+// (compaction and schema change feed rows that are already binlog shaped).
+TEST_F(ValidateStageTest, CompositionBinlogDirectDerivesOtherwiseEmpty) {
+    using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext rwc = direct_rwc(schema);
     rwc.write_binlog_opt().enable = true;
 
-    for (auto write_type : {DataWriteType::TYPE_DIRECT, DataWriteType::TYPE_DEFAULT,
-                            DataWriteType::TYPE_SCHEMA_CHANGE}) {
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
+
+    for (auto write_type : {DataWriteType::TYPE_DEFAULT, DataWriteType::TYPE_SCHEMA_CHANGE,
+                            DataWriteType::TYPE_COMPACTION}) {
         rwc.write_type = write_type;
         EXPECT_TRUE(build_transform_chain(rwc).empty());
     }
 }
 
+// The publish phase rewrites conflicting rows through a transient writer: still
+// TYPE_DIRECT and still carrying the partial-update info, but the rows are final,
+// so the binlog op must come from their own delete sign rather than a second
+// history probe. is_transient_rowset_writer is what separates the two.
+TEST_F(ValidateStageTest, CompositionBinlogTransientPartialUpdateStaysPlain) {
+    using V = std::vector<std::string_view>;
+    auto schema = create_mow_schema(/*has_seq=*/false);
+    auto pui = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(pui->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                          PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0, "UTC", "")
+                        .ok());
+    RowsetWriterContext rwc = direct_rwc(schema);
+    rwc.write_binlog_opt().enable = true;
+    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+    cfg.source.partial_update_info = pui;
+    cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+    cfg.source.is_transient_rowset_writer = true;
+
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
+
+    // the same write with a BEFORE image still needs the probe
+    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+
+    // and a non-transient write of the same partial update does probe
+    rwc.write_binlog_opt().write_binlog_config().write_before = false;
+    rwc.write_binlog_opt().write_binlog_config().source.is_transient_rowset_writer = false;
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+}
+
+// A direct binlog write that needs history -- a BEFORE image here -- picks the
+// MoW derive stage instead of the plain one.
+TEST_F(ValidateStageTest, CompositionBinlogBeforeImagePicksMowDerive) {
+    using V = std::vector<std::string_view>;
+    auto schema = create_mow_schema(/*has_seq=*/false);
+    RowsetWriterContext rwc = direct_rwc(schema);
+    rwc.write_binlog_opt().enable = true;
+    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+}
+
 // =============================================================================
-// ValidateStage branches (V1-V9, without V5's fill which is not in the chain
-// yet). ValidateStage is the chain's first stage on every non-compaction,
-// non-binlog path, so we build the real chain and drive it with a block that
-// already fails / passes validate.
+// ValidateStage branches (V1-V9). ValidateStage is the chain's first stage on
+// every non-compaction, non-binlog path, so we build the real chain and drive
+// it with a block that already fails / passes validate.
 // =============================================================================
 
 // V1: non-PU direct, full width (columns == num_columns) -> accepted.
@@ -182,7 +227,7 @@ TEST_F(ValidateStageTest, V1_DirectAcceptsGoodWidth) {
     auto chain = build_transform_chain(c);
     TransformExecContext ctx = exec_ctx(schema, &c);
 
-    Block block = schema->create_block(); // full width, 0 rows
+    Block block = schema->create_storage_block(); // full width, 0 rows
     EXPECT_TRUE(chain.apply(ctx, &block).ok());
 }
 
@@ -193,7 +238,7 @@ TEST_F(ValidateStageTest, V2_DirectRejectsBadWidth) {
     auto chain = build_transform_chain(c);
     TransformExecContext ctx = exec_ctx(schema, &c);
 
-    Block block = schema->create_block_by_cids({0}); // 1 column != num_columns(3)
+    Block block = schema->create_storage_block({0}); // 1 column != num_columns(3)
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -217,7 +262,7 @@ TEST_F(ValidateStageTest, V3_PartialUpdateRejectsNoTabletContext) {
     ctx.tablet = nullptr; // no tablet context
     ctx.mow_context = nullptr;
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     block.get_by_position(0).column->assert_mutable()->insert_default();
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
@@ -253,7 +298,7 @@ TEST_F(ValidateStageTest, V4_PartialUpdateRejectsWithoutSegmentId) {
     ctx.rowset_ctx = &rwc;
     ctx.segment_id = -1; // add_block seam: no segment id
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     int32_t k = 1;
     kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -298,7 +343,7 @@ TEST_F(ValidateStageTest, V5_FixedPartialUpdateAcceptsNarrowWidth) {
     ctx.rowset_id = new_rsid;
     ctx.segment_id = 0;
 
-    Block block = schema->create_block_by_cids({0}); // narrow: key only, in [1, 3)
+    Block block = schema->create_storage_block({0}); // narrow: key only, in [1, 3)
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     for (int32_t k : {1, 3}) {
         kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -354,7 +399,7 @@ TEST_F(ValidateStageTest, V6V7_FixedPartialUpdateRejectsBadWidth) {
     // V6 too wide: full width (3 == num_columns) is not a partial update block.
     {
         TransformExecContext ctx = make_ctx();
-        Block block = schema->create_block();
+        Block block = schema->create_storage_block();
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -364,7 +409,7 @@ TEST_F(ValidateStageTest, V6V7_FixedPartialUpdateRejectsBadWidth) {
     // V7 too narrow: fewer columns than the key (0 < 1 key column).
     {
         TransformExecContext ctx = make_ctx();
-        Block block = schema->create_block_by_cids({});
+        Block block = schema->create_storage_block({});
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -392,7 +437,7 @@ TEST_F(ValidateStageTest, V8_FlexiblePartialUpdateRejectsBadWidth) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = schema->create_block_by_cids({0}); // 1 col != num_columns(4)
+    Block block = schema->create_storage_block({0}); // 1 col != num_columns(4)
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -420,14 +465,14 @@ TEST_F(ValidateStageTest, V9_TransientPartialUpdateValidatedAsDirect) {
     {
         TransformExecContext ctx = exec_ctx(schema, &rwc);
         ctx.partial_update_info = pui;
-        Block block = schema->create_block(); // 3 cols == num_columns
+        Block block = schema->create_storage_block(); // 3 cols == num_columns
         EXPECT_TRUE(chain.apply(ctx, &block).ok());
     }
     // a narrow block is rejected with the non-PU width error -- not the PU one
     {
         TransformExecContext ctx = exec_ctx(schema, &rwc);
         ctx.partial_update_info = pui;
-        Block block = schema->create_block_by_cids({0}); // 1 col != num_columns(3)
+        Block block = schema->create_storage_block({0}); // 1 col != num_columns(3)
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -449,7 +494,7 @@ TEST_F(ValidateStageTest, FlushSeamRejectsBeforeCreatingAWriter) {
     InvertedIndexFileCollection index_files;
     SegmentFlusher flusher(rwc, segment_files, index_files);
 
-    Block block = schema->create_block_by_cids({0}); // 1 column != num_columns(3)
+    Block block = schema->create_storage_block({0}); // 1 column != num_columns(3)
     block.get_by_position(0).column->assert_mutable()->insert_default();
     auto st = flusher.flush_single_block(&block, /*segment_id=*/0);
     EXPECT_FALSE(st.ok());

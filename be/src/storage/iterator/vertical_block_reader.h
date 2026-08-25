@@ -123,9 +123,6 @@ private:
     std::vector<AggregateDataPtr> _agg_places;
     Arena _arena;
 
-    std::vector<int> _normal_columns_idx;
-    std::vector<int> _agg_columns_idx;
-
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 

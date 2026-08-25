@@ -54,7 +54,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -76,9 +75,11 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -121,6 +122,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 // Full scan of an Olap table.
@@ -232,6 +234,11 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
 
+    private BackendSelection.SelectionHint selectionHint;
+    private boolean scanBackendOrderBySelection = false;
+    private long querySelectionPreferredHitTablets;
+    private long querySelectionFallbackTablets;
+
     private boolean isTopnLazyMaterialize = false;
     private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
 
@@ -266,8 +273,12 @@ public class OlapScanNode extends ScanNode {
         return isPreAggregation;
     }
 
-    public HashSet<Long> getScanBackendIds() {
+    public Set<Long> getScanBackendIds() {
         return scanBackendIds;
+    }
+
+    public boolean isScanBackendOrderBySelection() {
+        return scanBackendOrderBySelection;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -518,6 +529,13 @@ public class OlapScanNode extends ScanNode {
         boolean isInvalidComputeGroup = ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup);
         boolean isNotCloudComputeGroup = computeGroup != null && !Config.isCloudMode();
 
+        if (context != null && !Config.isCloudMode() && selectionHint == null) {
+            selectionHint = context.getQueryBackendSelectionDecision();
+        }
+        if (context != null && !Config.isCloudMode() && (skipMissingVersion || useFixReplica >= 0)) {
+            validateRequiredQuerySelection(skipMissingVersion, useFixReplica, selectionHint);
+        }
+
         ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
@@ -574,8 +592,9 @@ public class OlapScanNode extends ScanNode {
             //
             // ATTN: visibleVersion is not used in cloud mode, see CloudReplica.checkVersionCatchup
             // for details.
-            List<Replica> replicas = tablet.getQueryableReplicas(
-                    visibleVersion, backendAlivePathHashs, skipMissingVersion);
+            List<Replica> replicas = BackendSelectionManager.isRequiredSelection(selectionHint)
+                    ? tablet.getQueryableReplicas(visibleVersion, backendAlivePathHashs, skipMissingVersion, false)
+                    : tablet.getQueryableReplicas(visibleVersion, backendAlivePathHashs, skipMissingVersion);
             locations.setLocations(new ArrayList<>(replicas.size()));
             paloRange.setHosts(new ArrayList<>(replicas.size()));
             if (replicas.isEmpty()) {
@@ -594,12 +613,26 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
+            boolean querySelectionEvaluated = false;
             if (useFixReplica <= -1) {
                 if (skipMissingVersion) {
-                    // sort by replica's last success version, higher success version in the front.
-                    replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
-                } else if (replicas.size() > 1) {
-                    Collections.shuffle(replicas);
+                    List<Replica> orderedReplicas = orderReplicasForQuerySelection(
+                            true, replicas, selectionHint,
+                            replica -> getReplicaLocationTag(replica, allBackends));
+                    querySelectionEvaluated = !Config.isCloudMode();
+                    if (orderedReplicas != replicas) {
+                        replicas = new ArrayList<>(orderedReplicas);
+                        scanBackendOrderBySelection = true;
+                    }
+                } else {
+                    List<Replica> orderedReplicas = orderReplicasForQuerySelection(
+                            false, replicas, selectionHint,
+                            replica -> getReplicaLocationTag(replica, allBackends));
+                    querySelectionEvaluated = shouldApplyQuerySelection(false);
+                    if (orderedReplicas != replicas) {
+                        replicas = new ArrayList<>(orderedReplicas);
+                        scanBackendOrderBySelection = true;
+                    }
                 }
             } else {
                 if (LOG.isDebugEnabled()) {
@@ -621,9 +654,9 @@ public class OlapScanNode extends ScanNode {
                     }
                     Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
-                    if (backend == null || !backend.isAlive()) {
+                    if (backend == null || !backend.isQueryAvailable()) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not alive for replica {}", beId,
+                            LOG.debug("backend {} not exists or is not query available for replica {}", beId,
                                     replica.getId());
                         }
                         Collections.shuffle(replicas);
@@ -647,17 +680,16 @@ public class OlapScanNode extends ScanNode {
                 // third time we choose BE C, after this time all replica is cached
                 // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
                 if (-1L != coolDownReplicaId) {
-                    final Optional<Replica> replicaOptional = replicas.stream()
+                    Optional<Replica> replicaOptional = replicas.stream()
                             .filter(r -> r.getId() == coolDownReplicaId).findAny();
-                    replicaOptional.ifPresent(
-                            r -> {
-                                Backend backend = allBackends.get(r.getBackendIdWithoutException());
-                                if (backend != null && backend.isAlive()) {
-                                    replicas.clear();
-                                    replicas.add(r);
-                                }
-                            }
-                    );
+                    if (replicaOptional.isPresent()) {
+                        Replica replica = replicaOptional.get();
+                        Backend backend = allBackends.get(replica.getBackendIdWithoutException());
+                        if (backend != null && backend.isQueryAvailable()) {
+                            replicas.clear();
+                            replicas.add(replica);
+                        }
+                    }
                 }
             }
 
@@ -688,14 +720,14 @@ public class OlapScanNode extends ScanNode {
                     clusterException = true;
                     continue;
                 }
-                if (backend == null || !backend.isAlive()) {
+                if (backend == null || !backend.isQueryAvailable()) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} not exists or is not alive for replica {}", backendId,
+                        LOG.debug("backend {} not exists or is not query available for replica {}", backendId,
                                 replica.getId());
                     }
                     String err = "replica " + replica.getId() + "'s backend " + backendId
                             + (backend != null ? " with tag " + backend.getLocationTag() : "")
-                            + " does not exist or not alive";
+                            + " does not exist or is not query available";
                     errs.add(err);
                     continue;
                 }
@@ -703,7 +735,8 @@ public class OlapScanNode extends ScanNode {
                     continue;
                 }
                 String beTagName = backend.getLocationTag().value;
-                if (isInvalidComputeGroup || (isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName))) {
+                if (shouldFilterReplicaByResourceTag(isInvalidComputeGroup, isNotCloudComputeGroup,
+                        computeGroup, beTagName)) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tag: %s",
                             backend.getId(), beTagName, computeGroup.toString());
@@ -748,6 +781,11 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
                         + Joiner.on(", ").join(errs));
             }
+            if (querySelectionEvaluated) {
+                recordQuerySelectionResult(selectionHint, BackendSelectionManager.classifyQuerySelection(
+                        selectionHint, locations.getLocations(),
+                        location -> allBackends.get(location.getBackendId()).getLocationTag()));
+            }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
@@ -777,6 +815,12 @@ public class OlapScanNode extends ScanNode {
             version /= 10;
         }
         return new String(chars, index + 1, 23 - index);
+    }
+
+    private Tag getReplicaLocationTag(Replica replica, ImmutableMap<Long, Backend> allBackends) {
+        long backendId = replica.getBackendIdWithoutException();
+        Backend backend = allBackends.get(backendId);
+        return backend == null ? null : backend.getLocationTag();
     }
 
     private boolean isEnableCooldownReplicaAffinity(ConnectContext connectContext) {
@@ -818,6 +862,8 @@ public class OlapScanNode extends ScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
+        querySelectionPreferredHitTablets = 0;
+        querySelectionFallbackTablets = 0;
         if (selectedPartitionIds.isEmpty()) {
             return;
         }
@@ -1045,6 +1091,8 @@ public class OlapScanNode extends ScanNode {
         computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();
+        selectionHint = null;
+        scanBackendOrderBySelection = false;
         scanTabletIds.clear();
         tabletId2BucketSeq.clear();
         bucketSeq2locations.clear();
@@ -1057,6 +1105,85 @@ public class OlapScanNode extends ScanNode {
             throw new UserException(e.getMessage());
         }
         return scanRangeLocations;
+    }
+
+    @VisibleForTesting
+    static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
+            ComputeGroup computeGroup, String beTagName) {
+        return isInvalidComputeGroup
+                || (Config.enable_resource_tag_location_check
+                        && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
+    }
+
+    @VisibleForTesting
+    static boolean shouldApplyQuerySelection(boolean skipMissingVersion) {
+        return !Config.isCloudMode() && !skipMissingVersion;
+    }
+
+    @VisibleForTesting
+    static List<Replica> orderReplicasForQuerySelection(boolean skipMissingVersion, List<Replica> replicas,
+            BackendSelection.SelectionHint hint, Function<Replica, Tag> tagOf)
+            throws UserException {
+        if (skipMissingVersion) {
+            // Sort by replica's last success version, higher success version in the front.
+            replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
+            if (!Config.isCloudMode()) {
+                return BackendSelectionManager.orderQueryCandidatesWithinTies(
+                        hint, replicas, Replica.LAST_SUCCESS_VERSION_COMPARATOR, tagOf);
+            }
+            return replicas;
+        }
+        if (replicas.size() > 1) {
+            Collections.shuffle(replicas);
+        }
+        if (shouldApplyQuerySelection(false)) {
+            return BackendSelectionManager.orderQueryCandidates(hint, replicas, tagOf);
+        }
+        return replicas;
+    }
+
+    @VisibleForTesting
+    static void validateRequiredQuerySelection(boolean skipMissingVersion, int useFixReplica,
+            BackendSelection.SelectionHint hint) throws UserException {
+        if (!BackendSelectionManager.isRequiredSelection(hint)) {
+            return;
+        }
+        if (skipMissingVersion) {
+            throw new UserException("Required backend selection is incompatible with skip_missing_version");
+        }
+        if (useFixReplica >= 0) {
+            throw new UserException("Required backend selection is incompatible with use_fix_replica");
+        }
+    }
+
+    @VisibleForTesting
+    void recordQuerySelectionResult(BackendSelection.SelectionHint hint,
+            BackendSelection.QuerySelectionResult result) {
+        switch (result) {
+            case PREFERRED_HIT:
+                selectionHint = hint;
+                querySelectionPreferredHitTablets++;
+                break;
+            case FALLBACK_PREFERRED_UNAVAILABLE:
+                selectionHint = hint;
+                querySelectionFallbackTablets++;
+                break;
+            case DISABLED:
+                break;
+            default:
+                throw new IllegalStateException("Unknown query selection result: " + result);
+        }
+    }
+
+    @VisibleForTesting
+    String getQuerySelectionExplain(String prefix) {
+        if (querySelectionPreferredHitTablets == 0 && querySelectionFallbackTablets == 0) {
+            return "";
+        }
+        return prefix + "QUERY BACKEND SELECTION: preferred=" + selectionHint.getPreferredKey()
+                + ", mode=" + selectionHint.getMode()
+                + ", preferred_available_tablets=" + querySelectionPreferredHitTablets
+                + ", fallback_preferred_unavailable_tablets=" + querySelectionFallbackTablets + "\n";
     }
 
     @Override
@@ -1088,6 +1215,7 @@ public class OlapScanNode extends ScanNode {
             output.append(", PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation);
         }
         output.append("\n");
+        output.append(getQuerySelectionExplain(prefix));
 
         if (sortColumn != null) {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
@@ -1232,22 +1360,6 @@ public class OlapScanNode extends ScanNode {
             columnsDesc.add(ColumnToThrift.toThrift(globalRowIdColumn));
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
-
-            // Add extra row id column
-            ArrayList<SlotDescriptor> slots = desc.getSlots();
-            Column lastColumn = slots.get(slots.size() - 1).getColumn();
-            if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
-                TColumn tColumn = new TColumn();
-                tColumn.setColumnName(Column.ROWID_COL);
-                tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-                tColumn.setAggregationType(TAggregationType.REPLACE);
-                tColumn.setIsKey(false);
-                tColumn.setIsAllowNull(false);
-                // keep compatibility
-                tColumn.setVisible(false);
-                tColumn.setColUniqueId(Integer.MAX_VALUE);
-                columnsDesc.add(tColumn);
-            }
         }
 
         // Add virtual column to ColumnsDesc so that backend could
@@ -1754,6 +1866,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setScanParams(TableScanParams scanParams) {
         this.scanParams = scanParams;
+    }
+
+    public TableScanParams getScanParams() {
+        return scanParams;
     }
 
     public long getIncrementalScanEndTime() {

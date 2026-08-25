@@ -71,6 +71,7 @@
 
 #include "common/check.h"
 #include "common/config.h"
+#include "storage/index/inverted/inverted_index_common.h" // for DirectoryDeleter
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/snii/bkd/bkd_builder.h"
 #include "storage/index/snii/bkd/bkd_index_block.h"

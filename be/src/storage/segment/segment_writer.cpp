@@ -97,8 +97,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _file_writer(file_writer),
           _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
-          _key_encoder(*_tablet_schema, _is_mow()),
-          _mow_context(std::move(opts.mow_ctx)) {
+          _key_encoder(*_tablet_schema, _is_mow()) {
     CHECK_NOTNULL(file_writer);
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
 }
@@ -157,7 +156,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
     if (opts.need_bloom_filter) {
-        opts.bf_options.fpp = schema->has_bf_fpp() ? schema->bloom_filter_fpp() : 0.05;
+        opts.bf_options.fpp = schema->get_bloom_filter_fpp(column);
     }
     auto* tablet_index = schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
@@ -344,18 +343,6 @@ Status SegmentWriter::_create_writers(const TabletSchemaSPtr& tablet_schema,
 }
 
 Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t num_rows) {
-    // Fixed partial update blocks arrive full-width, already filled by the transform
-    // chain; only the flexible mode still needs the vertical writer.
-    if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
-        _opts.write_type == DataWriteType::TYPE_DIRECT &&
-        !_opts.rowset_ctx->is_transient_rowset_writer &&
-        !_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
-        return Status::NotSupported<false>(
-                "SegmentWriter doesn't support flexible partial update, please set "
-                "enable_vertical_segment_writer=true in be.conf on all BEs to use "
-                "VerticalSegmentWriter.");
-    }
     if (block->columns() < _column_writers.size()) {
         return Status::InternalError(
                 "block->columns() < _column_writers.size(), block->columns()=" +
@@ -367,8 +354,6 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size()
             << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
-    // Blocks from the seams arrive already transformed (variants parsed, row-store
-    // column materialized); compaction-family callers bring rows that are already final.
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // convert column data from engine format to storage layer format
@@ -514,7 +499,33 @@ Status SegmentWriter::finalize_columns_data() {
     return Status::OK();
 }
 
+void SegmentWriter::_abandon_index_staging() {
+    // No clear() here: abandon_snii_staging() empties the staging directories
+    // themselves, so it does not matter whether the column writers -- which hold
+    // the same directories -- are still alive.
+    if (_index_file_writer != nullptr) {
+        _index_file_writer->abandon_snii_staging();
+    }
+}
+
+// A failure below can land AFTER the ANN and BKD indexes have already been built
+// into their staging files. The caller then returns before close_inverted_index(),
+// so the seal that would have consumed them never runs, and the rowset writer
+// keeps this segment's IndexFileWriter -- with its staging files and their open
+// descriptors -- until the whole load or compaction unwinds. Drop them here.
+//
+// ONLY on failure. On the success path close_inverted_index() is what consumes
+// the staging, so dropping it here would silently seal a container with no ANN
+// or BKD index in it.
 Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
+    Status status = _finalize_columns_index_impl(index_size);
+    if (!status.ok()) {
+        _abandon_index_staging();
+    }
+    return status;
+}
+
+Status SegmentWriter::_finalize_columns_index_impl(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     // Record each index range separately. Vertical compaction writes column groups as
     // data+index pairs, so a single [first index, EOF) range would include later column data.
@@ -583,8 +594,21 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size,
     return Status::OK();
 }
 
+// Wrapped for the same reason as finalize_columns_index(): a footer or file-close
+// failure lands after the indexes have staged, and the caller returns before
+// close_inverted_index(). An inner failure has already abandoned the staging, so
+// the second call is a no-op.
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
                                SegmentIndexFileCacheInfo* index_file_cache_info) {
+    Status status = _finalize_impl(segment_file_size, index_size, index_file_cache_info);
+    if (!status.ok()) {
+        _abandon_index_staging();
+    }
+    return status;
+}
+
+Status SegmentWriter::_finalize_impl(uint64_t* segment_file_size, uint64_t* index_size,
+                                     SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity

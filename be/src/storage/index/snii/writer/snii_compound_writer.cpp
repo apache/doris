@@ -31,6 +31,7 @@
 #include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "util/defer_op.h"
 
 namespace doris::snii::writer {
 
@@ -45,6 +46,19 @@ Status SniiCompoundWriter::poison(Status status) {
     DCHECK(!status.ok());
     if (failed_.ok()) {
         failed_ = std::move(status);
+        // First transition only. A poisoned compound can never seal, so every
+        // registered blob source is already dead -- and a source is routinely the
+        // SOLE owner of a staging file holding a whole faiss index or a BKD leaf
+        // region, because the producer hands it over at registration. Waiting for
+        // finish() to release them is not enough: after a poison, production
+        // usually never calls it. SegmentWriter::_write_inverted_index() returns
+        // before close_inverted_index(), and SegmentCreator::flush() keeps the
+        // failed writer, so the files and their descriptors would stay pinned
+        // until this writer is destroyed.
+        //
+        // Safe from inside finish()'s own loops: this only swaps the contents of
+        // each entry's source vectors, never resizes blobs_.
+        release_all_blob_sources();
     }
     return failed_;
 }
@@ -173,11 +187,12 @@ Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
     status = liw->stream_dict_region_into(out_);
     if (!status.ok()) return poison(status);
     p.dict_len = out_->bytes_written() - p.dict_off;
+    status = write_index_aux_sections(*liw, p);
+    if (!status.ok()) {
+        return poison(status);
+    }
     indexes_.push_back(std::move(liw));
     placements_.push_back(p);
-    // liw has been moved from; write_index_aux_sections works off indexes_.back().
-    status = write_index_aux_sections(indexes_.size() - 1);
-    if (!status.ok()) return poison(status);
     return Status::OK();
 }
 
@@ -311,6 +326,13 @@ void SniiCompoundWriter::release_blob_sources(std::vector<BlobFileSource>* files
     // themselves are destroyed.
     std::vector<BlobFileSource> released;
     files->swap(released);
+}
+
+void SniiCompoundWriter::release_all_blob_sources() {
+    for (PendingBlobIndex& blob : blobs_) {
+        release_blob_sources(&blob.cold_files);
+        release_blob_sources(&blob.hot_files);
+    }
 }
 
 SniiIndexInput SniiStreamedIndexSession::attach_encoded_norms(SniiIndexInput in,
@@ -479,18 +501,15 @@ Status SniiCompoundWriter::finish_streamed_index(SniiStreamedIndexSession* sessi
     status = session->writer_->stream_dict_region_into(out_);
     if (!status.ok()) return poison(status);
     p.dict_len = out_->bytes_written() - p.dict_off;
-    // The index joins the container (indexes_/placements_) here, but session->finished_
-    // is not set until write_index_aux_sections below also succeeds. A failure ANYWHERE
-    // in this function -- finish_streamed()/stream_dict_region_into() above, or
-    // write_index_aux_sections below -- calls poison(), which sets failed_ before
-    // returning. finish() checks "if (!failed_.ok()) return failed_;" ahead of its
-    // has_active_session() gate, so a poisoned writer fails loudly on its own; it can
-    // never fall through to sealing a tail that silently omits an index whose posting
-    // bytes are already in the file.
+    // The index joins the container only after every section succeeds. A failure
+    // anywhere in this function poisons the compound writer, so finish() cannot seal
+    // a tail that omits posting bytes already written to the file.
+    status = write_index_aux_sections(*session->writer_, p);
+    if (!status.ok()) {
+        return poison(status);
+    }
     indexes_.push_back(std::move(session->writer_));
     placements_.push_back(p);
-    status = write_index_aux_sections(indexes_.size() - 1);
-    if (!status.ok()) return poison(status);
     session->finished_ = true;
     return Status::OK();
 }
@@ -506,29 +525,25 @@ Status SniiCompoundWriter::write_bootstrap() {
 // Writes one index's norms / null bitmap / bsbf directly after its [posting][dict] pair.
 // Bytes are released as soon as they are on disk rather than being held until finish(),
 // which also lowers import peak memory -- a content column's bsbf runs to MBs.
-Status SniiCompoundWriter::write_index_aux_sections(size_t index) {
-    DORIS_CHECK_LT(index, indexes_.size());
-    DORIS_CHECK_LT(index, placements_.size());
-    LogicalIndexWriter& w = *indexes_[index];
-    Placement& p = placements_[index];
-
-    if (w.has_norms() && !w.norms_bytes().empty()) {
-        p.norms_off = out_->bytes_written();
-        RETURN_IF_ERROR(append(w.norms_bytes()));
-        p.norms_len = out_->bytes_written() - p.norms_off;
-        w.release_norms_bytes();
+Status SniiCompoundWriter::write_index_aux_sections(LogicalIndexWriter& writer,
+                                                    Placement& placement) {
+    if (writer.has_norms() && !writer.norms_bytes().empty()) {
+        placement.norms_off = out_->bytes_written();
+        RETURN_IF_ERROR(append(writer.norms_bytes()));
+        placement.norms_len = out_->bytes_written() - placement.norms_off;
+        writer.release_norms_bytes();
     }
-    if (w.has_null_bitmap()) {
-        p.null_off = out_->bytes_written();
-        RETURN_IF_ERROR(append(w.null_bitmap_bytes()));
-        p.null_len = out_->bytes_written() - p.null_off;
-        w.release_null_bitmap_bytes();
+    if (writer.has_null_bitmap()) {
+        placement.null_off = out_->bytes_written();
+        RETURN_IF_ERROR(append(writer.null_bitmap_bytes()));
+        placement.null_len = out_->bytes_written() - placement.null_off;
+        writer.release_null_bitmap_bytes();
     }
-    if (w.has_bsbf()) {
-        p.bsbf_off = out_->bytes_written();
-        RETURN_IF_ERROR(append(w.bsbf_bytes()));
-        p.bsbf_len = out_->bytes_written() - p.bsbf_off;
-        w.release_bsbf_bytes();
+    if (writer.has_bsbf()) {
+        placement.bsbf_off = out_->bytes_written();
+        RETURN_IF_ERROR(append(writer.bsbf_bytes()));
+        placement.bsbf_len = out_->bytes_written() - placement.bsbf_off;
+        writer.release_bsbf_bytes();
     }
     return Status::OK();
 }
@@ -705,9 +720,9 @@ Status SniiCompoundWriter::write_tail() {
 Status SniiCompoundWriter::finish() {
     if (out_ == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
-    if (!failed_.ok()) {
-        return failed_;
-    }
+    // poison() -- the only writer of failed_ -- already released every blob
+    // source at the transition, so there is nothing left to drop here.
+    if (!failed_.ok()) return failed_;
     if (finished_)
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>("compound: finish called twice");
     // Crash-safety invariant 6: a begun-but-unfinished streamed session already
@@ -719,6 +734,7 @@ Status SniiCompoundWriter::finish() {
                 "compound: finish with an unfinished streamed index session; the half-fed "
                 "index must never be sealed away silently");
     finished_ = true;
+    Defer release_blobs([this] { release_all_blob_sources(); });
 
     RETURN_IF_ERROR(ensure_bootstrap()); // empty container still gets a header
     // Aux sections were written per index at add/finish_streamed time, right after each
@@ -730,13 +746,13 @@ Status SniiCompoundWriter::finish() {
         status = write_blob_files(blob.cold_files, &blob.cold_refs);
         if (!status.ok()) return poison(status);
         // The sources are dead the instant their bytes are in the container and
-        // their extents are in cold_refs -- and a source can OWN its bytes (the
-        // ANN staging directory hands over shared buffers holding a whole faiss
-        // index), so holding the vector until this writer is destroyed would pin
-        // that memory across every remaining blob and, because a rowset build
-        // keeps one writer per segment alive until every segment has been closed,
-        // across every segment of the rowset. Released per blob rather than after
-        // the loop so a multi-blob container never holds two at once.
+        // their extents are in cold_refs -- and a source can own resources (the
+        // ANN staging directory hands over staged files holding a whole Faiss
+        // index), so holding the vector until this writer is destroyed would retain
+        // those files across every remaining blob and, because a rowset build keeps
+        // one writer per segment alive until every segment has been closed, across
+        // every segment of the rowset. Released per blob rather than after the loop
+        // so a multi-blob container never retains two at once.
         release_blob_sources(&blob.cold_files);
     }
     status = write_tail();

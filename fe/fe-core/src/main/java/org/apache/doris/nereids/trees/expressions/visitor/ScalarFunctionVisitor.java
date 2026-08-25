@@ -354,6 +354,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEn
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromArrays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -2840,6 +2842,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapEntries(MapEntries mapEntries, C context) {
         return visitScalarFunction(mapEntries, context);
+    }
+
+    default R visitMapFromArrays(MapFromArrays mapFromArrays, C context) {
+        return visitScalarFunction(mapFromArrays, context);
+    }
+
+    default R visitMapFromEntries(MapFromEntries mapFromEntries, C context) {
+        return visitScalarFunction(mapFromEntries, context);
     }
 
     default R visitMapKeys(MapKeys mapKeys, C context) {

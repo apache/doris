@@ -436,6 +436,21 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
+
+    const auto error_limit_status = [this]() -> Status {
+        if (_load_zero_tolerance) {
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
+        }
+        return Status::OK();
+    };
+    if (_num_print_error_rows.load(std::memory_order_relaxed) > MAX_ERROR_NUM) {
+        return error_limit_status();
+    }
+
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
     // If file haven't been opened, open it here
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
@@ -452,14 +467,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     }
     // If num of printed error row exceeds the limit, don't add error messages to error log file any more
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
-        // if _load_zero_tolerance, return Error to stop the load process immediately.
-        if (_load_zero_tolerance) {
-            return Status::DataQualityError(
-                    "Encountered unqualified data, stop processing. Please check if the source "
-                    "data matches the schema, and consider disabling strict mode or increasing "
-                    "max_filter_ratio.");
-        }
-        return Status::OK();
+        return error_limit_status();
     }
 
     fmt::memory_buffer out;
@@ -481,33 +489,52 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     return Status::OK();
 }
 
+std::string RuntimeState::get_first_error_msg() const {
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
+    return _first_error_msg;
+}
+
 std::string RuntimeState::get_error_log_file_path() {
-    DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
-        if (!_error_log_file_path.empty()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    });
-    std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
-    if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
-        // close error log file
-        _error_log_file->close();
-        std::string error_log_absolute_path =
-                _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
-        // upload error log file to s3
-        Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-        if (!st.ok()) {
-            // upload failed and return local error log file path
-            LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
-                         << _error_log_file_path << ", error=" << st;
+    std::lock_guard<std::mutex> s3_lock(_s3_error_log_file_lock);
+    std::shared_ptr<io::S3FileSystem> s3_error_fs;
+    std::string local_error_log_file_path;
+    std::string remote_error_log_file_path;
+    {
+        std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
+        DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
+            if (!_error_log_file_path.empty()) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        });
+        if (!_s3_error_fs || !_error_log_file || !_error_log_file->is_open()) {
             return _error_log_file_path;
         }
-        // expiration must be less than a week (in seconds) for presigned url
-        static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
-        // Use public or private endpoint based on configuration
-        _error_log_file_path =
-                _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
-                                                     config::use_public_endpoint_for_error_log);
+
+        // close error log file
+        _error_log_file->close();
+        s3_error_fs = _s3_error_fs;
+        local_error_log_file_path = _error_log_file_path;
+        remote_error_log_file_path = _s3_error_log_file_path;
     }
+
+    std::string error_log_absolute_path =
+            _exec_env->load_path_mgr()->get_load_error_absolute_path(local_error_log_file_path);
+    // upload error log file to s3
+    Status st = s3_error_fs->upload(error_log_absolute_path, remote_error_log_file_path);
+    if (!st.ok()) {
+        // upload failed and return local error log file path
+        LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
+                     << local_error_log_file_path << ", error=" << st;
+        return local_error_log_file_path;
+    }
+    // expiration must be less than a week (in seconds) for presigned url
+    static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
+    // Use public or private endpoint based on configuration
+    auto presigned_url =
+            s3_error_fs->generate_presigned_url(remote_error_log_file_path, EXPIRATION_SECONDS,
+                                                config::use_public_endpoint_for_error_log);
+    std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
+    _error_log_file_path = std::move(presigned_url);
     return _error_log_file_path;
 }
 

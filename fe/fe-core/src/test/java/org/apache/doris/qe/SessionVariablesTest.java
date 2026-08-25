@@ -408,4 +408,15 @@ public class SessionVariablesTest extends TestWithFeService {
                 queryOptions.getCoordinatorThriftMaxMessageSize());
         Assertions.assertTrue(queryOptions.isSupportsExternalFileReportAck());
     }
+
+    @Test
+    public void testHyperscanFallbackPropagatesToBackends() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        Assertions.assertTrue(variable.toThrift().isEnableHyperscanFallback());
+
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_HYPERSCAN_FALLBACK, new StringLiteral("false")));
+
+        Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
+    }
 }

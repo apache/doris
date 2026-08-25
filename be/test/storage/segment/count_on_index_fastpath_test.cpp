@@ -194,7 +194,6 @@ CountEmitShortcutFacts safe_emit_facts() {
     f.has_remaining_col_predicates = false;
     f.has_remaining_common_exprs = false;
     f.has_delete_predicates = false;
-    f.lazy_materialization_read = false;
     f.has_virtual_columns = false;
     f.record_rowids = false;
     f.has_read_limit = false;
@@ -251,11 +250,6 @@ TEST(CountEmitShortcut, SurvivingEvaluationRefuses) {
     {
         auto f = safe_emit_facts();
         f.has_delete_predicates = true;
-        EXPECT_FALSE(count_emit_shortcut_safe(f));
-    }
-    {
-        auto f = safe_emit_facts();
-        f.lazy_materialization_read = true;
         EXPECT_FALSE(count_emit_shortcut_safe(f));
     }
 }

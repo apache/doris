@@ -86,6 +86,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -135,6 +136,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
@@ -1148,13 +1151,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        validateForwardRequester(params);
+        Frontend requester = validateForwardRequester(params);
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;
         }
         logForwardRequest(params);
-        ConnectContext context = createForwardContext(params);
+        ConnectContext context = createForwardContext(params, requester);
         ConnectProcessor processor = createForwardProcessor(context);
         Runnable clearCallback = registerProxyQuery(params, context);
         try {
@@ -1165,10 +1168,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private void validateForwardRequester(TMasterOpRequest params) throws TException {
+    private Frontend validateForwardRequester(TMasterOpRequest params) throws TException {
         Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
         if (fe != null) {
-            return;
+            return fe;
         }
         LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
         throw new TException("request from invalid host was rejected.");
@@ -1212,11 +1215,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TMasterOpResult result = createForwardResultWithoutJournalSync();
         try {
             result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
+                    .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster,
+                            forwardedGroupCommitLoadSelectionHint(info)));
         } catch (LoadException | DdlException e) {
-            throw new TException(e.getMessage());
+            LOG.warn("failed to select backend for forwarded group commit load, tableId={}, cluster={}",
+                    info.groupCommitLoadTableId, info.cluster, e);
+            // Callers without the result-error capability interpret an unset backend id as 0.
+            if (!info.isSetSupportsSelectionErrorResult() || !info.isSupportsSelectionErrorResult()) {
+                throw new TException(e.getMessage() == null ? e.toString() : e.getMessage());
+            }
+            result.setStatusCode(1);
+            result.setErrMessage(e.getMessage() == null ? e.toString() : e.getMessage());
         }
         return result;
+    }
+
+    static BackendSelection.SelectionHint forwardedGroupCommitLoadSelectionHint(TGroupCommitInfo info) {
+        if (!info.isSetLoadSelectionPreferredKey() || !info.isSetLoadSelectionMode()) {
+            return null;
+        }
+        return BackendSelectionManager.getForwardedLoadSelectionHint(
+                info.getLoadSelectionPreferredKey(), info.getLoadSelectionMode());
     }
 
     private TMasterOpResult handleForwardCancel(TMasterOpRequest params) throws TException {
@@ -1238,11 +1257,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private ConnectContext createForwardContext(TMasterOpRequest params) {
+    private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
         ConnectContext context = new ConnectContext(null, true, params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
+        context.setConnectingFeLocalResourceGroup(params.isSetConnectingFeLocalResourceGroup()
+                ? params.getConnectingFeLocalResourceGroup() : requester.getLocalResourceGroup());
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
@@ -1391,7 +1412,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn begin request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
         if (request.isSetCertBasedAuth()) {
             TCertBasedAuth certAuth = request.getCertBasedAuth();
@@ -1454,7 +1475,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         }
 
@@ -1620,7 +1641,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn pre-commit request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -1720,7 +1742,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -1763,7 +1785,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn 2PC request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
@@ -1855,7 +1877,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn commit request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -2097,7 +2120,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn rollback request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = checkMaster();
@@ -3014,7 +3038,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive stream load put request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         String groupCommitMode = request.getGroupCommitMode();
@@ -3167,7 +3192,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive http stream put request: {}", request);
+            LOG.debug("receive http stream put request: {}", ThriftLogHelper.requestForLog(request));
         }
 
         ConnectContext ctx = ConnectContext.get();
@@ -3492,7 +3517,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive auth request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TCheckAuthResult result = new TCheckAuthResult();
@@ -5601,15 +5626,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TShowProcessListResult showProcessList(TShowProcessListRequest request) {
+    public TShowProcessListResult showProcessList(TShowProcessListRequest request) throws TException {
+        if (!request.isSetCurrentUserIdent()) {
+            throw new TException("Current user identity is not set");
+        }
         boolean isShowFullSql = false;
         if (request.isSetShowFullSql()) {
             isShowFullSql = request.isShowFullSql();
         }
-        UserIdentity userIdentity = UserIdentity.ROOT;
-        if (request.isSetCurrentUserIdent()) {
-            userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-        }
+        UserIdentity userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
         String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
         if (request.isSetTimeZone()) {
             timeZone = request.getTimeZone();

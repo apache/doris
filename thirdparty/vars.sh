@@ -379,10 +379,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
-AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.221"
+AWS_SDK_MD5SUM="95ea128da58829117a544b092bc39033"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -498,12 +498,6 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
-HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
-
-# libhdfs 3.4
 HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.4-for-doris.tar.gz"
 HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.4-for-doris.tar.gz"
 HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.4-for-doris"
@@ -664,7 +658,6 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS'
     'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'

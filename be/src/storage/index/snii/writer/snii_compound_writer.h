@@ -279,12 +279,11 @@ private:
 
     Status ensure_bootstrap();
     Status write_bootstrap();
-    // Writes indexes_[index]'s norms/null-bitmap/bsbf immediately after its
-    // [posting][dict] pair and fills placements_[index]. Keeping one index's sections
+    // Writes one index's norms/null-bitmap/bsbf immediately after its
+    // [posting][dict] pair and fills its placement. Keeping one index's sections
     // contiguous is what makes a single-index cold query touch one cache block instead
     // of three; the previous layout grouped these by section type across all indexes.
-    // Must be called after indexes_/placements_ have been pushed for this index.
-    Status write_index_aux_sections(size_t index);
+    Status write_index_aux_sections(LogicalIndexWriter& writer, Placement& placement);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
     Status poison(Status status);
@@ -300,6 +299,10 @@ private:
     // it serves, so keeping it alive keeps that memory resident for the writer's
     // whole life.
     static void release_blob_sources(std::vector<BlobFileSource>* files);
+    // A terminal finish failure can leave both already-visited and pending blobs.
+    // Drop every callback owner immediately instead of retaining its staging
+    // resource until this compound writer is destroyed.
+    void release_all_blob_sources();
     Status write_blob_files(const std::vector<BlobFileSource>& files,
                             std::vector<format::NamedBlobFileRef>* refs);
     // Emits the blob hot-file region and the blob directory entries; see the .cpp.

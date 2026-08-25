@@ -70,7 +70,6 @@ struct SegmentWriterOptions {
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
-    std::shared_ptr<MowContext> mow_ctx;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -130,6 +129,12 @@ public:
     uint64_t primary_keys_size() const { return _primary_keys_size; }
 
 private:
+    // Bodies of finalize()/finalize_columns_index(); the public wrappers add the
+    // abandon-on-failure step. See the .cpp.
+    Status _finalize_impl(uint64_t* segment_file_size, uint64_t* index_size,
+                          SegmentIndexFileCacheInfo* index_file_cache_info);
+    Status _finalize_columns_index_impl(uint64_t* index_size);
+    void _abandon_index_staging();
     friend class TestSegmentWriter;
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -161,8 +166,7 @@ private:
         return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
     }
 
-protected:
-    // Build key index for derived writers that override append_block.
+private:
     Status build_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                            IOlapColumnDataAccessor* seq_column, size_t num_rows);
 
@@ -207,7 +211,6 @@ protected:
     faststring _min_key;
     faststring _max_key;
 
-    std::shared_ptr<MowContext> _mow_context;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection

@@ -216,7 +216,17 @@ public class PaimonHmsMetaStorePropertiesTest {
                 "hadoop.kerberos.principal", "hdfs@REALM", "hadoop.kerberos.keytab", "/k",
                 "warehouse", "wh"));
         Assertions.assertFalse(props.kerberos().isPresent());
-        Assertions.assertFalse(props.toHiveConfOverrides("10").containsKey("hive.metastore.sasl.enabled"));
+        Assertions.assertEquals("false", props.toHiveConfOverrides("10").get("hive.metastore.sasl.enabled"));
+    }
+
+    @Test
+    public void explicitSimpleOverridesRawSaslSetting() {
+        Map<String, String> conf = of(raw(
+                "hive.metastore.uris", "thrift://h",
+                "hive.metastore.authentication.type", "simple",
+                "hive.metastore.sasl.enabled", "true",
+                "warehouse", "wh")).toHiveConfOverrides("10");
+        Assertions.assertEquals("false", conf.get("hive.metastore.sasl.enabled"));
     }
 
     @Test
