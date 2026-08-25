@@ -241,10 +241,13 @@ public class CloudRestoreJob extends RestoreJob {
             }
             // set storage vault for new restoring table
             if (((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+                if (Strings.isNullOrEmpty(storageVaultId)) {
+                    storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+                }
                 for (Table table : restoredTbls) {
                     if (table.getType() == TableIf.TableType.OLAP) {
                         OlapTable olapTable = (OlapTable) table;
-                        if (olapTable.getStorageVaultId().isEmpty() && storageVaultId != null) {
+                        if (olapTable.getStorageVaultId().isEmpty()) {
                             olapTable.setStorageVaultId(storageVaultId);
                         }
                     }
@@ -494,6 +497,11 @@ public class CloudRestoreJob extends RestoreJob {
 
     private void handleOlapTableMeta(MetaSeriviceOperation operation, OlapTable olapTable,
                                      Collection<Partition> partitions) throws DdlException {
+        if (partitions.isEmpty()) {
+            LOG.info("cloud restore job skip {} partitions, dbId: {}, tableName: {}, vault name: {}",
+                    operation, dbId, olapTable.getName(), storageVaultName);
+            return;
+        }
         List<Long> partitionIds = new ArrayList<>();
         switch (operation) {
             case PREPARE: {
