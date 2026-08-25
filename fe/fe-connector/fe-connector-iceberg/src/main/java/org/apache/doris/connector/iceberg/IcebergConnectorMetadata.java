@@ -122,6 +122,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // loud, flagging that these duplicates must change too.
     private static final String ICEBERG_ROW_ID_COL = "_row_id";
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+    private static final String ICEBERG_FILE_PATH_COL = "_file";
+    private static final String ICEBERG_ROW_POSITION_COL = "_pos";
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
@@ -437,12 +439,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // IcebergSysExternalTable.getSysIcebergTable + getOrCreateSchemaCacheValue; the enable.mapping.*
             // flags are threaded by the shared buildTableSchema -> parseSchema (deviation 5).
             Table sysTable = loadSysTable(session, iceHandle);
-            return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema());
+            return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema(), false);
         }
         // Mirror legacy IcebergMetadataOps.loadTable: wrap the remote load in the auth context. The schema
         // + table-property assembly is pure (operates on the already-loaded Table).
         Table table = loadTable(session, iceHandle);
-        return buildTableSchema(iceHandle.getTableName(), table, table.schema());
+        return buildTableSchema(iceHandle.getTableName(), table, table.schema(), true);
     }
 
     /**
@@ -483,7 +485,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 schema = table.schema();
             }
         }
-        return buildTableSchema(iceHandle.getTableName(), table, schema);
+        return buildTableSchema(iceHandle.getTableName(), table, schema, true);
     }
 
     /**
@@ -492,8 +494,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code iceberg.partition-spec} properties are table-level (not schema-versioned). Factored out so the
      * latest and at-snapshot paths share ONE assembly.
      */
-    private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema) {
+    private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema,
+            boolean appendDataFileMetadataColumns) {
         List<ConnectorColumn> columns = parseSchema(schema);
+
+        // Iceberg file metadata columns are always available for data tables, but are hidden from
+        // SELECT * / DESCRIBE unless explicitly requested. They are synthesized by the native BE
+        // reader and are not part of the Iceberg schema or physical file projection.
+        if (appendDataFileMetadataColumns) {
+            columns.add(new ConnectorColumn(ICEBERG_FILE_PATH_COL, ConnectorType.of("STRING"),
+                    "Iceberg data file path", false, null, false).invisible());
+            columns.add(new ConnectorColumn(ICEBERG_ROW_POSITION_COL, ConnectorType.of("BIGINT"),
+                    "Iceberg physical row position", false, null, false).invisible());
+        }
 
         // Append the iceberg v3 row-lineage hidden columns (_row_id / _last_updated_sequence_number) for
         // format-version >= 3 tables, mirroring legacy IcebergUtils.appendRowLineageColumnsForV3 — invoked
@@ -1040,8 +1053,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Rejects a user-defined column whose name collides with an iceberg v3 reserved row-lineage column
-     * ({@code _row_id} / {@code _last_updated_sequence_number}) on a format-version &ge; 3 table. Moved off
+     * Rejects a user-defined column whose name collides with an Iceberg reserved metadata column. The file path
+     * and row position columns are reserved for every table version; v3 row-lineage names are reserved only on
+     * format-version &ge; 3 tables. Moved off
      * fe-core {@code CreateTableInfo.validateIcebergRowLineageColumns} — the connector owns the iceberg
      * column-name convention. Uses the full effective-format-version precedence (catalog
      * {@code table-override} &gt; table request &gt; catalog {@code table-default}). Behavior differs from the
@@ -1051,13 +1065,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private void rejectReservedRowLineageColumns(ConnectorCreateTableRequest request) {
         int formatVersion = IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties);
-        if (formatVersion < ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
-        }
         for (ConnectorColumn column : request.getColumns()) {
             String name = column.getName();
-            if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
-                    || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name)) {
+            if (ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                    || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+                throw new DorisConnectorException("Cannot create Iceberg table with reserved metadata column: "
+                        + name);
+            }
+            if (formatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION
+                    && (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
+                    || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name))) {
                 throw new DorisConnectorException("Cannot create Iceberg v" + formatVersion
                         + " table with reserved row lineage column: " + name);
             }

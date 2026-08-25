@@ -63,6 +63,10 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
+    // Iceberg data-file path metadata column `_file`.
+    ICEBERG_FILE_PATH = 4,
+    // Iceberg absolute physical row position metadata column `_pos`.
+    ICEBERG_ROW_POSITION = 5,
 };
 
 enum class FilterConversionType {
@@ -164,6 +168,7 @@ struct TableColumnMapperOptions {
     bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
+    bool enable_iceberg_metadata_virtual_columns = false;
 
     std::string debug_string() const;
 };

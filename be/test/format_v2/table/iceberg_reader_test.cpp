@@ -1146,6 +1146,28 @@ void expect_int32_column_values(const IColumn& column,
     }
 }
 
+void expect_string_column_values(const IColumn& column,
+                                 const std::vector<std::string>& expected_values) {
+    const auto full_column = column.convert_to_full_column_if_const();
+    const auto& nested_column = expect_not_null_nullable_nested_column(*full_column);
+    const auto& values = assert_cast<const ColumnString&>(nested_column);
+    ASSERT_EQ(values.size(), expected_values.size());
+    for (size_t row = 0; row < expected_values.size(); ++row) {
+        EXPECT_EQ(values.get_data_at(row).to_string(), expected_values[row]);
+    }
+}
+
+void expect_int64_column_values(const IColumn& column,
+                                const std::vector<int64_t>& expected_values) {
+    const auto full_column = column.convert_to_full_column_if_const();
+    const auto& nested_column = expect_not_null_nullable_nested_column(*full_column);
+    const auto& values = assert_cast<const ColumnInt64&>(nested_column).get_data();
+    ASSERT_EQ(values.size(), expected_values.size());
+    for (size_t row = 0; row < expected_values.size(); ++row) {
+        EXPECT_EQ(values[row], expected_values[row]);
+    }
+}
+
 SplitReadOptions build_split_options(const std::string& file_path) {
     SplitReadOptions options;
     EXPECT_EQ(options.cache, nullptr);
@@ -2095,6 +2117,10 @@ TEST(IcebergV2ReaderTest, IcebergRowidVirtualColumnUsesDataFilePosition) {
     projected_columns.push_back(
             make_table_column(-1, BeConsts::ICEBERG_ROWID_COL, make_iceberg_rowid_type()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_FILE_PATH_COL,
+                                                  std::make_shared<DataTypeString>()));
+    projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_ROW_POSITION_COL,
+                                                  std::make_shared<DataTypeInt64>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::format::iceberg::IcebergTableReader reader;
@@ -2125,9 +2151,71 @@ TEST(IcebergV2ReaderTest, IcebergRowidVirtualColumnUsesDataFilePosition) {
     expect_iceberg_rowid_column_values(*block.get_by_position(0).column, original_file_path, {1, 2},
                                        17, partition_data_json);
     expect_int32_column_values(*block.get_by_position(1).column, {2, 3});
+    expect_string_column_values(*block.get_by_position(2).column,
+                                {original_file_path, original_file_path});
+    expect_int64_column_values(*block.get_by_position(3).column, {1, 2});
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergMetadataColumnsMaterializeForParquetAndOrc) {
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        const auto format_name = file_format == FileFormat::PARQUET ? "parquet" : "orc";
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_iceberg_metadata_columns_" + std::string(format_name));
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+
+        const auto file_path = (test_dir / ("split." + std::string(format_name))).string();
+        if (file_format == FileFormat::PARQUET) {
+            write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+        } else {
+            write_single_int_orc_file(file_path, "id", {1, 2, 3}, 0);
+        }
+
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+        projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_FILE_PATH_COL,
+                                                      std::make_shared<DataTypeString>()));
+        projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_ROW_POSITION_COL,
+                                                      std::make_shared<DataTypeInt64>()));
+
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        doris::format::iceberg::IcebergTableReader reader;
+        auto scan_params = make_local_scan_params(file_format);
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = projected_columns,
+                                        .conjuncts = {prepared_conjunct(
+                                                &state, table_int32_greater_than_expr(0, 0, 1))},
+                                        .format = file_format,
+                                        .scan_params = &scan_params,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = nullptr,
+                                })
+                            .ok());
+
+        auto split_options = build_split_options(file_path);
+        split_options.current_split_format = file_format;
+        const auto original_file_path = "s3://bucket/table/data/" + std::string(format_name) +
+                                        "/original." + std::string(format_name);
+        set_iceberg_rowid_params(&split_options, original_file_path, 17, R"({"part":"p1"})");
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_FALSE(eos);
+        ASSERT_EQ(block.rows(), 2);
+        expect_int32_column_values(*block.get_by_position(0).column, {2, 3});
+        expect_string_column_values(*block.get_by_position(1).column,
+                                    {original_file_path, original_file_path});
+        expect_int64_column_values(*block.get_by_position(2).column, {1, 2});
+
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    }
 }
 
 TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering) {

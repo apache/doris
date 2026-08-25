@@ -165,13 +165,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // (org.apache.doris.catalog.Column / IcebergUtils are forbidden), so these literals are duplicated here
     // and pinned to the fe-core constants by IcebergScanPlanProviderClassifyColumnTest (DORIS_ICEBERG_ROWID_COL
     // == Column.ICEBERG_ROWID_COL) and the row-lineage names == IcebergUtils.ICEBERG_ROW_ID_COL /
-    // ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL. The hidden row-id column is SYNTHESIZED (never in the data
-    // file, materialized by IcebergParquet/OrcReader); the v3 row-lineage columns are GENERATED (read from the
-    // file when present, otherwise backfilled). The engine-wide __DORIS_GLOBAL_ROWID_COL__ is NOT handled here
-    // (a generic Doris lazy-materialization mechanism owned by the generic node).
+    // ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL. The hidden row-id, file path, and row position columns are
+    // SYNTHESIZED (never in the data file, materialized by IcebergTableReader); the v3 row-lineage columns are
+    // GENERATED (read from the file when present, otherwise backfilled). The engine-wide
+    // __DORIS_GLOBAL_ROWID_COL__ is NOT handled here (a generic Doris lazy-materialization mechanism owned by
+    // the generic node).
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     private static final String ICEBERG_ROW_ID_COL = "_row_id";
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+    private static final String ICEBERG_FILE_PATH_COL = "_file";
+    private static final String ICEBERG_ROW_POSITION_COL = "_pos";
 
     // #65784: version marker (TFileScanRangeParams.iceberg_scan_semantics_version) advertising that this plan
     // was produced by an FE honoring authoritative iceberg name mappings + logical initial-default
@@ -385,13 +388,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Classifies iceberg's special columns for the generic {@code PluginDrivenScanNode} (C2 WS-SYNTH-READ),
      * porting the legacy {@code IcebergScanNode.classifyColumn} mapping minus the engine-wide
      * {@code __DORIS_GLOBAL_ROWID_COL__} prefix (which the generic node handles itself): the hidden row-id
-     * column is SYNTHESIZED (a debug/DML metadata column never present in the data file), and the v3
-     * row-lineage columns are GENERATED (read from the file when present, otherwise backfilled). Every other
-     * column returns {@code DEFAULT} so the generic node applies its own partition-key / regular classification.
+     * column is SYNTHESIZED (a debug/DML metadata column never present in the data file), as are the file path
+     * and physical row position metadata columns. The v3 row-lineage columns are GENERATED (read from the file
+     * when present, otherwise backfilled). Every other column returns {@code DEFAULT} so the generic node applies
+     * its own partition-key / regular classification.
      */
     @Override
     public ConnectorColumnCategory classifyColumn(String columnName) {
-        if (DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)) {
+        if (DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)
+                || ICEBERG_FILE_PATH_COL.equalsIgnoreCase(columnName)
+                || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(columnName)) {
             return ConnectorColumnCategory.SYNTHESIZED;
         }
         if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(columnName)

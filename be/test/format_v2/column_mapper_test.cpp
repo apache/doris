@@ -232,7 +232,7 @@ TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
         mapping.is_trivial = idx % 2 == 0;
         mapping.filter_conversion = conversions[idx];
         mapping.virtual_column_type = static_cast<TableVirtualColumnType>(
-                idx % (TableVirtualColumnType::ICEBERG_ROWID + 1));
+                idx % (TableVirtualColumnType::ICEBERG_ROW_POSITION + 1));
         mapping.default_expr = column.default_expr;
 
         ColumnMapping child_mapping;
@@ -1846,6 +1846,24 @@ TEST(ColumnMapperConstantTest, PartitionDefaultAndVirtualColumnsUseDedicatedBran
     EXPECT_EQ(mapper.mappings()[3].virtual_column_type,
               TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER);
     EXPECT_EQ(mapper.mappings()[4].virtual_column_type, TableVirtualColumnType::ICEBERG_ROWID);
+}
+
+TEST(ColumnMapperConstantTest, IcebergFileMetadataColumnsAreNeverMappedToPhysicalFields) {
+    const std::vector<ColumnDefinition> table_schema = {name_col("_file", str()),
+                                                        name_col("_pos", i64())};
+    const std::vector<ColumnDefinition> file_schema = {name_col("_file", str(), 0),
+                                                       name_col("_pos", i64(), 1)};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .enable_iceberg_metadata_virtual_columns = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::ICEBERG_FILE_PATH);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type,
+              TableVirtualColumnType::ICEBERG_ROW_POSITION);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[1].file_local_id.has_value());
 }
 
 TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {

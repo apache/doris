@@ -302,6 +302,28 @@ public class IcebergConnectorMetadataDdlTest {
     }
 
     @Test
+    public void testCreateTableRejectsReservedFileMetadataColumnsAtAllVersions() {
+        // _file and _pos are native Iceberg metadata columns for every table format version. They are hidden
+        // from ordinary projections but must not be accepted as user-defined fields, regardless of case.
+        for (String reserved : new String[] {"_file", "_pos", "_FILE", "_POS"}) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                    .dbName("db1").tableName("t1")
+                    .columns(Arrays.asList(
+                            new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false),
+                            new ConnectorColumn(reserved, ConnectorType.of("STRING"), "", true, null, false)))
+                    .build();
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).createTable(null, request),
+                    reserved + " must be rejected as an Iceberg metadata column");
+            Assertions.assertTrue(ex.getMessage().contains("reserved metadata column"), ex.getMessage());
+            Assertions.assertTrue(ops.log.isEmpty(), "reject must run before the remote seam");
+            Assertions.assertEquals(0, ctx.authCount);
+        }
+    }
+
+    @Test
     public void testCreateTableRejectsReservedColumnViaCatalogTableDefaultV3() {
         // FULL effective-format-version precedence: a catalog-level table-default.format-version=3 with NO
         // table-level format-version must still trip the rejection (else the version resolves to 2 and a v3

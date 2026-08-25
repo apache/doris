@@ -900,6 +900,10 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::ICEBERG_ROWID_COL));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition,
+                                                       BeConsts::ICEBERG_FILE_PATH_COL));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition,
+                                                       BeConsts::ICEBERG_ROW_POSITION_COL));
 }
 
 // Scenario: data-file slots are the complement of partition/default/synthesized columns for
@@ -936,6 +940,10 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
 
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_ROWID_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_FILE_PATH_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_ROW_POSITION_COL));
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to
