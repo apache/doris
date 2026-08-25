@@ -742,12 +742,13 @@ class ConstraintManagerTest {
         mgr.addConstraint(extT2, "uk", new UniqueConstraint("uk", ImmutableSet.of("c1")), true);
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
 
-        mgr.dropCatalogConstraints("extCtl");
+        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("extCtl");
 
         Assertions.assertTrue(mgr.getConstraints(extT1).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(extT2).isEmpty());
         // T1 is in "ctl" catalog — should be unaffected
         Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
+        Assertions.assertEquals(ImmutableSet.of(extT1, extT2), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -757,19 +758,34 @@ class ConstraintManagerTest {
         mgr.addConstraint(extT, "pk", newPk("pk", "k1"), true);
         mgr.addConstraint(T1, "fk", newFk("fk", extT, "c1", "k1"), true);
 
-        mgr.dropCatalogConstraints("extCtl");
+        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("extCtl");
 
         Assertions.assertTrue(mgr.getConstraints(extT).isEmpty());
         // FK on T1 referencing extT is cascade-dropped because the referenced PK was removed
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty(),
                 "FK on T1 should be cascade-dropped when referenced PK's catalog is dropped");
+        Assertions.assertEquals(ImmutableSet.of(extT, T1), ImmutableSet.copyOf(affectedTables));
+    }
+
+    @Test
+    void dropCatalogConstraintsReportsReferencedPrimaryKeyOutsideCatalog() {
+        TableNameInfo extT = new TableNameInfo("extCtl", "db", "t1");
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(extT, "fk", newFk("fk", T1, "c1", "k1"), true);
+
+        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("extCtl");
+
+        Assertions.assertTrue(mgr.getConstraints(extT).isEmpty());
+        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
+        Assertions.assertEquals(ImmutableSet.of(extT, T1), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
     void dropCatalogConstraintsOnNonExistentCatalogIsNoop() {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-        mgr.dropCatalogConstraints("nonExistent");
+        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("nonExistent");
         Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
+        Assertions.assertTrue(affectedTables.isEmpty());
     }
 
     // ==================== dropDatabaseConstraints ====================

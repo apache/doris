@@ -668,12 +668,13 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Remove all constraints whose qualified table name starts with
      * the given catalog prefix. Called when a catalog is dropped.
      */
-    public void dropCatalogConstraints(String catalogName) {
+    public List<TableNameInfo> dropCatalogConstraints(String catalogName) {
         writeLock();
         try {
             String prefix = catalogName + ".";
-            dropConstraintsByPrefix(prefix);
+            List<TableNameInfo> affectedTables = dropConstraintsByPrefix(prefix);
             LOG.info("Dropped all constraints for catalog {}", catalogName);
+            return affectedTables;
         } finally {
             writeUnlock();
         }

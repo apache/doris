@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -39,6 +40,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
@@ -137,7 +139,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         CatalogIf catalog = removedCatalog.catalog;
         catalog.onClose();
-        Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(removedCatalog.catalogName);
+        List<TableNameInfo> affectedTables = Env.getCurrentEnv()
+                .getConstraintManager().dropCatalogConstraints(removedCatalog.catalogName);
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
+                "after removing catalog " + removedCatalog.catalogName);
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);

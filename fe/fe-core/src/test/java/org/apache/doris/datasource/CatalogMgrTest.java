@@ -18,14 +18,19 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -43,7 +48,8 @@ import java.util.concurrent.TimeUnit;
 
 public class CatalogMgrTest {
 
-    private static void addCatalog(CatalogMgr catalogMgr, ExternalCatalog catalog) throws Exception {
+    private static void addCatalog(CatalogMgr catalogMgr,
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog) throws Exception {
         Field idToCatalogField = CatalogMgr.class.getDeclaredField("idToCatalog");
         idToCatalogField.setAccessible(true);
         @SuppressWarnings("unchecked")
@@ -122,6 +128,39 @@ public class CatalogMgrTest {
                 },
                 catalogName, ImmutableMap.of("key", "value"),
                 expectedCatalog);
+    }
+
+    @Test
+    void testReplayDropCatalogInvalidatesDependentMtmvCaches() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        long catalogId = 41L;
+        String catalogName = "drop_catalog_cache_test";
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getName()).thenReturn(catalogName);
+        addCatalog(catalogMgr, catalog);
+        addCatalogByName(catalogMgr, catalogName, catalog);
+
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        List<TableNameInfo> affectedTables = List.of(
+                new TableNameInfo(catalogName, "db", "base_table"),
+                new TableNameInfo("internal", "db", "referencing_table"));
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.dropCatalogConstraints(catalogName)).thenReturn(affectedTables);
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalogId);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            catalogMgr.replayDropCatalog(log);
+
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after removing catalog " + catalogName));
+        }
+        Mockito.verify(constraintManager).dropCatalogConstraints(catalogName);
     }
 
     @Test
