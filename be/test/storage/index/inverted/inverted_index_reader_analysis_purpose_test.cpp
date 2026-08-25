@@ -290,8 +290,12 @@ protected:
         _snii_file_reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), "./ut_dir/missing_snii_analysis_purpose",
                 InvertedIndexStorageFormatPB::SNII);
+        // The file does not exist -- these cases only exercise the analysis-purpose
+        // router, never the count fast path -- so the segment shape is nominal.
         _snii_reader = SniiIndexReader::create_shared(&_meta, _snii_file_reader,
-                                                      InvertedIndexReaderType::FULLTEXT);
+                                                      InvertedIndexReaderType::FULLTEXT,
+                                                      /*rows_of_segment=*/0,
+                                                      /*column_is_array=*/false);
     }
 
     void TearDown() override {
