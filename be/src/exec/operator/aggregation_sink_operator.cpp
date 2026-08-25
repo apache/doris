@@ -916,8 +916,9 @@ Status AggSinkOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state,
-                                   DataSinkOperatorX<AggSinkLocalState>::_child->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(
+            _probe_expr_ctxs, state,
+            DataSinkOperatorX<AggSinkLocalState>::_child->operator_row_desc_after_projection()));
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     return Status::OK();
@@ -937,7 +938,8 @@ Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc(),
+                state,
+                DataSinkOperatorX<AggSinkLocalState>::_child->operator_row_desc_after_projection(),
                 intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }

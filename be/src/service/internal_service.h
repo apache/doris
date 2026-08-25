@@ -309,8 +309,6 @@ public:
                                     google::protobuf::Closure* done) override;
 
 private:
-    Status _multi_get(const PMultiGetRequest& request, PMultiGetResponse* response);
-
     void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
                                        const PFetchColIdsRequest* request,
                                        PFetchColIdsResponse* response,

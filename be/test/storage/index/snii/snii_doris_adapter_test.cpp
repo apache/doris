@@ -390,7 +390,9 @@ protected:
         _file_reader->_snii_segment_reader = std::move(segment_reader);
         _file_reader->_inited = true;
         _index_reader = SniiIndexReader::create_shared(&_meta, _file_reader,
-                                                       InvertedIndexReaderType::FULLTEXT);
+                                                       InvertedIndexReaderType::FULLTEXT,
+                                                       /*rows_of_segment=*/kDocCount,
+                                                       /*column_is_array=*/false);
 
         _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         _query_cache.reset(InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));

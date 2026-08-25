@@ -19,23 +19,24 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.paimon.hive.pool.CachedClientPool;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Unit tests for {@link PaimonConnector#buildPluginAuthenticator(Map, Map)} — the connector-owned plugin-side
- * Kerberos authenticator resolution (design S6, ported from {@code IcebergConnector.buildPluginAuthenticator}).
+ * Unit tests for Paimon's separate storage and HMS authenticator resolution.
  *
  * <p>The load-bearing NEW case is <b>HMS-metastore Kerberos with simple (non-Kerberos) storage</b> (e.g. a
  * Kerberized Hive Metastore over S3). Before design S6 retires the fe-core pre-execution authenticator, that
  * login was served fe-core-side by {@code PaimonHMSMetaStoreProperties} and delivered via
  * {@code DefaultConnectorContext}; the paimon connector must own it once that handle is a no-op — otherwise
- * S6 would silently drop Kerberos for a paimon secured-HMS-with-simple-storage catalog. These tests pin that
- * the connector builds a plugin authenticator from the HMS client principal/keytab facts, and does NOT build
- * one when the metastore is simple-auth (which would force needless SIMPLE-vs-Kerberos churn).
+ * S6 would silently drop Kerberos for a paimon secured-HMS-with-simple-storage catalog. These tests also pin
+ * SIMPLE HMS identity and client-pool cache isolation without replacing the storage UGI used by FileIO.
  *
  * <p>The actual keytab login is lazy (on first {@code doAs}), so these assertions never touch a KDC.
  */
@@ -70,7 +71,7 @@ public class PaimonConnectorPluginAuthenticatorTest {
      */
     @Test
     public void hmsMetastoreKerberosWithSimpleStorageBuildsAuthenticator() {
-        HadoopAuthenticator auth = PaimonConnector.buildPluginAuthenticator(
+        HadoopAuthenticator auth = PaimonConnector.buildHmsAuthenticator(
                 props("paimon.catalog.type", "hms",
                         "hive.metastore.uris", "thrift://hms:9083",
                         "hive.metastore.authentication.type", "kerberos",
@@ -81,15 +82,77 @@ public class PaimonConnectorPluginAuthenticatorTest {
                 "HMS-metastore kerberos with simple storage must yield a plugin authenticator");
     }
 
-    /** A simple-auth HMS builds no authenticator (a spurious one would force needless SIMPLE-vs-Kerberos churn). */
+    /** HMS auth is resolved separately so it can be applied only at the HMS client-pool boundary. */
     @Test
-    public void hmsSimpleAuthReturnsNull() {
-        HadoopAuthenticator auth = PaimonConnector.buildPluginAuthenticator(
+    public void hmsSimpleAuthUsesConfiguredUser() throws Exception {
+        HadoopAuthenticator auth = PaimonConnector.buildHmsAuthenticator(
                 props("paimon.catalog.type", "hms",
                         "hive.metastore.uris", "thrift://hms:9083",
-                        "hive.metastore.authentication.type", "simple"),
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "paimon-hms-user"),
                 new HashMap<>());
-        Assertions.assertNull(auth, "simple-auth HMS must not build a plugin authenticator");
+        Assertions.assertEquals("paimon-hms-user", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void explicitSimpleHmsKeepsItsUserWithKerberosStorage() throws Exception {
+        HadoopAuthenticator auth = PaimonConnector.buildHmsAuthenticator(
+                props("paimon.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "paimon-hms-user",
+                        "hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"),
+                new HashMap<>());
+        Assertions.assertEquals("paimon-hms-user", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void hmsIdentitiesAreIncludedInClientPoolCacheKey() {
+        Assertions.assertEquals(
+                "ugi,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
+                PaimonConnector.appendHmsCacheKeys("ugi"));
+        Assertions.assertEquals(
+                "conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
+                PaimonConnector.appendHmsCacheKeys("conf:hadoop.username"));
+    }
+
+    @Test
+    public void hmsCacheKeyPreservesCaseSensitiveConfigurationNames() {
+        Assertions.assertEquals(
+                "conf:HADOOP.USERNAME,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
+                PaimonConnector.appendHmsCacheKeys("conf:HADOOP.USERNAME"));
+    }
+
+    @Test
+    public void transportChangesProduceDifferentSdkPoolKeys() throws Exception {
+        Configuration first = poolConf("service-a/_HOST@REALM", false);
+        Assertions.assertNotEquals(paimonPoolKey(first),
+                paimonPoolKey(poolConf("service-b/_HOST@REALM", false)));
+        Assertions.assertNotEquals(paimonPoolKey(first),
+                paimonPoolKey(poolConf("service-a/_HOST@REALM", true)));
+    }
+
+    private static Configuration poolConf(String servicePrincipal, boolean sasl) {
+        Configuration conf = new Configuration(false);
+        conf.set("hive.metastore.uris", "thrift://hms:9083");
+        conf.set("hive.metastore.kerberos.principal", servicePrincipal);
+        conf.setBoolean("hive.metastore.sasl.enabled", sasl);
+        return conf;
+    }
+
+    private static Object paimonPoolKey(Configuration conf) throws Exception {
+        Method extractKey = CachedClientPool.class.getDeclaredMethod(
+                "extractKey", String.class, String.class, Configuration.class);
+        extractKey.setAccessible(true);
+        return extractKey.invoke(null, "test-client", PaimonConnector.appendHmsCacheKeys(null), conf);
     }
 
     /** A non-HMS flavor with no storage Kerberos builds no authenticator. */
@@ -108,7 +171,7 @@ public class PaimonConnectorPluginAuthenticatorTest {
      */
     @Test
     public void hmsKerberosWithBlankCredsReturnsNull() {
-        HadoopAuthenticator auth = PaimonConnector.buildPluginAuthenticator(
+        HadoopAuthenticator auth = PaimonConnector.buildHmsAuthenticator(
                 props("paimon.catalog.type", "hms",
                         "hive.metastore.uris", "thrift://hms:9083",
                         "hive.metastore.authentication.type", "kerberos"),

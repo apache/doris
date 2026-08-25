@@ -125,7 +125,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             this.initialized = false;
             invalidateAllTableCache();
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateDbMetadataCache(extCatalog.getId(), getFullName());
     }
 
     public boolean isInitialized() {
@@ -768,18 +769,62 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public void unregisterTable(String tableName) {
-        makeSureInitialized();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("unregister table {}.{}", this.name, tableName);
-        }
-        setLastUpdateTime(System.currentTimeMillis());
-        String localTableName = resolveTableNameForInvalidation(tableName);
-        // Always clean local names/object/ID state, even when the object entry is cold or already evicted.
-        if (isInitialized()) {
+        String localTableName = tableName;
+        try {
+            makeSureInitialized();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("unregister table {}.{}", this.name, tableName);
+            }
+            setLastUpdateTime(System.currentTimeMillis());
+            localTableName = resolveTableNameForInvalidation(tableName);
+            // Always clean local names/object/ID state, even when the object entry is cold or already evicted.
             invalidateTableCache(localTableName);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
+                    extCatalog.getId(), id, getFullName(),
+                    Util.genIdByName(extCatalog.getName(), getFullName(), localTableName), localTableName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr()
-                .invalidateTable(extCatalog.getId(), getFullName(), localTableName);
+    }
+
+    /** Removes a previous local name owner while reconciling a CREATE target. */
+    void invalidateTableForCreate(String tableName) {
+        if (!isInitialized()) {
+            return;
+        }
+        String previousLocalTableName = resolveTableNameForInvalidation(tableName);
+        try {
+            invalidateTableCache(previousLocalTableName);
+        } finally {
+            try {
+                resetMetaCacheNames();
+            } finally {
+                // A case-equivalent owner may have a different deterministic identity.
+                if (!previousLocalTableName.equals(tableName)) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
+                            extCatalog.getId(), id, getFullName(),
+                            Util.genIdByName(extCatalog.getName(), getFullName(), previousLocalTableName),
+                            previousLocalTableName);
+                }
+            }
+        }
+    }
+
+    /** Removes both local name owners after rename without loading remote metadata. */
+    public void invalidateTableRename(String oldTableName, String newTableName) {
+        if (!isInitialized()) {
+            return;
+        }
+        String localOldTableName = resolveTableNameForInvalidation(oldTableName);
+        String localNewTableName = resolveTableNameForInvalidation(newTableName);
+        try {
+            invalidateTableCache(localOldTableName);
+        } finally {
+            try {
+                invalidateTableCache(localNewTableName);
+            } finally {
+                resetMetaCacheNames();
+            }
+        }
     }
 
     @Override
@@ -787,19 +832,23 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return extCatalog;
     }
 
-    // Only used for sync hive metastore event
+    // Used by incremental metastore-event registration.
     @Override
     public boolean registerTable(TableIf tableIf) {
-        makeSureInitialized();
         T table = (T) tableIf;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", table.getName());
+        try {
+            makeSureInitialized();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("create table [{}]", table.getName());
+            }
+            if (isInitialized()) {
+                updateTableCache(table, table.getRemoteName(), table.getName());
+            }
+            setLastUpdateTime(System.currentTimeMillis());
+            return true;
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(table);
         }
-        if (isInitialized()) {
-            updateTableCache(table, table.getRemoteName(), table.getName());
-        }
-        setLastUpdateTime(System.currentTimeMillis());
-        return true;
     }
 
     private boolean isStoredTableNamesLowerCase() {
@@ -817,16 +866,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 || !Strings.isNullOrEmpty(extCatalog.getMetaNamesMapping());
     }
 
-    String canonicalLocalTableNameFromRemote(String remoteTableName) {
-        String localTableName = extCatalog.fromRemoteTableName(remoteName, remoteTableName);
-        if (isStoredTableNamesLowerCase()) {
-            return localTableName.toLowerCase(Locale.ROOT);
-        }
-        if (isTableNamesCaseInsensitive()) {
-            // Mode 2 preserves the original remote case for display and object-cache keys.
-            return remoteTableName;
-        }
-        return localTableName;
+    /** Returns the canonical local identity used for a remote table name. */
+    public String canonicalLocalTableNameFromRemote(String remoteTableName) {
+        return extCatalog.canonicalLocalTableNameFromRemote(remoteName, remoteTableName);
     }
 
     @Override

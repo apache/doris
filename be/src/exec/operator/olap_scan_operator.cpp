@@ -302,8 +302,6 @@ Status OlapScanLocalState::_init_profile() {
             ADD_CHILD_TIMER(_scanner_profile, "TabletReaderInitTimer", "ReaderInitTime");
     _tablet_reader_capture_rs_readers_timer = ADD_CHILD_TIMER(
             _scanner_profile, "TabletReaderCaptureRsReadersTimer", "TabletReaderInitTimer");
-    _tablet_reader_init_return_columns_timer = ADD_CHILD_TIMER(
-            _scanner_profile, "TabletReaderInitReturnColumnsTimer", "TabletReaderInitTimer");
     _tablet_reader_init_keys_param_timer = ADD_CHILD_TIMER(
             _scanner_profile, "TabletReaderInitKeysParamTimer", "TabletReaderInitTimer");
     _tablet_reader_init_orderby_keys_param_timer = ADD_CHILD_TIMER(
@@ -333,8 +331,8 @@ Status OlapScanLocalState::_init_profile() {
 
     _segment_iterator_init_timer =
             ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitTimer", "BlockFetchTime");
-    _segment_iterator_init_return_column_iterators_timer =
-            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer",
+    _segment_iterator_init_column_iterators_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitColumnIteratorsTimer",
                             "SegmentIteratorInitTimer");
     _segment_iterator_init_index_iterators_timer = ADD_CHILD_TIMER(
             _scanner_profile, "SegmentIteratorInitIndexIteratorsTimer", "SegmentIteratorInitTimer");
@@ -1067,7 +1065,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         if (virtual_col_expr) {
             std::shared_ptr<doris::VExprContext> virtual_column_expr_ctx;
             RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_col_expr, virtual_column_expr_ctx));
-            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(
+                    state, p.operator_row_desc_before_projection()));
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
@@ -1075,11 +1074,11 @@ Status OlapScanLocalState::open(RuntimeState* state) {
     }
 
     if (_score_runtime) {
-        RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     if (_ann_topn_runtime) {
-        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

@@ -55,9 +55,9 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    # Pre-finalization steps can use 153 minutes and auth sync can use 8 more,
+    # Pre-finalization steps can use 183 minutes and auth sync can use 8 more,
     # leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 173
+    timeout-minutes: 203
     if: >-
       inputs.pr_number != '' ||
       (
@@ -670,7 +670,7 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 60
+        timeout-minutes: 90
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
