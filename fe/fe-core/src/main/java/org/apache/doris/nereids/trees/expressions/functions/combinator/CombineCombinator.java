@@ -83,12 +83,15 @@ public class CombineCombinator extends AggregateFunction
     }
 
     private static AggStateType createReturnType(List<Expression> arguments, AggregateFunction nested) {
+        // The raw arguments determine the nested signature. Retargeting this state through a loose
+        // AggState cast would make FE metadata disagree with the state produced by the aggregate.
         return new AggStateType(nested.getName(),
                 arguments.stream().map(ExpressionTrait::getDataType)
                         .collect(ImmutableList.toImmutableList()),
                 arguments.stream().map(ExpressionTrait::nullable)
                         .collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()),
+                false);
     }
 
     @Override

@@ -93,6 +93,24 @@ suite("test_agg_state_avg") {
             ) t;
             """
     test {
+        sql """
+            select cast(avg_combine(cast(1 as int))
+                as agg_state<avg(bigint not null)>)
+        """
+        exception "Aggregate combine state requires an exact AggState type match"
+    }
+    test {
+        sql """
+            insert into a_table
+            select 100, avg_combine(cast(1 as bigint))
+        """
+        exception "Aggregate combine state requires an exact AggState type match"
+    }
+    sql """
+        insert into a_table
+        select 100, avg_combine(cast(1 as int))
+    """
+    test {
         sql "select * from a_table;"
     }
 }

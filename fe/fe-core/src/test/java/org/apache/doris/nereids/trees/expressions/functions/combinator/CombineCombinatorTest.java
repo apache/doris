@@ -24,6 +24,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.rules.analysis.WindowFunctionChecker;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -120,6 +122,31 @@ class CombineCombinatorTest {
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext())
                         .analyze("select cast(topn_combine('x', 10, 100) "
                                 + "as agg_state<topn(varchar, int)>)"));
+    }
+
+    @Test
+    void testCombineRequiresExactAggStateMatch() {
+        SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, false);
+        CombineCombinator combine = new CombineCombinator(
+                ImmutableList.of(argument), new Avg(argument));
+        AggStateType exactType = (AggStateType) combine.getDataType();
+        AggStateType differentSubtype = new AggStateType("avg",
+                ImmutableList.of(BigIntType.INSTANCE), ImmutableList.of(false), true);
+        AggStateType differentNullability = new AggStateType("avg",
+                ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true);
+
+        Assertions.assertTrue(CheckCast.checkWithLooseAggState(exactType, exactType, false));
+        Assertions.assertFalse(CheckCast.checkWithLooseAggState(exactType, differentSubtype, false));
+        Assertions.assertFalse(CheckCast.checkWithLooseAggState(exactType, differentNullability, false));
+        Assertions.assertTrue(CheckCast.checkWithLooseAggState(
+                StateCombinator.create(new Avg(argument)).getDataType(), differentSubtype, false));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze("select cast(avg_combine(cast(1 as int)) "
+                                + "as agg_state<avg(bigint not null)>)"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Aggregate combine state requires an exact AggState type match"));
     }
 
     @Test
