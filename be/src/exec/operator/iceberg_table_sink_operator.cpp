@@ -44,6 +44,14 @@ Status IcebergTableSinkLocalState::open(RuntimeState* state) {
     return _writer->open(state, operator_profile());
 }
 
+Status IcebergTableSinkLocalState::sink(RuntimeState* state, Block* block, bool /*eos*/) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+    DCHECK(_writer);
+    return _writer->write(state, *block);
+}
+
 Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
@@ -54,7 +62,10 @@ Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status
 
     DCHECK(_writer);
     Status final_status = exec_status;
-    Status writer_status = _writer->close(exec_status);
+    if (final_status.ok() && state->is_cancelled()) {
+        final_status = state->cancel_reason();
+    }
+    Status writer_status = _writer->close(final_status);
     if (final_status.ok() && !writer_status.ok()) {
         final_status = writer_status;
     }

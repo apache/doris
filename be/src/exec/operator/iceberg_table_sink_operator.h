@@ -36,12 +36,14 @@ public:
             : Base(parent, state) {};
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status sink(RuntimeState* state, Block* block, bool eos);
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] bool is_blockable() const override { return true; }
 
 private:
     friend class IcebergTableSinkOperatorX;
+    friend class IcebergTableSinkOperatorTest;
 
     VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<VIcebergTableWriter> _writer;
@@ -70,15 +72,11 @@ public:
         return VExpr::open(_output_vexpr_ctxs, state);
     }
 
-    Status sink_impl(RuntimeState* state, Block* in_block, bool /*eos*/) override {
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        if (in_block->rows() == 0) {
-            return Status::OK();
-        }
-        DCHECK(local_state._writer);
-        return local_state._writer->write(state, *in_block);
+        return local_state.sink(state, in_block, eos);
     }
 
 private:

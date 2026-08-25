@@ -37,6 +37,7 @@ Status SpillIcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkState
 
     _init_spill_counters();
     _writer = std::make_unique<VIcebergTableWriter>(info.tsink, _output_vexpr_ctxs);
+    _writer->defer_file_cleanup_until_outer_close();
 
     auto& parent = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(parent._pool, parent._row_desc));
@@ -56,6 +57,34 @@ Status SpillIcebergTableSinkLocalState::open(RuntimeState* state) {
     return _writer->open(state, operator_profile());
 }
 
+Status SpillIcebergTableSinkLocalState::sink(RuntimeState* state, Block* block, bool eos) {
+    if (block->rows() > 0) {
+        DCHECK(_writer);
+        RETURN_IF_ERROR(_writer->write(state, *block));
+    }
+    if (!eos) {
+        return Status::OK();
+    }
+
+    Status close_status = Status::OK();
+    if (state->is_cancelled()) {
+        close_status = state->cancel_reason();
+    }
+    return _close_writer(close_status);
+}
+
+Status SpillIcebergTableSinkLocalState::_close_writer(Status close_status) {
+    DCHECK(_writer);
+    if (!_writer_closed) {
+        _writer_close_status = _writer->close(close_status);
+        _writer_closed = true;
+    }
+    if (close_status.ok() && !_writer_close_status.ok()) {
+        close_status = _writer_close_status;
+    }
+    return close_status;
+}
+
 Status SpillIcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
@@ -64,13 +93,17 @@ Status SpillIcebergTableSinkLocalState::close(RuntimeState* state, Status exec_s
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
 
-    DCHECK(_writer);
     Status final_status = exec_status;
-    Status writer_status = _writer->close(exec_status);
-    if (final_status.ok() && !writer_status.ok()) {
-        final_status = writer_status;
+    if (final_status.ok() && state->is_cancelled()) {
+        final_status = state->cancel_reason();
     }
-    _writer.reset();
+    final_status = _close_writer(final_status);
+    DCHECK(_writer);
+    _writer->finish_deferred_file_cleanup(final_status);
+    {
+        std::lock_guard lock(_writer_mutex);
+        _writer.reset();
+    }
 
     Status base_status = Base::close(state, final_status);
     if (final_status.ok() && !base_status.ok()) {
@@ -84,10 +117,14 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 }
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
-    if (!_writer) {
-        return 0;
+    std::shared_ptr<IPartitionWriterBase> current_writer;
+    {
+        std::lock_guard lock(_writer_mutex);
+        if (!_writer) {
+            return 0;
+        }
+        current_writer = _writer->current_writer();
     }
-    auto current_writer = _writer->current_writer();
     auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
     if (!sort_writer) {
         return 0;
@@ -97,10 +134,14 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
-    if (!_writer) {
-        return 0;
+    std::shared_ptr<IPartitionWriterBase> current_writer;
+    {
+        std::lock_guard lock(_writer_mutex);
+        if (!_writer) {
+            return 0;
+        }
+        current_writer = _writer->current_writer();
     }
-    auto current_writer = _writer->current_writer();
     auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
     if (!sort_writer) {
         return 0;
@@ -111,10 +152,14 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
-    if (!_writer) {
-        return Status::OK();
+    std::shared_ptr<IPartitionWriterBase> current_writer;
+    {
+        std::lock_guard lock(_writer_mutex);
+        if (!_writer) {
+            return Status::OK();
+        }
+        current_writer = _writer->current_writer();
     }
-    auto current_writer = _writer->current_writer();
     auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
     if (!sort_writer) {
         return Status::OK();
@@ -150,16 +195,11 @@ Status SpillIcebergTableSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block,
-                                                 bool /*eos*/) {
+Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    if (in_block->rows() == 0) {
-        return Status::OK();
-    }
-    DCHECK(local_state._writer);
-    return local_state._writer->write(state, *in_block);
+    return local_state.sink(state, in_block, eos);
 }
 
 size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {

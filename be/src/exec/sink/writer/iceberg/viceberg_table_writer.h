@@ -44,28 +44,28 @@ class IPartitionWriterBase;
 class VIcebergSortWriter;
 struct ColumnWithTypeAndName;
 
-class VIcebergTableWriter final {
+class VIcebergTableWriter {
 public:
     VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    ~VIcebergTableWriter() = default;
+    virtual ~VIcebergTableWriter() = default;
 
     Status init_properties(ObjectPool* pool, const RowDescriptor& row_desc) {
         _row_desc = &row_desc;
         return Status::OK();
     }
 
-    Status open(RuntimeState* state, RuntimeProfile* profile);
+    virtual Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(RuntimeState* state, Block& block);
+    virtual Status write(RuntimeState* state, Block& block);
 
     Status write_prepared_block(Block& block);
 
-    Status close(Status);
+    virtual Status close(Status);
 
     void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
 
-    void finish_deferred_file_cleanup(Status outer_status);
+    virtual void finish_deferred_file_cleanup(Status outer_status);
 
     bool is_rewrite_compaction() const { return _write_type == TIcebergWriteType::REWRITE; }
 
