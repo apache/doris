@@ -97,6 +97,11 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
         return matcher.find() ? matcher.group(1).trim() : null
     }
 
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (!"true".equalsIgnoreCase(enabled)) {
+        return;
+    }
+
     // session vars
     sql "unset variable all;"
     sql "set profile_level=2;"
@@ -105,11 +110,7 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
     sql " set file_split_size = 10000000;"
     sql """set max_file_scanners_concurrency =  1; """
     sql """set enable_condition_cache = false; """
-
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (!"true".equalsIgnoreCase(enabled)) {
-        return;
-    }
+    sql """set enable_file_scanner_v2 = true; """
 
     for (String hivePrefix : ["hive2"]) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -134,9 +135,14 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
             def t1 = UUID.randomUUID().toString()
             
             def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id = 1;
+                select id, name, value, active, score, file_id from (
+                    select *, "${t1}" as profile_token from orc_topn_lazy_mat_table
+                    where file_id = 1 and id = 1
+                ) profile_query;
             """
             logger.info("sql_result = ${sql_result}");
+            assertEquals(["1"], sql_result.collect { it[0].toString() }.sort())
+            assertTrue(sql_result.every { it[5].toString() == "1" })
             return getProfileWithToken(t1);             
         }
 
@@ -145,9 +151,14 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
             def t1 = UUID.randomUUID().toString()
             
             def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id <= 2;
+                select id, name, value, active, score, file_id from (
+                    select *, "${t1}" as profile_token from orc_topn_lazy_mat_table
+                    where file_id = 1 and id <= 2
+                ) profile_query;
             """
             logger.info("sql_result = ${sql_result}");
+            assertEquals(["1", "2"], sql_result.collect { it[0].toString() }.sort())
+            assertTrue(sql_result.every { it[5].toString() == "1" })
             return getProfileWithToken(t1);             
         }
 
@@ -155,9 +166,14 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
             def t1 = UUID.randomUUID().toString()
             
             def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id <= 3;
+                select id, name, value, active, score, file_id from (
+                    select *, "${t1}" as profile_token from orc_topn_lazy_mat_table
+                    where file_id = 1 and id <= 3
+                ) profile_query;
             """
             logger.info("sql_result = ${sql_result}");
+            assertEquals(["1", "2", "3"], sql_result.collect { it[0].toString() }.sort())
+            assertTrue(sql_result.every { it[5].toString() == "1" })
             return getProfileWithToken(t1);             
         }
 
@@ -165,9 +181,13 @@ suite("test_orc_lazy_mat_profile", "p0,external") {
             def t1 = UUID.randomUUID().toString()
             
             def sql_result = sql """
-                select *, "${t1}" from orc_topn_lazy_mat_table where file_id = 1 and id < 0;
+                select id, name, value, active, score, file_id from (
+                    select *, "${t1}" as profile_token from orc_topn_lazy_mat_table
+                    where file_id = 1 and id < 0
+                ) profile_query;
             """
             logger.info("sql_result = ${sql_result}");
+            assertEquals(0, sql_result.size())
             return getProfileWithToken(t1);             
         }
 
