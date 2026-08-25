@@ -993,9 +993,12 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
         return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                           col_uid);
     }
+    if (auto value = _read_time_const_value(col_uid, read_options)) {
+        *column_reader = std::make_shared<ConstantColumnReader>(std::move(*value));
+        return Status::OK();
+    }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
-                                                   &read_options.io_ctx,
-                                                   _read_time_const_value(col_uid, read_options));
+                                                   &read_options.io_ctx);
 }
 
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
@@ -1025,9 +1028,12 @@ Status Segment::get_column_reader(const TabletColumn& col,
         return _column_reader_cache->get_path_column_reader(col_uid, relative_path, column_reader,
                                                             stats, nullptr, &read_options.io_ctx);
     }
+    if (auto value = _read_time_const_value(col_uid, read_options)) {
+        *column_reader = std::make_shared<ConstantColumnReader>(std::move(*value));
+        return Status::OK();
+    }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
-                                                   &read_options.io_ctx,
-                                                   _read_time_const_value(col_uid, read_options));
+                                                   &read_options.io_ctx);
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,

@@ -258,10 +258,6 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
-    if (opts.const_value.has_value()) {
-        *reader = std::make_shared<ConstantColumnReader>(*opts.const_value);
-        return Status::OK();
-    }
     if (is_scalar_type((FieldType)meta.type())) {
         std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
@@ -476,6 +472,16 @@ Status ColumnReader::get_page_zone_map(size_t page_index, RowRange* rows,
                                        segment_v2::ZoneMap* zone_map) {
     DORIS_CHECK(rows != nullptr && zone_map != nullptr);
     DORIS_CHECK(_zone_map_index != nullptr && page_index < _zone_map_index->num_pages());
+    // The two indexes are stored apart and are only equal in length on a healthy segment.
+    // get_last_ordinal() reads one past its argument, so a zone map with more pages than the
+    // ordinal index would run off the end of the ordinal vector.
+    if (_ordinal_index == nullptr ||
+        page_index >= cast_set<size_t>(_ordinal_index->num_data_pages())) {
+        return Status::Corruption(
+                "zone map page {} has no ordinal entry, zone map pages={}, ordinal pages={}",
+                page_index, _zone_map_index->num_pages(),
+                _ordinal_index == nullptr ? -1 : _ordinal_index->num_data_pages());
+    }
     const auto index = cast_set<uint32_t>(page_index);
     *rows = RowRange(_ordinal_index->get_first_ordinal(index),
                      _ordinal_index->get_last_ordinal(index) + 1);

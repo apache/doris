@@ -101,7 +101,6 @@ struct ColumnReaderOptions {
     // of reading on-disk data. Used for read-time-filled constant columns (e.g.
     // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
     // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
-    std::optional<Field> const_value = std::nullopt;
 };
 
 struct ColumnIteratorOptions {
