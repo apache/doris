@@ -339,13 +339,20 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             }
             if (!containsPunctuation) {
                 s = normalizeBasic(s);
-                s = DateUtils.truncateFractionalSecondForJavaParser(s);
+                boolean parseNanoseconds = maxFractionDigits > 7;
+                if (parseNanoseconds) {
+                    s = DateUtils.truncateFractionalSecondForJavaParser(s);
+                }
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
 
                 if (!s.contains("T")) {
-                    dateTime = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T.parse(s);
+                    dateTime = (parseNanoseconds
+                            ? DateTimeFormatterUtils.TIMESTAMP_NS_BASIC_FORMATTER_WITHOUT_T
+                            : DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T).parse(s);
                 } else {
-                    dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
+                    dateTime = (parseNanoseconds
+                            ? DateTimeFormatterUtils.TIMESTAMP_NS_BASIC_DATE_TIME_FORMATTER
+                            : DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER).parse(s);
                 }
                 return Result.ok(dateTime);
             }
@@ -355,12 +362,17 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return normalizeResult.cast();
             }
             s = normalizeResult.get();
-            s = DateUtils.truncateFractionalSecondForJavaParser(s);
+            boolean parseNanoseconds = maxFractionDigits > 7;
+            if (parseNanoseconds) {
+                s = DateUtils.truncateFractionalSecondForJavaParser(s);
+            }
 
             if (!s.contains(" ")) {
                 dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);
             } else {
-                dateTime = DateTimeFormatterUtils.ZONE_DATE_TIME_FORMATTER.parse(s);
+                dateTime = (parseNanoseconds
+                        ? DateTimeFormatterUtils.TIMESTAMP_NS_ZONE_DATE_TIME_FORMATTER
+                        : DateTimeFormatterUtils.ZONE_DATE_TIME_FORMATTER).parse(s);
             }
 
             // if Year is not present, throw exception
