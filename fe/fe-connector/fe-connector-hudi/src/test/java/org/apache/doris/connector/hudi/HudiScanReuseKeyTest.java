@@ -37,6 +37,12 @@ import java.util.function.Supplier;
 /** Statement-scoped scan reuse key construction for Hudi (offline; no table environment needed). */
 class HudiScanReuseKeyTest {
 
+    @Test
+    void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new HudiConnectorProvider().getType() + ".";
+        Assertions.assertTrue(HudiScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
+
     private static HudiTableHandle handle() {
         return new HudiTableHandle.Builder("db", "t", "/warehouse/t", "COPY_ON_WRITE")
                 .inputFormat("org.apache.hudi.hadoop.HoodieParquetInputFormat")

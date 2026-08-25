@@ -95,6 +95,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
     private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
+    static final String SCAN_REUSE_NAMESPACE = "hms.scan-reuse";
 
     /** Input format of a full-ACID (ORC) transactional Hive table; other formats are rejected. */
     private static final String ORC_ACID_INPUT_FORMAT = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
@@ -147,7 +148,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // partition set, same formats) plans once and every duplicated relation shares the result.
         // The scope is NONE for offline planning and tests, in which case the loader runs on every
         // call. Session variables are constant within a statement and deliberately absent.
-        String memoKey = "hive.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+        String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
         HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);

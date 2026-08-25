@@ -116,6 +116,12 @@ import java.util.function.Supplier;
  */
 public class PaimonScanPlanProviderTest {
 
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new PaimonConnectorProvider().getType() + ".";
+        Assertions.assertTrue(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
+
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
         for (String name : columnNames) {

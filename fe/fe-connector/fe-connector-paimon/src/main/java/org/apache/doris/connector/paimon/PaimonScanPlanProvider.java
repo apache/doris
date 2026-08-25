@@ -182,6 +182,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String IGNORE_SPLIT_TYPE_JNI = "IGNORE_JNI";
     private static final String IGNORE_SPLIT_TYPE_NATIVE = "IGNORE_NATIVE";
     private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
+    static final String SCAN_REUSE_NAMESPACE = "paimon.scan-reuse";
 
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
     // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
@@ -501,7 +502,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // every duplicated relation shares the result. The scope is NONE for offline planning and
         // tests, in which case the loader runs on every call. Session variables are constant within
         // a statement and deliberately absent from the key.
-        String memoKey = "paimon.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+        String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
         PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request);

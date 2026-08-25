@@ -152,6 +152,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
+    static final String SCAN_REUSE_NAMESPACE = "iceberg.scan-reuse";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
@@ -452,7 +453,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // separate map, so every scope call from planScanInternal is top-level again. The memo
             // key is catalog-scoped, which also isolates same-named tables across a cross-catalog
             // statement.
-            String memoKey = "iceberg.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+            String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
             Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse =
                     session.getStatementScope().computeIfAbsent(memoKey, () -> new ConcurrentHashMap<>());
             IcebergScanReuseKey reuseKey = new IcebergScanReuseKey(icebergHandle, request);

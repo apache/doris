@@ -70,6 +70,12 @@ public class HiveScanBatchModeTest {
     private static final String PARQUET_SERDE =
             "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
 
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new HiveConnectorProvider().getType() + ".";
+        Assertions.assertTrue(HiveScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
+
     // ==================== supportsBatchScan: partitioned AND non-transactional ====================
 
     @Test
