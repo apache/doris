@@ -81,6 +81,28 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 
 } // namespace
 
+TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
+    const InputTypeSet list_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                           PrimitiveType::TYPE_VARCHAR};
+    const DataSet list_data_set = {
+            {{"LIST", "edc_server2"}, "pedc5fserver211"},
+            {{"LiSt", "edc_server2"}, "pedc5fserver211"},
+    };
+    ASSERT_TRUE(check_function<DataTypeString, true>("auto_partition_name", list_input_types,
+                                                     list_data_set)
+                        .ok());
+
+    const InputTypeSet range_input_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    const DataSet range_data_set = {
+            {{"RANGE", "MONTH", "2022-12-12 19:20:30"}, "p20221201000000"},
+            {{"rAnGe", "dAy", "2022-12-12 19:20:30"}, "p20221212000000"},
+    };
+    ASSERT_TRUE(check_function<DataTypeString, true>("auto_partition_name", range_input_types,
+                                                     range_data_set)
+                        .ok());
+}
+
 TEST(function_string_test, function_string_substr_test) {
     std::string func_name = "substr";
 
