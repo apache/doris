@@ -192,6 +192,13 @@ services:
     volumes:
       - ./data:/mnt/data
       - ./scripts/preinstalled_data/:/mnt/preinstalled_data
+    # The lance fixture is mirrored, not copied: it is a Lance Directory (V2) catalog whose
+    # __manifest version is a commit count, so a rebuild can lower it (it went 35 -> 27 when
+    # the vector table matrix grew). Lance names version files u64::MAX - version so that a
+    # listing returns the newest first, which means a leftover higher-versioned manifest from
+    # an earlier fixture would win over the one just published and point readers at tables
+    # that no longer exist. This bucket is not recreated between runs, so a plain copy would
+    # merge the two catalogs. --remove makes the prefix match the committed fixture exactly.
     entrypoint: >
       /bin/sh -c "
       until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
@@ -203,7 +210,7 @@ services:
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
-      /usr/bin/mc cp -r /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
+      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       "
 
