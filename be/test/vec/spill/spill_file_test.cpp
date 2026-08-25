@@ -1366,15 +1366,16 @@ TEST_F(SpillFileTest, ManagerAllocatesExternalSpillSessionOnManagedRoot) {
     }
 
     const std::string& selected_path = paths.front();
-    ASSERT_TRUE(spill_session->reserve(selected_path + "/paimon-io-test/channel", 1024).ok());
+    const std::string channel = selected_path + "/paimon-io-test/channel";
+    ASSERT_TRUE(spill_session->reserve(channel, 1024).ok());
     auto* selected_data_dir = selected_path == first_path ? _data_dir_ptr : _second_data_dir_ptr;
     auto* unselected_data_dir =
             selected_data_dir == _data_dir_ptr ? _second_data_dir_ptr : _data_dir_ptr;
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
     ASSERT_EQ(unselected_data_dir->get_spill_data_bytes(), 0);
-    spill_session->update_accounting(selected_path, -256, 0, 0);
+    spill_session->update_accounting(channel, -256, 0, 0);
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 768);
-    _create_residual_file(selected_path + "/paimon-io-test/channel");
+    _create_residual_file(channel);
 
     // Query teardown must not remove a directory while an asynchronous external writer can still
     // use its native callback. The regular spill GC handles deferred cleanup after lease release.
@@ -1542,7 +1543,9 @@ TEST_F(SpillFileTest, ExternalSpillAccountingStaysChargedUntilGcRetrySucceeds) {
         config::enable_debug_points = previous_enable_debug_points;
     });
     auto debug_point = std::make_shared<DebugPoint>();
-    debug_point->execute_limit = 1;
+    // QueryContext touched every managed root. Fail the first deletion on each root so this test
+    // does not depend on the iteration order of the pending-directory registry.
+    debug_point->execute_limit = static_cast<int64_t>(paths.size());
     config::enable_debug_points = true;
     DebugPoints::instance()->add(debug_point_name, debug_point);
 
