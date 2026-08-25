@@ -405,8 +405,12 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
 }
 
 Status VIcebergSortWriter::_create_final_merger() {
-    // Final merger uses the runtime batch size and merges all remaining streams
-    return _create_merger(true, _runtime_state->batch_size(), 1);
+    // Keep the final output within both the normal runtime batch and the spill-buffer estimate.
+    return _create_merger(true, _final_merge_batch_row_count(), 1);
+}
+
+size_t VIcebergSortWriter::_final_merge_batch_row_count() const {
+    return std::min<size_t>(_runtime_state->batch_size(), _spill_block_batch_row_count);
 }
 
 void VIcebergSortWriter::_cleanup_spill_streams() {

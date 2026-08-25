@@ -154,6 +154,8 @@ private:
     // Create the final merger that merges all remaining spill streams
     Status _create_final_merger();
 
+    size_t _final_merge_batch_row_count() const;
+
     // Release all spill stream resources (both pending and currently merging)
     void _cleanup_spill_streams();
 

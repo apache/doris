@@ -184,6 +184,10 @@ protected:
         return {writer._avg_row_bytes, writer._spill_block_batch_row_count};
     }
 
+    size_t final_merge_batch_row_count(const VIcebergSortWriter& writer) const {
+        return writer._final_merge_batch_row_count();
+    }
+
     ObjectPool _pool;
     RowDescriptor _row_desc;
     std::unique_ptr<MockRowDescriptor> _sort_row_desc;
@@ -350,6 +354,8 @@ TEST_F(IcebergTableSinkOperatorTest, SortWriterSamplesSpillBatchBeforeConsumingI
     EXPECT_EQ(block.rows(), 0);
     EXPECT_EQ(spill_batch_state(writer),
               std::make_pair(expected_avg_row_bytes, expected_batch_rows));
+    EXPECT_EQ(final_merge_batch_row_count(writer),
+              std::min<size_t>(state.batch_size(), expected_batch_rows));
 }
 
 TEST_F(IcebergTableSinkOperatorTest, SpillSinkAccountsAndRevokesAllEosPartitions) {
