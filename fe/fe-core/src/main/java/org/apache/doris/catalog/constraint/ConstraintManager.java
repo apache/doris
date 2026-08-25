@@ -136,9 +136,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         try {
             TableIf table = null;
             if (!replay) {
-                if (constraint instanceof DistributionMappingConstraint) {
-                    validateFrontendVersionsForDistributionMappingConstraint();
-                }
                 if (resolvedTable == null) {
                     table = validateTableAndColumns(tableNameInfo, constraint);
                 } else {
@@ -194,13 +191,18 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                                 + " Drop all distribution mapping constraints before adding a frontend");
                     }
                 }
-                if (Env.getCurrentRecycleBin().containsDistributionMappingConstraint()) {
-                    throw new DdlException("Cannot add frontend while distribution mapping constraints exist"
-                            + " in the recycle bin. Permanently erase the affected tables or databases"
-                            + " before adding a frontend");
-                }
             } finally {
                 readUnlock();
+            }
+            if (Env.getCurrentRecycleBin().containsDistributionMappingConstraint()) {
+                throw new DdlException("Cannot add frontend while distribution mapping constraints exist"
+                        + " in the recycle bin. Permanently erase the affected tables or databases"
+                        + " before adding a frontend");
+            }
+            if (Env.getCurrentEnv().getBackupHandler().containsDistributionMappingConstraint()) {
+                throw new DdlException("Cannot add frontend while distribution mapping constraints exist"
+                        + " in retained backup or restore jobs. Wait for the active job to release its metadata"
+                        + " before adding a frontend");
             }
             admitted = true;
         } finally {
@@ -241,6 +243,15 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             Thread.currentThread().interrupt();
             throw new AnalysisException(
                     "Interrupted while acquiring frontend admission lock for distribution mapping constraint", e);
+        }
+        boolean validated = false;
+        try {
+            validateFrontendVersionsForDistributionMappingConstraint();
+            validated = true;
+        } finally {
+            if (!validated) {
+                frontendAdmissionLock.unlock();
+            }
         }
     }
 
@@ -561,16 +572,16 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * @param tableNameInfo the table whose constraints are to be dropped
      * @param checkForeignKeys if true, throw DdlException if any PK is FK-referenced
      */
-    public void checkAndDropTableConstraints(TableNameInfo tableNameInfo,
+    public List<TableNameInfo> checkAndDropTableConstraints(TableNameInfo tableNameInfo,
             boolean checkForeignKeys) throws DdlException {
-        checkAndDropTableConstraints(ImmutableList.of(tableNameInfo), checkForeignKeys);
+        return checkAndDropTableConstraints(ImmutableList.of(tableNameInfo), checkForeignKeys);
     }
 
     /**
      * Atomically validate and drop constraints for a set of tables.
      * Foreign keys owned by another table in the same set do not block the operation.
      */
-    public void checkAndDropTableConstraints(List<TableNameInfo> tableNameInfos,
+    public List<TableNameInfo> checkAndDropTableConstraints(List<TableNameInfo> tableNameInfos,
             boolean checkForeignKeys) throws DdlException {
         writeLock();
         try {
@@ -584,9 +595,15 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                             tableKey, constraintsMap.get(tableKey), tablesByKey.keySet());
                 }
             }
+            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
+            for (Entry<String, TableNameInfo> table : tablesByKey.entrySet()) {
+                collectConstraintRelatedTables(
+                        affectedTables, table.getValue(), constraintsMap.get(table.getKey()));
+            }
             for (Entry<String, TableNameInfo> table : tablesByKey.entrySet()) {
                 dropTableConstraintsWithoutLock(table.getKey(), table.getValue());
             }
+            return ImmutableList.copyOf(affectedTables.values());
         } finally {
             writeUnlock();
         }
@@ -623,11 +640,14 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
-    public void dropTableConstraints(TableNameInfo tableNameInfo) {
+    public List<TableNameInfo> dropTableConstraints(TableNameInfo tableNameInfo) {
         String key = toKey(tableNameInfo);
         writeLock();
         try {
+            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
+            collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsMap.get(key));
             dropTableConstraintsWithoutLock(key, tableNameInfo);
+            return ImmutableList.copyOf(affectedTables.values());
         } finally {
             writeUnlock();
         }
@@ -664,13 +684,14 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Called during DROP DATABASE to pre-clear all intra-database FK references
      * before individual table drops, avoiding ordering-dependent FK check failures.
      */
-    public void dropDatabaseConstraints(String catalogName, String dbName) {
+    public List<TableNameInfo> dropDatabaseConstraints(String catalogName, String dbName) {
         writeLock();
         try {
             String prefix = catalogName + "." + dbName + ".";
-            dropConstraintsByPrefix(prefix);
+            List<TableNameInfo> affectedTables = dropConstraintsByPrefix(prefix);
             LOG.info("Dropped all constraints for database {}.{}",
                     catalogName, dbName);
+            return affectedTables;
         } finally {
             writeUnlock();
         }
@@ -680,17 +701,41 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Remove all constraints whose qualified table name starts with
      * the given prefix, cleaning up cross-references outside the prefix.
      */
-    private void dropConstraintsByPrefix(String prefix) {
+    private List<TableNameInfo> dropConstraintsByPrefix(String prefix) {
         List<String> tablesToRemove = constraintsMap.keySet().stream()
                 .filter(k -> k.startsWith(prefix))
                 .collect(Collectors.toList());
+        Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
         for (String tableName : tablesToRemove) {
+            TableNameInfo tableNameInfo = new TableNameInfo(tableName);
             Map<String, Constraint> tableConstraints
                     = constraintsMap.remove(tableName);
             if (tableConstraints != null) {
+                collectConstraintRelatedTables(affectedTables, tableNameInfo, tableConstraints);
                 for (Constraint constraint : tableConstraints.values()) {
                     cleanupConstraintReferencesOutsideCatalog(
                             tableName, constraint, prefix);
+                }
+            }
+        }
+        return ImmutableList.copyOf(affectedTables.values());
+    }
+
+    private void collectConstraintRelatedTables(Map<String, TableNameInfo> affectedTables,
+            TableNameInfo tableNameInfo, Map<String, Constraint> constraints) {
+        if (constraints == null || constraints.isEmpty()) {
+            return;
+        }
+        affectedTables.putIfAbsent(toKey(tableNameInfo), tableNameInfo);
+        for (Constraint constraint : constraints.values()) {
+            if (constraint instanceof ForeignKeyConstraint) {
+                TableNameInfo referencedTable = ((ForeignKeyConstraint) constraint).getReferencedTableName();
+                if (referencedTable != null) {
+                    affectedTables.putIfAbsent(toKey(referencedTable), referencedTable);
+                }
+            } else if (constraint instanceof PrimaryKeyConstraint) {
+                for (TableNameInfo foreignTable : ((PrimaryKeyConstraint) constraint).getForeignTableInfos()) {
+                    affectedTables.putIfAbsent(toKey(foreignTable), foreignTable);
                 }
             }
         }

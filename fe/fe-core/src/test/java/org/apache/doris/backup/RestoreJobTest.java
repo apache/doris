@@ -49,6 +49,7 @@ import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService;
@@ -78,6 +79,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.zip.Adler32;
 
 public class RestoreJobTest {
@@ -181,7 +183,7 @@ public class RestoreJobTest {
             List<BackupMeta> metas = inv.getArgument(1);
             metas.add(backupMeta);
             return Status.OK;
-        }).when(repo).getSnapshotMetaFile(Mockito.eq(label), Mockito.anyList(), Mockito.eq(-1));
+        }).when(repo).getSnapshotMetaFile(Mockito.eq(label), Mockito.anyList(), Mockito.anyInt());
 
         mockedMarkedCountDownLatch = Mockito.mockConstruction(MarkedCountDownLatch.class,
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
@@ -264,6 +266,47 @@ public class RestoreJobTest {
         tbl.setName("newName");
         partNames = Lists.newArrayList(tbl.getPartitionNames());
         System.out.println("tbl signature: " + tbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void testPublishesAndRestoresMappingMetadataHolderState() throws Exception {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", ImmutableList.of("d1"), ImmutableList.of("k1"));
+        expectedRestoreTbl.getTableAttributes().getConstraintsMap().put(mapping.getName(), mapping);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        job.updateRepo(repo);
+
+        Assert.assertTrue((Boolean) Deencapsulation.invoke(job, "downloadAndDeserializeMetaInfo"));
+        Assert.assertTrue(job.containsDistributionMappingConstraint());
+        InOrder admissionOrder = Mockito.inOrder(constraintManager);
+        admissionOrder.verify(constraintManager).acquireFrontendAdmissionForMapping();
+        admissionOrder.verify(constraintManager).releaseFrontendAdmissionFence();
+
+        RestoreJob localJob = new RestoreJob(label, "2018-01-01 01:01:01",
+                db.getId(), db.getFullName(), jobInfo, false, new ReplicaAllocation((short) 3),
+                100000, -1, false, false, false, false, false, false, false, false,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+        Assert.assertTrue(localJob.containsDistributionMappingConstraint());
+
+        Path path = Files.createTempFile("restoreJobMappingHolder", "tmp");
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(path))) {
+            localJob.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(Files.newInputStream(path))) {
+            Assert.assertTrue(RestoreJob.read(in).containsDistributionMappingConstraint());
+        } finally {
+            Files.delete(path);
+        }
+
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(job.containsDistributionMappingConstraint());
+            return null;
+        }).when(editLog).logRestoreJob(job);
+        Assert.assertTrue(job.cancel().ok());
+        Assert.assertFalse(job.containsDistributionMappingConstraint());
     }
 
     @Test
@@ -556,8 +599,14 @@ public class RestoreJobTest {
         Deencapsulation.setField(job, "isAtomicRestore", true);
         Deencapsulation.setField(job, "isCleanTables", true);
 
-        Status status = Deencapsulation.invoke(
-                job, "atomicReplaceOlapTables", database, false);
+        Status status;
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            status = Deencapsulation.invoke(
+                    job, "atomicReplaceOlapTables", database, false);
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    ImmutableList.of(cleanPrimaryInfo, cleanForeignInfo),
+                    "after dropping constraints for atomic restore in database " + CatalogMocker.TEST_DB_NAME));
+        }
 
         Assert.assertTrue(status.ok());
         Assert.assertTrue(constraintManager.getConstraints(cleanPrimaryInfo).isEmpty());
@@ -605,8 +654,15 @@ public class RestoreJobTest {
             Mockito.when(originTable.getType()).thenReturn(Table.TableType.OLAP);
             Deencapsulation.setField(job, "isAtomicRestore", true);
 
-            Status status = Deencapsulation.invoke(
-                    job, "atomicReplaceOlapTables", database, isReplay);
+            Status status;
+            try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+                status = Deencapsulation.invoke(
+                        job, "atomicReplaceOlapTables", database, isReplay);
+                mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                        ImmutableList.of(originTableInfo),
+                        "after dropping constraints for atomic restore in database "
+                                + CatalogMocker.TEST_DB_NAME));
+            }
 
             Assert.assertTrue(status.ok());
             Assert.assertNull(constraintManager.getConstraint(
@@ -629,12 +685,48 @@ public class RestoreJobTest {
     }
 
     @Test
+    public void testMappingRestoreHandoffKeepsFrontendAdmissionFencedUntilJournalDurable() throws Exception {
+        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Deencapsulation.invoke(job, "setContainsDistributionMappingConstraint", true);
+        ReentrantLock admissionLock = Deencapsulation.getField(
+                constraintManager, "frontendAdmissionLock");
+        EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
+        Mockito.when(editLog.submitEdit(
+                        Mockito.eq(OperationType.OP_RESTORE_JOB), Mockito.same(job)))
+                .thenReturn(logItem);
+        Mockito.when(logItem.await()).thenAnswer(invocation -> {
+            Assert.assertTrue(admissionLock.isHeldByCurrentThread());
+            Assert.assertTrue(job.containsDistributionMappingConstraint());
+            return 1L;
+        });
+
+        Status status = job.allTabletCommitted(false);
+
+        Assert.assertTrue(status.ok());
+        Assert.assertFalse(admissionLock.isLocked());
+        Assert.assertFalse(job.containsDistributionMappingConstraint());
+        InOrder order = Mockito.inOrder(constraintManager, editLog, logItem);
+        order.verify(constraintManager).acquireFrontendAdmissionFence();
+        order.verify(editLog).submitEdit(OperationType.OP_RESTORE_JOB, job);
+        order.verify(logItem).await();
+        order.verify(constraintManager).releaseFrontendAdmissionFence();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
     public void testAtomicRestoreAwaitsFinishedJournalAfterDatabaseUnlock() throws Exception {
-        Mockito.when(env.getConstraintManager()).thenReturn(new ConstraintManager());
+        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         jobInfo.backupOlapTableObjects.clear();
         Deencapsulation.setField(job, "isAtomicRestore", true);
         Deencapsulation.setField(job, "isCleanTables", true);
+        OlapTable cleanTable = (OlapTable) db.getTableNullable(CatalogMocker.TEST_TBL_NAME);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", ImmutableList.of("d1"), ImmutableList.of("k1"));
+        cleanTable.getTableAttributes().getConstraintsMap().put(mapping.getName(), mapping);
         com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos =
                 HashBasedTable.create();
         snapshotInfos.put(1L, 2L,
@@ -664,6 +756,7 @@ public class RestoreJobTest {
             Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
             Assert.assertNotEquals(RestoreJob.RestoreJobState.FINISHED,
                     Deencapsulation.getField(job, "showState"));
+            Assert.assertFalse(job.containsDistributionMappingConstraint());
             return 1L;
         });
 
@@ -696,5 +789,15 @@ public class RestoreJobTest {
         journalOrder.verify(editLog).submitEdit(OperationType.OP_RESTORE_JOB, job);
         journalOrder.verify(cleanLogItem, Mockito.atLeastOnce()).await();
         journalOrder.verify(logItem).await();
+        InOrder admissionOrder = Mockito.inOrder(
+                constraintManager, catalog, editLog, cleanLogItem, logItem);
+        admissionOrder.verify(constraintManager).acquireFrontendAdmissionFence();
+        admissionOrder.verify(catalog, Mockito.atLeastOnce()).dropTableWithoutCheckAndSubmit(
+                Mockito.same(db), Mockito.any(Table.class), Mockito.anyBoolean(), Mockito.anyBoolean());
+        admissionOrder.verify(editLog).submitEdit(OperationType.OP_RESTORE_JOB, job);
+        admissionOrder.verify(cleanLogItem, Mockito.atLeastOnce()).await();
+        admissionOrder.verify(logItem).await();
+        admissionOrder.verify(constraintManager).releaseFrontendAdmissionFence();
+        Assert.assertFalse(job.containsDistributionMappingConstraint());
     }
 }

@@ -30,9 +30,11 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
@@ -66,6 +68,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.Deque;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -136,6 +140,30 @@ public class BackupHandlerTest {
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         Assert.assertTrue(backupDir.exists());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void testDetectsMappingInAnyRetainedJob() {
+        handler = new BackupHandler(env);
+        AbstractJob retainedJob = Mockito.mock(AbstractJob.class);
+        AbstractJob currentJob = Mockito.mock(AbstractJob.class);
+        Mockito.when(retainedJob.containsDistributionMappingConstraint()).thenReturn(true);
+
+        Map<Long, Deque<AbstractJob>> jobs = Deencapsulation.getField(
+                handler, "dbIdToBackupOrRestoreJobs");
+        jobs.put(1L, new LinkedList<>(List.of(retainedJob, currentJob)));
+
+        Assert.assertTrue(handler.containsDistributionMappingConstraint());
+        Mockito.verify(retainedJob).containsDistributionMappingConstraint();
+        Mockito.verifyNoInteractions(currentJob);
+
+        OlapTable table = new OlapTable();
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        table.getTableAttributes().getConstraintsMap().put(mapping.getName(), mapping);
+        Assert.assertTrue(new BackupMeta(List.of(table), List.of())
+                .containsDistributionMappingConstraint());
     }
 
     @Test

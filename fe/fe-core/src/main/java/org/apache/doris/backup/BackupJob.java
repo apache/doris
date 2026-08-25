@@ -36,6 +36,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.info.TableRefInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
 import org.apache.doris.persist.BarrierLog;
@@ -610,7 +611,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+        BackupMeta preparedBackupMeta = new BackupMeta(copiedTables, copiedResources);
+        if (!publishBackupMeta(preparedBackupMeta)) {
+            return;
+        }
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -994,6 +998,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // log
         env.getEditLog().logBackupJob(this);
+        setContainsDistributionMappingConstraint(false);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
                  localMetaInfoFilePath, localJobInfoFilePath, this);
     }
@@ -1125,6 +1130,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // log
         env.getEditLog().logBackupJob(this);
+        setContainsDistributionMappingConstraint(false);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
 
@@ -1202,6 +1208,28 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         if (properties.containsKey(SNAPSHOT_COMMIT_SEQ)) {
             commitSeq = Long.parseLong(properties.get(SNAPSHOT_COMMIT_SEQ));
+        }
+        setContainsDistributionMappingConstraint(
+                backupMeta != null && backupMeta.containsDistributionMappingConstraint());
+    }
+
+    private boolean publishBackupMeta(BackupMeta preparedBackupMeta) {
+        boolean frontendAdmissionAcquired = false;
+        try {
+            if (preparedBackupMeta.containsDistributionMappingConstraint()) {
+                env.getConstraintManager().acquireFrontendAdmissionForMapping();
+                frontendAdmissionAcquired = true;
+                setContainsDistributionMappingConstraint(true);
+            }
+            backupMeta = preparedBackupMeta;
+            return true;
+        } catch (AnalysisException e) {
+            status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
+            return false;
+        } finally {
+            if (frontendAdmissionAcquired) {
+                env.getConstraintManager().releaseFrontendAdmissionFence();
+            }
         }
     }
 

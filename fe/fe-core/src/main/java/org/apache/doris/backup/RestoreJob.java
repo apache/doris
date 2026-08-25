@@ -53,6 +53,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
@@ -68,6 +69,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -292,6 +295,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 isAtomicRestore, isForeReplace, env, repoId);
 
         this.backupMeta = backupMeta;
+        refreshDistributionMappingConstraintPresence();
     }
 
     public boolean isFromLocalSnapshot() {
@@ -1663,8 +1667,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return false;
         }
         Preconditions.checkState(backupMetas.size() == 1);
-        backupMeta = backupMetas.get(0);
-        return true;
+        return publishBackupMeta(backupMetas.get(0));
     }
 
     private void replayCheckAndPrepareMeta() {
@@ -2117,6 +2120,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             backupMeta = null;
 
             env.getEditLog().logRestoreJob(this);
+            refreshDistributionMappingConstraintPresence();
             LOG.info("finished to download. {}", this);
         }
 
@@ -2170,26 +2174,50 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
         Status status;
         List<EditLog.EditLogItem> deferredJournalItems = Lists.newArrayList();
-        if (!isAtomicRestore) {
-            status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
-        } else {
-            if (!db.writeLockIfExist()) {
-                return Status.OK;
-            }
-            try {
+        boolean frontendAdmissionAcquired = false;
+        try {
+            if (!isAtomicRestore) {
+                if (!isReplay && containsDistributionMappingConstraint()) {
+                    frontendAdmissionAcquired = env.getConstraintManager().acquireFrontendAdmissionFence();
+                }
                 status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
-            } finally {
-                db.writeUnlock();
+            } else {
+                if (!db.writeLockIfExist()) {
+                    return Status.OK;
+                }
+                try {
+                    if (!isReplay && (containsDistributionMappingConstraint()
+                            || cleanTableDropRequiresFrontendAdmissionFence(db))) {
+                        frontendAdmissionAcquired = env.getConstraintManager().acquireFrontendAdmissionFence();
+                    }
+                    status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
+                } finally {
+                    db.writeUnlock();
+                }
+            }
+            deferredJournalItems.forEach(EditLog.EditLogItem::await);
+            if (status.ok() && !isReplay) {
+                refreshDistributionMappingConstraintPresence();
+            }
+            if (frontendAdmissionAcquired) {
+                env.getConstraintManager().releaseFrontendAdmissionFence();
+                frontendAdmissionAcquired = false;
+            }
+            if (status.ok()) {
+                showState = RestoreJobState.FINISHED;
+            }
+            if (status.ok() && !isReplay) {
+                releaseSnapshots(savedSnapshotInfos, true);
+            }
+            return status;
+        } catch (DdlException e) {
+            return new Status(ErrCode.COMMON_ERROR,
+                    "failed to fence frontend admission for restore, reason=" + e.getMessage());
+        } finally {
+            if (frontendAdmissionAcquired) {
+                env.getConstraintManager().releaseFrontendAdmissionFence();
             }
         }
-        deferredJournalItems.forEach(EditLog.EditLogItem::await);
-        if (status.ok()) {
-            showState = RestoreJobState.FINISHED;
-        }
-        if (status.ok() && !isReplay) {
-            releaseSnapshots(savedSnapshotInfos, true);
-        }
-        return status;
     }
 
     private Status finishAllTabletsCommitted(Database db, boolean isReplay,
@@ -2539,6 +2567,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             setState(RestoreJobState.CANCELLED);
             // log
             env.getEditLog().logRestoreJob(this);
+            refreshDistributionMappingConstraintPresence();
             for (ColocatePersistInfo info : colocatePersistInfos) {
                 Env.getCurrentColocateIndex().removeTable(info.getTableId());
                 env.getEditLog().logColocateRemoveTable(info);
@@ -2658,8 +2687,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return validationStatus;
         }
         try {
-            Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
-                    getAtomicRestoreConstraintDropTargets(db), !isForceReplace);
+            List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                    .checkAndDropTableConstraints(getAtomicRestoreConstraintDropTargets(db), !isForceReplace);
+            MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
+                    "after dropping constraints for atomic restore in database " + db.getFullName());
         } catch (DdlException e) {
             return new Status(ErrCode.COMMON_ERROR,
                     "replace table failed, reason=" + e.getMessage());
@@ -2824,6 +2855,23 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 .collect(Collectors.toList());
     }
 
+    private boolean cleanTableDropRequiresFrontendAdmissionFence(Database db) {
+        if (!isCleanTables) {
+            return false;
+        }
+        Set<String> retainedTableNames = Sets.newHashSet();
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            String targetName = restoreTargetName(tableName);
+            retainedTableNames.add(targetName);
+            retainedTableNames.add(tableAliasWithAtomicRestore(targetName));
+        }
+        return db.getTables().stream()
+                .filter(table -> table.getType() == TableType.OLAP)
+                .filter(table -> !retainedTableNames.contains(table.getName()))
+                .anyMatch(table -> !env.getConstraintManager()
+                        .getDistributionMappingConstraints(table).isEmpty());
+    }
+
     private String restoreTargetName(String backupObjectName) {
         String targetName = jobInfo.getAliasByOriginNameIfSet(backupObjectName);
         return GlobalVariable.isStoredTableNamesLowerCase()
@@ -2913,6 +2961,38 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
         showState = state;
+        refreshDistributionMappingConstraintPresence();
+    }
+
+    private boolean publishBackupMeta(BackupMeta downloadedBackupMeta) {
+        boolean frontendAdmissionAcquired = false;
+        try {
+            if (downloadedBackupMeta.containsDistributionMappingConstraint()) {
+                env.getConstraintManager().acquireFrontendAdmissionForMapping();
+                frontendAdmissionAcquired = true;
+                setContainsDistributionMappingConstraint(true);
+            }
+            backupMeta = downloadedBackupMeta;
+            return true;
+        } catch (AnalysisException e) {
+            status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
+            return false;
+        } finally {
+            if (frontendAdmissionAcquired) {
+                env.getConstraintManager().releaseFrontendAdmissionFence();
+            }
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void refreshDistributionMappingConstraintPresence() {
+        boolean containsMapping = backupMeta != null && backupMeta.containsDistributionMappingConstraint();
+        if (!containsMapping) {
+            containsMapping = restoredTbls.stream()
+                    .anyMatch(table -> table.getTableAttributes().getConstraintsMap().values().stream()
+                            .anyMatch(DistributionMappingConstraint.class::isInstance));
+        }
+        setContainsDistributionMappingConstraint(containsMapping);
     }
 
     @Override

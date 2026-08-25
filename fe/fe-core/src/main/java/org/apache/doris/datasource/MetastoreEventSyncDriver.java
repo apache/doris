@@ -33,6 +33,7 @@ import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
@@ -274,8 +275,7 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 break;
             case UNREGISTER_DATABASE:
                 catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
-                Env.getCurrentEnv().getConstraintManager()
-                        .dropDatabaseConstraints(catalogName, before.localDbName);
+                dropDatabaseConstraintsAndInvalidateMtmvs(catalogName, before.localDbName);
                 break;
             case RENAME_DATABASE:
                 // Always converge to "old removed, new registered". A normal lookup may already have warmed the
@@ -293,7 +293,7 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             case UNREGISTER_TABLE:
                 catalogMgr.unregisterExternalTableFromEvent(
                         before.localDbName, before.localTableName, catalogName);
-                Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
+                dropTableConstraintsAndInvalidateMtmvs(
                         new TableNameInfo(catalogName, before.localDbName, before.localTableName));
                 break;
             case RENAME_TABLE:
@@ -330,6 +330,20 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             default:
                 break;
         }
+    }
+
+    private void dropTableConstraintsAndInvalidateMtmvs(TableNameInfo tableNameInfo) {
+        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                .dropTableConstraints(tableNameInfo);
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
+                "after applying external table drop event for " + tableNameInfo);
+    }
+
+    private void dropDatabaseConstraintsAndInvalidateMtmvs(String catalogName, String dbName) {
+        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                .dropDatabaseConstraints(catalogName, dbName);
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
+                "after applying external database drop event for " + catalogName + "." + dbName);
     }
 
     private boolean affectsConstraintMetadata(MetastoreChangeDescriptor descriptor) {

@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -175,16 +176,22 @@ public class MetastoreEventSyncDriverRenameTest {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        TableNameInfo droppedTable = new TableNameInfo("test_catalog", "db1", "tbl1");
+        List<TableNameInfo> affectedTables = List.of(droppedTable);
+        Mockito.when(constraintManager.dropTableConstraints(droppedTable)).thenReturn(affectedTables);
         MetastoreChangeDescriptor drop = MetastoreChangeDescriptor.forTable(
                 Op.UNREGISTER_TABLE, "db1", "tbl1", null, 1L, 2L);
         MetastoreChangeDescriptor create = MetastoreChangeDescriptor.forTable(
                 Op.REGISTER_TABLE, "db1", "tbl1", null, 2L, 3L);
 
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             MetastoreEventSyncDriver driver = new MetastoreEventSyncDriver();
             Deencapsulation.invoke(driver, "applyOne", catalog, connector, drop);
             Deencapsulation.invoke(driver, "applyOne", catalog, connector, create);
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after applying external table drop event for " + droppedTable));
         }
 
         InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
@@ -194,8 +201,7 @@ public class MetastoreEventSyncDriverRenameTest {
         inOrder.verify(connector).invalidateTable("db1", "tbl1");
         inOrder.verify(catalogMgr).registerExternalTableFromEvent(
                 "db1", "tbl1", "tbl1", "test_catalog", 3L);
-        Mockito.verify(constraintManager).dropTableConstraints(
-                new TableNameInfo("test_catalog", "db1", "tbl1"));
+        Mockito.verify(constraintManager).dropTableConstraints(droppedTable);
         Mockito.verifyNoMoreInteractions(connector, catalogMgr);
     }
 
@@ -208,16 +214,23 @@ public class MetastoreEventSyncDriverRenameTest {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        List<TableNameInfo> affectedTables = List.of(
+                new TableNameInfo("test_catalog", "db1", "tbl1"));
+        Mockito.when(constraintManager.dropDatabaseConstraints("test_catalog", "db1"))
+                .thenReturn(affectedTables);
         MetastoreChangeDescriptor drop = MetastoreChangeDescriptor.forDatabase(
                 Op.UNREGISTER_DATABASE, "db1", null, 1L, 2L);
         MetastoreChangeDescriptor create = MetastoreChangeDescriptor.forDatabase(
                 Op.REGISTER_DATABASE, "db1", null, 2L, 3L);
 
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             MetastoreEventSyncDriver driver = new MetastoreEventSyncDriver();
             Deencapsulation.invoke(driver, "applyOne", catalog, connector, drop);
             Deencapsulation.invoke(driver, "applyOne", catalog, connector, create);
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after applying external database drop event for test_catalog.db1"));
         }
 
         InOrder inOrder = Mockito.inOrder(connector, catalogMgr);

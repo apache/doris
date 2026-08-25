@@ -19,11 +19,12 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
@@ -44,6 +45,10 @@ import org.mockito.Mockito;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -99,30 +104,53 @@ public class EditLogTest {
     }
 
     @Test
-    public void testReplayMappingConstraintFailsOnTableLockTimeout() {
+    public void testReplayMappingConstraintWaitsForTableWriteLock() throws Exception {
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
         DatabaseIf database = Mockito.mock(DatabaseIf.class);
-        TableIf table = Mockito.mock(TableIf.class);
+        CountDownLatch writeLockAttempted = new CountDownLatch(1);
+        OlapTable table = new OlapTable() {
+            @Override
+            public void writeLock() {
+                writeLockAttempted.countDown();
+                super.writeLock();
+            }
+        };
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        NereidsSqlCacheManager sqlCacheManager = Mockito.mock(NereidsSqlCacheManager.class);
         TableNameInfo tableNameInfo = new TableNameInfo("internal", "db", "tbl");
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("d1"), List.of("k1"));
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(sqlCacheManager);
         Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
         Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
         Mockito.when(database.getTableNullable("tbl")).thenReturn(table);
-        Mockito.when(table.tryWriteLock(
-                Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)).thenReturn(false);
 
-        Assert.assertThrows(IllegalStateException.class,
-                () -> Deencapsulation.invoke(EditLog.class, "replayConstraint",
-                        env, tableNameInfo, mapping, true));
+        table.readLock();
+        boolean readLocked = true;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> replay = executor.submit(() -> Deencapsulation.invoke(
+                    EditLog.class, "replayConstraint", env, tableNameInfo, mapping, true));
+            Assert.assertTrue(writeLockAttempted.await(10, TimeUnit.SECONDS));
+            Assert.assertFalse(replay.isDone());
 
-        Mockito.verifyNoInteractions(constraintManager);
-        Mockito.verify(table, Mockito.never()).writeUnlock();
+            table.readUnlock();
+            readLocked = false;
+            replay.get(10, TimeUnit.SECONDS);
+        } finally {
+            if (readLocked) {
+                table.readUnlock();
+            }
+            executor.shutdownNow();
+        }
+
+        Mockito.verify(constraintManager).addConstraint(
+                tableNameInfo, mapping.getName(), mapping, true);
+        Mockito.verify(sqlCacheManager).invalidateAboutTableAndFencePublication(table);
     }
 
     @Test

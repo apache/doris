@@ -68,6 +68,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.ConnectorPartitionFieldConverter;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -659,8 +660,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 try {
                     unregisterDatabase(db.getFullName());
                 } finally {
-                    Env.getCurrentEnv().getConstraintManager()
-                            .dropDatabaseConstraints(getName(), db.getFullName());
+                    dropDatabaseConstraintsAndInvalidateMtmvs(db.getFullName(),
+                            "after dropping external database " + getName() + "." + db.getFullName());
                 }
             }
             LOG.info("finished to drop database {}.{}", getName(), dbName);
@@ -858,8 +859,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 try {
                     invalidateDroppedTable(dbName, tblName);
                 } finally {
-                    Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
-                            new TableNameInfo(getName(), dbName, tblName));
+                    dropTableConstraintsAndInvalidateMtmvs(
+                            new TableNameInfo(getName(), dbName, tblName),
+                            "after replaying external table drop " + getName() + "." + dbName + "." + tblName);
                 }
             }
         }
@@ -874,8 +876,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 try {
                     unregisterDatabase(dbName);
                 } finally {
-                    Env.getCurrentEnv().getConstraintManager()
-                            .dropDatabaseConstraints(getName(), dbName);
+                    dropDatabaseConstraintsAndInvalidateMtmvs(dbName,
+                            "after replaying external database drop " + getName() + "." + dbName);
                 }
             }
         }
@@ -1360,10 +1362,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             try {
                 invalidateDroppedTable(db.getFullName(), table.getName());
             } finally {
-                Env.getCurrentEnv().getConstraintManager()
-                        .dropTableConstraints(tableNameInfo);
+                dropTableConstraintsAndInvalidateMtmvs(tableNameInfo,
+                        "after dropping external table " + tableNameInfo);
             }
         }
+    }
+
+    private void dropTableConstraintsAndInvalidateMtmvs(TableNameInfo tableNameInfo, String reason) {
+        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                .dropTableConstraints(tableNameInfo);
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables, reason);
+    }
+
+    private void dropDatabaseConstraintsAndInvalidateMtmvs(String dbName, String reason) {
+        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                .dropDatabaseConstraints(getName(), dbName);
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables, reason);
     }
 
     protected void afterExternalRename(ExternalDatabase<? extends ExternalTable> db,

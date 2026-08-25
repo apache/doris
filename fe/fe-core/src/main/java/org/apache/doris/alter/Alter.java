@@ -34,6 +34,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
@@ -737,37 +738,49 @@ public class Alter {
         // Handle constraints for table replacement
         TableNameInfo origTableInfo = TableNameInfoUtils.fromDb(db, origTable.getName());
         TableNameInfo newTableInfo = TableNameInfoUtils.fromDb(db, newTbl.getName());
-        if (swapTable) {
-            Env.getCurrentEnv().getConstraintManager().swapTableConstraints(origTableInfo, newTableInfo);
-        } else {
-            if (!isReplay) {
-                Env.getCurrentEnv().getConstraintManager().checkNoReferencingForeignKeys(origTableInfo);
+        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
+        boolean frontendAdmissionAcquired = false;
+        try {
+            if (!isReplay && !swapTable && !isForce
+                    && !constraintManager.getDistributionMappingConstraints(origTable).isEmpty()) {
+                frontendAdmissionAcquired = constraintManager.acquireFrontendAdmissionFence();
             }
-            Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
-        }
-
-        // drop origin table and new table
-        db.unregisterTable(oldTblName);
-        db.unregisterTable(newTblName);
-        // rename new table name to origin table name and add it to database
-        newTbl.checkAndSetName(oldTblName, false);
-        db.registerTable(newTbl);
-        if (swapTable) {
-            // rename origin table name to new table name and add it to database
-            origTable.checkAndSetName(newTblName, false);
-            db.registerTable(origTable);
-        } else {
-
-            // not swap, the origin table is not used anymore, need to drop all its tablets.
-            // put original table to recycle bin.
-            if (isForce) {
-                Env.getCurrentEnv().onEraseOlapTable(db.getId(), origTable, isReplay);
+            if (swapTable) {
+                constraintManager.swapTableConstraints(origTableInfo, newTableInfo);
             } else {
-                Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
+                if (!isReplay) {
+                    constraintManager.checkNoReferencingForeignKeys(origTableInfo);
+                }
+                constraintManager.dropAndRenameConstraints(origTableInfo, newTableInfo);
             }
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
-            if (origTable instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
+
+            // drop origin table and new table
+            db.unregisterTable(oldTblName);
+            db.unregisterTable(newTblName);
+            // rename new table name to origin table name and add it to database
+            newTbl.checkAndSetName(oldTblName, false);
+            db.registerTable(newTbl);
+            if (swapTable) {
+                // rename origin table name to new table name and add it to database
+                origTable.checkAndSetName(newTblName, false);
+                db.registerTable(origTable);
+            } else {
+
+                // not swap, the origin table is not used anymore, need to drop all its tablets.
+                // put original table to recycle bin.
+                if (isForce) {
+                    Env.getCurrentEnv().onEraseOlapTable(db.getId(), origTable, isReplay);
+                } else {
+                    Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
+                }
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
+                if (origTable instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
+                }
+            }
+        } finally {
+            if (frontendAdmissionAcquired) {
+                constraintManager.releaseFrontendAdmissionFence();
             }
         }
     }

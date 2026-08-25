@@ -55,6 +55,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalRowCountCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -77,6 +78,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -276,8 +278,16 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
         catalog.dbNullableResult = db;
+        List<TableNameInfo> affectedTables = List.of(
+                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
+        Mockito.when(mockConstraintManager.dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME))
+                .thenReturn(affectedTables);
 
-        catalog.dropDb("db1", false, false);
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            catalog.dropDb("db1", false, false);
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after dropping external database test-catalog.db1"));
+        }
 
         Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
         Mockito.verify(mockEditLog).logDropDb(Mockito.any());
@@ -378,12 +388,19 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+        TableNameInfo droppedTable = new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1");
+        List<TableNameInfo> affectedTables = List.of(droppedTable);
+        Mockito.when(mockConstraintManager.dropTableConstraints(droppedTable)).thenReturn(affectedTables);
         Mockito.doAnswer(inv -> {
             catalog.dbForReplayResult = Optional.empty();
             return null;
         }).when(metadata).dropTable(session, handle);
 
-        catalog.dropTable("DB1", "T1", false, false, false, false, false, false);
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            catalog.dropTable("DB1", "T1", false, false, false, false, false, false);
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after dropping external table " + droppedTable));
+        }
 
         Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
         Mockito.verify(metadata).dropTable(session, handle);
@@ -402,8 +419,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(connector).invalidateTable("DB1", "TBL1");
         Mockito.verify(mockConstraintManager).checkNoReferencingForeignKeys(
                 new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
-        Mockito.verify(mockConstraintManager).dropTableConstraints(
-                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
+        Mockito.verify(mockConstraintManager).dropTableConstraints(droppedTable);
     }
 
     @Test
@@ -1041,13 +1057,19 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(cached.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(Optional.of(cached)).when(replayDb).getTableForReplay("t1");
         catalog.dbForReplayResult = Optional.of(replayDb);
+        TableNameInfo droppedTable = new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1");
+        List<TableNameInfo> affectedTables = List.of(droppedTable);
+        Mockito.when(mockConstraintManager.dropTableConstraints(droppedTable)).thenReturn(affectedTables);
 
-        catalog.replayDropTable("db1", "t1");
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            catalog.replayDropTable("db1", "t1");
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after replaying external table drop test-catalog.db1.t1"));
+        }
 
         Mockito.verify(connector).invalidateTable("DB1", "TBL1");
         Mockito.verify(replayDb).unregisterTable("t1");
-        Mockito.verify(mockConstraintManager).dropTableConstraints(
-                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
+        Mockito.verify(mockConstraintManager).dropTableConstraints(droppedTable);
     }
 
     @Test
@@ -1103,8 +1125,16 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
         Mockito.when(replayDb.getRemoteName()).thenReturn("DB1");
         catalog.dbForReplayResult = Optional.of(replayDb);
+        List<TableNameInfo> affectedTables = List.of(
+                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
+        Mockito.when(mockConstraintManager.dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME))
+                .thenReturn(affectedTables);
 
-        catalog.replayDropDb("db1");
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            catalog.replayDropDb("db1");
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables, "after replaying external database drop test-catalog.db1"));
+        }
 
         Mockito.verify(connector).invalidateDb("DB1");
         Assertions.assertEquals("db1", catalog.unregisteredDb);

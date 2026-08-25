@@ -90,6 +90,8 @@ public abstract class AbstractJob implements Writable {
 
     protected boolean isTypeRead = false;
 
+    private transient volatile boolean containsDistributionMappingConstraint;
+
     // save err msg of tasks
     @SerializedName("msg")
     protected Map<Long, String> taskErrMsg = Maps.newHashMap();
@@ -152,6 +154,14 @@ public abstract class AbstractJob implements Writable {
 
     public long getRepoId() {
         return repoId;
+    }
+
+    public boolean containsDistributionMappingConstraint() {
+        return containsDistributionMappingConstraint;
+    }
+
+    protected void setContainsDistributionMappingConstraint(boolean containsDistributionMappingConstraint) {
+        this.containsDistributionMappingConstraint = containsDistributionMappingConstraint;
     }
 
     public abstract void run();

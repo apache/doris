@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -190,14 +192,16 @@ class ConstraintManagerTest {
         Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
         Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
 
-        manager.acquireFrontendAdmissionForMapping();
-        Mockito.clearInvocations(manager);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            manager.addConstraintWithResolvedTables(
-                    T1, mapping.getName(), mapping, table, null);
-        } finally {
-            manager.releaseFrontendAdmissionFence();
+            manager.acquireFrontendAdmissionForMapping();
+            Mockito.clearInvocations(manager);
+            try {
+                manager.addConstraintWithResolvedTables(
+                        T1, mapping.getName(), mapping, table, null);
+            } finally {
+                manager.releaseFrontendAdmissionFence();
+            }
         }
 
         Mockito.verify(manager, Mockito.never()).acquireFrontendAdmissionForMapping();
@@ -310,6 +314,25 @@ class ConstraintManagerTest {
 
         Assertions.assertTrue(exception.getMessage()
                 .contains("Drop all distribution mapping constraints"));
+    }
+
+    @Test
+    void frontendAdmissionIsRejectedWhileRetainedJobContainsMapping() {
+        Env env = Mockito.mock(Env.class);
+        CatalogRecycleBin recycleBin = Mockito.mock(CatalogRecycleBin.class);
+        BackupHandler backupHandler = Mockito.mock(BackupHandler.class);
+        Mockito.when(backupHandler.containsDistributionMappingConstraint()).thenReturn(true);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(recycleBin);
+            Mockito.when(env.getBackupHandler()).thenReturn(backupHandler);
+
+            DdlException exception = Assertions.assertThrows(
+                    DdlException.class, mgr::acquireFrontendAdmission);
+
+            Assertions.assertTrue(exception.getMessage().contains("backup or restore jobs"));
+        }
     }
 
     @Test
@@ -588,8 +611,9 @@ class ConstraintManagerTest {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
         // Drop T1's constraints → PK dropped → FK on T2 cascade-dropped
-        mgr.dropTableConstraints(T1);
+        List<TableNameInfo> affectedTables = mgr.dropTableConstraints(T1);
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
+        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -614,10 +638,11 @@ class ConstraintManagerTest {
     void checkAndDropWithoutCheckDropsEvenWithFK() {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
-        Assertions.assertDoesNotThrow(
+        List<TableNameInfo> affectedTables = Assertions.assertDoesNotThrow(
                 () -> mgr.checkAndDropTableConstraints(T1, false));
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
+        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -759,13 +784,14 @@ class ConstraintManagerTest {
         TableNameInfo otherDbTable = new TableNameInfo("ctl", "other_db", "t1");
         mgr.addConstraint(otherDbTable, "pk_other", newPk("pk_other", "k1"), true);
 
-        mgr.dropDatabaseConstraints("ctl", "db");
+        List<TableNameInfo> affectedTables = mgr.dropDatabaseConstraints("ctl", "db");
 
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T3).isEmpty());
         // Other database unaffected
         Assertions.assertNotNull(mgr.getConstraint(otherDbTable, "pk_other"));
+        Assertions.assertEquals(ImmutableSet.of(T1, T2, T3), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -775,12 +801,13 @@ class ConstraintManagerTest {
         TableNameInfo otherDbTable = new TableNameInfo("ctl", "other_db", "t1");
         mgr.addConstraint(otherDbTable, "fk", newFk("fk", T1, "c1", "k1"), true);
 
-        mgr.dropDatabaseConstraints("ctl", "db");
+        List<TableNameInfo> affectedTables = mgr.dropDatabaseConstraints("ctl", "db");
 
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
         // FK in other_db should be cascade-dropped because the referenced PK was removed
         Assertions.assertTrue(mgr.getConstraints(otherDbTable).isEmpty(),
                 "FK in other_db should be cascade-dropped when referenced PK's database is dropped");
+        Assertions.assertEquals(ImmutableSet.of(T1, otherDbTable), ImmutableSet.copyOf(affectedTables));
     }
 
     // ==================== renameTable ====================

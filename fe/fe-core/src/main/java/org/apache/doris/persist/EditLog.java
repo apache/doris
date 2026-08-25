@@ -1563,10 +1563,8 @@ public class EditLog {
             CatalogIf<?> catalog = env.getCatalogMgr().getCatalog(tableNameInfo.getCtl());
             DatabaseIf<?> database = catalog == null ? null : catalog.getDbNullable(tableNameInfo.getDb());
             table = database == null ? null : database.getTableNullable(tableNameInfo.getTbl());
-            if (table != null && !table.tryWriteLock(
-                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                throw new IllegalStateException(
-                        "Failed to acquire table lock while replaying constraint on " + tableNameInfo);
+            if (table != null) {
+                table.writeLock();
             }
         }
         try {

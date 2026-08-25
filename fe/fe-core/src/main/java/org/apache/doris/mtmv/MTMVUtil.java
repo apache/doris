@@ -56,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 public class MTMVUtil {
 
@@ -152,6 +153,13 @@ public class MTMVUtil {
         return getDependentMtmvsByBaseTables(getConstraintRelatedBaseTables(tableNameInfo, constraint));
     }
 
+    public static List<MTMV> getDependentMtmvsByTableNames(List<TableNameInfo> tableNameInfos)
+            throws AnalysisException {
+        return getDependentMtmvsByBaseTables(tableNameInfos.stream()
+                .map(BaseTableInfo::new)
+                .collect(Collectors.toList()));
+    }
+
     public static void invalidateRewriteCachesBestEffort(List<MTMV> dependentMtmvs, String reason) {
         for (MTMV dependentMtmv : dependentMtmvs) {
             try {
@@ -160,6 +168,18 @@ public class MTMVUtil {
                 LOG.warn("Failed to invalidate rewrite cache for dependent MTMV {}: {}",
                         dependentMtmv.getName(), reason, e);
             }
+        }
+    }
+
+    public static void invalidateRewriteCachesByTableNamesBestEffort(
+            List<TableNameInfo> tableNameInfos, String reason) {
+        if (tableNameInfos.isEmpty()) {
+            return;
+        }
+        try {
+            invalidateRewriteCachesBestEffort(getDependentMtmvsByTableNames(tableNameInfos), reason);
+        } catch (Exception e) {
+            LOG.warn("Failed to find dependent MTMVs {}", reason, e);
         }
     }
 
