@@ -99,6 +99,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected long selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
+    private boolean hasPartitionPredicate = false;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
@@ -204,6 +205,33 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TableIf getTableIf() {
         return desc.getTable();
+    }
+
+    public boolean isPartitionedTable() {
+        return getTableIf() != null && getTableIf().isPartitionedTable();
+    }
+
+    public boolean hasPartitionPredicate() {
+        return hasPartitionPredicate;
+    }
+
+    public void setHasPartitionPredicate(boolean hasPartitionPredicate) {
+        this.hasPartitionPredicate = hasPartitionPredicate;
+    }
+
+    static boolean containsPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
+            List<Expr> conjuncts, PartitionInfo partitionInfo) {
+        for (Column partitionColumn : partitionColumns) {
+            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
+            if (slotDescriptor == null) {
+                continue;
+            }
+            if (createPartitionFilter(slotDescriptor, conjuncts, partitionInfo) != null
+                    || createColumnRange(slotDescriptor, conjuncts, partitionInfo).hasFilter()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
@@ -353,7 +381,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         }
     }
 
-    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
+    protected static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
             PartitionInfo partitionsInfo) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {

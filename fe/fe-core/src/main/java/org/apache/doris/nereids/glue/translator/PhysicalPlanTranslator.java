@@ -917,6 +917,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
         scanNode.setPushDownCountSlotIds(context.getRelationPushCountArgumentExprIds(fileScan.getRelationId())
                 .stream()
                 .map(exprId -> Objects.requireNonNull(context.findSlotRef(exprId),
@@ -1078,6 +1079,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableName, olapTable);
         tupleDescriptor.setRef(tableRefInfo);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
+        olapScanNode.setHasPartitionPredicate(olapScan.hasPartitionPredicate());
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,

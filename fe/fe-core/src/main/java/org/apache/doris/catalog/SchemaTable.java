@@ -805,6 +805,8 @@ public class SchemaTable extends Table {
                                     .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("REQUIRE_PARTITION_FILTER",
+                                            ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT),
                                             SchemaTableAggregateType.SUM, false)
                                     .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
