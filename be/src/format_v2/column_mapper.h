@@ -152,6 +152,9 @@ struct ColumnMapping {
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
+    // Iceberg keeps external-table columns nullable in Doris, but current semantics must still
+    // reject a visible NULL for a required Iceberg field.
+    bool reject_null_value = false;
 
     std::string debug_string() const;
 };

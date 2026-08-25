@@ -246,6 +246,109 @@ public:
     }
 };
 
+class IcebergRequiredFieldValidationTestHelper final
+        : public doris::format::iceberg::IcebergTableReader {
+public:
+    using IcebergTableReader::_validate_required_mapping_column;
+};
+
+TEST(IcebergV2ReaderTest, RequiredMappingRejectsVisibleScalarAndCollectionNulls) {
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+
+    ColumnMapping scalar_mapping;
+    scalar_mapping.table_column_name = "required_value";
+    scalar_mapping.table_type = nullable_int_type;
+    scalar_mapping.reject_null_value = true;
+    auto scalar_values = ColumnInt32::create();
+    scalar_values->get_data().assign({0, 7});
+    auto scalar_nulls = ColumnUInt8::create();
+    scalar_nulls->get_data().assign({1, 0});
+    ColumnPtr scalar_column =
+            ColumnNullable::create(std::move(scalar_values), std::move(scalar_nulls));
+    const auto scalar_status =
+            IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+                    scalar_mapping, scalar_column);
+    ASSERT_FALSE(scalar_status.ok());
+    EXPECT_NE(scalar_status.to_string().find("required_value"), std::string::npos);
+
+    ColumnMapping element_mapping;
+    element_mapping.table_column_name = "element";
+    element_mapping.table_type = nullable_int_type;
+    element_mapping.reject_null_value = true;
+    ColumnMapping array_mapping;
+    array_mapping.table_column_name = "items";
+    array_mapping.table_type = make_nullable(std::make_shared<DataTypeArray>(nullable_int_type));
+    array_mapping.child_mappings = {element_mapping};
+    auto element_values = ColumnInt32::create();
+    element_values->get_data().assign({0, 9});
+    auto element_nulls = ColumnUInt8::create();
+    element_nulls->get_data().assign({1, 0});
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(2);
+    ColumnPtr array_column = ColumnNullable::create(
+            ColumnArray::create(
+                    ColumnNullable::create(std::move(element_values), std::move(element_nulls)),
+                    std::move(offsets)),
+            ColumnUInt8::create(1, 0));
+    const auto array_status =
+            IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+                    array_mapping, array_column);
+    ASSERT_FALSE(array_status.ok());
+    EXPECT_NE(array_status.to_string().find("element"), std::string::npos);
+
+    ColumnMapping key_mapping;
+    key_mapping.table_column_name = "key";
+    key_mapping.table_type = nullable_int_type;
+    ColumnMapping value_mapping;
+    value_mapping.table_column_name = "value";
+    value_mapping.table_type = nullable_int_type;
+    value_mapping.reject_null_value = true;
+    ColumnMapping map_mapping;
+    map_mapping.table_column_name = "entries";
+    map_mapping.table_type =
+            make_nullable(std::make_shared<DataTypeMap>(nullable_int_type, nullable_int_type));
+    map_mapping.child_mappings = {key_mapping, value_mapping};
+    auto keys = ColumnInt32::create();
+    keys->insert_value(1);
+    auto values = ColumnInt32::create();
+    values->insert_default();
+    auto map_offsets = ColumnArray::ColumnOffsets::create();
+    map_offsets->insert_value(1);
+    ColumnPtr map_column = ColumnNullable::create(
+            ColumnMap::create(ColumnNullable::create(std::move(keys), ColumnUInt8::create(1, 0)),
+                              ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 1)),
+                              std::move(map_offsets)),
+            ColumnUInt8::create(1, 0));
+    const auto map_status =
+            IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(map_mapping,
+                                                                                        map_column);
+    ASSERT_FALSE(map_status.ok());
+    EXPECT_NE(map_status.to_string().find("value"), std::string::npos);
+}
+
+TEST(IcebergV2ReaderTest, RequiredMappingAllowsNullHiddenByOptionalParent) {
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    ColumnMapping child_mapping;
+    child_mapping.table_column_name = "required_child";
+    child_mapping.table_type = nullable_int_type;
+    child_mapping.reject_null_value = true;
+    ColumnMapping struct_mapping;
+    struct_mapping.table_column_name = "optional_parent";
+    struct_mapping.table_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type}, Strings {"required_child"}));
+    struct_mapping.child_mappings = {child_mapping};
+
+    auto child_values = ColumnInt32::create();
+    child_values->insert_default();
+    MutableColumns children;
+    children.push_back(ColumnNullable::create(std::move(child_values), ColumnUInt8::create(1, 1)));
+    ColumnPtr struct_column = ColumnNullable::create(ColumnStruct::create(std::move(children)),
+                                                     ColumnUInt8::create(1, 1));
+    const auto status = IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+            struct_mapping, struct_column);
+    EXPECT_TRUE(status.ok()) << status;
+}
+
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
     EXPECT_TRUE(builder->Finish(&array).ok());
@@ -1473,6 +1576,35 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsTypedNestedInitialDefault) {
     Field value;
     literal->get_column_ptr()->get(0, value);
     EXPECT_EQ(value.get<TYPE_INT>(), 7);
+}
+
+TEST(IcebergV2ReaderTest, AnnotateConvertsTimestamptzDefaultToSessionTimezone) {
+    const auto timestamp_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    auto timestamp_field = external_schema_field(
+            "event_time", 1, {}, "2025-01-18 01:02:03.654321+00:00",
+            external_primitive_type(TPrimitiveType::DATETIMEV2, -1, 6), false, true);
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {std::move(timestamp_field)})});
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+
+    ColumnDefinition column;
+    column.name = "event_time";
+    column.type = timestamp_type;
+    ProjectedColumnBuildContext context {
+            .scan_params = &scan_params,
+            .runtime_state = &state,
+    };
+    doris::format::iceberg::IcebergTableReader reader;
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &context, &column);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(column.default_expr, nullptr);
+    const auto* literal = dynamic_cast<const VLiteral*>(column.default_expr->root().get());
+    ASSERT_NE(literal, nullptr);
+    EXPECT_EQ(timestamp_type->to_string(*literal->get_column_ptr(), 0),
+              "2025-01-18 09:02:03.654321");
 }
 
 TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {

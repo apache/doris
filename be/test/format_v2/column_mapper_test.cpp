@@ -3287,6 +3287,19 @@ TEST(ColumnMapperSchemaEvolutionTest, MissingRequiredFieldPolicyIsOptIn) {
     EXPECT_EQ(default_mapper.mappings()[0].default_expr, default_expr);
 }
 
+TEST(ColumnMapperSchemaEvolutionTest, RequiredIcebergFieldDefersFiltersUntilNullValidation) {
+    auto required = field_id_col("required_value", 2, make_nullable(i32()));
+    required.is_optional = false;
+    auto historical_optional = field_id_col("required_value", 2, make_nullable(i32()), 0);
+
+    TableColumnMapper mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    ASSERT_TRUE(mapper.create_mapping({required}, {}, {historical_optional}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].reject_null_value);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+}
+
 TEST(ColumnMapperSchemaEvolutionTest, MissingNestedDefaultIsPropagatedAndRequiredIsRejected) {
     auto present = field_id_col("present", 1, i32());
     auto required_added = field_id_col("required_added", 2, str());

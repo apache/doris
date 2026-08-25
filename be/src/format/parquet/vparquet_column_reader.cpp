@@ -990,9 +990,9 @@ Status StructColumnReader::read_column_data(
         const auto& doris_name = doris_struct_type->get_element_name(idx);
         const auto* iceberg_field = root_node->get_missing_column_field(doris_name);
         if (iceberg_field != nullptr) {
-            RETURN_IF_ERROR(
-                    iceberg::append_initial_default(*iceberg_field, doris_type, missing_column_sz,
-                                                    &_nested_initial_default_values, &doris_field));
+            RETURN_IF_ERROR(iceberg::append_initial_default(
+                    *iceberg_field, doris_type, missing_column_sz, &_nested_initial_default_values,
+                    &doris_field, _ctz));
         } else {
             DCHECK(doris_type->is_nullable());
             doris_field = IColumn::mutate(std::move(doris_field));

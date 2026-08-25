@@ -633,7 +633,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             checkFileScannerV1BackendCompatibility(
                     context.getSessionVariable().enableFileScannerV2, backendPolicy.getBackends());
             boolean batchMode = isBatchMode();
-            boolean batchMayHaveEqualityDeletes = batchMode && mayHaveEqualityDeletes();
+            boolean batchMayHaveEqualityDeletes = shouldInspectBatchEqualityDeletes(
+                    batchMode, backendPolicy.getBackends()) && mayHaveEqualityDeletes();
             if (shouldPlanExactTasksForCompatibility(
                     batchMode, batchMayHaveEqualityDeletes, backendPolicy.getBackends())) {
                 // During a rolling upgrade, fall back to the exact non-batch task set. Snapshot
@@ -1002,9 +1003,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (NestedField field : fieldById.values()) {
                 NestedField historicalField = historicalFieldById.get(field.fieldId());
                 if (historicalField != null) {
-                    if (!collectionWrapperFieldIds.contains(field.fieldId())
-                            && field.isRequired() && field.initialDefault() == null
-                            && historicalField.isOptional()) {
+                    if (field.isRequired() && historicalField.isOptional()) {
                         potentiallyMissingRequiredFieldIds.add(field.fieldId());
                     }
                     continue;
@@ -1511,6 +1510,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
+    static boolean shouldInspectBatchEqualityDeletes(
+            boolean batchMode, Iterable<Backend> backends) {
+        return batchMode && hasSmoothUpgradeSourceBackend(backends);
+    }
+
+    @VisibleForTesting
     static void checkCurrentIcebergScanSemanticsBackendCompatibility(Iterable<Backend> backends)
             throws UserException {
         for (Backend backend : backends) {
@@ -1584,7 +1589,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return new NullLiteral(
                     org.apache.doris.nereids.types.DataType.fromCatalogType(column.getType()));
         }
-        String serializedDefault = IcebergUtils.getSerializedInitialDefault(
+        String serializedDefault = IcebergUtils.getSerializedInitialDefaultForDorisExpression(
                 field, getEnableMappingTimestampTz());
         if (IcebergUtils.isBinaryLike(field.type())) {
             byte[] bytes = Base64.getDecoder().decode(serializedDefault);

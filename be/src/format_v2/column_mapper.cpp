@@ -446,7 +446,8 @@ std::string ColumnMapping::debug_string() const {
         << ", is_trivial=" << is_trivial << ", is_constant=" << constant_index.has_value()
         << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
-        << ", has_default_expr=" << (default_expr != nullptr) << "}";
+        << ", has_default_expr=" << (default_expr != nullptr)
+        << ", reject_null_value=" << reject_null_value << "}";
     return out.str();
 }
 
@@ -892,6 +893,11 @@ static bool can_filter_before_table_nullability_alignment(const DataTypePtr& fil
     return !file_type->is_nullable() || table_type->is_nullable();
 }
 
+static bool mapping_requires_null_validation(const ColumnMapping& mapping) {
+    return mapping.reject_null_value ||
+           std::ranges::any_of(mapping.child_mappings, mapping_requires_null_validation);
+}
+
 static const ColumnMapping* find_projected_child_mapping(const ColumnMapping& mapping,
                                                          int32_t file_local_id) {
     const auto child_it = std::ranges::find_if(
@@ -903,6 +909,9 @@ static const ColumnMapping* find_projected_child_mapping(const ColumnMapping& ma
 
 static bool projected_mapping_allows_file_filtering(const ColumnMapping& mapping,
                                                     const LocalColumnIndex* projection) {
+    if (mapping.reject_null_value) {
+        return false;
+    }
     if (!can_filter_before_table_nullability_alignment(mapping.file_type, mapping.table_type)) {
         return false;
     }
@@ -1472,6 +1481,11 @@ static bool type_contains_varbinary(const DataTypePtr& type) {
 static FilterConversionType direct_filter_conversion(const ColumnMapping& mapping) {
     DORIS_CHECK(mapping.table_type != nullptr);
     DORIS_CHECK(mapping.file_type != nullptr);
+    // File-local filtering must not hide a historical explicit NULL before Iceberg validates the
+    // current required-field contract.
+    if (mapping_requires_null_validation(mapping)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
     // FileScanOperator deliberately keeps VARBINARY predicates above external readers. Their
     // physical binary representations are not uniformly supported by reader-side expression and
     // metadata filtering, so localizing a late runtime filter here can incorrectly reject rows.
@@ -2159,6 +2173,8 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
+    mapping->reject_null_value = _options.reject_missing_required_field &&
+                                 table_column.is_optional.has_value() && !*table_column.is_optional;
     mapping->variant_access_paths = table_column.variant_access_paths;
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
@@ -2713,6 +2729,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_children = file_field.children;
     mapping->projected_file_children = file_field.children;
     mapping->file_type = file_field.type;
+    mapping->reject_null_value = _options.reject_missing_required_field &&
+                                 table_column.is_optional.has_value() && !*table_column.is_optional;
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.
     mapping->variant_access_paths = table_column.variant_access_paths;
@@ -2780,6 +2798,9 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
+                child_mapping.reject_null_value = _options.reject_missing_required_field &&
+                                                  table_child.is_optional.has_value() &&
+                                                  !*table_child.is_optional;
                 child_mapping.variant_access_paths = table_child.variant_access_paths;
                 child_mapping.default_expr = table_child.default_expr;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
@@ -2799,8 +2820,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     &mapping->projected_file_children, &mapping->file_type));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-            mapping->filter_conversion = projected_filter_conversion(*mapping);
         }
+        mapping->filter_conversion = projected_filter_conversion(*mapping);
     }
     return Status::OK();
 }

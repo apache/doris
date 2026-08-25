@@ -101,7 +101,7 @@ public:
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
-            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) final {
+            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) override {
         return _file_format_reader->set_fill_columns(partition_columns, missing_columns,
                                                      partition_value_is_null);
     }

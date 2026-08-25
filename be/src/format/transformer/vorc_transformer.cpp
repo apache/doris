@@ -716,12 +716,32 @@ static Status normalize_iceberg_uuid_column(const ColumnPtr& column, ColumnPtr* 
     return Status::OK();
 }
 
-static Status normalize_iceberg_fixed_column(const ColumnPtr& column,
+static Status normalize_iceberg_fixed_column(const ColumnPtr& column, const DataTypePtr& type,
                                              const iceberg::NestedField& nested_field,
                                              ColumnPtr* normalized_column,
                                              const NullMap* skipped_rows) {
     const auto expected_length = cast_set<size_t>(
             assert_cast<const iceberg::FixedType*>(nested_field.field_type())->get_length());
+    if (type->get_primitive_type() == TYPE_CHAR) {
+        auto padded_column = column->clone_empty();
+        padded_column->reserve(column->size());
+        std::string padded_value(expected_length, '\0');
+        for (size_t row = 0; row < column->size(); ++row) {
+            std::fill(padded_value.begin(), padded_value.end(), '\0');
+            if (skipped_rows == nullptr || (*skipped_rows)[row] == 0) {
+                const auto value = column->get_data_at(row);
+                if (value.size > expected_length) {
+                    return Status::InvalidArgument(
+                            "Iceberg FIXED[{}] ORC CHAR value has {} bytes at row {}",
+                            expected_length, value.size, row);
+                }
+                std::copy_n(value.data, value.size, padded_value.data());
+            }
+            padded_column->insert_data(padded_value.data(), padded_value.size());
+        }
+        *normalized_column = std::move(padded_column);
+        return Status::OK();
+    }
     for (size_t row = 0; row < column->size(); ++row) {
         if (skipped_rows != nullptr && (*skipped_rows)[row] != 0) {
             continue;
@@ -839,7 +859,7 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
     case iceberg::TypeID::UUID:
         return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
     case iceberg::TypeID::FIXED:
-        return normalize_iceberg_fixed_column(column, nested_field, normalized_column,
+        return normalize_iceberg_fixed_column(column, type, nested_field, normalized_column,
                                               skipped_rows);
     default:
         break;

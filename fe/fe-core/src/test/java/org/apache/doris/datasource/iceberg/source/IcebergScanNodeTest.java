@@ -2566,6 +2566,49 @@ public class IcebergScanNodeTest {
                 ImmutableList.of(historicalSchema)));
     }
 
+    @Test
+    public void testSameIdOptionalToRequiredTransitionsTriggerUpgradeGate() {
+        Types.NestedField optionalWithDefault = Types.NestedField.optional("value")
+                .withId(40)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(7)
+                .build();
+        Types.NestedField requiredWithDefault = Types.NestedField.required("value")
+                .withId(40)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(7)
+                .build();
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(10, "items", Types.ListType.ofOptional(
+                        11, Types.IntegerType.get())),
+                Types.NestedField.optional(20, "entries", Types.MapType.ofOptional(
+                        21, 22, Types.StringType.get(), Types.IntegerType.get())),
+                optionalWithDefault);
+        Schema scanSchema = new Schema(
+                Types.NestedField.optional(10, "items", Types.ListType.ofRequired(
+                        11, Types.IntegerType.get())),
+                Types.NestedField.optional(20, "entries", Types.MapType.ofRequired(
+                        21, 22, Types.StringType.get(), Types.IntegerType.get())),
+                requiredWithDefault);
+        List<Column> columns = IcebergUtils.parseSchema(scanSchema, false, false);
+        SlotDescriptor itemsSlot = slotDescriptor(10);
+        itemsSlot.setColumn(columns.get(0));
+        SlotDescriptor entriesSlot = slotDescriptor(20);
+        entriesSlot.setColumn(columns.get(1));
+        SlotDescriptor valueSlot = slotDescriptor(40);
+        valueSlot.setColumn(columns.get(2));
+
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(itemsSlot),
+                ImmutableList.of(historicalSchema)));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(entriesSlot),
+                ImmutableList.of(historicalSchema)));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(valueSlot),
+                ImmutableList.of(historicalSchema)));
+    }
+
     private static void assertRequiresRecursiveInitialDefault(
             Schema schema, SlotDescriptor slot, boolean expected, String... path) {
         slot.setAllAccessPaths(Collections.singletonList(
@@ -2638,6 +2681,12 @@ public class IcebergScanNodeTest {
                 true, true, ImmutableList.of(currentBackend)));
         Assert.assertFalse(IcebergScanNode.shouldPlanExactTasksForCompatibility(
                 false, true, ImmutableList.of(currentBackend, smoothUpgradeSource)));
+        Assert.assertTrue(IcebergScanNode.shouldInspectBatchEqualityDeletes(
+                true, ImmutableList.of(currentBackend, smoothUpgradeSource)));
+        Assert.assertFalse(IcebergScanNode.shouldInspectBatchEqualityDeletes(
+                true, ImmutableList.of(currentBackend)));
+        Assert.assertFalse(IcebergScanNode.shouldInspectBatchEqualityDeletes(
+                false, ImmutableList.of(currentBackend, smoothUpgradeSource)));
     }
 
     @Test

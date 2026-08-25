@@ -2351,7 +2351,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
             if (iceberg_field != nullptr) {
                 RETURN_IF_ERROR(iceberg::append_initial_default(
                         *iceberg_field, doris_type, num_values, &_nested_initial_default_values,
-                        &doris_field));
+                        &doris_field, &_state->timezone_obj()));
             } else {
                 if (!doris_field->is_nullable()) {
                     return Status::InternalError(

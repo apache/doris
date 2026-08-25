@@ -41,6 +41,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -65,6 +66,24 @@ public:
     using IcebergTableReader::_is_fully_dictionary_encoded;
 };
 
+class CapturingMissingColumnReader final : public GenericReader {
+public:
+    Status get_next_block(Block*, size_t*, bool*) override { return Status::OK(); }
+
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+            const std::unordered_map<std::string, bool>&) override {
+        const auto entry = missing_columns.find("payload");
+        if (entry != missing_columns.end()) {
+            payload_default = entry->second;
+        }
+        return Status::OK();
+    }
+
+    VExprContextSPtr payload_default;
+};
+
 class IcebergMaterializationTestReader final : public IcebergTableReader {
 public:
     IcebergMaterializationTestReader(RuntimeProfile* profile, RuntimeState* state,
@@ -72,6 +91,13 @@ public:
                                      const TFileRangeDesc& range)
             : IcebergTableReader(nullptr, profile, state, params, range, nullptr, nullptr,
                                  nullptr) {}
+
+    IcebergMaterializationTestReader(std::unique_ptr<GenericReader> file_reader,
+                                     RuntimeProfile* profile, RuntimeState* state,
+                                     const TFileScanRangeParams& params,
+                                     const TFileRangeDesc& range)
+            : IcebergTableReader(std::move(file_reader), profile, state, params, range, nullptr,
+                                 nullptr, nullptr) {}
 
     void set_delete_rows() final {}
 
@@ -88,8 +114,22 @@ public:
         _col_name_to_block_idx = column_name_to_block_index;
     }
 
+    void set_required_column_type(const std::string& name, const DataTypePtr& type) {
+        _required_column_types[name] = type;
+    }
+
+    void set_projected_table_field(int32_t field_id, const std::string& name,
+                                   const DataTypePtr& type) {
+        _id_to_block_column_name[field_id] = name;
+        _required_column_types[name] = type;
+    }
+
     Status materialize_missing_table_columns(Block* block, size_t rows) {
         return _materialize_missing_table_columns(block, rows);
+    }
+
+    Status validate_required_table_columns(Block* block) {
+        return _validate_required_table_columns(block);
     }
 
     Status register_missing_equality_delete_column(int32_t field_id, const std::string& name,
@@ -108,6 +148,7 @@ public:
         NestedEqualityDeleteColumn nested_field {
                 .field_id = 7,
                 .block_name = "nested_key",
+                .source_block_name = {},
                 .source_leaf_type = source_leaf_type,
                 .leaf_type = target_leaf_type,
                 .child_indexes = {0},
@@ -116,6 +157,41 @@ public:
         };
         RETURN_IF_ERROR(_prepare_nested_equality_delete_column(&nested_field));
         return _extract_nested_equality_delete_column(root_column, nested_field, leaf_column);
+    }
+
+    Status materialize_shared_nested_equality_delete_columns(
+            Block* block, std::unordered_map<std::string, uint32_t>* column_name_to_block_index,
+            const DataTypePtr& first_type, const DataTypePtr& second_type) {
+        _col_name_to_block_idx = column_name_to_block_index;
+        _nested_equality_delete_columns = {{
+                                                   .field_id = 7,
+                                                   .block_name = "first_key",
+                                                   .source_block_name = "shared_root",
+                                                   .source_leaf_type = first_type,
+                                                   .leaf_type = first_type,
+                                                   .child_indexes = {0},
+                                                   .missing_value = nullptr,
+                                                   .cast_context = nullptr,
+                                           },
+                                           {
+                                                   .field_id = 8,
+                                                   .block_name = "second_key",
+                                                   .source_block_name = "shared_root",
+                                                   .source_leaf_type = second_type,
+                                                   .leaf_type = second_type,
+                                                   .child_indexes = {1},
+                                                   .missing_value = nullptr,
+                                                   .cast_context = nullptr,
+                                           }};
+        for (auto& nested_field : _nested_equality_delete_columns) {
+            RETURN_IF_ERROR(_prepare_nested_equality_delete_column(&nested_field));
+        }
+        return _materialize_nested_equality_delete_columns(block);
+    }
+
+    std::string register_equality_delete_carrier(int32_t field_id, const std::string& source_name,
+                                                 const DataTypePtr& type) {
+        return _get_or_register_equality_delete_carrier(field_id, source_name, type);
     }
 
 private:
@@ -656,6 +732,89 @@ TEST_F(IcebergReaderTest, materializes_top_level_initial_default_with_v1_reader)
     expect_repeated_nullable_int(block, 3, 17);
 }
 
+TEST_F(IcebergReaderTest, materializes_timestamptz_initial_default_in_session_timezone) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    runtime_state.set_timezone("Asia/Shanghai");
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name("event_time");
+    field->__set_id(7);
+    field->__set_is_optional(true);
+    field->__set_initial_default_value("2025-01-18 01:02:03.654321+00:00");
+    TColumnType thrift_type;
+    thrift_type.__set_type(TPrimitiveType::DATETIMEV2);
+    field->__set_type(thrift_type);
+    reader.set_missing_table_field("event_time", field);
+    std::unordered_map<std::string, uint32_t> positions {{"event_time", 0}};
+    reader.set_column_name_to_block_index(&positions);
+
+    auto type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    Block block;
+    auto placeholders = type->create_column();
+    placeholders->insert_default();
+    block.insert({std::move(placeholders), type, "event_time"});
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 1).ok());
+    EXPECT_EQ(type->to_string(*block.get_by_position(0).column, 0), "2025-01-18 09:02:03.654321");
+}
+
+TEST_F(IcebergReaderTest, sends_complex_initial_default_to_v1_physical_filter) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    TFileRangeDesc scan_range;
+    auto capturing_reader = std::make_unique<CapturingMissingColumnReader>();
+    auto* captured = capturing_reader.get();
+    IcebergMaterializationTestReader reader(std::move(capturing_reader), &profile, &runtime_state,
+                                            scan_params, scan_range);
+
+    const auto child = iceberg_int_field("value", 2, true);
+    schema::external::TFieldPtr child_ptr;
+    child_ptr.__set_field_ptr(child);
+    schema::external::TStructField struct_fields;
+    struct_fields.__set_fields({child_ptr});
+    auto payload = std::make_shared<schema::external::TField>();
+    payload->__set_name("payload");
+    payload->__set_id(1);
+    payload->__set_is_optional(true);
+    payload->__set_initial_default_value("{\"2\":7}");
+    TColumnType struct_thrift_type;
+    struct_thrift_type.__set_type(TPrimitiveType::STRUCT);
+    payload->__set_type(struct_thrift_type);
+    payload->nestedField.__set_struct_field(struct_fields);
+    payload->__isset.nestedField = true;
+    reader.set_missing_table_field("payload", payload);
+
+    auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto payload_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"}));
+    reader.set_required_column_type("payload", payload_type);
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns {{"payload", nullptr}};
+    ASSERT_TRUE(reader.set_fill_columns(partition_columns, missing_columns).ok());
+    ASSERT_NE(captured->payload_default, nullptr);
+
+    Block input;
+    auto row_count = ColumnInt32::create();
+    row_count->insert_value(1);
+    input.insert({std::move(row_count), std::make_shared<DataTypeInt32>(), "row_count"});
+    ColumnPtr default_column;
+    ASSERT_TRUE(captured->payload_default->execute(&input, default_column).ok());
+    default_column = default_column->convert_to_full_column_if_const();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*default_column);
+    ASSERT_FALSE(nullable.is_null_at(0));
+    const auto& struct_column = assert_cast<const ColumnStruct&>(nullable.get_nested_column());
+    const auto& child_column = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    ASSERT_FALSE(child_column.is_null_at(0));
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(child_column.get_nested_column()).get_data()[0], 7);
+}
+
 TEST_F(IcebergReaderTest, replaces_reader_placeholders_across_rowid_fetch_batches) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryGlobals()};
@@ -748,6 +907,95 @@ TEST_F(IcebergReaderTest, promotes_nested_equality_key_with_v1_reader) {
     EXPECT_EQ(promoted[1], -9);
 }
 
+TEST_F(IcebergReaderTest, casts_current_promoted_key_to_historical_delete_type) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+
+    auto values = ColumnInt64::create();
+    values->insert_value(17);
+    values->insert_value(-9);
+    Columns children;
+    children.emplace_back(std::move(values));
+    ColumnPtr leaf;
+    ASSERT_TRUE(reader.extract_nested_equality_delete_column(
+                              ColumnStruct::create(std::move(children)),
+                              make_nullable(std::make_shared<DataTypeInt64>()),
+                              make_nullable(std::make_shared<DataTypeInt32>()), &leaf)
+                        .ok());
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*leaf);
+    const auto& historical =
+            assert_cast<const ColumnInt32&>(nullable.get_nested_column()).get_data();
+    ASSERT_EQ(historical.size(), 2);
+    EXPECT_EQ(historical[0], 17);
+    EXPECT_EQ(historical[1], -9);
+}
+
+TEST_F(IcebergReaderTest, materializes_multiple_equality_keys_from_shared_root) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+
+    auto first_values = ColumnInt32::create();
+    first_values->insert_value(10);
+    first_values->insert_value(11);
+    auto second_values = ColumnInt32::create();
+    second_values->insert_value(20);
+    second_values->insert_value(21);
+    Columns root_children;
+    root_children.emplace_back(std::move(first_values));
+    root_children.emplace_back(std::move(second_values));
+    auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto root_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                      Strings {"first", "second"});
+    Block block;
+    block.insert({ColumnStruct::create(std::move(root_children)), root_type, "shared_root"});
+    block.insert({int_type->create_column(), int_type, "first_key"});
+    block.insert({int_type->create_column(), int_type, "second_key"});
+    std::unordered_map<std::string, uint32_t> positions {
+            {"shared_root", 0}, {"first_key", 1}, {"second_key", 2}};
+
+    ASSERT_TRUE(reader.materialize_shared_nested_equality_delete_columns(&block, &positions,
+                                                                         int_type, int_type)
+                        .ok());
+    const auto& first = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const auto& second = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    const auto& first_data = assert_cast<const ColumnInt32&>(first.get_nested_column()).get_data();
+    const auto& second_data =
+            assert_cast<const ColumnInt32&>(second.get_nested_column()).get_data();
+    ASSERT_EQ(first_data.size(), 2);
+    ASSERT_EQ(second_data.size(), 2);
+    EXPECT_EQ(first_data[0], 10);
+    EXPECT_EQ(first_data[1], 11);
+    EXPECT_EQ(second_data[0], 20);
+    EXPECT_EQ(second_data[1], 21);
+}
+
+TEST_F(IcebergReaderTest, uses_distinct_carriers_for_historical_equality_key_types) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+    auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto long_type = make_nullable(std::make_shared<DataTypeInt64>());
+
+    const std::string int_carrier = reader.register_equality_delete_carrier(7, "key", int_type);
+    const std::string repeated_int_carrier =
+            reader.register_equality_delete_carrier(7, "renamed_key", int_type);
+    const std::string long_carrier = reader.register_equality_delete_carrier(7, "key", long_type);
+
+    EXPECT_EQ(int_carrier, repeated_int_carrier);
+    EXPECT_NE(int_carrier, long_carrier);
+}
+
 TEST_F(IcebergReaderTest, rejects_missing_required_top_level_field_with_v1_reader) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryGlobals()};
@@ -767,6 +1015,39 @@ TEST_F(IcebergReaderTest, rejects_missing_required_top_level_field_with_v1_reade
     const Status status = reader.materialize_missing_table_columns(&block, 1);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("has no initial default"), std::string::npos);
+}
+
+TEST_F(IcebergReaderTest, rejects_visible_null_for_required_v1_field) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    const auto field = iceberg_int_field("required_value", 8, false);
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.__set_field_ptr(field);
+    schema::external::TStructField root;
+    root.__set_fields({field_ptr});
+    schema::external::TSchema schema;
+    schema.__set_schema_id(100);
+    schema.__set_root_field(root);
+    scan_params.__set_history_schema_info({schema});
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+
+    auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    reader.set_projected_table_field(8, "required_value", type);
+    std::unordered_map<std::string, uint32_t> positions {{"required_value", 0}};
+    reader.set_column_name_to_block_index(&positions);
+    auto values = ColumnInt32::create();
+    values->insert_default();
+    Block block;
+    block.insert({ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 1)), type,
+                  "required_value"});
+
+    const auto status = reader.validate_required_table_columns(&block);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("required_value"), std::string::npos);
 }
 
 TEST_F(IcebergReaderTest, materializes_missing_equality_key_from_split_schema) {

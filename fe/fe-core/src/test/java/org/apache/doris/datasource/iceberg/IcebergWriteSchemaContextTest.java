@@ -180,6 +180,27 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
+    public void testLegacyTimestamptzWriteDefaultUsesSessionLocalWallTime() {
+        long instantMicros = DateTimeUtil.isoTimestamptzToMicros(
+                "2025-01-18T01:02:03.654321+00:00");
+        Types.NestedField field = defaultField(
+                1, "event_time", Types.TimestampType.withZone(),
+                Literal.of(instantMicros), Literal.of(instantMicros), false);
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("Asia/Shanghai");
+        context.setThreadLocalInfo();
+        try {
+            IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.forSchema(
+                    new Schema(field), 3, false, false);
+            Assertions.assertEquals("2025-01-18 09:02:03.654321",
+                    stringValue(writeContext.resolveWriteDefault(
+                            writeContext.getColumns().get(0))));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testLegacyBinaryDefaultsDecodeRawBytesOnBackend() {
         byte[] bytes = new byte[] {(byte) 0x80, 0x00, (byte) 0xff};
         DataType binaryTarget = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(

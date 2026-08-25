@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -90,6 +91,12 @@ public:
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) override;
+
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE, DELETION_VECTOR };
     enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
@@ -144,6 +151,7 @@ protected:
     // Remove the added delete columns
     Status _shrink_block_if_need(Block* block);
     Status _materialize_missing_table_columns(Block* block, size_t rows);
+    Status _validate_required_table_columns(Block* block) const;
     const schema::external::TStructField* _current_schema_root() const;
     const schema::external::TField* _find_current_schema_field(const std::string& name) const;
     static bool _find_schema_field_path_in_field(
@@ -158,10 +166,14 @@ protected:
                                                  size_t physical_path_size, ColumnPtr* value) const;
     Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                     const DataTypePtr& delete_key_type);
+    std::string _get_or_register_equality_delete_carrier(int32_t field_id,
+                                                         const std::string& source_name,
+                                                         const DataTypePtr& delete_key_type);
     Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
     struct NestedEqualityDeleteColumn {
         int32_t field_id = -1;
         std::string block_name;
+        std::string source_block_name;
         DataTypePtr source_leaf_type;
         DataTypePtr leaf_type;
         std::vector<size_t> child_indexes;
@@ -173,6 +185,9 @@ protected:
                                                   const NestedEqualityDeleteColumn& nested_field,
                                                   ColumnPtr* leaf_column) const;
     Status _materialize_nested_equality_delete_columns(Block* block);
+    Status _get_current_schema_equality_delete_path(int32_t field_id,
+                                                    std::vector<size_t>* child_indexes,
+                                                    DataTypePtr* leaf_type) const;
 
     // owned by scan node
     ShardedKVCache* _kv_cache;
@@ -199,18 +214,24 @@ protected:
     std::vector<std::string> _expand_col_names;
     std::vector<int32_t> _expand_col_field_ids;
     std::vector<ColumnWithTypeAndName> _expand_columns;
+    std::unordered_map<std::string, DataTypePtr> _required_column_types;
     std::unordered_map<std::string, ColumnPtr> _missing_initial_default_values;
     std::unordered_map<std::string, ColumnPtr> _missing_equality_delete_values;
+    std::unordered_set<std::string> _physical_missing_equality_delete_columns;
     std::vector<NestedEqualityDeleteColumn> _nested_equality_delete_columns;
+    std::map<std::pair<int32_t, std::string>, std::string> _equality_delete_carriers;
 
     // all ids that need read for eq delete (from all qe delte file.)
     std::set<int> _equality_delete_col_ids;
-    // eq delete column ids -> location of _equality_delete_blocks / _equality_delete_impls
-    std::map<std::vector<int>, int> _equality_delete_block_map;
+    using EqualityDeleteSchemaKey = std::vector<std::pair<int32_t, std::string>>;
+    // Equality-delete field IDs and historical key types -> block/filter location.
+    std::map<EqualityDeleteSchemaKey, int> _equality_delete_block_map;
     // EqualityDeleteBase stores raw pointers to these blocks, so do not modify this vector after
     // creating entries in _equality_delete_impls.
     std::vector<Block> _equality_delete_blocks;
     std::vector<std::unique_ptr<EqualityDeleteBase>> _equality_delete_impls;
+    std::vector<std::vector<int>> _equality_delete_filter_field_ids;
+    std::vector<std::unordered_map<int, std::string>> _equality_delete_filter_column_names;
 
     // id -> block column name.
     std::unordered_map<int, std::string> _id_to_block_column_name;

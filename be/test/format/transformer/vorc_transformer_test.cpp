@@ -213,6 +213,47 @@ TEST_F(VOrcTransformerTest, ConvertsNestedLegacyUuidAndValidatesFixedBeforeOrcWr
     EXPECT_EQ(std::string_view(fixed_batch.data[0], fixed_batch.length[0]), "ABCD");
 }
 
+TEST_F(VOrcTransformerTest, PadsLegacyCharCarrierForIcebergFixed) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "fixed_col", "required": true, "type": "fixed[4]"}
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    auto char_type = std::make_shared<DataTypeString>(4, TYPE_CHAR);
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {char_type});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    VOrcTransformer transformer(&state, file_writer.get(), output_exprs, "", {"fixed_col"}, false,
+                                TFileCompressType::PLAIN, schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+
+    auto fixed_column = ColumnString::create();
+    fixed_column->insert_data("AB", 2);
+    Block block;
+    block.insert({std::move(fixed_column), char_type, "fixed_col"});
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
+    auto input_stream = std::make_unique<ORCFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
+    auto row_reader = reader->createRowReader();
+    auto row_batch = row_reader->createRowBatch(1);
+    ASSERT_TRUE(row_reader->next(*row_batch));
+    const auto& root = assert_cast<const orc::StructVectorBatch&>(*row_batch);
+    const auto& fixed_batch = assert_cast<const orc::StringVectorBatch&>(*root.fields[0]);
+    ASSERT_EQ(fixed_batch.length[0], 4);
+    const std::array<char, 4> expected = {'A', 'B', '\0', '\0'};
+    EXPECT_EQ(0, std::memcmp(fixed_batch.data[0], expected.data(), expected.size()));
+}
+
 TEST_F(VOrcTransformerTest, PreservesVarbinaryUuidCarrierBeforeOrcWrite) {
     const std::string schema_json = R"({
         "type": "struct",

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -81,6 +82,7 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -672,9 +674,11 @@ public final class IcebergWriteSchemaContext {
                 return new DateV2Literal(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
             case TIMESTAMP:
                 long micros = (Long) value;
-                LocalDateTime dateTime = microsToDateTime(micros);
-                long microsecond = Math.floorMod(micros, 1_000_000L);
                 Types.TimestampType timestampType = (Types.TimestampType) icebergType;
+                ZoneId literalZone = timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz
+                        ? TimeUtils.getDorisZoneId() : ZoneOffset.UTC;
+                LocalDateTime dateTime = microsToDateTime(micros, literalZone);
+                long microsecond = Math.floorMod(micros, 1_000_000L);
                 if (enableMappingTimestampTz && timestampType.shouldAdjustToUTC()) {
                     return new TimestampTzLiteral((TimeStampTzType) targetType,
                             dateTime.getYear(), dateTime.getMonthValue(),
@@ -802,10 +806,10 @@ public final class IcebergWriteSchemaContext {
         return bytes;
     }
 
-    private static LocalDateTime microsToDateTime(long micros) {
+    private static LocalDateTime microsToDateTime(long micros, ZoneId zoneId) {
         long seconds = Math.floorDiv(micros, 1_000_000L);
         int nanos = Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L);
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanos), ZoneOffset.UTC);
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanos), zoneId);
     }
 
     @Override

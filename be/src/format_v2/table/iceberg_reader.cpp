@@ -33,11 +33,15 @@
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
@@ -45,6 +49,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/orc/orc_reader.h"
@@ -60,6 +65,18 @@ namespace doris::format::iceberg {
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+
+static bool requires_required_field_validation(const format::ColumnMapping& mapping) {
+    if (mapping.reject_null_value) {
+        return true;
+    }
+    for (const auto& child : mapping.child_mappings) {
+        if (requires_required_field_validation(child)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
@@ -147,31 +164,6 @@ static std::string iceberg_json_scalar_text(const rapidjson::Value& value) {
     return {buffer.GetString(), buffer.GetSize()};
 }
 
-static void normalize_iceberg_json_timestamp(PrimitiveType primitive_type, std::string* value) {
-    if (primitive_type != TYPE_DATETIME && primitive_type != TYPE_DATETIMEV2 &&
-        primitive_type != TYPE_TIMESTAMPTZ) {
-        return;
-    }
-    if (const size_t separator = value->find('T'); separator != std::string::npos) {
-        (*value)[separator] = ' ';
-    }
-    if (primitive_type == TYPE_TIMESTAMPTZ) {
-        return;
-    }
-    if (value->ends_with('Z')) {
-        value->pop_back();
-        return;
-    }
-    const size_t time_start = value->find(' ');
-    if (time_start == std::string::npos) {
-        return;
-    }
-    const size_t offset = value->find_first_of("+-", time_start + 1);
-    if (offset != std::string::npos) {
-        value->erase(offset);
-    }
-}
-
 static Status build_v2_null_default(const format::ColumnDefinition& field,
                                     const DataTypePtr& data_type, Field* result) {
     DORIS_CHECK(data_type != nullptr);
@@ -207,17 +199,19 @@ static const format::ColumnDefinition* find_v2_struct_child(const format::Column
 static Status build_v2_initial_default_field(const format::ColumnDefinition& field,
                                              const DataTypePtr& data_type,
                                              std::deque<std::string>* binary_storage,
-                                             Field* result);
+                                             const cctz::time_zone* timezone, Field* result);
 
 static Status build_v2_json_default_field(const format::ColumnDefinition& field,
                                           const DataTypePtr& data_type,
                                           const rapidjson::Value& json_value,
-                                          std::deque<std::string>* binary_storage, Field* result);
+                                          std::deque<std::string>* binary_storage,
+                                          const cctz::time_zone* timezone, Field* result);
 
 static Status build_v2_json_struct_default(const format::ColumnDefinition& field,
                                            const DataTypePtr& value_type,
                                            const rapidjson::Value& json_value,
-                                           std::deque<std::string>* binary_storage, Field* result) {
+                                           std::deque<std::string>* binary_storage,
+                                           const cctz::time_zone* timezone, Field* result) {
     if (!json_value.IsObject()) {
         return Status::InvalidArgument("Invalid Iceberg struct default for field '{}'", field.name);
     }
@@ -238,10 +232,10 @@ static Status build_v2_json_struct_default(const format::ColumnDefinition& field
         Field child_value;
         if (member == json_value.MemberEnd()) {
             RETURN_IF_ERROR(build_v2_initial_default_field(*child, struct_type.get_element(index),
-                                                           binary_storage, &child_value));
+                                                           binary_storage, timezone, &child_value));
         } else {
             RETURN_IF_ERROR(build_v2_json_default_field(*child, struct_type.get_element(index),
-                                                        member->value, binary_storage,
+                                                        member->value, binary_storage, timezone,
                                                         &child_value));
         }
         struct_value.push_back(std::move(child_value));
@@ -257,7 +251,8 @@ static Status build_v2_json_struct_default(const format::ColumnDefinition& field
 static Status build_v2_json_array_default(const format::ColumnDefinition& field,
                                           const DataTypePtr& value_type,
                                           const rapidjson::Value& json_value,
-                                          std::deque<std::string>* binary_storage, Field* result) {
+                                          std::deque<std::string>* binary_storage,
+                                          const cctz::time_zone* timezone, Field* result) {
     if (!json_value.IsArray() || field.children.size() != 1) {
         return Status::InvalidArgument("Invalid Iceberg list default for field '{}'", field.name);
     }
@@ -269,7 +264,7 @@ static Status build_v2_json_array_default(const format::ColumnDefinition& field,
         Field element_value;
         RETURN_IF_ERROR(build_v2_json_default_field(field.children.front(),
                                                     array_type.get_nested_type(), json_element,
-                                                    binary_storage, &element_value));
+                                                    binary_storage, timezone, &element_value));
         array_value.push_back(std::move(element_value));
     }
     *result = Field::create_field<TYPE_ARRAY>(std::move(array_value));
@@ -283,7 +278,8 @@ static Status build_v2_json_array_default(const format::ColumnDefinition& field,
 static Status build_v2_json_map_default(const format::ColumnDefinition& field,
                                         const DataTypePtr& value_type,
                                         const rapidjson::Value& json_value,
-                                        std::deque<std::string>* binary_storage, Field* result) {
+                                        std::deque<std::string>* binary_storage,
+                                        const cctz::time_zone* timezone, Field* result) {
     if (!json_value.IsObject() || !json_value.HasMember("keys") || !json_value["keys"].IsArray() ||
         !json_value.HasMember("values") || !json_value["values"].IsArray() ||
         field.children.size() != 2) {
@@ -306,9 +302,11 @@ static Status build_v2_json_map_default(const format::ColumnDefinition& field,
         Field key_value;
         Field mapped_value;
         RETURN_IF_ERROR(build_v2_json_default_field(field.children[0], map_type.get_key_type(),
-                                                    keys[index], binary_storage, &key_value));
+                                                    keys[index], binary_storage, timezone,
+                                                    &key_value));
         RETURN_IF_ERROR(build_v2_json_default_field(field.children[1], map_type.get_value_type(),
-                                                    values[index], binary_storage, &mapped_value));
+                                                    values[index], binary_storage, timezone,
+                                                    &mapped_value));
         key_fields.push_back(std::move(key_value));
         value_fields.push_back(std::move(mapped_value));
     }
@@ -322,7 +320,8 @@ static Status build_v2_json_map_default(const format::ColumnDefinition& field,
 static Status build_v2_json_scalar_default(const format::ColumnDefinition& field,
                                            const DataTypePtr& value_type,
                                            const rapidjson::Value& json_value,
-                                           std::deque<std::string>* binary_storage, Field* result) {
+                                           std::deque<std::string>* binary_storage,
+                                           const cctz::time_zone* timezone, Field* result) {
     const auto primitive_type = value_type->get_primitive_type();
     std::string serialized_value = iceberg_json_scalar_text(json_value);
     const bool binary_like =
@@ -354,7 +353,8 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
         *result = Field::create_field<TYPE_STRING>(std::move(serialized_value));
         return Status::OK();
     }
-    normalize_iceberg_json_timestamp(primitive_type, &serialized_value);
+    RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
+                                                                          &serialized_value));
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
@@ -362,7 +362,8 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
 static Status build_v2_json_default_field(const format::ColumnDefinition& field,
                                           const DataTypePtr& data_type,
                                           const rapidjson::Value& json_value,
-                                          std::deque<std::string>* binary_storage, Field* result) {
+                                          std::deque<std::string>* binary_storage,
+                                          const cctz::time_zone* timezone, Field* result) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(binary_storage != nullptr);
     DORIS_CHECK(result != nullptr);
@@ -373,20 +374,24 @@ static Status build_v2_json_default_field(const format::ColumnDefinition& field,
     const auto value_type = remove_nullable(data_type);
     switch (value_type->get_primitive_type()) {
     case TYPE_STRUCT:
-        return build_v2_json_struct_default(field, value_type, json_value, binary_storage, result);
+        return build_v2_json_struct_default(field, value_type, json_value, binary_storage, timezone,
+                                            result);
     case TYPE_ARRAY:
-        return build_v2_json_array_default(field, value_type, json_value, binary_storage, result);
+        return build_v2_json_array_default(field, value_type, json_value, binary_storage, timezone,
+                                           result);
     case TYPE_MAP:
-        return build_v2_json_map_default(field, value_type, json_value, binary_storage, result);
+        return build_v2_json_map_default(field, value_type, json_value, binary_storage, timezone,
+                                         result);
     default:
-        return build_v2_json_scalar_default(field, value_type, json_value, binary_storage, result);
+        return build_v2_json_scalar_default(field, value_type, json_value, binary_storage, timezone,
+                                            result);
     }
 }
 
 static Status build_v2_initial_default_field(const format::ColumnDefinition& field,
                                              const DataTypePtr& data_type,
                                              std::deque<std::string>* binary_storage,
-                                             Field* result) {
+                                             const cctz::time_zone* timezone, Field* result) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(binary_storage != nullptr);
     DORIS_CHECK(result != nullptr);
@@ -409,7 +414,8 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
             return Status::InvalidArgument("Invalid Iceberg JSON initial default for field '{}'",
                                            field.name);
         }
-        return build_v2_json_default_field(field, data_type, document, binary_storage, result);
+        return build_v2_json_default_field(field, data_type, document, binary_storage, timezone,
+                                           result);
     }
 
     if (field.initial_default_value_is_base64 || primitive_type == TYPE_VARBINARY) {
@@ -430,12 +436,15 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(*field.initial_default_value, *result));
+    std::string serialized_value = *field.initial_default_value;
+    RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
+                                                                          &serialized_value));
+    RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
 
 static Status build_initial_default_literal(const format::ColumnDefinition& table_field,
-                                            VExprSPtr* literal) {
+                                            const cctz::time_zone* timezone, VExprSPtr* literal) {
     DORIS_CHECK(table_field.type != nullptr);
     DORIS_CHECK(table_field.initial_default_value.has_value());
     DORIS_CHECK(literal != nullptr);
@@ -443,21 +452,22 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     std::deque<std::string> binary_storage;
     Field initial_default;
     RETURN_IF_ERROR(build_v2_initial_default_field(table_field, table_field.type, &binary_storage,
-                                                   &initial_default));
+                                                   timezone, &initial_default));
     // VLiteral inserts the Field into an owning column before binary_storage is destroyed.
     *literal = VLiteral::create_shared(table_field.type, initial_default);
     return Status::OK();
 }
 
-static Status build_initial_default_exprs(format::ColumnDefinition* column) {
+static Status build_initial_default_exprs(format::ColumnDefinition* column,
+                                          const cctz::time_zone* timezone) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
         VExprSPtr literal;
-        RETURN_IF_ERROR(build_initial_default_literal(*column, &literal));
+        RETURN_IF_ERROR(build_initial_default_literal(*column, timezone, &literal));
         column->default_expr = VExprContext::create_shared(std::move(literal));
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(build_initial_default_exprs(&child));
+        RETURN_IF_ERROR(build_initial_default_exprs(&child, timezone));
     }
     return Status::OK();
 }
@@ -465,6 +475,7 @@ static Status build_initial_default_exprs(format::ColumnDefinition* column) {
 static Status build_missing_equality_delete_key_expr(const format::ColumnDefinition& table_field,
                                                      const DataTypePtr& delete_key_type,
                                                      bool require_complete_metadata,
+                                                     const cctz::time_zone* timezone,
                                                      VExprSPtr* key_expr) {
     DORIS_CHECK(delete_key_type != nullptr);
     DORIS_CHECK(key_expr != nullptr);
@@ -484,7 +495,7 @@ static Status build_missing_equality_delete_key_expr(const format::ColumnDefinit
     }
 
     VExprSPtr literal;
-    RETURN_IF_ERROR(build_initial_default_literal(table_field, &literal));
+    RETURN_IF_ERROR(build_initial_default_literal(table_field, timezone, &literal));
     if (table_field.type->equals(*delete_key_type)) {
         *key_expr = std::move(literal);
         return Status::OK();
@@ -769,7 +780,9 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     }
 
     auto& schema_column = *context->schema_column;
-    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column));
+    const cctz::time_zone* timezone =
+            context->runtime_state == nullptr ? nullptr : &context->runtime_state->timezone_obj();
+    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column, timezone));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;
@@ -985,10 +998,92 @@ std::string IcebergTableReader::debug_string() const {
     return out.str();
 }
 
+Status IcebergTableReader::_validate_required_mapping_column(
+        const format::ColumnMapping& mapping, const ColumnPtr& column,
+        const NullMap* nullable_parent_null_map) {
+    DORIS_CHECK(column.get() != nullptr);
+    DORIS_CHECK(mapping.table_type != nullptr);
+    const auto full_column = column->convert_to_full_column_if_const();
+    const IColumn* nested_column = full_column.get();
+    const NullMap* own_null_map = nullptr;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*nested_column)) {
+        own_null_map = &nullable->get_null_map_data();
+        nested_column = &nullable->get_nested_column();
+        if (mapping.reject_null_value && nullable->has_null()) {
+            DORIS_CHECK(nullable_parent_null_map == nullptr ||
+                        nullable_parent_null_map->size() == own_null_map->size());
+            for (size_t row = 0; row < own_null_map->size(); ++row) {
+                if ((*own_null_map)[row] != 0 && (nullable_parent_null_map == nullptr ||
+                                                  (*nullable_parent_null_map)[row] == 0)) {
+                    return Status::InvalidArgument("Required Iceberg field '{}' contains NULL",
+                                                   mapping.table_column_name);
+                }
+            }
+        }
+    }
+    if (mapping.child_mappings.empty()) {
+        return Status::OK();
+    }
+
+    NullMap combined_parent_null_map;
+    const NullMap* descendant_parent_null_map = nullable_parent_null_map;
+    if (own_null_map != nullptr) {
+        descendant_parent_null_map = own_null_map;
+        if (nullable_parent_null_map != nullptr) {
+            DORIS_CHECK(nullable_parent_null_map->size() == own_null_map->size());
+            combined_parent_null_map.resize(own_null_map->size());
+            for (size_t row = 0; row < own_null_map->size(); ++row) {
+                combined_parent_null_map[row] =
+                        (*own_null_map)[row] || (*nullable_parent_null_map)[row];
+            }
+            descendant_parent_null_map = &combined_parent_null_map;
+        }
+    }
+
+    const auto table_type = remove_nullable(mapping.table_type);
+    switch (table_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*nested_column);
+        DORIS_CHECK(mapping.child_mappings.size() == struct_column.tuple_size());
+        for (size_t child = 0; child < mapping.child_mappings.size(); ++child) {
+            RETURN_IF_ERROR(_validate_required_mapping_column(mapping.child_mappings[child],
+                                                              struct_column.get_column_ptr(child),
+                                                              descendant_parent_null_map));
+        }
+        return Status::OK();
+    }
+    case TYPE_ARRAY: {
+        DORIS_CHECK(mapping.child_mappings.size() == 1);
+        const auto& array_column = assert_cast<const ColumnArray&>(*nested_column);
+        NullMap element_parent_null_map;
+        const NullMap* element_parent = _project_collection_parent_null_map(
+                own_null_map, nullable_parent_null_map, full_column->size(),
+                array_column.get_offsets(), array_column.get_data().size(),
+                &element_parent_null_map);
+        return _validate_required_mapping_column(mapping.child_mappings.front(),
+                                                 array_column.get_data_ptr(), element_parent);
+    }
+    case TYPE_MAP: {
+        DORIS_CHECK(mapping.child_mappings.size() == 2);
+        const auto& map_column = assert_cast<const ColumnMap&>(*nested_column);
+        NullMap entry_parent_null_map;
+        const NullMap* entry_parent = _project_collection_parent_null_map(
+                own_null_map, nullable_parent_null_map, full_column->size(),
+                map_column.get_offsets(), map_column.get_keys().size(), &entry_parent_null_map);
+        RETURN_IF_ERROR(_validate_required_mapping_column(mapping.child_mappings[0],
+                                                          map_column.get_keys_ptr(), entry_parent));
+        return _validate_required_mapping_column(mapping.child_mappings[1],
+                                                 map_column.get_values_ptr(), entry_parent);
+    }
+    default:
+        return Status::OK();
+    }
+}
+
 Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
-    for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
-         ++column_idx) {
-        const auto& mapping = _data_reader.column_mapper->mappings()[column_idx];
+    const auto& mappings = _data_reader.column_mapper->mappings();
+    for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
+        const auto& mapping = mappings[column_idx];
         switch (mapping.virtual_column_type) {
         case format::TableVirtualColumnType::ROW_ID:
             RETURN_IF_ERROR(_materialize_row_lineage_row_id(table_block, column_idx));
@@ -1003,6 +1098,13 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
         case format::TableVirtualColumnType::INVALID:
             break;
         }
+    }
+    for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
+        if (!requires_required_field_validation(mappings[column_idx])) {
+            continue;
+        }
+        RETURN_IF_ERROR(_validate_required_mapping_column(
+                mappings[column_idx], table_block->get_by_position(column_idx).column));
     }
     return Status::OK();
 }
@@ -1325,7 +1427,7 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
     VExprSPtr missing_root_expr;
     RETURN_IF_ERROR(build_missing_equality_delete_key_expr(
             missing_root, missing_root.type, supports_iceberg_scan_semantics_v2(_scan_params),
-            &missing_root_expr));
+            &_runtime_state->timezone_obj(), &missing_root_expr));
     std::vector<const format::ColumnDefinition*> missing_path;
     for (size_t path_index = missing_index; path_index < table_path->size(); ++path_index) {
         missing_path.push_back(&(*table_path)[path_index]);

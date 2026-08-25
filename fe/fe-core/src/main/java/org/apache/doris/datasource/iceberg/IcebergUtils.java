@@ -785,17 +785,25 @@ public class IcebergUtils {
     }
 
     public static void validateWriteSchema(Table table, List<Column> columns) {
-        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+        boolean writesVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
+        FileFormat fileFormat = getFileFormat(table);
+        if (writesVariant) {
+            validateWriteSchema(columns, getFormatVersion(table), fileFormat);
+            validateVariantWriteProperties(columns, table.properties());
+        }
+        boolean writesOrcBinary = fileFormat == FileFormat.ORC
+                && TypeUtil.indexById(table.schema().asStruct()).values().stream()
+                        .anyMatch(field -> isBinaryLike(field.type()));
+        if (!writesVariant && !writesOrcBinary) {
             return;
         }
-        validateWriteSchema(columns, getFormatVersion(table), getFileFormat(table));
-        validateVariantWriteProperties(columns, table.properties());
         try {
-            validateVariantWriteBackendCompatibility(
-                    columns, Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+            Iterable<Backend> backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values();
+            validateVariantWriteBackendCompatibility(columns, backends);
+            validateOrcBinaryWriteBackendCompatibility(table.schema(), fileFormat, backends);
         } catch (AnalysisException e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Failed to check backend compatibility for Iceberg Variant writes", e);
+                    "Failed to check backend compatibility for Iceberg writes", e);
         }
     }
 
@@ -836,6 +844,23 @@ public class IcebergUtils {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "Iceberg Variant writes are unavailable while backend "
                                 + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static void validateOrcBinaryWriteBackendCompatibility(
+            Schema schema, FileFormat fileFormat, Iterable<Backend> backends) {
+        if (fileFormat != FileFormat.ORC
+                || TypeUtil.indexById(schema.asStruct()).values().stream()
+                        .noneMatch(field -> isBinaryLike(field.type()))) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isQueryAvailable() && backend.isSmoothUpgradeSrc()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg ORC writes with UUID, FIXED, or BINARY columns are unavailable "
+                                + "while backend " + backend.getId() + " is a smooth upgrade source");
             }
         }
     }
@@ -1415,9 +1440,9 @@ public class IcebergUtils {
             String dorisValue = humanValue.replace('T', ' ');
             Types.TimestampType timestampType = (Types.TimestampType) type;
             if (timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz) {
-                // Iceberg timestamptz human values carry a trailing offset. DATETIMEV2 has no
-                // offset carrier, so retain the displayed UTC wall time and remove the suffix.
-                return dorisValue.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
+                // Preserve the instant and its offset through FE-to-BE transport. The BE converts
+                // it to the session-local DATETIMEV2 wall time immediately before materialization.
+                return dorisValue;
             }
             return dorisValue;
         }
@@ -1435,6 +1460,24 @@ public class IcebergUtils {
         Preconditions.checkArgument(field.initialDefault() != null,
                 "Iceberg field %s has no initial default", field.fieldId());
         return serializeInitialDefault(field.type(), field.initialDefault(), enableMappingTimestampTz);
+    }
+
+    /** Serialize an initial default for FE's legacy missing-column expression. */
+    public static String getSerializedInitialDefaultForDorisExpression(
+            Types.NestedField field, boolean enableMappingTimestampTz) {
+        Preconditions.checkArgument(field.initialDefault() != null,
+                "Iceberg field %s has no initial default", field.fieldId());
+        if (field.type().typeId() == TypeID.TIMESTAMP
+                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()
+                && !enableMappingTimestampTz) {
+            long micros = (Long) field.initialDefault();
+            long seconds = Math.floorDiv(micros, 1_000_000L);
+            int nanos = Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L);
+            LocalDateTime localDateTime = LocalDateTime.ofInstant(
+                    Instant.ofEpochSecond(seconds, nanos), TimeUtils.getDorisZoneId());
+            return localDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
+        }
+        return getSerializedInitialDefault(field, enableMappingTimestampTz);
     }
 
     /**

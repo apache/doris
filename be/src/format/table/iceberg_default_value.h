@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <gen_cpp/ExternalTableSchema_types.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <chrono>
 #include <cstddef>
 #include <deque>
 #include <string>
@@ -135,29 +137,39 @@ inline std::string json_scalar_text(const rapidjson::Value& value) {
     return {buffer.GetString(), buffer.GetSize()};
 }
 
-inline void normalize_timestamp_for_doris(PrimitiveType primitive_type, std::string* value) {
+inline Status normalize_timestamp_for_doris(PrimitiveType primitive_type,
+                                            const cctz::time_zone* timezone, std::string* value) {
     if (primitive_type != TYPE_DATETIME && primitive_type != TYPE_DATETIMEV2 &&
         primitive_type != TYPE_TIMESTAMPTZ) {
-        return;
+        return Status::OK();
     }
     if (const size_t separator = value->find('T'); separator != std::string::npos) {
         (*value)[separator] = ' ';
     }
     if (primitive_type == TYPE_TIMESTAMPTZ) {
-        return;
-    }
-    if (value->ends_with('Z')) {
-        value->pop_back();
-        return;
+        return Status::OK();
     }
     const size_t time_start = value->find(' ');
     if (time_start == std::string::npos) {
-        return;
+        return Status::OK();
     }
+    const bool utc_suffix = value->ends_with('Z');
     const size_t offset = value->find_first_of("+-", time_start + 1);
-    if (offset != std::string::npos) {
-        value->erase(offset);
+    if (!utc_suffix && offset == std::string::npos) {
+        return Status::OK();
     }
+
+    std::string instant_text = *value;
+    if (utc_suffix) {
+        instant_text.replace(instant_text.size() - 1, 1, "+00:00");
+    }
+    std::chrono::system_clock::time_point instant;
+    if (!cctz::parse("%Y-%m-%d %H:%M:%E*S%Ez", instant_text, cctz::utc_time_zone(), &instant)) {
+        return Status::InvalidArgument("Invalid Iceberg timestamp default '{}'", *value);
+    }
+    const cctz::time_zone& target_zone = timezone == nullptr ? cctz::utc_time_zone() : *timezone;
+    *value = cctz::format("%Y-%m-%d %H:%M:%E6S", instant, target_zone);
+    return Status::OK();
 }
 
 inline Status make_null_field(const schema::external::TField& field, const DataTypePtr& data_type,
@@ -180,17 +192,20 @@ inline Status make_null_field(const schema::external::TField& field, const DataT
 
 inline Status build_initial_default_field(const schema::external::TField& field,
                                           const DataTypePtr& data_type,
-                                          std::deque<std::string>* binary_storage, Field* result);
+                                          std::deque<std::string>* binary_storage,
+                                          const cctz::time_zone* timezone, Field* result);
 
 inline Status build_json_default_field(const schema::external::TField& field,
                                        const DataTypePtr& data_type,
                                        const rapidjson::Value& json_value,
-                                       std::deque<std::string>* binary_storage, Field* result);
+                                       std::deque<std::string>* binary_storage,
+                                       const cctz::time_zone* timezone, Field* result);
 
 inline Status build_json_struct_default(const schema::external::TField& field,
                                         const DataTypePtr& value_type,
                                         const rapidjson::Value& json_value,
-                                        std::deque<std::string>* binary_storage, Field* result) {
+                                        std::deque<std::string>* binary_storage,
+                                        const cctz::time_zone* timezone, Field* result) {
     if (!json_value.IsObject() || !field.__isset.nestedField ||
         !field.nestedField.__isset.struct_field || !field.nestedField.struct_field.__isset.fields) {
         return Status::InvalidArgument("Invalid Iceberg struct default for field '{}'", field.name);
@@ -214,10 +229,11 @@ inline Status build_json_struct_default(const schema::external::TField& field,
         Field child_value;
         if (member == json_value.MemberEnd()) {
             RETURN_IF_ERROR(build_initial_default_field(*child, struct_type.get_element(index),
-                                                        binary_storage, &child_value));
+                                                        binary_storage, timezone, &child_value));
         } else {
             RETURN_IF_ERROR(build_json_default_field(*child, struct_type.get_element(index),
-                                                     member->value, binary_storage, &child_value));
+                                                     member->value, binary_storage, timezone,
+                                                     &child_value));
         }
         struct_value.push_back(std::move(child_value));
     }
@@ -231,7 +247,8 @@ inline Status build_json_struct_default(const schema::external::TField& field,
 inline Status build_json_array_default(const schema::external::TField& field,
                                        const DataTypePtr& value_type,
                                        const rapidjson::Value& json_value,
-                                       std::deque<std::string>* binary_storage, Field* result) {
+                                       std::deque<std::string>* binary_storage,
+                                       const cctz::time_zone* timezone, Field* result) {
     if (!json_value.IsArray() || !field.__isset.nestedField ||
         !field.nestedField.__isset.array_field ||
         !field.nestedField.array_field.__isset.item_field) {
@@ -249,7 +266,8 @@ inline Status build_json_array_default(const schema::external::TField& field,
     for (const auto& json_element : json_value.GetArray()) {
         Field element_value;
         RETURN_IF_ERROR(build_json_default_field(*element, array_type.get_nested_type(),
-                                                 json_element, binary_storage, &element_value));
+                                                 json_element, binary_storage, timezone,
+                                                 &element_value));
         array_value.push_back(std::move(element_value));
     }
     *result = Field::create_field<TYPE_ARRAY>(std::move(array_value));
@@ -262,7 +280,8 @@ inline Status build_json_array_default(const schema::external::TField& field,
 inline Status build_json_map_default(const schema::external::TField& field,
                                      const DataTypePtr& value_type,
                                      const rapidjson::Value& json_value,
-                                     std::deque<std::string>* binary_storage, Field* result) {
+                                     std::deque<std::string>* binary_storage,
+                                     const cctz::time_zone* timezone, Field* result) {
     if (!json_value.IsObject() || !json_value.HasMember("keys") || !json_value["keys"].IsArray() ||
         !json_value.HasMember("values") || !json_value["values"].IsArray() ||
         !field.__isset.nestedField || !field.nestedField.__isset.map_field ||
@@ -294,9 +313,9 @@ inline Status build_json_map_default(const schema::external::TField& field,
         Field key_value;
         Field mapped_value;
         RETURN_IF_ERROR(build_json_default_field(*key, map_type.get_key_type(), keys[index],
-                                                 binary_storage, &key_value));
+                                                 binary_storage, timezone, &key_value));
         RETURN_IF_ERROR(build_json_default_field(*value, map_type.get_value_type(), values[index],
-                                                 binary_storage, &mapped_value));
+                                                 binary_storage, timezone, &mapped_value));
         key_fields.push_back(std::move(key_value));
         value_fields.push_back(std::move(mapped_value));
     }
@@ -310,7 +329,8 @@ inline Status build_json_map_default(const schema::external::TField& field,
 inline Status build_json_scalar_default(const schema::external::TField& field,
                                         const DataTypePtr& value_type,
                                         const rapidjson::Value& json_value,
-                                        std::deque<std::string>* binary_storage, Field* result) {
+                                        std::deque<std::string>* binary_storage,
+                                        const cctz::time_zone* timezone, Field* result) {
     const auto primitive_type = value_type->get_primitive_type();
     std::string serialized_value = json_scalar_text(json_value);
     const bool binary_like = (field.__isset.initial_default_value_is_base64 &&
@@ -343,7 +363,7 @@ inline Status build_json_scalar_default(const schema::external::TField& field,
         *result = Field::create_field<TYPE_STRING>(std::move(serialized_value));
         return Status::OK();
     }
-    normalize_timestamp_for_doris(primitive_type, &serialized_value);
+    RETURN_IF_ERROR(normalize_timestamp_for_doris(primitive_type, timezone, &serialized_value));
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
@@ -351,7 +371,8 @@ inline Status build_json_scalar_default(const schema::external::TField& field,
 inline Status build_json_default_field(const schema::external::TField& field,
                                        const DataTypePtr& data_type,
                                        const rapidjson::Value& json_value,
-                                       std::deque<std::string>* binary_storage, Field* result) {
+                                       std::deque<std::string>* binary_storage,
+                                       const cctz::time_zone* timezone, Field* result) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(binary_storage != nullptr);
     DORIS_CHECK(result != nullptr);
@@ -362,19 +383,24 @@ inline Status build_json_default_field(const schema::external::TField& field,
     const auto value_type = remove_nullable(data_type);
     switch (value_type->get_primitive_type()) {
     case TYPE_STRUCT:
-        return build_json_struct_default(field, value_type, json_value, binary_storage, result);
+        return build_json_struct_default(field, value_type, json_value, binary_storage, timezone,
+                                         result);
     case TYPE_ARRAY:
-        return build_json_array_default(field, value_type, json_value, binary_storage, result);
+        return build_json_array_default(field, value_type, json_value, binary_storage, timezone,
+                                        result);
     case TYPE_MAP:
-        return build_json_map_default(field, value_type, json_value, binary_storage, result);
+        return build_json_map_default(field, value_type, json_value, binary_storage, timezone,
+                                      result);
     default:
-        return build_json_scalar_default(field, value_type, json_value, binary_storage, result);
+        return build_json_scalar_default(field, value_type, json_value, binary_storage, timezone,
+                                         result);
     }
 }
 
 inline Status build_initial_default_field(const schema::external::TField& field,
                                           const DataTypePtr& data_type,
-                                          std::deque<std::string>* binary_storage, Field* result) {
+                                          std::deque<std::string>* binary_storage,
+                                          const cctz::time_zone* timezone, Field* result) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(binary_storage != nullptr);
     DORIS_CHECK(result != nullptr);
@@ -397,7 +423,8 @@ inline Status build_initial_default_field(const schema::external::TField& field,
             return Status::InvalidArgument("Invalid Iceberg JSON initial default for field '{}'",
                                            field.name);
         }
-        return build_json_default_field(field, data_type, document, binary_storage, result);
+        return build_json_default_field(field, data_type, document, binary_storage, timezone,
+                                        result);
     }
 
     const bool default_is_base64 = (field.__isset.initial_default_value_is_base64 &&
@@ -422,7 +449,9 @@ inline Status build_initial_default_field(const schema::external::TField& field,
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(field.initial_default_value, *result));
+    std::string serialized_value = field.initial_default_value;
+    RETURN_IF_ERROR(normalize_timestamp_for_doris(primitive_type, timezone, &serialized_value));
+    RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
 
@@ -432,14 +461,16 @@ inline Status build_initial_default_field(const schema::external::TField& field,
 // Complex values follow Iceberg's JSON single-value encoding. Struct members omitted from the
 // encoded value are recursively populated from the child field's own initial default.
 inline Status create_initial_default_column(const schema::external::TField& field,
-                                            const DataTypePtr& data_type, ColumnPtr* result) {
+                                            const DataTypePtr& data_type, ColumnPtr* result,
+                                            const cctz::time_zone* timezone = nullptr) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(result != nullptr);
 
     auto column = data_type->create_column();
     std::deque<std::string> binary_storage;
     Field value;
-    RETURN_IF_ERROR(detail::build_initial_default_field(field, data_type, &binary_storage, &value));
+    RETURN_IF_ERROR(detail::build_initial_default_field(field, data_type, &binary_storage, timezone,
+                                                        &value));
     // The column copies every String/StringView leaf before binary_storage is destroyed.
     column->insert(value);
 
@@ -459,7 +490,7 @@ inline ColumnPtr repeat_initial_default_column(const ColumnPtr& default_column, 
 inline Status append_initial_default(
         const schema::external::TField& field, const DataTypePtr& data_type, size_t rows,
         std::unordered_map<int32_t, std::pair<DataTypePtr, ColumnPtr>>* prepared_values,
-        ColumnPtr* destination) {
+        ColumnPtr* destination, const cctz::time_zone* timezone = nullptr) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(prepared_values != nullptr);
     DORIS_CHECK(destination != nullptr);
@@ -468,7 +499,7 @@ inline Status append_initial_default(
     auto prepared_value = prepared_values->find(field.id);
     if (prepared_value == prepared_values->end()) {
         ColumnPtr default_column;
-        RETURN_IF_ERROR(create_initial_default_column(field, data_type, &default_column));
+        RETURN_IF_ERROR(create_initial_default_column(field, data_type, &default_column, timezone));
         prepared_value =
                 prepared_values
                         ->emplace(field.id, std::make_pair(data_type, std::move(default_column)))

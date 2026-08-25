@@ -37,12 +37,16 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
-#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format/generic_reader.h"
@@ -79,6 +83,143 @@ class VExprContext;
 
 namespace doris {
 namespace {
+
+const schema::external::TField* find_iceberg_struct_child(const schema::external::TField& field,
+                                                          const std::string& name) {
+    DORIS_CHECK(field.__isset.nestedField);
+    DORIS_CHECK(field.nestedField.__isset.struct_field);
+    DORIS_CHECK(field.nestedField.struct_field.__isset.fields);
+    for (const auto& child_ptr : field.nestedField.struct_field.fields) {
+        if (child_ptr.__isset.field_ptr && child_ptr.field_ptr != nullptr &&
+            child_ptr.field_ptr->__isset.name && iequal(child_ptr.field_ptr->name, name)) {
+            return child_ptr.field_ptr.get();
+        }
+    }
+    return nullptr;
+}
+
+template <typename Offsets>
+const NullMap* project_iceberg_parent_null_map(const NullMap* own_null_map,
+                                               const NullMap* ancestor_null_map, size_t rows,
+                                               const Offsets& offsets, size_t child_rows,
+                                               NullMap* projected_null_map) {
+    if (own_null_map == nullptr && ancestor_null_map == nullptr) {
+        return nullptr;
+    }
+    DORIS_CHECK(own_null_map == nullptr || own_null_map->size() == rows);
+    DORIS_CHECK(ancestor_null_map == nullptr || ancestor_null_map->size() == rows);
+    DORIS_CHECK(offsets.size() == rows);
+    projected_null_map->resize_fill(child_rows, 0);
+    size_t begin = 0;
+    for (size_t row = 0; row < rows; ++row) {
+        const size_t end = offsets[row];
+        DORIS_CHECK(begin <= end && end <= child_rows);
+        if ((own_null_map != nullptr && (*own_null_map)[row] != 0) ||
+            (ancestor_null_map != nullptr && (*ancestor_null_map)[row] != 0)) {
+            std::fill(projected_null_map->begin() + begin, projected_null_map->begin() + end, 1);
+        }
+        begin = end;
+    }
+    DORIS_CHECK(begin == child_rows);
+    return projected_null_map;
+}
+
+Status validate_iceberg_required_field(const schema::external::TField& field,
+                                       const DataTypePtr& data_type, const ColumnPtr& column,
+                                       const NullMap* ancestor_null_map = nullptr) {
+    DORIS_CHECK(data_type != nullptr);
+    DORIS_CHECK(column.get() != nullptr);
+    const auto full_column = column->convert_to_full_column_if_const();
+    const IColumn* nested_column = full_column.get();
+    const NullMap* own_null_map = nullptr;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*nested_column)) {
+        own_null_map = &nullable->get_null_map_data();
+        nested_column = &nullable->get_nested_column();
+        if (field.__isset.is_optional && !field.is_optional && nullable->has_null()) {
+            DORIS_CHECK(ancestor_null_map == nullptr ||
+                        ancestor_null_map->size() == own_null_map->size());
+            for (size_t row = 0; row < own_null_map->size(); ++row) {
+                if ((*own_null_map)[row] != 0 &&
+                    (ancestor_null_map == nullptr || (*ancestor_null_map)[row] == 0)) {
+                    return Status::InvalidArgument("Required Iceberg field '{}' contains NULL",
+                                                   field.name);
+                }
+            }
+        }
+    }
+
+    NullMap combined_parent_null_map;
+    const NullMap* descendant_parent_null_map = ancestor_null_map;
+    if (own_null_map != nullptr) {
+        descendant_parent_null_map = own_null_map;
+        if (ancestor_null_map != nullptr) {
+            DORIS_CHECK(ancestor_null_map->size() == own_null_map->size());
+            combined_parent_null_map.resize(own_null_map->size());
+            for (size_t row = 0; row < own_null_map->size(); ++row) {
+                combined_parent_null_map[row] = (*own_null_map)[row] || (*ancestor_null_map)[row];
+            }
+            descendant_parent_null_map = &combined_parent_null_map;
+        }
+    }
+
+    const auto value_type = remove_nullable(data_type);
+    switch (value_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*value_type);
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*nested_column);
+        DORIS_CHECK(struct_type.get_elements().size() == struct_column.tuple_size());
+        for (size_t child = 0; child < struct_type.get_elements().size(); ++child) {
+            const auto* child_field =
+                    find_iceberg_struct_child(field, struct_type.get_element_name(child));
+            DORIS_CHECK(child_field != nullptr);
+            RETURN_IF_ERROR(validate_iceberg_required_field(
+                    *child_field, struct_type.get_element(child),
+                    struct_column.get_column_ptr(child), descendant_parent_null_map));
+        }
+        return Status::OK();
+    }
+    case TYPE_ARRAY: {
+        DORIS_CHECK(field.__isset.nestedField);
+        DORIS_CHECK(field.nestedField.__isset.array_field);
+        DORIS_CHECK(field.nestedField.array_field.__isset.item_field);
+        const auto& child_ptr = field.nestedField.array_field.item_field;
+        DORIS_CHECK(child_ptr.__isset.field_ptr && child_ptr.field_ptr != nullptr);
+        const auto& array_type = assert_cast<const DataTypeArray&>(*value_type);
+        const auto& array_column = assert_cast<const ColumnArray&>(*nested_column);
+        NullMap element_parent_null_map;
+        const NullMap* element_parent = project_iceberg_parent_null_map(
+                own_null_map, ancestor_null_map, full_column->size(), array_column.get_offsets(),
+                array_column.get_data().size(), &element_parent_null_map);
+        return validate_iceberg_required_field(*child_ptr.field_ptr, array_type.get_nested_type(),
+                                               array_column.get_data_ptr(), element_parent);
+    }
+    case TYPE_MAP: {
+        DORIS_CHECK(field.__isset.nestedField);
+        DORIS_CHECK(field.nestedField.__isset.map_field);
+        const auto& map_field = field.nestedField.map_field;
+        DORIS_CHECK(map_field.__isset.key_field);
+        DORIS_CHECK(map_field.__isset.value_field);
+        DORIS_CHECK(map_field.key_field.__isset.field_ptr &&
+                    map_field.key_field.field_ptr != nullptr);
+        DORIS_CHECK(map_field.value_field.__isset.field_ptr &&
+                    map_field.value_field.field_ptr != nullptr);
+        const auto& map_type = assert_cast<const DataTypeMap&>(*value_type);
+        const auto& map_column = assert_cast<const ColumnMap&>(*nested_column);
+        NullMap entry_parent_null_map;
+        const NullMap* entry_parent = project_iceberg_parent_null_map(
+                own_null_map, ancestor_null_map, full_column->size(), map_column.get_offsets(),
+                map_column.get_keys().size(), &entry_parent_null_map);
+        RETURN_IF_ERROR(validate_iceberg_required_field(*map_field.key_field.field_ptr,
+                                                        map_type.get_key_type(),
+                                                        map_column.get_keys_ptr(), entry_parent));
+        return validate_iceberg_required_field(*map_field.value_field.field_ptr,
+                                               map_type.get_value_type(),
+                                               map_column.get_values_ptr(), entry_parent);
+    }
+    default:
+        return Status::OK();
+    }
+}
 
 class GroupedDeleteRowsVisitor final : public IcebergPositionDeleteVisitor {
 public:
@@ -489,19 +630,58 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
     RETURN_IF_ERROR(_materialize_missing_table_columns(block, *read_rows));
     RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block, *read_rows));
     RETURN_IF_ERROR(_materialize_nested_equality_delete_columns(block));
+    RETURN_IF_ERROR(_validate_required_table_columns(block));
 
     if (_equality_delete_impls.size() > 0) {
         std::unique_ptr<IColumn::Filter> filter =
                 std::make_unique<IColumn::Filter>(block->rows(), 1);
-        for (auto& equality_delete_impl : _equality_delete_impls) {
-            RETURN_IF_ERROR(equality_delete_impl->filter_data_block(
-                    block, _col_name_to_block_idx, _id_to_block_column_name, *filter));
+        DORIS_CHECK(_equality_delete_impls.size() == _equality_delete_filter_column_names.size());
+        for (size_t filter_index = 0; filter_index < _equality_delete_impls.size();
+             ++filter_index) {
+            RETURN_IF_ERROR(_equality_delete_impls[filter_index]->filter_data_block(
+                    block, _col_name_to_block_idx,
+                    _equality_delete_filter_column_names[filter_index], *filter));
         }
         Block::filter_block_internal(block, *filter, block->columns());
     }
 
     *read_rows = block->rows();
     return _shrink_block_if_need(block);
+}
+
+Status IcebergTableReader::set_fill_columns(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+        const std::unordered_map<std::string, bool>& partition_value_is_null) {
+    auto iceberg_missing_columns = missing_columns;
+    if (supports_iceberg_scan_semantics_v1(&_params)) {
+        const auto struct_node =
+                std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(table_info_node_ptr);
+        DORIS_CHECK(struct_node != nullptr);
+        const bool use_v2_semantics = supports_iceberg_scan_semantics_v2(&_params);
+        for (auto& [column_name, default_expr] : iceberg_missing_columns) {
+            if (struct_node->children_column_exists(column_name)) {
+                continue;
+            }
+            const auto* field = struct_node->get_missing_column_field(column_name);
+            if (field == nullptr || (!use_v2_semantics && !field->__isset.initial_default_value)) {
+                continue;
+            }
+            const auto type = _required_column_types.find(column_name);
+            DORIS_CHECK(type != _required_column_types.end());
+            ColumnPtr default_column;
+            RETURN_IF_ERROR(iceberg::create_initial_default_column(
+                    *field, type->second, &default_column, &_state->timezone_obj()));
+            default_expr = VExprContext::create_shared(
+                    VLiteral::create_shared(type->second, (*default_column)[0]));
+        }
+        for (const auto& column_name : _physical_missing_equality_delete_columns) {
+            iceberg_missing_columns.emplace(column_name, nullptr);
+        }
+    }
+    return _file_format_reader->set_fill_columns(partition_columns, iceberg_missing_columns,
+                                                 partition_value_is_null);
 }
 
 const schema::external::TStructField* IcebergTableReader::_current_schema_root() const {
@@ -659,7 +839,8 @@ Status IcebergTableReader::_materialize_missing_table_columns(Block* block, size
         if (default_value == _missing_initial_default_values.end()) {
             ColumnPtr value;
             RETURN_IF_ERROR(iceberg::create_initial_default_column(
-                    *field, block->get_by_position(position->second).type, &value));
+                    *field, block->get_by_position(position->second).type, &value,
+                    &_state->timezone_obj()));
             default_value =
                     _missing_initial_default_values.emplace(col_name, std::move(value)).first;
         }
@@ -671,6 +852,29 @@ Status IcebergTableReader::_materialize_missing_table_columns(Block* block, size
         DCHECK_GE(materialized_rows, rows);
         block->get_by_position(position->second).column =
                 iceberg::repeat_initial_default_column(default_value->second, materialized_rows);
+    }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_validate_required_table_columns(Block* block) const {
+    if (!supports_iceberg_scan_semantics_v2(&_params)) {
+        return Status::OK();
+    }
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(_col_name_to_block_idx != nullptr);
+    for (const auto& [field_id, column_name] : _id_to_block_column_name) {
+        std::vector<const schema::external::TField*> path;
+        if (!_find_schema_field_path_in_root(_current_schema_root(), field_id, &path)) {
+            continue;
+        }
+        DORIS_CHECK(path.size() == 1);
+        const auto position = _col_name_to_block_idx->find(column_name);
+        DORIS_CHECK(position != _col_name_to_block_idx->end());
+        DORIS_CHECK(position->second < block->columns());
+        const auto data_type = _required_column_types.find(column_name);
+        DORIS_CHECK(data_type != _required_column_types.end());
+        RETURN_IF_ERROR(validate_iceberg_required_field(
+                *path.front(), data_type->second, block->get_by_position(position->second).column));
     }
     return Status::OK();
 }
@@ -717,8 +921,8 @@ Status IcebergTableReader::_create_missing_equality_delete_value(int32_t field_i
     }
 
     ColumnPtr missing_root_value;
-    RETURN_IF_ERROR(iceberg::create_initial_default_column(*missing_field, missing_type,
-                                                           &missing_root_value));
+    RETURN_IF_ERROR(iceberg::create_initial_default_column(
+            *missing_field, missing_type, &missing_root_value, &_state->timezone_obj()));
     if (missing_index + 1 == table_path.size()) {
         *value = std::move(missing_root_value);
         return Status::OK();
@@ -764,8 +968,25 @@ Status IcebergTableReader::_register_missing_equality_delete_column(
     const bool inserted =
             _missing_equality_delete_values.emplace(name, std::move(default_column)).second;
     DORIS_CHECK(inserted);
-    _id_to_block_column_name[field_id] = name;
     return Status::OK();
+}
+
+std::string IcebergTableReader::_get_or_register_equality_delete_carrier(
+        int32_t field_id, const std::string& source_name, const DataTypePtr& delete_key_type) {
+    DORIS_CHECK(delete_key_type != nullptr);
+    const auto key = std::make_pair(field_id, delete_key_type->get_name());
+    const auto existing = _equality_delete_carriers.find(key);
+    if (existing != _equality_delete_carriers.end()) {
+        return existing->second;
+    }
+
+    const std::string carrier_name = "__equality_delete_column__" + std::to_string(field_id) + "_" +
+                                     std::to_string(_equality_delete_carriers.size());
+    _expand_col_names.push_back(source_name);
+    _expand_col_field_ids.push_back(field_id);
+    _expand_columns.emplace_back(delete_key_type->create_column(), delete_key_type, carrier_name);
+    _equality_delete_carriers.emplace(key, carrier_name);
+    return carrier_name;
 }
 
 Status IcebergTableReader::_materialize_missing_equality_delete_columns(Block* block, size_t rows) {
@@ -884,16 +1105,82 @@ Status IcebergTableReader::_extract_nested_equality_delete_column(
 
 Status IcebergTableReader::_materialize_nested_equality_delete_columns(Block* block) {
     DORIS_CHECK(block != nullptr);
+    struct MaterializedColumn {
+        uint32_t position;
+        ColumnPtr column;
+        DataTypePtr type;
+    };
+    std::vector<MaterializedColumn> materialized_columns;
+    materialized_columns.reserve(_nested_equality_delete_columns.size());
     for (const auto& nested_field : _nested_equality_delete_columns) {
-        const auto position = _col_name_to_block_idx->find(nested_field.block_name);
-        DORIS_CHECK(position != _col_name_to_block_idx->end());
-        DORIS_CHECK(position->second < block->columns());
-        auto& column = block->get_by_position(position->second);
+        const std::string& source_name = nested_field.source_block_name.empty()
+                                                 ? nested_field.block_name
+                                                 : nested_field.source_block_name;
+        const auto source_position = _col_name_to_block_idx->find(source_name);
+        DORIS_CHECK(source_position != _col_name_to_block_idx->end());
+        DORIS_CHECK(source_position->second < block->columns());
+        const auto target_position = _col_name_to_block_idx->find(nested_field.block_name);
+        DORIS_CHECK(target_position != _col_name_to_block_idx->end());
+        DORIS_CHECK(target_position->second < block->columns());
         ColumnPtr leaf;
-        RETURN_IF_ERROR(_extract_nested_equality_delete_column(column.column, nested_field, &leaf));
-        column.column = std::move(leaf);
-        column.type = make_nullable(nested_field.leaf_type);
+        RETURN_IF_ERROR(_extract_nested_equality_delete_column(
+                block->get_by_position(source_position->second).column, nested_field, &leaf));
+        materialized_columns.push_back(
+                {target_position->second, std::move(leaf), make_nullable(nested_field.leaf_type)});
     }
+    for (auto& materialized : materialized_columns) {
+        auto& column = block->get_by_position(materialized.position);
+        column.column = std::move(materialized.column);
+        column.type = std::move(materialized.type);
+    }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_get_current_schema_equality_delete_path(
+        int32_t field_id, std::vector<size_t>* child_indexes, DataTypePtr* leaf_type) const {
+    DORIS_CHECK(child_indexes != nullptr);
+    DORIS_CHECK(leaf_type != nullptr);
+    child_indexes->clear();
+    const auto path = _find_schema_field_path(field_id);
+    if (path.empty()) {
+        return Status::InternalError(
+                "Missing current Iceberg schema path for equality-delete field id {}", field_id);
+    }
+    DORIS_CHECK(path.front()->__isset.id);
+    const auto root_name = _id_to_block_column_name.find(path.front()->id);
+    DORIS_CHECK(root_name != _id_to_block_column_name.end());
+    const auto root_type = _required_column_types.find(root_name->second);
+    DORIS_CHECK(root_type != _required_column_types.end());
+    DataTypePtr current_type = root_type->second;
+    for (size_t path_index = 1; path_index < path.size(); ++path_index) {
+        const auto* parent = path[path_index - 1];
+        const auto* child = path[path_index];
+        DORIS_CHECK(parent != nullptr);
+        DORIS_CHECK(child != nullptr);
+        if (!parent->__isset.nestedField || !parent->nestedField.__isset.struct_field ||
+            !parent->nestedField.struct_field.__isset.fields) {
+            return Status::NotSupported(
+                    "Iceberg equality-delete field id {} has a non-struct current-schema parent",
+                    field_id);
+        }
+        DORIS_CHECK(child->__isset.name);
+        const auto* struct_type =
+                typeid_cast<const DataTypeStruct*>(remove_nullable(current_type).get());
+        if (struct_type == nullptr) {
+            return Status::InternalError(
+                    "Iceberg equality-delete field id {} is absent from projected column type {}",
+                    field_id, current_type->get_name());
+        }
+        const auto child_index = struct_type->try_get_position_by_name(child->name);
+        if (!child_index.has_value()) {
+            return Status::InternalError(
+                    "Iceberg equality-delete field id {} is absent from projected struct type {}",
+                    field_id, current_type->get_name());
+        }
+        child_indexes->push_back(*child_index);
+        current_type = struct_type->get_element(*child_index);
+    }
+    *leaf_type = make_nullable(remove_nullable(current_type));
     return Status::OK();
 }
 
@@ -1192,6 +1479,7 @@ Status IcebergParquetReader::init_reader(
     _all_required_col_names = file_col_names;
     for (const auto* slot : tuple_descriptor->slots()) {
         _id_to_block_column_name.emplace(slot->col_unique_id(), slot->col_name());
+        _required_column_types.emplace(slot->col_name(), slot->type());
     }
     RETURN_IF_ERROR(init_row_filters());
 
@@ -1209,7 +1497,6 @@ Status IcebergParquetReader::init_reader(
     auto& column_ids = column_id_result.column_ids;
     const auto& filter_column_ids = column_id_result.filter_column_ids;
 
-    const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
     bool all_file_columns_have_field_ids = true;
     bool any_file_column_has_field_id = false;
     for (int index = 0; index < _data_file_field_desc->size(); ++index) {
@@ -1227,6 +1514,7 @@ Status IcebergParquetReader::init_reader(
     const bool use_field_ids = supports_iceberg_scan_semantics_v2(&_params)
                                        ? any_file_column_has_field_id
                                        : all_file_columns_have_field_ids;
+    std::unordered_map<std::string, std::string> physical_root_sources;
     std::vector<std::string> new_expand_col_names;
     DORIS_CHECK(_expand_col_names.size() == _expand_col_field_ids.size());
     DORIS_CHECK(_expand_col_names.size() == _expand_columns.size());
@@ -1260,57 +1548,70 @@ Status IcebergParquetReader::init_reader(
             }
         }
 
-        const std::string leaf_name =
-                file_path.fields.empty() ? old_name : file_path.fields.back()->name;
-        const std::string block_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + leaf_name;
-        _id_to_block_column_name[field_id] = block_name;
-        _expand_columns[index].name = block_name;
+        const std::string block_name = _expand_columns[index].name;
+        const DataTypePtr target_leaf_type = _expand_columns[index].type;
         new_expand_col_names.push_back(block_name);
         if (file_column == nullptr) {
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, block_name,
-                                                                     _expand_columns[index].type));
+                                                                     target_leaf_type));
             continue;
         }
-        if (!complete_file_path) {
-            ColumnPtr missing_value;
-            RETURN_IF_ERROR(
-                    _create_missing_equality_delete_value(field_id, _expand_columns[index].type,
-                                                          file_path.fields.size(), &missing_value));
-            _nested_equality_delete_columns.push_back({
-                    .field_id = field_id,
-                    .block_name = block_name,
-                    .source_leaf_type = _expand_columns[index].type,
-                    .leaf_type = _expand_columns[index].type,
-                    .child_indexes = file_path.child_indexes,
-                    .missing_value = std::move(missing_value),
-                    .cast_context = nullptr,
-            });
-            RETURN_IF_ERROR(_prepare_nested_equality_delete_column(
-                    &_nested_equality_delete_columns.back()));
-            _expand_columns[index].type = make_nullable(file_column->data_type);
-            _expand_columns[index].column = _expand_columns[index].type->create_column();
-        } else if (!file_path.child_indexes.empty()) {
-            _nested_equality_delete_columns.push_back({
-                    .field_id = field_id,
-                    .block_name = block_name,
-                    .source_leaf_type = make_nullable(file_path.fields.back()->data_type),
-                    .leaf_type = _expand_columns[index].type,
-                    .child_indexes = file_path.child_indexes,
-                    .missing_value = nullptr,
-                    .cast_context = nullptr,
-            });
-            RETURN_IF_ERROR(_prepare_nested_equality_delete_column(
-                    &_nested_equality_delete_columns.back()));
-            _expand_columns[index].type = make_nullable(file_column->data_type);
-            _expand_columns[index].column = _expand_columns[index].type->create_column();
+
+        std::string source_block_name;
+        std::vector<size_t> source_child_indexes;
+        DataTypePtr source_leaf_type;
+        ColumnPtr missing_value;
+        bool reads_physical_root = false;
+        const auto current_path = _find_schema_field_path(field_id);
+        if (!current_path.empty() && current_path.front()->__isset.id &&
+            _id_to_block_column_name.contains(current_path.front()->id)) {
+            source_block_name = _id_to_block_column_name.at(current_path.front()->id);
+            RETURN_IF_ERROR(_get_current_schema_equality_delete_path(
+                    field_id, &source_child_indexes, &source_leaf_type));
+        } else {
+            const std::string root_name = to_lower(file_column->name);
+            const auto root_source = physical_root_sources.find(root_name);
+            if (root_source == physical_root_sources.end()) {
+                source_block_name = block_name;
+                physical_root_sources.emplace(root_name, source_block_name);
+                reads_physical_root = true;
+                _expand_columns[index].type = make_nullable(file_column->data_type);
+                _expand_columns[index].column = _expand_columns[index].type->create_column();
+                table_info_node_ptr->add_children(
+                        block_name, file_column->name,
+                        TableSchemaChangeHelper::ConstNode::get_instance());
+            } else {
+                source_block_name = root_source->second;
+            }
+            source_child_indexes = file_path.child_indexes;
+            if (complete_file_path) {
+                source_leaf_type = make_nullable(file_path.fields.back()->data_type);
+            } else {
+                source_leaf_type = target_leaf_type;
+                RETURN_IF_ERROR(_create_missing_equality_delete_value(
+                        field_id, target_leaf_type, file_path.fields.size(), &missing_value));
+            }
         }
+        if (!reads_physical_root) {
+            _physical_missing_equality_delete_columns.insert(block_name);
+        }
+        _nested_equality_delete_columns.push_back({
+                .field_id = field_id,
+                .block_name = block_name,
+                .source_block_name = source_block_name,
+                .source_leaf_type = source_leaf_type,
+                .leaf_type = target_leaf_type,
+                .child_indexes = std::move(source_child_indexes),
+                .missing_value = std::move(missing_value),
+                .cast_context = nullptr,
+        });
+        RETURN_IF_ERROR(
+                _prepare_nested_equality_delete_column(&_nested_equality_delete_columns.back()));
         for (uint64_t column_id = file_column->get_column_id();
              column_id <= file_column->get_max_column_id(); ++column_id) {
             column_ids.insert(column_id);
         }
         _all_required_col_names.push_back(block_name);
-        table_info_node_ptr->add_children(block_name, file_column->name,
-                                          TableSchemaChangeHelper::ConstNode::get_instance());
     }
     _expand_col_names = std::move(new_expand_col_names);
 
@@ -1430,6 +1731,7 @@ Status IcebergOrcReader::init_reader(
     _all_required_col_names = file_col_names;
     for (const auto* slot : tuple_descriptor->slots()) {
         _id_to_block_column_name.emplace(slot->col_unique_id(), slot->col_name());
+        _required_column_types.emplace(slot->col_name(), slot->type());
     }
     RETURN_IF_ERROR(init_row_filters());
     if (!_params.__isset.history_schema_info || _params.history_schema_info.empty()) [[unlikely]] {
@@ -1447,7 +1749,6 @@ Status IcebergOrcReader::init_reader(
     auto& column_ids = column_id_result.column_ids;
     const auto& filter_column_ids = column_id_result.filter_column_ids;
 
-    const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
     bool all_file_columns_have_field_ids = true;
     for (size_t index = 0; index < _data_file_type_desc->getSubtypeCount(); ++index) {
         if (!_data_file_type_desc->getSubtype(index)->hasAttributeKey(ICEBERG_ORC_ATTRIBUTE)) {
@@ -1458,6 +1759,7 @@ Status IcebergOrcReader::init_reader(
             supports_iceberg_scan_semantics_v2(&_params)
                     ? orc_subtree_has_iceberg_id(_data_file_type_desc, ICEBERG_ORC_ATTRIBUTE)
                     : all_file_columns_have_field_ids;
+    std::unordered_map<std::string, std::string> physical_root_sources;
     std::vector<std::string> new_expand_col_names;
     DORIS_CHECK(_expand_col_names.size() == _expand_col_field_ids.size());
     DORIS_CHECK(_expand_col_names.size() == _expand_columns.size());
@@ -1491,60 +1793,73 @@ Status IcebergOrcReader::init_reader(
             }
         }
 
-        const std::string leaf_name = file_path.names.empty() ? old_name : file_path.names.back();
-        const std::string block_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + leaf_name;
-        _id_to_block_column_name[field_id] = block_name;
-        _expand_columns[index].name = block_name;
+        const std::string block_name = _expand_columns[index].name;
+        const DataTypePtr target_leaf_type = _expand_columns[index].type;
         new_expand_col_names.push_back(block_name);
         if (file_column == nullptr) {
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, block_name,
-                                                                     _expand_columns[index].type));
+                                                                     target_leaf_type));
             continue;
         }
-        if (!complete_file_path) {
-            ColumnPtr missing_value;
-            RETURN_IF_ERROR(
-                    _create_missing_equality_delete_value(field_id, _expand_columns[index].type,
-                                                          file_path.fields.size(), &missing_value));
-            _nested_equality_delete_columns.push_back({
-                    .field_id = field_id,
-                    .block_name = block_name,
-                    .source_leaf_type = _expand_columns[index].type,
-                    .leaf_type = _expand_columns[index].type,
-                    .child_indexes = file_path.child_indexes,
-                    .missing_value = std::move(missing_value),
-                    .cast_context = nullptr,
-            });
-            RETURN_IF_ERROR(_prepare_nested_equality_delete_column(
-                    &_nested_equality_delete_columns.back()));
-            _expand_columns[index].type =
-                    make_nullable(orc_reader->convert_to_doris_type(file_column));
-            _expand_columns[index].column = _expand_columns[index].type->create_column();
-        } else if (!file_path.child_indexes.empty()) {
-            _nested_equality_delete_columns.push_back({
-                    .field_id = field_id,
-                    .block_name = block_name,
-                    .source_leaf_type = make_nullable(
-                            orc_reader->convert_to_doris_type(file_path.fields.back())),
-                    .leaf_type = _expand_columns[index].type,
-                    .child_indexes = file_path.child_indexes,
-                    .missing_value = nullptr,
-                    .cast_context = nullptr,
-            });
-            RETURN_IF_ERROR(_prepare_nested_equality_delete_column(
-                    &_nested_equality_delete_columns.back()));
-            _expand_columns[index].type =
-                    make_nullable(orc_reader->convert_to_doris_type(file_column));
-            _expand_columns[index].column = _expand_columns[index].type->create_column();
+
+        std::string source_block_name;
+        std::vector<size_t> source_child_indexes;
+        DataTypePtr source_leaf_type;
+        ColumnPtr missing_value;
+        bool reads_physical_root = false;
+        const auto current_path = _find_schema_field_path(field_id);
+        if (!current_path.empty() && current_path.front()->__isset.id &&
+            _id_to_block_column_name.contains(current_path.front()->id)) {
+            source_block_name = _id_to_block_column_name.at(current_path.front()->id);
+            RETURN_IF_ERROR(_get_current_schema_equality_delete_path(
+                    field_id, &source_child_indexes, &source_leaf_type));
+        } else {
+            DORIS_CHECK(!file_path.names.empty());
+            const std::string root_name = to_lower(file_path.names.front());
+            const auto root_source = physical_root_sources.find(root_name);
+            if (root_source == physical_root_sources.end()) {
+                source_block_name = block_name;
+                physical_root_sources.emplace(root_name, source_block_name);
+                reads_physical_root = true;
+                _expand_columns[index].type =
+                        make_nullable(orc_reader->convert_to_doris_type(file_column));
+                _expand_columns[index].column = _expand_columns[index].type->create_column();
+                table_info_node_ptr->add_children(
+                        block_name, file_path.names.front(),
+                        TableSchemaChangeHelper::ConstNode::get_instance());
+            } else {
+                source_block_name = root_source->second;
+            }
+            source_child_indexes = file_path.child_indexes;
+            if (complete_file_path) {
+                source_leaf_type =
+                        make_nullable(orc_reader->convert_to_doris_type(file_path.fields.back()));
+            } else {
+                source_leaf_type = target_leaf_type;
+                RETURN_IF_ERROR(_create_missing_equality_delete_value(
+                        field_id, target_leaf_type, file_path.fields.size(), &missing_value));
+            }
         }
+        if (!reads_physical_root) {
+            _physical_missing_equality_delete_columns.insert(block_name);
+        }
+        _nested_equality_delete_columns.push_back({
+                .field_id = field_id,
+                .block_name = block_name,
+                .source_block_name = source_block_name,
+                .source_leaf_type = source_leaf_type,
+                .leaf_type = target_leaf_type,
+                .child_indexes = std::move(source_child_indexes),
+                .missing_value = std::move(missing_value),
+                .cast_context = nullptr,
+        });
+        RETURN_IF_ERROR(
+                _prepare_nested_equality_delete_column(&_nested_equality_delete_columns.back()));
         for (uint64_t column_id = file_column->getColumnId();
              column_id <= file_column->getMaximumColumnId(); ++column_id) {
             column_ids.insert(column_id);
         }
         _all_required_col_names.push_back(block_name);
-        DORIS_CHECK(!file_path.names.empty());
-        table_info_node_ptr->add_children(block_name, file_path.names.front(),
-                                          TableSchemaChangeHelper::ConstNode::get_instance());
     }
     _expand_col_names = std::move(new_expand_col_names);
 
@@ -1763,6 +2078,7 @@ Status IcebergParquetReader::_process_equality_delete(
         std::vector<std::string> delete_col_names;
         std::vector<DataTypePtr> delete_col_types;
         std::vector<int> delete_col_ids;
+        std::unordered_map<int, std::string> filter_column_names;
         std::vector<std::string> read_root_names;
         std::vector<DataTypePtr> read_root_types;
         std::unordered_map<std::string, uint32_t> read_root_positions;
@@ -1788,6 +2104,7 @@ Status IcebergParquetReader::_process_equality_delete(
                     {
                             .field_id = field_id,
                             .block_name = leaf_name,
+                            .source_block_name = {},
                             .source_leaf_type = leaf_type,
                             .leaf_type = leaf_type,
                             .child_indexes = path.child_indexes,
@@ -1801,14 +2118,8 @@ Status IcebergParquetReader::_process_equality_delete(
             delete_col_names.push_back(leaf_name);
             delete_col_types.push_back(leaf_type);
             _equality_delete_col_ids.insert(field_id);
-            if (!_id_to_block_column_name.contains(field_id) &&
-                std::find(_expand_col_field_ids.begin(), _expand_col_field_ids.end(), field_id) ==
-                        _expand_col_field_ids.end()) {
-                _id_to_block_column_name.emplace(field_id, leaf_name);
-                _expand_col_names.push_back(leaf_name);
-                _expand_col_field_ids.push_back(field_id);
-                _expand_columns.emplace_back(leaf_type->create_column(), leaf_type, leaf_name);
-            }
+            filter_column_names.emplace(field_id, _get_or_register_equality_delete_carrier(
+                                                          field_id, leaf_name, leaf_type));
             if (!read_root_positions.contains(root_name)) {
                 read_root_positions.emplace(root_name, read_root_names.size());
                 read_root_names.push_back(root_name);
@@ -1824,13 +2135,20 @@ Status IcebergParquetReader::_process_equality_delete(
                                                    nullptr, eq_file_node, false));
         RETURN_IF_ERROR(delete_reader->set_fill_columns(partition_columns, missing_columns));
 
-        if (!_equality_delete_block_map.contains(delete_col_ids)) {
-            _equality_delete_block_map.emplace(delete_col_ids, _equality_delete_blocks.size());
+        EqualityDeleteSchemaKey schema_key;
+        schema_key.reserve(delete_col_ids.size());
+        for (size_t index = 0; index < delete_col_ids.size(); ++index) {
+            schema_key.emplace_back(delete_col_ids[index], delete_col_types[index]->get_name());
+        }
+        if (!_equality_delete_block_map.contains(schema_key)) {
+            _equality_delete_block_map.emplace(schema_key, _equality_delete_blocks.size());
             Block block;
             _generate_equality_delete_block(&block, delete_col_names, delete_col_types);
             _equality_delete_blocks.emplace_back(std::move(block));
+            _equality_delete_filter_field_ids.push_back(delete_col_ids);
+            _equality_delete_filter_column_names.push_back(std::move(filter_column_names));
         }
-        Block& equality_block = _equality_delete_blocks[_equality_delete_block_map[delete_col_ids]];
+        Block& equality_block = _equality_delete_blocks[_equality_delete_block_map[schema_key]];
         bool eof = false;
         while (!eof) {
             Block raw_block;
@@ -1860,10 +2178,11 @@ Status IcebergParquetReader::_process_equality_delete(
         }
     }
 
-    for (const auto& [delete_col_ids, block_idx] : _equality_delete_block_map) {
+    DORIS_CHECK(_equality_delete_blocks.size() == _equality_delete_filter_field_ids.size());
+    for (size_t block_idx = 0; block_idx < _equality_delete_blocks.size(); ++block_idx) {
         auto& equality_block = _equality_delete_blocks[block_idx];
-        auto equality_delete_impl =
-                EqualityDeleteBase::get_delete_impl(&equality_block, delete_col_ids);
+        auto equality_delete_impl = EqualityDeleteBase::get_delete_impl(
+                &equality_block, _equality_delete_filter_field_ids[block_idx]);
         RETURN_IF_ERROR(equality_delete_impl->init(_profile));
         _equality_delete_impls.emplace_back(std::move(equality_delete_impl));
     }
@@ -1905,6 +2224,7 @@ Status IcebergOrcReader::_process_equality_delete(
         std::vector<std::string> delete_col_names;
         std::vector<DataTypePtr> delete_col_types;
         std::vector<int> delete_col_ids;
+        std::unordered_map<int, std::string> filter_column_names;
         std::vector<std::string> read_root_names;
         std::vector<DataTypePtr> read_root_types;
         std::unordered_map<std::string, uint32_t> read_root_positions;
@@ -1933,6 +2253,7 @@ Status IcebergOrcReader::_process_equality_delete(
                     {
                             .field_id = field_id,
                             .block_name = leaf_name,
+                            .source_block_name = {},
                             .source_leaf_type = leaf_type,
                             .leaf_type = leaf_type,
                             .child_indexes = path.child_indexes,
@@ -1946,14 +2267,8 @@ Status IcebergOrcReader::_process_equality_delete(
             delete_col_names.push_back(leaf_name);
             delete_col_types.push_back(leaf_type);
             _equality_delete_col_ids.insert(field_id);
-            if (!_id_to_block_column_name.contains(field_id) &&
-                std::find(_expand_col_field_ids.begin(), _expand_col_field_ids.end(), field_id) ==
-                        _expand_col_field_ids.end()) {
-                _id_to_block_column_name.emplace(field_id, leaf_name);
-                _expand_col_names.push_back(leaf_name);
-                _expand_col_field_ids.push_back(field_id);
-                _expand_columns.emplace_back(leaf_type->create_column(), leaf_type, leaf_name);
-            }
+            filter_column_names.emplace(field_id, _get_or_register_equality_delete_carrier(
+                                                          field_id, leaf_name, leaf_type));
             if (!read_root_positions.contains(root_name)) {
                 read_root_positions.emplace(root_name, read_root_names.size());
                 read_root_names.push_back(root_name);
@@ -1968,13 +2283,20 @@ Status IcebergOrcReader::_process_equality_delete(
                                                    eq_file_node));
         RETURN_IF_ERROR(delete_reader->set_fill_columns(partition_columns, missing_columns));
 
-        if (!_equality_delete_block_map.contains(delete_col_ids)) {
-            _equality_delete_block_map.emplace(delete_col_ids, _equality_delete_blocks.size());
+        EqualityDeleteSchemaKey schema_key;
+        schema_key.reserve(delete_col_ids.size());
+        for (size_t index = 0; index < delete_col_ids.size(); ++index) {
+            schema_key.emplace_back(delete_col_ids[index], delete_col_types[index]->get_name());
+        }
+        if (!_equality_delete_block_map.contains(schema_key)) {
+            _equality_delete_block_map.emplace(schema_key, _equality_delete_blocks.size());
             Block block;
             _generate_equality_delete_block(&block, delete_col_names, delete_col_types);
             _equality_delete_blocks.emplace_back(std::move(block));
+            _equality_delete_filter_field_ids.push_back(delete_col_ids);
+            _equality_delete_filter_column_names.push_back(std::move(filter_column_names));
         }
-        Block& equality_block = _equality_delete_blocks[_equality_delete_block_map[delete_col_ids]];
+        Block& equality_block = _equality_delete_blocks[_equality_delete_block_map[schema_key]];
         bool eof = false;
         while (!eof) {
             Block raw_block;
@@ -2004,10 +2326,11 @@ Status IcebergOrcReader::_process_equality_delete(
         }
     }
 
-    for (const auto& [delete_col_ids, block_idx] : _equality_delete_block_map) {
+    DORIS_CHECK(_equality_delete_blocks.size() == _equality_delete_filter_field_ids.size());
+    for (size_t block_idx = 0; block_idx < _equality_delete_blocks.size(); ++block_idx) {
         auto& equality_block = _equality_delete_blocks[block_idx];
-        auto equality_delete_impl =
-                EqualityDeleteBase::get_delete_impl(&equality_block, delete_col_ids);
+        auto equality_delete_impl = EqualityDeleteBase::get_delete_impl(
+                &equality_block, _equality_delete_filter_field_ids[block_idx]);
         RETURN_IF_ERROR(equality_delete_impl->init(_profile));
         _equality_delete_impls.emplace_back(std::move(equality_delete_impl));
     }

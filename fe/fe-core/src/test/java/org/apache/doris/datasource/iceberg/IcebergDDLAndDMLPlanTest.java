@@ -1350,6 +1350,27 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testIcebergExplainKeepsPinnedContextForPredicateDefaults() throws Exception {
+        useIceberg();
+        useMockedIcebergSchema(icebergWriteDefaultSchema(37, true), 3);
+        try {
+            String updateSql = "explain update " + tableName
+                    + " set age = 8 where name = DEFAULT(" + tableName + ".name)";
+            Assertions.assertNotNull(getSqlStmtExecutor(updateSql).planner());
+
+            String mergeSql = "explain merge into " + tableName + " t "
+                    + "using (select 1 as id) s "
+                    + "on t.id = s.id and t.name = DEFAULT(t.name) "
+                    + "when matched then update set age = 8";
+            Assertions.assertNotNull(getSqlStmtExecutor(mergeSql).planner());
+            Assertions.assertFalse(connectContext.getStatementContext()
+                    .getIcebergWriteSchemaContext().isPresent());
+        } finally {
+            useMockedIcebergSchema(baseIcebergSchema, 2);
+        }
+    }
+
+    @Test
     public void testIcebergUpdateExplainHasMergePartitioningWhenEnabled() throws Exception {
         useIceberg();
         boolean previous = connectContext.getSessionVariable().enableIcebergMergePartitioning;
