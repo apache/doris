@@ -3890,7 +3890,12 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {
             "Whether to enable QPS rate limit for RPC requests to meta service."})
-    public static boolean meta_service_rpc_rate_limit_enabled = false;
+    public static boolean meta_service_rpc_rate_limit_enabled = true;
+
+    @ConfField(mutable = true, description = {
+            "Whether to only evaluate and report meta service RPC rate limits without waiting or rejecting requests. "
+                    + "This takes effect only when meta service RPC rate limiting is enabled."})
+    public static boolean meta_service_rpc_rate_limit_dry_run = true;
 
     @ConfField(mutable = true, description = {
             "Default QPS limit for each method (requests per second) in each cpu core, "
