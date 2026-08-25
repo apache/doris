@@ -19,7 +19,7 @@ suite("doc_date_error") {
     // CURRENT_TIMESTAMP scale out of range
     test {
         sql """select CURRENT_TIMESTAMP(-1);"""
-        exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: -1"
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: -1"
     }
     test {
         sql """select CURRENT_TIMESTAMP(10);"""

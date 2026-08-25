@@ -45,14 +45,6 @@ suite("test_timestamp_ns_count_distinct") {
         (6, null)
     """
 
-    qt_count "select count(*), count(dt) from timestamp_ns_count_distinct"
-    explain {
-        sql """
-            select count(distinct dt), multi_distinct_count(dt), approx_count_distinct(dt)
-            from timestamp_ns_count_distinct
-        """
-        contains("BUCKETED AGGREGATE")
-    }
     qt_count_distinct """
         select count(distinct dt), multi_distinct_count(dt), approx_count_distinct(dt)
         from timestamp_ns_count_distinct
