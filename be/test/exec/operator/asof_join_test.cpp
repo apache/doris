@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "core/column/column_vector.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exec/common/join_utils.h"
 
@@ -290,6 +291,23 @@ TEST_F(AsofIndexGroupMatchTest, UInt64FindBestMatch) {
     EXPECT_EQ((group64.template find_best_match<false, true>(40000000004ULL)), 0U);
 }
 
+TEST_F(AsofIndexGroupMatchTest, MixedDateTimeKeyPreservesNanoseconds) {
+    DateV2Value<DateTimeV2ValueType> datetime;
+    ASSERT_TRUE(datetime.from_olap_datetime(20240229123456));
+    datetime.set_microsecond(123456);
+    TimeStampNsValue timestamp_ns;
+    ASSERT_TRUE(timestamp_ns.from_datetime(datetime, 789));
+
+    AsofMixedDateTimeKey datetime_key = asof_mixed_datetime_key(datetime);
+    AsofMixedDateTimeKey timestamp_ns_key = asof_mixed_datetime_key(timestamp_ns);
+    EXPECT_EQ(timestamp_ns_key - datetime_key, 789);
+
+    auto group = make_group<AsofMixedDateTimeKey>({{datetime_key, 1}, {timestamp_ns_key, 2}});
+    EXPECT_EQ((group.template find_best_match<true, false>(timestamp_ns_key)), 2U);
+    EXPECT_EQ((group.template find_best_match<true, true>(timestamp_ns_key)), 1U);
+    EXPECT_EQ((group.template find_best_match<false, false>(datetime_key + 1)), 2U);
+}
+
 class AsofColumnDispatchTest : public ::testing::Test {};
 
 TEST_F(AsofColumnDispatchTest, DateV2Dispatch) {
@@ -329,6 +347,18 @@ TEST_F(AsofColumnDispatchTest, TimestampTZDispatch) {
         }
     });
     EXPECT_TRUE(dispatched_to_tstz);
+}
+
+TEST_F(AsofColumnDispatchTest, TimestampNsDispatch) {
+    auto col = ColumnTimeStampNs::create();
+    col->insert_value(TimeStampNsValue(1));
+    bool dispatched_to_timestamp_ns = false;
+    asof_column_dispatch(col.get(), [&](const auto* typed_col) {
+        if constexpr (std::is_same_v<std::decay_t<decltype(*typed_col)>, ColumnTimeStampNs>) {
+            dispatched_to_timestamp_ns = true;
+        }
+    });
+    EXPECT_TRUE(dispatched_to_timestamp_ns);
 }
 
 TEST_F(AsofColumnDispatchTest, FallbackDispatch) {
@@ -399,6 +429,15 @@ TEST_F(AsofIndexVariantTest, EmplaceInt64Groups) {
     groups[0].sort_and_finalize();
     EXPECT_TRUE(std::holds_alternative<std::vector<AsofIndexGroup<int64_t>>>(variant));
     EXPECT_EQ(std::get<std::vector<AsofIndexGroup<int64_t>>>(variant)[0].asof_values[0], -1);
+}
+
+TEST_F(AsofIndexVariantTest, EmplaceMixedDateTimeGroups) {
+    AsofIndexVariant variant;
+    auto& groups = variant.emplace<std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>>();
+    groups.emplace_back();
+    groups[0].add_row(static_cast<AsofMixedDateTimeKey>(1) << 64, 1);
+    groups[0].sort_and_finalize();
+    EXPECT_TRUE(std::holds_alternative<std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>>(variant));
 }
 
 } // namespace doris

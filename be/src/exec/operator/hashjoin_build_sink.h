@@ -196,6 +196,7 @@ private:
     // Prepared against build child's row_desc directly (no intermediate tuple needed)
     VExprContextSPtr _asof_build_side_expr;
     TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
+    bool _asof_mixed_timestamp_ns_datetimev2 = false;
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;

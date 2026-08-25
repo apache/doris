@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -69,5 +71,17 @@ public class UserVariableAnalysisTest {
         Assertions.assertInstanceOf(TimestampTzLiteral.class, literal);
         Assertions.assertEquals(TimeStampTzType.of(6), literal.getDataType());
         Assertions.assertEquals("2024-11-03 05:05:00.123456+00:00", literal.getStringValue());
+    }
+
+    @Test
+    public void testUserVarTimeStampNsTypeAndPrecision() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.setUserVar("ts", new TimeStampNsLiteral(
+                2024, 2, 29, 12, 34, 56, 123456789));
+
+        org.apache.doris.nereids.trees.expressions.literal.Literal literal
+                = ctx.getLiteralForUserVar("ts");
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, literal.getDataType());
+        Assertions.assertEquals("2024-02-29 12:34:56.123456789", literal.getStringValue());
     }
 }

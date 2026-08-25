@@ -38,6 +38,19 @@ struct AsofColumnIntType<ColumnTimeStampNs> {
     using type = int64_t;
 };
 
+// DATETIMEV2 stores a packed civil value whose lowest field is microseconds. For a mixed
+// TIMESTAMP_NS/DATETIMEV2 ASOF comparison, append the final three nanosecond digits to that same
+// packed representation. The 128-bit intermediate also covers DATETIMEV2's full calendar range.
+template <typename DateValue>
+AsofMixedDateTimeKey asof_mixed_datetime_key(const DateValue& value) {
+    if constexpr (requires { value.nanosecond_remainder(); }) {
+        return static_cast<AsofMixedDateTimeKey>(value.to_datetime().to_date_int_val()) * 1000 +
+               value.nanosecond_remainder();
+    } else {
+        return static_cast<AsofMixedDateTimeKey>(value.to_date_int_val()) * 1000;
+    }
+}
+
 // Devirtualize compare_at for ASOF JOIN supported column types.
 // ASOF JOIN only supports DateV2, DateTimeV2, TimestampNs, and TimestampTZ.
 // Dispatches to the concrete ColumnVector<T> once so that all compare_at

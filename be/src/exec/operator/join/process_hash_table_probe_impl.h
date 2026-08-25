@@ -310,7 +310,8 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     bool is_strict = shared_state->asof_inequality_is_strict;
 
     // Two-phase probe with compile-time dispatched binary search
-    auto probe_with_index = [&](const auto& asof_groups, const auto* typed_probe_col) -> uint32_t {
+    auto probe_with_index = [&](const auto& asof_groups, const auto* typed_probe_col,
+                                auto key_getter) -> uint32_t {
         using IntType =
                 typename std::remove_reference_t<decltype(asof_groups)>::value_type::int_type;
         const auto& probe_data = typed_probe_col->get_data();
@@ -389,7 +390,7 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                 uint32_t group_id = bucket_row_to_group[match];
                 DCHECK(group_id < asof_groups.size());
                 resolved_group_ids[i] = group_id + 1;
-                probe_values[i] = static_cast<IntType>(probe_data[pi].to_date_int_val());
+                probe_values[i] = key_getter(probe_data[pi]);
             }
         }
 
@@ -472,20 +473,44 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                       },
                       [&](std::vector<AsofIndexGroup<uint32_t>>& groups) -> uint32_t {
                           // DateV2
-                          return probe_with_index(groups,
-                                                  assert_cast<const ColumnDateV2*>(probe_col));
+                          return probe_with_index(
+                                  groups, assert_cast<const ColumnDateV2*>(probe_col),
+                                  [](const auto& value) { return value.to_date_int_val(); });
                       },
                       [&](std::vector<AsofIndexGroup<uint64_t>>& groups) -> uint32_t {
                           // DateTimeV2 or TimestampTZ
                           if (const auto* c = check_and_get_column<ColumnDateTimeV2>(probe_col)) {
-                              return probe_with_index(groups, c);
+                              return probe_with_index(groups, c, [](const auto& value) {
+                                  return value.to_date_int_val();
+                              });
                           }
-                          return probe_with_index(groups,
-                                                  assert_cast<const ColumnTimeStampTz*>(probe_col));
+                          return probe_with_index(
+                                  groups, assert_cast<const ColumnTimeStampTz*>(probe_col),
+                                  [](const auto& value) { return value.to_date_int_val(); });
                       },
                       [&](std::vector<AsofIndexGroup<int64_t>>& groups) -> uint32_t {
-                          return probe_with_index(groups,
-                                                  assert_cast<const ColumnTimeStampNs*>(probe_col));
+                          return probe_with_index(
+                                  groups, assert_cast<const ColumnTimeStampNs*>(probe_col),
+                                  [](const auto& value) { return value.to_date_int_val(); });
+                      },
+                      [&](std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>& groups) -> uint32_t {
+                          return asof_column_dispatch(
+                                  probe_col, [&](const auto* typed_col) -> uint32_t {
+                                      using ColType = std::remove_const_t<
+                                              std::remove_pointer_t<decltype(typed_col)>>;
+                                      if constexpr (std::is_same_v<ColType, ColumnDateTimeV2> ||
+                                                    std::is_same_v<ColType, ColumnTimeStampNs>) {
+                                          return probe_with_index(
+                                                  groups, typed_col, [](const auto& value) {
+                                                      return asof_mixed_datetime_key(value);
+                                                  });
+                                      } else {
+                                          throw Exception(ErrorCode::INTERNAL_ERROR,
+                                                          "Mixed TIMESTAMP_NS/DATETIMEV2 ASOF "
+                                                          "index received {}",
+                                                          probe_col->get_name());
+                                      }
+                                  });
                       }},
             shared_state->asof_index_groups);
 
