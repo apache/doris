@@ -387,10 +387,13 @@ public class SplitAssignmentTest {
         CountDownLatch stopReturned = new CountDownLatch(1);
         Assertions.assertTrue(splitAssignment.submitProducer(command -> new Thread(command).start(), () -> {
             producerStarted.countDown();
-            try {
-                allowProducerExit.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            while (allowProducerExit.getCount() > 0) {
+                try {
+                    allowProducerExit.await();
+                } catch (InterruptedException e) {
+                    // This fixture deliberately ignores cancellation so the test can prove stop waits for
+                    // actual runnable exit rather than treating interrupt delivery as completion.
+                }
             }
         }));
         Assertions.assertTrue(producerStarted.await(5, TimeUnit.SECONDS));
@@ -417,6 +420,83 @@ public class SplitAssignmentTest {
 
         Assertions.assertFalse(ran.get());
         Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
+    void stopInterruptsProducerBeforeWaitingForIt() throws Exception {
+        CountDownLatch producerStarted = new CountDownLatch(1);
+        CountDownLatch stopReturned = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean(false);
+        Assertions.assertTrue(splitAssignment.submitProducer(command -> new Thread(command).start(), () -> {
+            producerStarted.countDown();
+            try {
+                new CountDownLatch(1).await();
+            } catch (InterruptedException e) {
+                interrupted.set(true);
+                Thread.currentThread().interrupt();
+            }
+        }));
+        Assertions.assertTrue(producerStarted.await(5, TimeUnit.SECONDS));
+
+        Thread stopThread = new Thread(() -> {
+            splitAssignment.stop();
+            stopReturned.countDown();
+        });
+        stopThread.start();
+
+        Assertions.assertTrue(stopReturned.await(5, TimeUnit.SECONDS));
+        Assertions.assertTrue(interrupted.get());
+        stopThread.join(1000);
+    }
+
+    @Test
+    void stopRunsCancellationBeforeWaitingForProducer() throws Exception {
+        CountDownLatch producerStarted = new CountDownLatch(1);
+        CountDownLatch cancelled = new CountDownLatch(1);
+        Assertions.assertTrue(splitAssignment.submitProducer(command -> new Thread(command).start(), () -> {
+            producerStarted.countDown();
+            try {
+                cancelled.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        Assertions.assertTrue(producerStarted.await(5, TimeUnit.SECONDS));
+        splitAssignment.addCancellationCallback(cancelled::countDown);
+
+        Assertions.assertDoesNotThrow(splitAssignment::stop);
+    }
+
+    @Test
+    void blockedExecutorSubmissionDoesNotHoldProducerLock() throws Exception {
+        CountDownLatch executeEntered = new CountDownLatch(1);
+        CountDownLatch rejectSubmission = new CountDownLatch(1);
+        Thread submitter = new Thread(() -> Assertions.assertThrows(RejectedExecutionException.class,
+                () -> splitAssignment.submitProducer(command -> {
+                    executeEntered.countDown();
+                    try {
+                        rejectSubmission.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    throw new RejectedExecutionException("rejected");
+                }, () -> { })));
+        submitter.start();
+        Assertions.assertTrue(executeEntered.await(5, TimeUnit.SECONDS));
+
+        Thread stopThread = new Thread(splitAssignment::stop);
+        stopThread.start();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!splitAssignment.isStop() && System.nanoTime() < deadline) {
+            Thread.yield();
+        }
+        Assertions.assertTrue(splitAssignment.isStop(), "stop must acquire producerLock while execute is blocked");
+
+        rejectSubmission.countDown();
+        submitter.join(5000);
+        stopThread.join(5000);
+        Assertions.assertFalse(submitter.isAlive());
+        Assertions.assertFalse(stopThread.isAlive());
     }
 
     @Test

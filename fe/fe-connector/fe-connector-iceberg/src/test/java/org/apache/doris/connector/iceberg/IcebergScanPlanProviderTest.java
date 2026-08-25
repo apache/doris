@@ -476,7 +476,8 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(
                 dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = providerOver(table);
-        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"))
                 .withScope(new TestStatementScope());
         ConnectorScanRequest request = ConnectorScanRequest.builder(
                 new IcebergTableHandle("db1", "t1"), Collections.emptyList()).build();
@@ -494,7 +495,8 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(
                 dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = providerOver(table);
-        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"))
                 .withScope(new TestStatementScope());
         IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
         ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
@@ -2377,6 +2379,21 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         ConnectorSplitSource source = provider.streamSplits(emptySession(),
                 new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+        Assertions.assertDoesNotThrow(source::close);
+    }
+
+    @Test
+    public void streamSplitsCancelBeforeIterationStopsAndStillCloses() throws IOException {
+        Table table = createTable("cancel_before_iteration", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/cancel_before_iteration/f1.parquet", 1024, null, null)).commit();
+        ConnectorSplitSource source = providerOver(table).streamSplits(emptySession(),
+                new IcebergTableHandle("db1", "cancel_before_iteration"),
+                Collections.emptyList(), Optional.empty(), -1L);
+
+        source.cancel();
+
+        Assertions.assertFalse(source.hasNext());
         Assertions.assertDoesNotThrow(source::close);
     }
 

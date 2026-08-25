@@ -204,6 +204,28 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals(1, lister.totalCalls, "the underlying Hive file listing must run once");
     }
 
+    @Test
+    public void missingReusePropertyDoesNotReuse() {
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        ConnectorSession session = new ScopeSession(
+                7L, "mixed-version", new TestStatementScope(), Collections.emptyMap());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, request);
+        List<ConnectorScanRange> second = provider.planScan(session, request);
+
+        Assertions.assertNotSame(first, second,
+                "an older planning FE's missing property must not enable reuse in a newer connector");
+    }
+
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
 
     @Test

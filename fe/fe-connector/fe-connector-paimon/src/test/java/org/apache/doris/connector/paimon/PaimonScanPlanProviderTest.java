@@ -297,7 +297,9 @@ public class PaimonScanPlanProviderTest {
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
-            ConnectorSession session = sessionWithProps(Collections.emptyMap(), new TestStatementScope());
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
             ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
                     .filter(Optional.of(equalIdFilter(1)))
                     .build();

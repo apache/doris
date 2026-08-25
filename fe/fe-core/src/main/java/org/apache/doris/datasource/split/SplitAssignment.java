@@ -62,9 +62,11 @@ public class SplitAssignment {
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
     private final Object producerLock = new Object();
     private int activeProducers = 0;
+    private final Set<Thread> producerThreads = new HashSet<>();
 
     private UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
+    private final List<Runnable> cancellationCallbacks = new ArrayList<>();
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -196,11 +198,24 @@ public class SplitAssignment {
 
     public void stop() {
         List<Closeable> resources;
+        List<Thread> threads;
+        List<Runnable> cancellations;
         synchronized (producerLock) {
             isStopped.set(true);
             resources = new ArrayList<>(closeableResources);
             closeableResources.clear();
+            threads = new ArrayList<>(producerThreads);
+            cancellations = new ArrayList<>(cancellationCallbacks);
+            cancellationCallbacks.clear();
         }
+        cancellations.forEach((cancel) -> {
+            try {
+                cancel.run();
+            } catch (Exception e) {
+                LOG.warn("cancel resource error:{}", e.getMessage(), e);
+            }
+        });
+        threads.forEach(Thread::interrupt);
         resources.forEach((closeable) -> {
             try {
                 closeable.close();
@@ -239,25 +254,36 @@ public class SplitAssignment {
                 return false;
             }
             activeProducers++;
-            try {
-                executor.execute(() -> {
-                    try {
-                        if (!isStopped.get()) {
-                            producer.run();
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    synchronized (producerLock) {
+                        if (isStopped.get()) {
+                            return;
                         }
-                    } finally {
-                        synchronized (producerLock) {
-                            activeProducers--;
-                            producerLock.notifyAll();
-                        }
+                        // The producer owns its resources, so cancellation interrupts the worker instead of
+                        // closing a non-thread-safe split source from the query-finalization thread.
+                        producerThreads.add(Thread.currentThread());
                     }
-                });
-                return true;
-            } catch (RuntimeException e) {
+                    if (!isStopped.get()) {
+                        producer.run();
+                    }
+                } finally {
+                    synchronized (producerLock) {
+                        producerThreads.remove(Thread.currentThread());
+                        activeProducers--;
+                        producerLock.notifyAll();
+                    }
+                }
+            });
+            return true;
+        } catch (RuntimeException e) {
+            synchronized (producerLock) {
                 activeProducers--;
                 producerLock.notifyAll();
-                throw e;
             }
+            throw e;
         }
     }
 
@@ -277,4 +303,18 @@ public class SplitAssignment {
             }
         }
     }
+
+    public void addCancellationCallback(Runnable cancel) {
+        boolean cancelImmediately;
+        synchronized (producerLock) {
+            cancelImmediately = isStopped.get();
+            if (!cancelImmediately) {
+                cancellationCallbacks.add(cancel);
+            }
+        }
+        if (cancelImmediately) {
+            cancel.run();
+        }
+    }
+
 }
