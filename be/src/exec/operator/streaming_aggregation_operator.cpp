@@ -26,11 +26,16 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/column/column_fixed_length_object.h"
 #include "exec/operator/operator.h"
+#include "exec/operator/streaming_agg_memory_limit.h"
 #include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/aggregate/aggregate_function_count.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
+#include "runtime/query_context.h"
+#include "runtime/workload_management/io_context.h"
+#include "runtime/workload_management/memory_context.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 class RuntimeState;
@@ -66,6 +71,7 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _hash_table_input_counter =
             ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
     _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+    _memory_use_limit = ADD_COUNTER(custom_profile(), "MemoryUseLimit", TUnit::BYTES);
     _streaming_agg_timer = ADD_TIMER(custom_profile(), "StreamingAggTime");
     _build_timer = ADD_TIMER(custom_profile(), "BuildTime");
     _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
@@ -133,6 +139,8 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     do_sort_limit = p._do_sort_limit;
     null_directions = p._null_directions;
     order_directions = p._order_directions;
+
+    COUNTER_SET(_memory_use_limit, static_cast<int64_t>(p._memory_limit(state)));
 
     return Status::OK();
 }
@@ -289,9 +297,9 @@ bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
     // But for fixed hash map, it never need to expand
     auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
     bool ret_flag = false;
-    const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
-    const bool used_too_much_memory =
-            spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
+    const auto memory_limit = p._memory_limit(state());
+    COUNTER_SET(_memory_use_limit, static_cast<int64_t>(memory_limit));
+    const bool used_too_much_memory = memory_limit > 0 && _memory_usage() > memory_limit;
     std::visit(
             Overload {
                     [&](std::monostate& arg) {
@@ -342,12 +350,19 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
     _places.resize(rows);
 
     if (_should_not_do_pre_agg(rows)) {
+        // Serializing a row as a single-row state may allocate from the arena (collect, map,
+        // foreach, ...). Those bytes are dead once the state is serialized, so they must not
+        // accumulate in the operator-lifetime `_agg_arena_pool` for every pass-through block.
+        Arena pass_through_arena;
         if (limit > 0) {
             DCHECK(do_sort_limit);
             if (need_do_sort_limit == -1) {
+                // Only latch once the hash table can seed the heap. A smaller table keeps the
+                // state undecided so that aggregation resumed after a transient pass-through
+                // (e.g. a restored query memory limit) can still build the heap below.
                 const size_t hash_table_size = _get_hash_table_size();
-                need_do_sort_limit = hash_table_size >= limit ? 1 : 0;
-                if (need_do_sort_limit == 1) {
+                if (hash_table_size >= limit) {
+                    need_do_sort_limit = 1;
                     build_limit_heap(hash_table_size);
                 }
             }
@@ -374,7 +389,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
             for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
                 SCOPED_TIMER(_insert_values_to_column_timer);
                 RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
-                        in_block, columns[i + key_size], rows, _agg_arena_pool));
+                        in_block, columns[i + key_size], rows, pass_through_arena));
             }
             for (int i = 0; i < key_size; ++i) {
                 columns[i]->insert_range_from(*key_columns[i], 0, rows);
@@ -393,7 +408,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
         for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
             SCOPED_TIMER(_insert_values_to_column_timer);
             RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
-                    in_block, value_columns[i], rows, _agg_arena_pool));
+                    in_block, value_columns[i], rows, pass_through_arena));
         }
 
         ColumnsWithTypeAndName columns_with_schema;
@@ -954,15 +969,9 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         _aggregate_evaluators.push_back(evaluator);
     }
 
-    if (state->enable_spill()) {
-        // If spill enabled, the streaming agg should not occupy too much memory.
-        _spill_streaming_agg_mem_limit =
-                state->query_options().__isset.spill_streaming_agg_mem_limit
-                        ? state->query_options().spill_streaming_agg_mem_limit
-                        : 0;
-    } else {
-        _spill_streaming_agg_mem_limit = 0;
-    }
+    _spill_streaming_agg_mem_limit = state->query_options().__isset.spill_streaming_agg_mem_limit
+                                             ? state->query_options().spill_streaming_agg_mem_limit
+                                             : 0;
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
     auto is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
@@ -994,6 +1003,22 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
     _op_name = "STREAMING_AGGREGATION_OPERATOR";
     return Status::OK();
+}
+
+size_t StreamingAggOperatorX::_memory_limit(RuntimeState* state) const {
+    // When spilling is enabled, the streaming agg should not occupy too much memory: the downstream
+    // agg can spill, the pre-agg cannot.
+    const int64_t fixed_limit =
+            state->enable_spill() ? static_cast<int64_t>(_spill_streaming_agg_mem_limit) : 0;
+    const size_t limit = streaming_agg_memory_limit(
+            state->get_query_ctx()->resource_ctx()->memory_context()->mem_limit(), parallel_tasks(),
+            fixed_limit);
+    if (_low_memory_mode.load(std::memory_order_relaxed)) {
+        // Low-memory mode only ever tightens the budget.
+        constexpr size_t low_memory_mode_limit = 1024 * 1024;
+        return limit > 0 ? std::min(limit, low_memory_mode_limit) : low_memory_mode_limit;
+    }
+    return limit;
 }
 
 Status StreamingAggOperatorX::prepare(RuntimeState* state) {
@@ -1106,14 +1131,20 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, Block* block, bool* eos)
     auto& local_state = get_local_state(state);
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     if (!local_state._pre_aggregated_block->empty()) {
+        // Pass-through rows are neither aggregated nor deduplicated, so a limit pushed down to
+        // this local stage must not count them: duplicates would consume the allowance and stop
+        // the child before enough distinct keys reached the global stage, which applies the
+        // limit again on the final result. They are still processed rows for the query
+        // statistics, which reached_limit() would otherwise have accounted for.
         local_state._pre_aggregated_block->swap(*block);
+        state->get_query_ctx()->resource_ctx()->io_context()->update_process_rows(block->rows());
     } else {
         RETURN_IF_ERROR(local_state._get_results_with_serialized_key(state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
+        local_state.reached_limit(block, eos);
     }
-    local_state.reached_limit(block, eos);
 
     return Status::OK();
 }

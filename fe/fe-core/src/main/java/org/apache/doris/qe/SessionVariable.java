@@ -3262,9 +3262,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
     public long lowMemoryModeBufferLimit = 33554432;
 
-    // The memory limit of streaming agg when spilling is enabled
+    // The memory limit of streaming agg when spilling is enabled. It is applied on top of the
+    // query-limit-based budget (1/5 of the query memory limit shared among the tasks);
+    // 0 disables this explicit bound.
     // NOTE: streaming agg operator will not spill to disk.
-    @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
+    @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, needForward = true, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
