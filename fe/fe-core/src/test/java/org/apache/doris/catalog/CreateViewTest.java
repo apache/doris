@@ -147,7 +147,7 @@ public class CreateViewTest extends TestWithFeService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assertions.assertEquals(
-                "select `internal`.`test`.`tbl1`.`k1` AS `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) AS `kc2` from `internal`.`test`.`tbl1` group by kc1",
+                "select `internal`.`test`.`tbl1`.`k1` as `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) as `kc2` from `internal`.`test`.`tbl1` group by kc1",
                 alter1.getInlineViewDef());
 
         String alterStmt
