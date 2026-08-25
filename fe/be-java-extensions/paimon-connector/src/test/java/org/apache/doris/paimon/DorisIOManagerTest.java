@@ -81,7 +81,7 @@ public class DorisIOManagerTest {
     }
 
     @Test
-    public void testDirectDeletionIsConservativelyAccountedUntilSessionEnds() throws Exception {
+    public void testDirectDeletionIsReleasedBeforeNextWriter() throws Exception {
         RecordingSpillAccountant accountant = new RecordingSpillAccountant(tempDir);
         try (DorisIOManager manager = new DorisIOManager(accountant)) {
             FileIOChannel.ID deletedChannel = manager.createChannel();
@@ -96,8 +96,28 @@ public class DorisIOManagerTest {
             nextWriter.close();
 
             Assertions.assertEquals(20, accountant.reservedBytes);
-            Assertions.assertEquals(20, accountant.currentBytes);
-            Assertions.assertEquals(0, accountant.releasedBytes);
+            Assertions.assertEquals(8, accountant.currentBytes);
+            Assertions.assertEquals(12, accountant.releasedBytes);
+        }
+    }
+
+    @Test
+    public void testAllManagedSpillDirectoriesArePassedToPaimon() throws Exception {
+        Path first = tempDir.resolve("spill-a");
+        Path second = tempDir.resolve("spill-b");
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(first, second);
+
+        try (DorisIOManager manager = new DorisIOManager(accountant)) {
+            boolean usedFirst = false;
+            boolean usedSecond = false;
+            for (int i = 0; i < 4; i++) {
+                Path channel = manager.createChannel().getPathFile().toPath();
+                usedFirst |= channel.startsWith(first);
+                usedSecond |= channel.startsWith(second);
+            }
+            Assertions.assertTrue(usedFirst);
+            Assertions.assertTrue(usedSecond);
+            Assertions.assertEquals(1, accountant.directoryRequests);
         }
     }
 
@@ -152,7 +172,7 @@ public class DorisIOManagerTest {
     }
 
     private static final class RecordingSpillAccountant implements DorisIOManager.SpillAccountant {
-        private final Path spillDirectory;
+        private final Path[] spillDirectories;
         private long directoryRequests;
         private long reservedBytes;
         private long currentBytes;
@@ -160,41 +180,47 @@ public class DorisIOManagerTest {
         private long readBytes;
         private long releasedBytes;
 
-        private RecordingSpillAccountant(Path spillDirectory) {
-            this.spillDirectory = spillDirectory;
+        private RecordingSpillAccountant(Path... spillDirectories) {
+            this.spillDirectories = spillDirectories;
         }
 
         @Override
-        public String getSpillDirectory() {
+        public String[] getSpillDirectories() {
             directoryRequests++;
-            return spillDirectory.toString();
+            return java.util.Arrays.stream(spillDirectories)
+                    .map(Path::toString)
+                    .toArray(String[]::new);
         }
 
         @Override
-        public void reserve(long bytes) {
+        public void reserve(String path, long bytes) {
             reservedBytes += bytes;
             currentBytes += bytes;
         }
 
         @Override
-        public void rollback(long bytes) {
+        public void rollback(String path, long bytes) {
             currentBytes -= bytes;
         }
 
         @Override
-        public void commitWrite(long bytes) {
+        public void commitWrite(String path, long bytes) {
             writtenBytes += bytes;
         }
 
         @Override
-        public void recordRead(long bytes) {
+        public void recordRead(String path, long bytes) {
             readBytes += bytes;
         }
 
         @Override
-        public void release(long bytes) {
+        public void release(String path, long bytes) {
             releasedBytes += bytes;
             currentBytes -= bytes;
+        }
+
+        @Override
+        public void reconcile() {
         }
     }
 }

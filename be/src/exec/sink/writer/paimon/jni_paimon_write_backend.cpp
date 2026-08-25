@@ -54,58 +54,108 @@ void throw_java_io_exception(JNIEnv* env, const std::string& message) {
     env->DeleteLocalRef(exception_class);
 }
 
-jstring get_paimon_spill_directory(JNIEnv* env, jclass, jlong spill_session_handle) {
+jobjectArray get_paimon_spill_directories(JNIEnv* env, jclass, jlong spill_session_handle) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
     if (spill_session == nullptr) {
         throw_java_io_exception(env, "Paimon external spill session is null");
         return nullptr;
     }
 
-    std::string path;
-    Status st = spill_session->get_path(&path);
+    std::vector<std::string> paths;
+    Status st = spill_session->get_paths(&paths);
     if (!st.ok()) {
         throw_java_io_exception(env, st.to_string());
         return nullptr;
     }
-    return env->NewStringUTF(path.c_str());
+    jclass string_class = env->FindClass("java/lang/String");
+    if (string_class == nullptr) {
+        return nullptr;
+    }
+    jobjectArray result =
+            env->NewObjectArray(static_cast<jsize>(paths.size()), string_class, nullptr);
+    env->DeleteLocalRef(string_class);
+    if (result == nullptr) {
+        return nullptr;
+    }
+    for (jsize i = 0; i < static_cast<jsize>(paths.size()); ++i) {
+        jstring path = env->NewStringUTF(paths[i].c_str());
+        if (path == nullptr) {
+            return nullptr;
+        }
+        env->SetObjectArrayElement(result, i, path);
+        env->DeleteLocalRef(path);
+        if (env->ExceptionCheck()) {
+            return nullptr;
+        }
+    }
+    return result;
 }
 
-void reserve_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle, jlong bytes) {
+void reserve_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle, jstring path,
+                          jlong bytes) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
-    if (spill_session == nullptr) {
-        throw_java_io_exception(env, "Paimon external spill session is null");
+    if (spill_session == nullptr || path == nullptr) {
+        throw_java_io_exception(env, "Paimon external spill session or path is null");
         return;
     }
-    Status st = spill_session->reserve(bytes);
+    const char* path_chars = env->GetStringUTFChars(path, nullptr);
+    if (path_chars == nullptr) {
+        return;
+    }
+    std::string native_path(path_chars);
+    env->ReleaseStringUTFChars(path, path_chars);
+    Status st = spill_session->reserve(native_path, bytes);
     if (!st.ok()) {
         throw_java_io_exception(env, st.to_string());
     }
 }
 
-void update_paimon_spill_accounting(JNIEnv*, jclass, jlong spill_session_handle,
+void update_paimon_spill_accounting(JNIEnv* env, jclass, jlong spill_session_handle, jstring path,
                                     jlong current_bytes_delta, jlong write_bytes,
                                     jlong read_bytes) {
     auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
-    if (spill_session == nullptr) {
+    if (spill_session == nullptr || path == nullptr) {
         return;
     }
-    spill_session->update_accounting(current_bytes_delta, write_bytes, read_bytes);
+    const char* path_chars = env->GetStringUTFChars(path, nullptr);
+    if (path_chars == nullptr) {
+        return;
+    }
+    std::string native_path(path_chars);
+    env->ReleaseStringUTFChars(path, path_chars);
+    spill_session->update_accounting(native_path, current_bytes_delta, write_bytes, read_bytes);
+}
+
+void reconcile_paimon_spill(JNIEnv* env, jclass, jlong spill_session_handle) {
+    auto* spill_session = reinterpret_cast<ExternalSpillSession*>(spill_session_handle);
+    if (spill_session == nullptr) {
+        throw_java_io_exception(env, "Paimon external spill session is null");
+        return;
+    }
+    Status st = spill_session->reconcile_direct_file_usage();
+    if (!st.ok()) {
+        throw_java_io_exception(env, st.to_string());
+    }
 }
 
 Status register_paimon_spill_natives(JNIEnv* env, jclass writer_class) {
-    static char get_spill_directory_name[] = "getPaimonSpillDirectory";
-    static char get_spill_directory_signature[] = "(J)Ljava/lang/String;";
+    static char get_spill_directories_name[] = "getPaimonSpillDirectories";
+    static char get_spill_directories_signature[] = "(J)[Ljava/lang/String;";
     static char reserve_spill_name[] = "reservePaimonSpill";
-    static char reserve_spill_signature[] = "(JJ)V";
+    static char reserve_spill_signature[] = "(JLjava/lang/String;J)V";
     static char update_spill_name[] = "updatePaimonSpillAccounting";
-    static char update_spill_signature[] = "(JJJJ)V";
+    static char update_spill_signature[] = "(JLjava/lang/String;JJJ)V";
+    static char reconcile_spill_name[] = "reconcilePaimonSpill";
+    static char reconcile_spill_signature[] = "(J)V";
     static ::JNINativeMethod methods[] = {
-            {get_spill_directory_name, get_spill_directory_signature,
-             reinterpret_cast<void*>(&get_paimon_spill_directory)},
+            {get_spill_directories_name, get_spill_directories_signature,
+             reinterpret_cast<void*>(&get_paimon_spill_directories)},
             {reserve_spill_name, reserve_spill_signature,
              reinterpret_cast<void*>(&reserve_paimon_spill)},
             {update_spill_name, update_spill_signature,
              reinterpret_cast<void*>(&update_paimon_spill_accounting)},
+            {reconcile_spill_name, reconcile_spill_signature,
+             reinterpret_cast<void*>(&reconcile_paimon_spill)},
     };
     if (env->RegisterNatives(writer_class, methods,
                              static_cast<jint>(sizeof(methods) / sizeof(methods[0]))) != JNI_OK) {

@@ -1349,27 +1349,32 @@ TEST_F(SpillFileTest, ManagerAllocatesExternalSpillSessionOnManagedRoot) {
             "paimon", query_ctx.get(), &spill_session);
 
     ASSERT_TRUE(st.ok()) << st.to_string();
-    std::string path;
-    st = spill_session->get_path(&path);
+    std::vector<std::string> paths;
+    st = spill_session->get_paths(&paths);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_TRUE(path == _data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon" ||
-                path == _second_data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon");
+    ASSERT_EQ(paths.size(), 2);
+    const std::string first_path = _data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon";
+    const std::string second_path =
+            _second_data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon";
+    ASSERT_TRUE(std::ranges::find(paths, first_path) != paths.end());
+    ASSERT_TRUE(std::ranges::find(paths, second_path) != paths.end());
     bool exists = false;
-    st = io::global_local_filesystem()->exists(path, &exists);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(exists);
+    for (const auto& path : paths) {
+        st = io::global_local_filesystem()->exists(path, &exists);
+        ASSERT_TRUE(st.ok());
+        ASSERT_FALSE(exists);
+    }
 
-    ASSERT_TRUE(spill_session->reserve(1024).ok());
-    auto* selected_data_dir = path == _data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon"
-                                      ? _data_dir_ptr
-                                      : _second_data_dir_ptr;
+    const std::string& selected_path = paths.front();
+    ASSERT_TRUE(spill_session->reserve(selected_path + "/paimon-io-test/channel", 1024).ok());
+    auto* selected_data_dir = selected_path == first_path ? _data_dir_ptr : _second_data_dir_ptr;
     auto* unselected_data_dir =
             selected_data_dir == _data_dir_ptr ? _second_data_dir_ptr : _data_dir_ptr;
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
     ASSERT_EQ(unselected_data_dir->get_spill_data_bytes(), 0);
-    spill_session->update_accounting(-256, 0, 0);
+    spill_session->update_accounting(selected_path, -256, 0, 0);
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 768);
-    _create_residual_file(path + "/paimon-io-test/channel");
+    _create_residual_file(selected_path + "/paimon-io-test/channel");
 
     // Query teardown must not remove a directory while an asynchronous external writer can still
     // use its native callback. The regular spill GC handles deferred cleanup after lease release.
@@ -1409,10 +1414,69 @@ TEST_F(SpillFileTest, ExternalSpillSessionSkipsFullManagedRoot) {
             "paimon", query_ctx.get(), &spill_session);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    std::string path;
-    st = spill_session->get_path(&path);
+    std::vector<std::string> paths;
+    st = spill_session->get_paths(&paths);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(path, _second_data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon");
+    ASSERT_EQ(paths.size(), 1);
+    ASSERT_EQ(paths.front(), _second_data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon");
+}
+
+TEST_F(SpillFileTest, ExternalSpillSessionAccountsDirectFiles) {
+    TUniqueId query_id;
+    query_id.hi = 27;
+    query_id.lo = 28;
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    std::unique_ptr<ExternalSpillSession> spill_session;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
+            "paimon", query_ctx.get(), &spill_session);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    std::vector<std::string> paths;
+    ASSERT_TRUE(spill_session->get_paths(&paths).ok());
+
+    const std::string raw_file = paths.front() + "/rocksdb/index.sst";
+    _create_residual_file(raw_file);
+    std::filesystem::resize_file(raw_file, 2048);
+    ASSERT_TRUE(spill_session->reconcile_direct_file_usage().ok());
+
+    auto* selected_data_dir =
+            paths.front().starts_with(_data_dir_ptr->get_spill_data_path(print_id(query_id)))
+                    ? _data_dir_ptr
+                    : _second_data_dir_ptr;
+    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 2048);
+    spill_session.reset();
+    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 0);
+}
+
+TEST_F(SpillFileTest, ExternalSpillSessionRejectsDirectFilesOverCapacity) {
+    TUniqueId query_id;
+    query_id.hi = 29;
+    query_id.lo = 30;
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    std::unique_ptr<ExternalSpillSession> spill_session;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
+            "paimon", query_ctx.get(), &spill_session);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    std::vector<std::string> paths;
+    ASSERT_TRUE(spill_session->get_paths(&paths).ok());
+
+    auto* selected_data_dir =
+            paths.front().starts_with(_data_dir_ptr->get_spill_data_path(print_id(query_id)))
+                    ? _data_dir_ptr
+                    : _second_data_dir_ptr;
+    const int64_t prefilled_bytes = selected_data_dir->get_spill_data_limit() - 1024;
+    selected_data_dir->update_spill_data_usage(prefilled_bytes);
+    Defer release_prefilled_bytes(
+            [&]() { selected_data_dir->update_spill_data_usage(-prefilled_bytes); });
+
+    const std::string raw_file = paths.front() + "/lookup/level-0";
+    _create_residual_file(raw_file);
+    std::filesystem::resize_file(raw_file, 2048);
+    st = spill_session->reconcile_direct_file_usage();
+    ASSERT_FALSE(st.ok());
+    ASSERT_NE(st.to_string().find("spill storage limit"), std::string::npos) << st.to_string();
+    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), prefilled_bytes);
 }
 
 TEST_F(SpillFileTest, ExternalSpillSessionIsLazyWhenNoRootAvailable) {

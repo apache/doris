@@ -119,31 +119,42 @@ private:
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
 };
 
-// Owns one external writer's Doris spill directory, capacity reservation and I/O accounting.
+// Owns one external writer's Doris spill directories, capacity reservation and I/O accounting.
 class ExternalSpillSession {
 public:
     ~ExternalSpillSession();
 
-    Status get_path(std::string* path);
+    Status get_paths(std::vector<std::string>* paths);
 
-    Status reserve(int64_t bytes);
+    Status reserve(const std::string& path, int64_t bytes);
 
-    void update_accounting(int64_t current_bytes_delta, int64_t write_bytes, int64_t read_bytes);
+    void update_accounting(const std::string& path, int64_t current_bytes_delta,
+                           int64_t write_bytes, int64_t read_bytes);
+
+    // Account files written directly below an IOManager temp directory by Paimon components which
+    // do not use BufferFileWriter (for example lookup stores and RocksDB global indexes).
+    Status reconcile_direct_file_usage();
 
 private:
     friend class SpillFileManager;
 
+    struct ManagedPath {
+        SpillDataDir* data_dir;
+        std::string path;
+        int64_t buffer_accounted_bytes = 0;
+        int64_t direct_file_accounted_bytes = 0;
+    };
+
     ExternalSpillSession(SpillFileManager* manager, QueryContext* query_context,
                          std::string relative_path);
+    ManagedPath* _find_managed_path(const std::string& path);
 
     SpillFileManager* _manager;
     std::weak_ptr<QueryContext> _query_context;
     std::shared_ptr<ResourceContext> _resource_context;
     std::string _query_id;
     std::string _relative_path;
-    SpillDataDir* _data_dir = nullptr;
-    std::string _path;
-    int64_t _accounted_bytes = 0;
+    std::vector<ManagedPath> _managed_paths;
     std::mutex _mutex;
 };
 

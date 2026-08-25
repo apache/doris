@@ -97,7 +97,7 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
     try {
         // Warm all writer and metrics paths before taking the baseline. This keeps
         // one-time JVM attachment and SDK class initialization out of the leak oracle.
-        for (int round = 0; round < 2; round++) {
+        for (int round = 0; round < 12; round++) {
             sql """
                 INSERT INTO t_thread_lifecycle
                 SELECT number + ${round * 1000}, repeat('w', 32)
@@ -123,7 +123,7 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
         def jvmPhases = []
         def processPhases = []
         for (int phase = 0; phase < 4; phase++) {
-            writePhase(2 + phase * 12)
+            writePhase(12 + phase * 12)
             sleep(5000)
             jvmPhases.add(minimumThreadCounts(jvmThreadCounts))
             processPhases.add(minimumThreadCounts(processThreadCounts))
@@ -131,25 +131,23 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
                     + "process=${processPhases[-1]}")
         }
 
-        assertEquals(50000L,
+        assertEquals(60000L,
                 (sql """SELECT COUNT(*) FROM t_thread_lifecycle""")[0][0] as long)
 
         backendEndpoints.keySet().each { backendId ->
-            // The first full phase may expand a shared worker pool. Treat its settled count as
-            // the steady-state baseline and verify that subsequent equal workloads do not keep
-            // growing the JVM or process thread count.
-            def steadyJvmBaseline = jvmPhases[0][backendId]
-            def steadyProcessBaseline = processPhases[0][backendId]
-            jvmPhases.drop(1).eachWithIndex { counts, phase ->
-                assertTrue(counts[backendId] <= steadyJvmBaseline + 2,
-                        "JVM threads kept growing on backend ${backendId}, phase ${phase + 2}: "
-                                + "steadyBaseline=${steadyJvmBaseline}, phases="
+            // Warm-up now performs the same workload as every measured phase, so compare every
+            // phase with the actual pre-phase baseline. A bounded per-writer leak can no longer be
+            // hidden by using phase one as the oracle.
+            jvmPhases.eachWithIndex { counts, phase ->
+                assertTrue(counts[backendId] <= jvmBefore[backendId] + 2,
+                        "JVM threads grew after warm-up on backend ${backendId}, phase ${phase + 1}: "
+                                + "baseline=${jvmBefore[backendId]}, phases="
                                 + jvmPhases.collect { sample -> sample[backendId] })
             }
-            processPhases.drop(1).eachWithIndex { counts, phase ->
-                assertTrue(counts[backendId] <= steadyProcessBaseline + 4,
-                        "Process threads kept growing on backend ${backendId}, phase ${phase + 2}: "
-                                + "steadyBaseline=${steadyProcessBaseline}, phases="
+            processPhases.eachWithIndex { counts, phase ->
+                assertTrue(counts[backendId] <= processBefore[backendId] + 4,
+                        "Process threads grew after warm-up on backend ${backendId}, phase ${phase + 1}: "
+                                + "baseline=${processBefore[backendId]}, phases="
                                 + processPhases.collect { sample -> sample[backendId] })
             }
         }
