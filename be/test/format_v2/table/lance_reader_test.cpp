@@ -615,7 +615,9 @@ TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
             "Og8QRioLZG9yaXMtbGFuY2U=";
     std::string substrait_filter;
     ASSERT_TRUE(base64_decode(substrait_filter_base64, &substrait_filter));
-    scan_params.lance_scan_params.__set_lance_substrait_filter(std::move(substrait_filter));
+    TLanceScanParams lance_scan_params;
+    lance_scan_params.__set_lance_substrait_filter(std::move(substrait_filter));
+    scan_params.__set_lance_scan_params(std::move(lance_scan_params));
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
