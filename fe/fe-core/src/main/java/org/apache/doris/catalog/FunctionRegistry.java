@@ -120,11 +120,6 @@ public class FunctionRegistry {
 
         if (StringUtils.isEmpty(dbName)) {
             List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
-            if (CollectionUtils.isEmpty(functionBuilders)
-                    && name.endsWith(AggCombinerFunctionBuilder.COMBINE_SUFFIX)) {
-                functionBuilders = name2BuiltinBuilders.get(
-                        AggCombinerFunctionBuilder.getNestedName(name).toLowerCase());
-            }
             if (!CollectionUtils.isEmpty(functionBuilders)) {
                 return containsAggregateFunction(functionBuilders);
             }

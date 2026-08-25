@@ -100,6 +100,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         + "\"replication_num\" = \"1\"\n"
                         + ");"
         );
+        createFunction("CREATE ALIAS FUNCTION avg_combine(INT, INT) "
+                + "WITH PARAMETER(lhs, rhs) AS lhs + rhs");
     }
 
     @Test
@@ -171,6 +173,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT pk, sum(a1 + 1) AS a1 FROM t1 GROUP BY pk "
                 + "HAVING avg_combine(a1) IS NOT NULL "
                 + "ORDER BY avg_combine(a1) IS NULL";
+        PlanChecker.from(connectContext).analyze(sql)
+                .nonMatch(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(Expression::hasUnbound)));
+    }
+
+    @Test
+    public void testScalarUdfWithCombineSuffixBindsAggregateOutputAlias() {
+        String sql = "SELECT pk, sum(a1 + 1) AS a1 FROM t1 GROUP BY pk "
+                + "HAVING avg_combine(a1, a1) > 0 "
+                + "ORDER BY avg_combine(a1, a1)";
         PlanChecker.from(connectContext).analyze(sql)
                 .nonMatch(any().when(plan -> plan.getExpressions().stream()
                         .anyMatch(Expression::hasUnbound)));

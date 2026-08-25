@@ -113,7 +113,8 @@ class CombineCombinatorTest {
         Assertions.assertTrue(functionRegistry
                 .findBuiltinFunctionBuilder("abs_combine", ImmutableList.of(argument)).isEmpty());
         Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "abs_combine"));
-        Assertions.assertTrue(functionRegistry.isAggregateFunction(null, "avg_combine"));
+        Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "avg_combine"));
+        Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "avg_union"));
     }
 
     @Test

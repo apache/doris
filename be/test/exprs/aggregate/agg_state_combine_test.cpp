@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "agent/be_exec_version_manager.h"
+#include "core/column/column_array.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_agg_state.h"
@@ -204,10 +205,73 @@ TEST_F(AggregateStateCombineTest, CountNullableInputPreservesGroupedStates) {
     EXPECT_EQ(count_result.get_data()[1], 2);
     EXPECT_EQ(count_result.get_data()[2], 1);
 
-    for (auto place : combine_places) {
+    for (auto* place : combine_places) {
         combine_function->destroy(place);
     }
-    for (auto place : merge_places) {
+    for (auto* place : merge_places) {
+        merge_function->destroy(place);
+    }
+}
+
+TEST_F(AggregateStateCombineTest, LargeGroupedArrayState) {
+    constexpr size_t group_count = 8;
+    constexpr size_t rows_per_group = 4096;
+    constexpr size_t row_count = group_count * rows_per_group;
+
+    auto argument_type = std::make_shared<DataTypeInt64>();
+    auto state_type =
+            std::make_shared<DataTypeAggState>(DataTypes {argument_type}, false, "array_agg",
+                                               BeExecVersionManager::get_newest_version());
+    auto nested_function = state_type->get_nested_function();
+    auto combine_function =
+            AggregateStateCombine::create(nested_function, DataTypes {argument_type}, state_type);
+
+    std::vector<Int64> values(row_count);
+    std::vector<AggregateDataPtr> row_places(row_count);
+    std::vector<AggregateDataPtr> combine_places(group_count);
+    Arena arena;
+    for (size_t group = 0; group < group_count; ++group) {
+        combine_places[group] =
+                reinterpret_cast<AggregateDataPtr>(arena.alloc(combine_function->size_of_data()));
+        combine_function->create(combine_places[group]);
+        for (size_t row = 0; row < rows_per_group; ++row) {
+            const size_t index = group * rows_per_group + row;
+            values[index] = static_cast<Int64>(index);
+            row_places[index] = combine_places[group];
+        }
+    }
+
+    auto input_column = ColumnHelper::create_column<DataTypeInt64>(values);
+    const IColumn* input_columns[] = {input_column.get()};
+    combine_function->add_batch(row_count, row_places.data(), 0, input_columns, arena, false);
+
+    auto combined_states = state_type->create_column();
+    combine_function->insert_result_into_vec(combine_places, 0, *combined_states, group_count);
+    ASSERT_EQ(combined_states->size(), group_count);
+
+    auto merge_function = AggregateStateMerge::create(nested_function, DataTypes {state_type},
+                                                      nested_function->get_return_type());
+    std::vector<AggregateDataPtr> merge_places(group_count);
+    for (auto& place : merge_places) {
+        place = reinterpret_cast<AggregateDataPtr>(arena.alloc(merge_function->size_of_data()));
+        merge_function->create(place);
+    }
+    const IColumn* state_columns[] = {combined_states.get()};
+    merge_function->add_batch(group_count, merge_places.data(), 0, state_columns, arena, false);
+
+    auto result = nested_function->get_return_type()->create_column();
+    merge_function->insert_result_into_vec(merge_places, 0, *result, group_count);
+    const auto& array_result = assert_cast<const ColumnArray&>(*result);
+    ASSERT_EQ(array_result.size(), group_count);
+    ASSERT_EQ(array_result.get_data().size(), row_count);
+    for (size_t group = 0; group < group_count; ++group) {
+        EXPECT_EQ(array_result.get_offsets()[group], (group + 1) * rows_per_group);
+    }
+
+    for (auto* place : combine_places) {
+        combine_function->destroy(place);
+    }
+    for (auto* place : merge_places) {
         merge_function->destroy(place);
     }
 }

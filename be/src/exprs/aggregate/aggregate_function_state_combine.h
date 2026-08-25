@@ -163,6 +163,12 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        if (to.empty()) {
+            _function->serialize_without_key_to_column(place, to);
+            DORIS_CHECK_EQ(to.size(), 1);
+            return;
+        }
+
         auto serialized_column = _function->create_serialize_column();
         _function->serialize_without_key_to_column(place, *serialized_column);
         DORIS_CHECK_EQ(serialized_column->size(), 1);
@@ -171,6 +177,13 @@ public:
 
     void insert_result_into_vec(const std::vector<AggregateDataPtr>& places, const size_t offset,
                                 IColumn& to, const size_t num_rows) const override {
+        if (to.empty()) {
+            auto mutable_to = to.assert_mutable();
+            _function->serialize_to_column(places, offset, mutable_to, num_rows);
+            DORIS_CHECK_EQ(to.size(), num_rows);
+            return;
+        }
+
         auto serialized_column = _function->create_serialize_column();
         _function->serialize_to_column(places, offset, serialized_column, num_rows);
         DORIS_CHECK_EQ(serialized_column->size(), num_rows);
