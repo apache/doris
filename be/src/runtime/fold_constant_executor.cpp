@@ -67,10 +67,11 @@
 namespace doris {
 
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
-        TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,       TYPE_BIGINT,
-        TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,    TYPE_CHAR,
-        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,    TYPE_DATE,
-        TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2, TYPE_TIMESTAMPTZ};
+        TYPE_BOOLEAN,     TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,       TYPE_BIGINT,
+        TYPE_LARGEINT,    TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,    TYPE_CHAR,
+        TYPE_VARCHAR,     TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,    TYPE_DATE,
+        TYPE_DATETIME,    TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2, TYPE_TIMESTAMPTZ,
+        TYPE_TIMESTAMP_NS};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {

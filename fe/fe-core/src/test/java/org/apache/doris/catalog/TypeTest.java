@@ -279,6 +279,8 @@ public class TypeTest {
 
         ScalarType timestampNs = ScalarType.createTimeStampNsType();
         Assertions.assertNotEquals(timestampNs, dtv2s6);
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, timestampNs.getScalarPrecision());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, timestampNs.getScalarScale());
         for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
             ScalarType invalidDatetimeV2 = ScalarType.createDatetimeV2Type(invalidScale);
             Assertions.assertTrue(invalidDatetimeV2.isDatetimeV2());
