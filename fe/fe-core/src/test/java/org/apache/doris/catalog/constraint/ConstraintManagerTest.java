@@ -622,6 +622,40 @@ class ConstraintManagerTest {
         mgr.dropTableConstraints(new TableNameInfo("x", "y", "z"));
     }
 
+    @Test
+    void dropConstraintsReferencingColumnsPreservesUnrelatedConstraintsAndCascadesForeignKeys() {
+        mgr.addConstraint(T1, "pk", newPk("pk", "removed_key"), true);
+        mgr.addConstraint(T1, "removed_uk",
+                new UniqueConstraint("removed_uk", ImmutableSet.of("removed_value")), true);
+        mgr.addConstraint(T1, "uk", new UniqueConstraint("uk", ImmutableSet.of("kept_key")), true);
+        mgr.addConstraint(T2, "fk", newFk("fk", T1, "foreign_key", "removed_key"), true);
+
+        List<TableNameInfo> affectedTables = mgr.dropConstraintsReferencingColumns(
+                T1, List.of("REMOVED_KEY", "removed_value"));
+
+        Assertions.assertNull(mgr.getConstraint(T1, "pk"));
+        Assertions.assertNull(mgr.getConstraint(T1, "removed_uk"));
+        Assertions.assertNotNull(mgr.getConstraint(T1, "uk"));
+        Assertions.assertNull(mgr.getConstraint(T2, "fk"));
+        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
+    }
+
+    @Test
+    void dropConstraintsReferencingColumnsRemovesForeignKeyBackReference() {
+        mgr.addConstraint(T1, "pk", newPk("pk", "primary_key"), true);
+        mgr.addConstraint(T2, "fk", newFk("fk", T1, "removed_key", "primary_key"), true);
+        mgr.addConstraint(T2, "uk", new UniqueConstraint("uk", ImmutableSet.of("kept_key")), true);
+
+        List<TableNameInfo> affectedTables = mgr.dropConstraintsReferencingColumns(
+                T2, List.of("removed_key"));
+
+        Assertions.assertNull(mgr.getConstraint(T2, "fk"));
+        Assertions.assertNotNull(mgr.getConstraint(T2, "uk"));
+        PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) mgr.getConstraint(T1, "pk");
+        Assertions.assertTrue(primaryKey.getForeignTableInfos().isEmpty());
+        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
+    }
+
     // ==================== checkAndDropTableConstraints ====================
 
     @Test

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -33,6 +34,7 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -75,6 +77,89 @@ public class MetastoreEventSyncDriverRenameTest {
                     new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
         }
 
+        Assertions.assertEquals(baseline, catalog.snapshotConstraintMetadata());
+    }
+
+    @Test
+    public void schemaRefreshDropsAffectedConstraintsAndInvalidatesMtmvsBeforeRefresh() throws Exception {
+        Connector connector = Mockito.mock(Connector.class);
+        PluginDrivenExternalCatalog catalog = new IdentityEventCatalog(connector);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
+        Env env = Mockito.mock(Env.class);
+        TableNameInfo tableNameInfo = new TableNameInfo("test_catalog", "db1", "tbl1");
+        List<String> removedColumns = List.of("obsolete");
+        List<TableNameInfo> affectedTables = List.of(
+                tableNameInfo, new TableNameInfo("test_catalog", "db1", "dependent"));
+        List<String> operations = new ArrayList<>();
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
+        Mockito.when(constraintManager.dropConstraintsReferencingColumns(
+                tableNameInfo, removedColumns)).thenAnswer(invocation -> {
+                    operations.add("constraints");
+                    return affectedTables;
+                });
+        Mockito.doAnswer(invocation -> {
+            operations.add("refresh");
+            return null;
+        }).when(refreshManager).refreshExternalTableFromEvent(
+                "test_catalog", "db1", "tbl1", 2L);
+        MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forTableRefresh(
+                "db1", "tbl1", removedColumns, 1L, 2L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables,
+                    "before applying external table schema refresh event for " + tableNameInfo))
+                    .thenAnswer(invocation -> {
+                        operations.add("mtmv");
+                        return null;
+                    });
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+
+            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
+                    affectedTables,
+                    "before applying external table schema refresh event for " + tableNameInfo));
+        }
+
+        Assertions.assertEquals(List.of("constraints", "mtmv", "refresh"), operations);
+
+        InOrder inOrder = Mockito.inOrder(constraintManager, refreshManager);
+        inOrder.verify(constraintManager).dropConstraintsReferencingColumns(
+                tableNameInfo, removedColumns);
+        inOrder.verify(refreshManager).refreshExternalTableFromEvent(
+                "test_catalog", "db1", "tbl1", 2L);
+    }
+
+    @Test
+    public void dataRefreshDoesNotDropConstraints() throws Exception {
+        Connector connector = Mockito.mock(Connector.class);
+        PluginDrivenExternalCatalog catalog = new IdentityEventCatalog(connector);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
+        long baseline = catalog.snapshotConstraintMetadata();
+        MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forTable(
+                Op.REFRESH_TABLE, "db1", "tbl1", null, 1L, 2L);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+        }
+
+        Mockito.verifyNoInteractions(constraintManager);
+        Mockito.verify(refreshManager).refreshExternalTableFromEvent(
+                "test_catalog", "db1", "tbl1", 2L);
         Assertions.assertEquals(baseline, catalog.snapshotConstraintMetadata());
     }
 

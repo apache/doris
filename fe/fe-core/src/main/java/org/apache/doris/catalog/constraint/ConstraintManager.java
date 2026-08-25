@@ -653,6 +653,52 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Drop constraints that reference columns removed by an out-of-band external schema change.
+     * The mutation is local on every FE, like the surrounding metastore-event cleanup paths.
+     */
+    public List<TableNameInfo> dropConstraintsReferencingColumns(
+            TableNameInfo tableNameInfo, Collection<String> columnNames) {
+        String key = toKey(tableNameInfo);
+        writeLock();
+        try {
+            Map<String, Constraint> tableConstraints = constraintsMap.get(key);
+            if (tableConstraints == null) {
+                return ImmutableList.of();
+            }
+            Map<String, Constraint> constraintsToDrop = new LinkedHashMap<>();
+            for (Entry<String, Constraint> entry : tableConstraints.entrySet()) {
+                if (columnNames.stream().anyMatch(
+                        columnName -> constraintReferencesColumn(entry.getValue(), columnName))) {
+                    constraintsToDrop.put(entry.getKey(), entry.getValue());
+                }
+            }
+            if (constraintsToDrop.isEmpty()) {
+                return ImmutableList.of();
+            }
+
+            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
+            collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsToDrop);
+            constraintsToDrop.forEach((constraintName, constraint) -> {
+                tableConstraints.remove(constraintName);
+                if (constraint instanceof DistributionMappingConstraint) {
+                    removeTableLocalConstraint(
+                            resolveTableIfPresent(tableNameInfo), constraintName);
+                }
+            });
+            constraintsToDrop.values().forEach(
+                    constraint -> cleanupConstraintReferences(tableNameInfo, constraint));
+            if (tableConstraints.isEmpty()) {
+                constraintsMap.remove(key);
+            }
+            LOG.info("Dropped constraints {} from table {} after columns {} were removed",
+                    constraintsToDrop.keySet(), key, columnNames);
+            return ImmutableList.copyOf(affectedTables.values());
+        } finally {
+            writeUnlock();
+        }
+    }
+
     private void dropTableConstraintsWithoutLock(String key, TableNameInfo tableNameInfo) {
         Map<String, Constraint> tableConstraints = constraintsMap.remove(key);
         if (tableConstraints == null) {
@@ -960,34 +1006,32 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             }
             for (Entry<String, Constraint> entry
                     : tableConstraints.entrySet()) {
-                Constraint c = entry.getValue();
-                if (c instanceof PrimaryKeyConstraint) {
-                    if (containsIgnoreCase(
-                            ((PrimaryKeyConstraint) c).getPrimaryKeyNames(), columnName)) {
-                        return entry.getKey();
-                    }
-                } else if (c instanceof UniqueConstraint) {
-                    if (containsIgnoreCase(
-                            ((UniqueConstraint) c).getUniqueColumnNames(), columnName)) {
-                        return entry.getKey();
-                    }
-                } else if (c instanceof ForeignKeyConstraint) {
-                    if (containsIgnoreCase(
-                            ((ForeignKeyConstraint) c).getForeignKeyNames(), columnName)) {
-                        return entry.getKey();
-                    }
-                } else if (c instanceof DistributionMappingConstraint) {
-                    DistributionMappingConstraint mapping = (DistributionMappingConstraint) c;
-                    if (containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
-                            || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName)) {
-                        return entry.getKey();
-                    }
+                if (constraintReferencesColumn(entry.getValue(), columnName)) {
+                    return entry.getKey();
                 }
             }
             return null;
         } finally {
             readUnlock();
         }
+    }
+
+    private boolean constraintReferencesColumn(Constraint constraint, String columnName) {
+        if (constraint instanceof PrimaryKeyConstraint) {
+            return containsIgnoreCase(
+                    ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames(), columnName);
+        } else if (constraint instanceof UniqueConstraint) {
+            return containsIgnoreCase(
+                    ((UniqueConstraint) constraint).getUniqueColumnNames(), columnName);
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            return containsIgnoreCase(
+                    ((ForeignKeyConstraint) constraint).getForeignKeyNames(), columnName);
+        } else if (constraint instanceof DistributionMappingConstraint) {
+            DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
+            return containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
+                    || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName);
+        }
+        return false;
     }
 
     private boolean containsIgnoreCase(Collection<String> columnNames, String columnName) {

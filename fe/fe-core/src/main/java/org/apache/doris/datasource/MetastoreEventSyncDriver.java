@@ -309,6 +309,9 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                         new TableNameInfo(catalogName, after.localDbName, after.localTableName));
                 break;
             case REFRESH_TABLE:
+                dropColumnConstraintsAndInvalidateMtmvs(
+                        new TableNameInfo(catalogName, before.localDbName, before.localTableName),
+                        descriptor.getRemovedColumnNames());
                 Env.getCurrentEnv().getRefreshManager().refreshExternalTableFromEvent(
                         catalogName, before.localDbName, before.localTableName, descriptor.getUpdateTime());
                 break;
@@ -339,6 +342,17 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 "after applying external table drop event for " + tableNameInfo);
     }
 
+    private void dropColumnConstraintsAndInvalidateMtmvs(
+            TableNameInfo tableNameInfo, List<String> removedColumnNames) {
+        if (removedColumnNames.isEmpty()) {
+            return;
+        }
+        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                .dropConstraintsReferencingColumns(tableNameInfo, removedColumnNames);
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
+                "before applying external table schema refresh event for " + tableNameInfo);
+    }
+
     private void dropDatabaseConstraintsAndInvalidateMtmvs(String catalogName, String dbName) {
         List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
                 .dropDatabaseConstraints(catalogName, dbName);
@@ -354,8 +368,9 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             case REGISTER_TABLE:
             case UNREGISTER_TABLE:
             case RENAME_TABLE:
-            case REFRESH_TABLE:
                 return true;
+            case REFRESH_TABLE:
+                return !descriptor.getRemovedColumnNames().isEmpty();
             case ADD_PARTITIONS:
             case DROP_PARTITIONS:
             case REFRESH_PARTITIONS:
