@@ -169,8 +169,6 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_kv_num(
         "recycler_instance_current_round_recycled_kv_num", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_kv_num(
         "recycler_instance_current_round_to_recycle_kv_num", {"instance_id", "resource_type"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_kv_bytes(
-        "recycler_instance_current_round_recycled_kv_bytes", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_to_recycle_kv_bytes(
         "recycler_instance_current_round_to_recycle_kv_bytes", {"instance_id", "resource_type"});
 mBvarStatus<double> g_bvar_recycler_instance_current_round_recycle_elpased_ts(

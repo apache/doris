@@ -250,15 +250,11 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
                             {id, resource_type});
             int64_t recycled_kv_num =
                     g_bvar_recycler_instance_current_round_recycled_kv_num.get({id, resource_type});
-            int64_t recycled_kv_bytes =
-                    g_bvar_recycler_instance_current_round_recycled_kv_bytes.get(
-                            {id, resource_type});
 
             ss << "Task Type: " << resource_type << "\n";
             ss << "  • Need to recycle KV count: " << to_recycle_kv_num << " items\n";
             ss << "  • Need to recycle KV size: " << to_recycle_kv_bytes << " bytes\n";
             ss << "  • Recycled KV count: " << recycled_kv_num << " items\n";
-            ss << "  • Recycled KV size: " << recycled_kv_bytes << " bytes\n";
 
             // Add specific counts for different resource types
             if (resource_type == "recycle_partitions") {

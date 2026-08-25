@@ -158,7 +158,6 @@ public:
         NEED_RECYCLE_KV_NUM,
         RECYCLED_BYTES,
         RECYCLED_NUM,
-        RECYCLED_KV_BYTES,
         RECYCLED_KV_NUM,
     };
 
@@ -266,7 +265,6 @@ public:
 
     RecycledBytesMetricValue total_recycled_data_size {this};
     RecycledNumMetricValue total_recycled_num {this};
-    MetricValue total_recycled_kv_size {this, MetricType::RECYCLED_KV_BYTES};
     MetricValue total_recycled_kv_num {this, MetricType::RECYCLED_KV_NUM};
 
     std::string operation_type;
@@ -298,7 +296,6 @@ public:
         total_need_recycle_kv_num.reset();
         total_recycled_data_size.reset();
         total_recycled_num.reset();
-        total_recycled_kv_size.reset();
         total_recycled_kv_num.reset();
         g_bvar_recycler_instance_current_round_recycle_elpased_ts.put({instance_id, operation_type},
                                                                       0);
@@ -332,10 +329,6 @@ private:
         case MetricType::RECYCLED_NUM:
             g_bvar_recycler_instance_current_round_recycled_num.put({instance_id, operation_type},
                                                                     value);
-            break;
-        case MetricType::RECYCLED_KV_BYTES:
-            g_bvar_recycler_instance_current_round_recycled_kv_bytes.put(
-                    {instance_id, operation_type}, value);
             break;
         case MetricType::RECYCLED_KV_NUM:
             g_bvar_recycler_instance_current_round_recycled_kv_num.put(
