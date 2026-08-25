@@ -18,6 +18,7 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
@@ -25,6 +26,8 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -63,6 +66,72 @@ public class TaskProcessorTest {
         } finally {
             Assert.assertNull(ConnectContext.get());
             taskProcessor.shutdown();
+        }
+    }
+
+    @Test
+    public void testRunQueryFinishCallbacksForTaskContext() {
+        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setStatementContext(new StatementContext());
+        TUniqueId queryId = new TUniqueId(1L, 1L);
+        connectContext.setQueryId(queryId);
+        connectContext.setThreadLocalInfo();
+        AtomicInteger callbackCount = new AtomicInteger();
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
+                DebugUtil.printId(queryId), callbackCount::incrementAndGet);
+        try {
+            Deencapsulation.invoke(taskProcessor, "closeTaskContext");
+            Assert.assertEquals(1, callbackCount.get());
+            Assert.assertNull(ConnectContext.get());
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            ConnectContext.remove();
+            taskProcessor.shutdown();
+        }
+    }
+
+    @Test
+    public void testCleanEveryMTMVExecutionContext() {
+        MTMVTask task = new MTMVTask();
+        AtomicInteger callbackCount = new AtomicInteger();
+        AtomicInteger closeCount = new AtomicInteger();
+        ConnectContext taskContext = new ConnectContext();
+        taskContext.setThreadLocalInfo();
+        StatementContext taskStatementContext = new StatementContext();
+        taskContext.setStatementContext(taskStatementContext);
+        taskStatementContext.getOrCreateConnectorStatementScope().computeIfAbsent(
+                "closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
+        try {
+            for (int i = 0; i < 2; i++) {
+                ConnectContext executionContext = new ConnectContext();
+                executionContext.setThreadLocalInfo();
+                StatementContext statementContext = new StatementContext();
+                executionContext.setStatementContext(statementContext);
+                TUniqueId queryId = new TUniqueId(2L, i + 1L);
+                executionContext.setQueryId(queryId);
+                statementContext.getOrCreateConnectorStatementScope().computeIfAbsent(
+                        "closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
+                QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
+                        DebugUtil.printId(queryId), callbackCount::incrementAndGet);
+
+                Deencapsulation.invoke(task, "closeExecutionContext", executionContext);
+
+                Assert.assertSame(executionContext, ConnectContext.get());
+            }
+            Assert.assertEquals(2, callbackCount.get());
+            Assert.assertEquals(2, closeCount.get());
+
+            ConnectContext lastExecutionContext = ConnectContext.get();
+            Deencapsulation.invoke(task, "closeExecutionContext", taskContext);
+            Assert.assertSame(lastExecutionContext, ConnectContext.get());
+            Assert.assertEquals(3, closeCount.get());
+
+            Deencapsulation.invoke(task, "closeExecutionContext", new ConnectContext());
+            Assert.assertSame(lastExecutionContext, ConnectContext.get());
+        } finally {
+            taskStatementContext.close();
+            ConnectContext.remove();
         }
     }
 

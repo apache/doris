@@ -63,6 +63,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
@@ -287,6 +288,8 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
+        } finally {
+            closeExecutionContext(ctx);
         }
     }
 
@@ -331,20 +334,21 @@ public class MTMVTask extends AbstractTask {
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        setComputeGroup(ctx);
-        recordComputeGroup(ctx);
+        executor = null;
         StatementContext statementContext = new StatementContext();
-        for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
-            statementContext.setSnapshot(entry.getKey(), entry.getValue());
-        }
         ctx.setStatementContext(statementContext);
-        TUniqueId queryId = generateQueryId();
-        lastQueryId = DebugUtil.printId(queryId);
-        // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
-        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
         try {
+            setComputeGroup(ctx);
+            recordComputeGroup(ctx);
+            for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+                statementContext.setSnapshot(entry.getKey(), entry.getValue());
+            }
+            TUniqueId queryId = generateQueryId();
+            lastQueryId = DebugUtil.printId(queryId);
+            // if SELF_MANAGE mv, only have default partition, will not have partitionItem, so we give empty set
+            UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
+                    .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
+                            ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
             ctx.setExecutor(executor);
             ctx.setQueryId(queryId);
@@ -358,9 +362,26 @@ public class MTMVTask extends AbstractTask {
                 throw new JobException(ctx.getState().getErrorMessage());
             }
         } finally {
-            if (executor != null) {
-                AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
-                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            try {
+                if (executor != null) {
+                    AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
+                            executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+                }
+            } finally {
+                closeExecutionContext(ctx);
+            }
+        }
+    }
+
+    private static void closeExecutionContext(ConnectContext executionContext) {
+        try {
+            if (executionContext.queryId() != null) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
+            }
+        } finally {
+            StatementContext statementContext = executionContext.getStatementContext();
+            if (statementContext != null) {
+                statementContext.close();
             }
         }
     }
