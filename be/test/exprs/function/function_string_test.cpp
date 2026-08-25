@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <unicode/locid.h>
+#include <unicode/utypes.h>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -26,6 +29,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "util/defer_op.h"
 #include "util/encryption_util.h"
 #include "util/md5.h"
 
@@ -548,6 +552,8 @@ TEST(function_string_test, function_string_lower_test) {
                 {{std::string("GROSSE")}, std::string("grosse")},
                 {{std::string("Å")}, std::string("å")},
                 {{std::string("ΣΟΦΟΣ")}, std::string("σοφος")},
+                {{std::string("Iİı")}, std::string("ii̇ı")},
+                {{std::string("ΟΣ")}, std::string("ος")},
                 {{std::string("123ABC_")}, std::string("123abc_")},
                 {{std::string("MYtestSTR")}, std::string("myteststr")},
                 {{std::string("")}, std::string("")},
@@ -572,6 +578,7 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("MYtestSTR")}, std::string("MYTESTSTR")},
                 {{std::string("àç")}, std::string("ÀÇ")},
                 {{std::string("straße")}, std::string("STRASSE")},
+                {{std::string("ıi")}, std::string("II")},
                 {{std::string("àçac123")}, std::string("ÀÇAC123")},
                 {{std::string("ﬃ")}, std::string("FFI")},
                 {{std::string("ǅ")}, std::string("Ǆ")},
@@ -605,6 +612,59 @@ TEST(function_string_test, function_string_upper_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
         check_function_all_arg_comb<DataTypeString, true>(std::string("ucase"), input_types,
+                                                          data_set);
+    }
+}
+
+// LOWER/UPPER/INITCAP case-map through the ICU root locale, independent of the
+// process default locale. Under a Turkish (tr_TR) default locale ICU maps ASCII
+// 'I' -> 'ı' (U+0131) and 'i' -> 'İ' (U+0130); the root locale keeps the plain
+// ASCII round-trip. This test installs a tr_TR ICU default and asserts every
+// result stays locale independent.
+//
+// TransferImpl/InitcapImpl only take the ICU path when the whole input buffer
+// contains a non-ASCII byte; pure-ASCII columns use the locale-neutral SIMD/C
+// fast path. Each data set therefore keeps a non-ASCII anchor row so that
+// check_function_all_arg_comb's batched (non-const) combination routes the
+// ASCII rows through ICU, where the default locale would otherwise leak in.
+TEST(function_string_test, function_string_case_root_locale_test) {
+    UErrorCode status = U_ZERO_ERROR;
+    const icu::Locale saved_default = icu::Locale::getDefault();
+    icu::Locale::setDefault(icu::Locale("tr", "TR"), status);
+    ASSERT_TRUE(U_SUCCESS(status)) << "failed to install tr_TR ICU default locale";
+    // RAII restore of the process-wide ICU default locale, even if an assertion
+    // below throws during stack unwinding.
+    Defer restore_default {[&]() {
+        UErrorCode restore_status = U_ZERO_ERROR;
+        icu::Locale::setDefault(saved_default, restore_status);
+    }};
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    {
+        DataSet data_set = {
+                {{std::string("I")}, std::string("i")},             // tr default -> "ı"
+                {{std::string("KIZILAY")}, std::string("kizilay")}, // tr default -> "kızılay"
+                {{std::string("ÀÇ")}, std::string("àç")},           // non-ASCII anchor: forces ICU
+        };
+        check_function_all_arg_comb<DataTypeString, true>(std::string("lower"), input_types,
+                                                          data_set);
+    }
+    {
+        DataSet data_set = {
+                {{std::string("i")}, std::string("I")},               // tr default -> "İ"
+                {{std::string("istanbul")}, std::string("ISTANBUL")}, // tr default -> "İSTANBUL"
+                {{std::string("straße")}, std::string("STRASSE")},    // length-changing anchor
+        };
+        check_function_all_arg_comb<DataTypeString, true>(std::string("upper"), input_types,
+                                                          data_set);
+    }
+    {
+        DataSet data_set = {
+                {{std::string("BIT")}, std::string("Bit")},                 // tr default -> "Bıt"
+                {{std::string("KIZILAY BIT")}, std::string("Kizilay Bit")}, // tr -> "Kızılay Bıt"
+                {{std::string("ÀÇ")}, std::string("Àç")},                   // non-ASCII anchor
+        };
+        check_function_all_arg_comb<DataTypeString, true>(std::string("initcap"), input_types,
                                                           data_set);
     }
 }
@@ -3425,7 +3485,8 @@ TEST(function_string_test, function_initcap) {
                          std::string("Grosse     Àstanbul , Àçac123    Σοφος")},
                         {{std::string("HELLO, WORLD!")}, std::string("Hello, World!")},
                         {{std::string("HHHH+-1; asAAss__!")}, std::string("Hhhh+-1; Asaass__!")},
-                        {{std::string("a,B,C,D")}, std::string("A,B,C,D")}};
+                        {{std::string("a,B,C,D")}, std::string("A,B,C,D")},
+                        {{std::string("straße")}, std::string("Straße")}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
