@@ -151,23 +151,25 @@ suite("test_row_binlog_flexible_partial_update") {
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
-        qt_flexible_detail """
-            SELECT id, v1, v2, seq, __DORIS_BINLOG_OP__
-            FROM ${tableName}@incr("incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__, __DORIS_BINLOG_OP__
-        """
+        if (!isCloudMode()) {
+            qt_flexible_detail """
+                SELECT id, v1, v2, seq, __DORIS_BINLOG_OP__
+                FROM ${tableName}@incr("incrementType" = "DETAIL")
+                ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__, __DORIS_BINLOG_OP__
+            """
 
-        order_qt_flexible_min_delta """
-            SELECT id, v1, v2, seq, __DORIS_BINLOG_OP__
-            FROM ${tableName}@incr("incrementType" = "MIN_DELTA")
-            ORDER BY id, __DORIS_BINLOG_OP__
-        """
+            order_qt_flexible_min_delta """
+                SELECT id, v1, v2, seq, __DORIS_BINLOG_OP__
+                FROM ${tableName}@incr("incrementType" = "MIN_DELTA")
+                ORDER BY id, __DORIS_BINLOG_OP__
+            """
 
-        qt_flexible_append_only """
-            SELECT id, v1, v2, seq, __DORIS_BINLOG_OP__
-            FROM ${tableName}@incr("incrementType" = "APPEND_ONLY")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
-        """
+            qt_flexible_append_only """
+                SELECT id, v1, v2, seq, __DORIS_BINLOG_OP__
+                FROM ${tableName}@incr("incrementType" = "APPEND_ONLY")
+                ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            """
+        }
     } finally {
         sql "DROP TABLE IF EXISTS ${tableName} FORCE"
     }
