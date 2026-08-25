@@ -83,23 +83,26 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
         // Apply floor
         new_limit = std::max(new_limit, floor_qps);
 
-        // Only apply if it's actually limiting
-        if (new_limit < snapshot.current_qps || old_limit > 0) {
-            RpcThrottleAction action {
-                    .type = RpcThrottleAction::Type::SET_LIMIT,
-                    .rpc_type = snapshot.rpc_type,
-                    .table_id = snapshot.table_id,
-                    .qps_limit = new_limit,
-            };
-            actions.push_back(action);
-            record.changes[key] = {old_limit, new_limit};
-            _current_limits[key] = new_limit;
-
-            LOG(INFO) << "[ms-throttle] upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
-                      << ", table_id=" << snapshot.table_id
-                      << ", current_qps=" << snapshot.current_qps << ", old_limit=" << old_limit
-                      << ", new_limit=" << new_limit;
+        // An upgrade must make the effective limit stricter. For a table without an
+        // existing limit, its current QPS is the baseline.
+        const double baseline = old_limit > 0 ? old_limit : snapshot.current_qps;
+        if (new_limit >= baseline) {
+            continue;
         }
+
+        RpcThrottleAction action {
+                .type = RpcThrottleAction::Type::SET_LIMIT,
+                .rpc_type = snapshot.rpc_type,
+                .table_id = snapshot.table_id,
+                .qps_limit = new_limit,
+        };
+        actions.push_back(action);
+        record.changes[key] = {old_limit, new_limit};
+        _current_limits[key] = new_limit;
+
+        LOG(INFO) << "[ms-throttle] upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
+                  << ", table_id=" << snapshot.table_id << ", current_qps=" << snapshot.current_qps
+                  << ", old_limit=" << old_limit << ", new_limit=" << new_limit;
     }
 
     if (!record.changes.empty()) {

@@ -174,9 +174,15 @@ TEST_F(RpcThrottleStateMachineTest, UpdateFloorQpsAtRuntime) {
     // Runtime update floor_qps=5.0
     sm.update_params({.top_k = 1, .ratio = 0.01, .floor_qps = 5.0});
 
-    // Second upgrade, new floor takes effect
-    auto a2 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 1.0}});
-    EXPECT_DOUBLE_EQ(a2[0].qps_limit, 5.0); // 1*0.01=0.01 < floor(5.0)
+    // The higher floor applies to new limits but must not relax the existing limit.
+    auto a2 = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 100, 1.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 200, 10.0},
+    });
+    ASSERT_EQ(a2.size(), 1);
+    EXPECT_EQ(a2[0].table_id, 200);
+    EXPECT_DOUBLE_EQ(a2[0].qps_limit, 5.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 1.0);
 }
 
 TEST_F(RpcThrottleStateMachineTest, MultipleRpcTypes) {
@@ -440,9 +446,20 @@ TEST_F(RpcThrottleStateMachineTest, FloorQpsWithRepeatedUpgrades) {
     auto a4 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 12.5}});
     EXPECT_DOUBLE_EQ(a4[0].qps_limit, 10.0);
 
-    // Already at floor: 10 * 0.5 = 5 < floor(10), stays at floor
-    auto a5 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
-    EXPECT_DOUBLE_EQ(a5[0].qps_limit, 10.0);
+    EXPECT_EQ(sm.upgrade_level(), 4);
+
+    // Repeated upgrades at the floor are no-ops and do not add rollback history.
+    for (int i = 0; i < 3; ++i) {
+        auto no_op = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
+        EXPECT_TRUE(no_op.empty());
+        EXPECT_EQ(sm.upgrade_level(), 4);
+    }
+
+    // One downgrade immediately restores the limit before reaching the floor.
+    auto downgrade = sm.on_downgrade();
+    ASSERT_EQ(downgrade.size(), 1);
+    EXPECT_DOUBLE_EQ(downgrade[0].qps_limit, 12.5);
+    EXPECT_EQ(sm.upgrade_level(), 3);
 }
 
 TEST_F(RpcThrottleStateMachineTest, MultiRpcTypeTopKIndependence) {
