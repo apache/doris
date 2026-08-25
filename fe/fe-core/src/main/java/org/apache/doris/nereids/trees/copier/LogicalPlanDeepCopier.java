@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -107,6 +108,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalCatalogRelation newRelation =
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalOlapScan) {
+            newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+        }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
                 .map(e -> {
