@@ -154,7 +154,7 @@ const std::vector<ScalarBloomFilterTypeCase> kSegmentWriterCompatibleBloomFilter
         create_segment_writer_compatible_type_cases();
 
 Block create_single_row_default_block(const TabletSchemaSPtr& schema) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     for (uint32_t cid = 0; cid < schema->num_columns(); ++cid) {
         auto column = block.get_by_position(cid).column->assert_mutable();
         column->insert_default();
