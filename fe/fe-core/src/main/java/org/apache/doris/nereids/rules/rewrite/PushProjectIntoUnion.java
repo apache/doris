@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -33,9 +34,11 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Project(Union) -> Union, if union with all qualifier and without children.
@@ -98,14 +101,32 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
             return false;
         }
         for (List<NamedExpression> constExprs : union.getConstantExprsList()) {
-            for (NamedExpression ne : constExprs) {
-                // reject sensitive constant rows wholesale: a NoneMovableFunction (e.g.
-                // assert_true) or a volatile constant must never be pushed into the union.
-                // substitution plus constant folding can eliminate the expression entirely
-                // (e.g. IF(FALSE, assert_true(...), TRUE) -> TRUE), suppress a required error,
-                // or duplicate/copy its evaluation, even when the parent project references it
-                // only once.
+            Set<Slot> sensitiveSlots = Sets.newHashSet();
+            for (int i = 0; i < constExprs.size(); i++) {
+                NamedExpression ne = constExprs.get(i);
                 if (ne.containsNoneMovableOrVolatile()) {
+                    sensitiveSlots.add(union.getOutput().get(i));
+                }
+            }
+            if (sensitiveSlots.isEmpty()) {
+                continue;
+            }
+            Set<Slot> counterSet = Sets.newHashSet();
+            // a NoneMovableFunction (e.g. assert_true) or volatile const slot referenced by the
+            // project multiple times must not be pushed into the union: the push-down would copy
+            // the expression and evaluate it multiple times.
+            // e.g. `select a as b, a as c from (select random() as a union all select 2 as a)`
+            // if push down the project, then random() will be evaluated twice: `random() as b, random() as c`
+            for (NamedExpression ne : project.getProjects()) {
+                if (ne.anyMatch(expr -> expr instanceof Slot
+                        && sensitiveSlots.contains(expr) && !counterSet.add((Slot) expr))) {
+                    return false;
+                }
+            }
+            // a sensitive const slot that the project does not reference at all would be dropped
+            // by the push-down, turning a required assertion/error into plain rows. reject.
+            for (Slot slot : sensitiveSlots) {
+                if (!counterSet.contains(slot)) {
                     return false;
                 }
             }

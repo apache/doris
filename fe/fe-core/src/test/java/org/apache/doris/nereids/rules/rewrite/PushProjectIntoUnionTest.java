@@ -200,14 +200,13 @@ public class PushProjectIntoUnionTest {
     }
 
     /**
-     * A constant UNION row holding a NoneMovableFunction (assert_true) must never be pushed into
-     * a project that references it exactly ONCE through a conditional: substituting the row and
-     * folding (e.g. IF(FALSE, assert_true(FALSE, 'bad'), TRUE) -> TRUE) would eliminate the
-     * assertion and suppress a required error. distinct from the zero-reference and
-     * repeated-reference threads. the rule must not fire.
+     * A NoneMovableFunction-backed constant referenced exactly ONCE by the project is allowed
+     * to be pushed into the union: only zero-reference (dropping the assertion) and
+     * repeated-reference (copying the expression) are rejected. the rule fires and the project
+     * is absorbed into the union.
      */
     @Test
-    public void testDoNotPushProjectIntoUnionWithNoneMovableConstFoldedAway() {
+    public void testPushProjectIntoUnionWithSingleNoneMovableConstReference() {
         SlotReference c = new SlotReference(new ExprId(10), "c",
                 BooleanType.INSTANCE, true, ImmutableList.of());
         SlotReference x = new SlotReference(new ExprId(11), "x",
@@ -233,9 +232,9 @@ public class PushProjectIntoUnionTest {
                 .applyTopDown(new PushProjectIntoUnion())
                 .getPlan();
 
-        // the rule must not fire: the project stays above the union.
-        Assertions.assertTrue(rewritten instanceof LogicalProject, rewritten.treeString());
-        Assertions.assertTrue(((LogicalProject<?>) rewritten).child() instanceof LogicalUnion,
+        // the rule fires: the project is absorbed and the root becomes a UNION.
+        Assertions.assertTrue(rewritten instanceof LogicalUnion, rewritten.treeString());
+        Assertions.assertEquals(2, ((LogicalUnion) rewritten).getConstantExprsList().size(),
                 rewritten.treeString());
     }
 

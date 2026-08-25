@@ -86,9 +86,10 @@ PhysicalResultSink
 
 -- !merge_union_3 --
 PhysicalResultSink
---PhysicalUnion(constantExprsList=[[random(1, 10) AS `b`]])
-----PhysicalProject[(cast(t1.id as BIGINT) + random(1, 10)) AS `b`]
-------PhysicalOlapScan[t1]
+--PhysicalProject[t.a AS `b`]
+----PhysicalUnion(constantExprsList=[[random(1, 10) AS `random(1, 10)`]])
+------PhysicalProject[(cast(t1.id as BIGINT) + random(1, 10)) AS `a`]
+--------PhysicalOlapScan[t1]
 
 -- !merge_union_4 --
 PhysicalResultSink
