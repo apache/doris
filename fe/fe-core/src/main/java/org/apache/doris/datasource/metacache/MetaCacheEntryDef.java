@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.metacache;
 
-import com.github.benmanes.caffeine.cache.RemovalListener;
-
 import java.util.Objects;
 import java.util.function.Function;
 import javax.annotation.Nullable;
