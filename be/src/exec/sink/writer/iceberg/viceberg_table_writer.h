@@ -71,6 +71,8 @@ public:
 
     TIcebergWriteType::type write_type() const { return _write_type; }
 
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
+
     // Getter for the current partition writer.
     // Used by SpillIcebergTableSinkLocalState to access the current writer for
     // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
@@ -80,6 +82,8 @@ public:
     std::shared_ptr<IPartitionWriterBase> current_writer() const { return _current_writer.load(); }
 
 private:
+    friend class IcebergTableSinkOperatorTest;
+
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
     // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size may run

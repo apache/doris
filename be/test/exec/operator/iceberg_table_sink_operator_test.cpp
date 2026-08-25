@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 #include "exec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -114,6 +115,17 @@ protected:
         auto writer = std::make_unique<FakeIcebergTableWriter>(_output_exprs, *fake_state);
         local_state->_writer = std::move(writer);
         ASSERT_TRUE(local_state->open(state).ok());
+    }
+
+    void set_partition_writers(SpillIcebergTableSinkLocalState* local_state,
+                               std::shared_ptr<VIcebergSortWriter> first,
+                               std::shared_ptr<VIcebergSortWriter> second) {
+        local_state->_writer->_partitions_to_writers.emplace("first", std::move(first));
+        local_state->_writer->_partitions_to_writers.emplace("second", std::move(second));
+    }
+
+    void mark_spilled(VIcebergSortWriter* writer) {
+        writer->_sorted_spill_files.emplace_back(nullptr);
     }
 
     ObjectPool _pool;
@@ -209,6 +221,28 @@ TEST_F(IcebergTableSinkOperatorTest, SpillSinkFinalizesEmptyEosAfterData) {
     EXPECT_EQ(fake_state->cleanup_count, 1);
 }
 
+TEST_F(IcebergTableSinkOperatorTest, SpillSinkReservesEosAdmissionAndLargestPartitionMerge) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    SpillIcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    SpillIcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+
+    EXPECT_EQ(local_state.get_reserve_mem_size(&state, true),
+              state.minimum_operator_memory_required_bytes());
+
+    auto empty_writer = std::make_shared<VIcebergSortWriter>(nullptr, TSortInfo {}, 0);
+    auto spilled_writer = std::make_shared<VIcebergSortWriter>(nullptr, TSortInfo {}, 0);
+    mark_spilled(spilled_writer.get());
+    EXPECT_EQ(spilled_writer->get_reserve_mem_size(&state, true),
+              static_cast<size_t>(state.spill_sort_merge_mem_limit_bytes()));
+    set_partition_writers(&local_state, std::move(empty_writer), std::move(spilled_writer));
+    EXPECT_EQ(local_state.get_reserve_mem_size(&state, true),
+              static_cast<size_t>(state.spill_sort_merge_mem_limit_bytes()));
+    ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
+}
+
 TEST_F(IcebergTableSinkOperatorTest, SpillSinkWriteErrorClosesWithError) {
     MockRuntimeState state;
     std::vector<TExpr> thrift_exprs;
@@ -228,6 +262,27 @@ TEST_F(IcebergTableSinkOperatorTest, SpillSinkWriteErrorClosesWithError) {
     EXPECT_EQ(fake_state->close_count, 1);
     ASSERT_EQ(fake_state->close_inputs.size(), 1);
     EXPECT_TRUE(fake_state->close_inputs.front().is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::INTERNAL_ERROR>());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, SpillSinkCloseErrorPropagatesAndCleansUp) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    SpillIcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    SpillIcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+    fake_state->close_result = Status::InternalError("injected close failure");
+
+    Block empty = ColumnHelper::create_block<DataTypeInt32>({});
+    Status sink_status = local_state.sink(&state, &empty, true);
+    EXPECT_TRUE(sink_status.is<ErrorCode::INTERNAL_ERROR>()) << sink_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
+
+    Status close_status = local_state.close(&state, sink_status);
+    EXPECT_TRUE(close_status.is<ErrorCode::INTERNAL_ERROR>()) << close_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
     EXPECT_EQ(fake_state->cleanup_count, 1);
     EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::INTERNAL_ERROR>());
 }

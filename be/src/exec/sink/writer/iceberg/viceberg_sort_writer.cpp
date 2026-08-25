@@ -82,7 +82,12 @@ size_t VIcebergSortWriter::data_size() const {
 
 size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
-    return _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
+    size_t reserve_size = _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
+    if (eos && !_sorted_spill_files.empty()) {
+        reserve_size = std::max(reserve_size,
+                                static_cast<size_t>(state->spill_sort_merge_mem_limit_bytes()));
+    }
+    return reserve_size;
 }
 
 Status VIcebergSortWriter::trigger_spill() {

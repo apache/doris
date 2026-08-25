@@ -109,6 +109,8 @@ public:
     Status trigger_spill();
 
 private:
+    friend class IcebergTableSinkOperatorTest;
+
     // Calculate average row size from the first non-empty block to determine
     // the optimal batch row count for spill operations
     void _update_spill_block_batch_row_count(const Block& block);

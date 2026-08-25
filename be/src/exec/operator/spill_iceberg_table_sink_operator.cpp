@@ -117,20 +117,8 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 }
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
-    std::shared_ptr<IPartitionWriterBase> current_writer;
-    {
-        std::lock_guard lock(_writer_mutex);
-        if (!_writer) {
-            return 0;
-        }
-        current_writer = _writer->current_writer();
-    }
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
-    }
-
-    return sort_writer->get_reserve_mem_size(state, eos);
+    DCHECK(_writer);
+    return _writer->get_reserve_mem_size(state, eos);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {

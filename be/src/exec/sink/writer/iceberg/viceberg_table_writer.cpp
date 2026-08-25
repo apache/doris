@@ -219,6 +219,29 @@ Status VIcebergTableWriter::write_prepared_block(Block& block) {
     return _write_prepared_block(block);
 }
 
+size_t VIcebergTableWriter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    size_t reserve_size = state->minimum_operator_memory_required_bytes();
+    if (!eos) {
+        auto current_writer = _current_writer.load();
+        if (!current_writer) {
+            return reserve_size;
+        }
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+        DORIS_CHECK(sort_writer != nullptr);
+        return std::max(reserve_size, sort_writer->get_reserve_mem_size(state, false));
+    }
+
+    // close() finalizes partition writers sequentially, so reserve the largest close peak rather
+    // than the sum. The admission floor also covers a first non-empty EOS, before write() has
+    // created its first partition writer.
+    for (const auto& [_, writer] : _partitions_to_writers) {
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get());
+        DORIS_CHECK(sort_writer != nullptr);
+        reserve_size = std::max(reserve_size, sort_writer->get_reserve_mem_size(state, true));
+    }
+    return reserve_size;
+}
+
 Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
     if (_write_type != TIcebergWriteType::INSERT) {
         return Status::OK();
