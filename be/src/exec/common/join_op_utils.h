@@ -62,7 +62,8 @@ inline constexpr bool is_asof_outer_join_op_v = JoinOpType == TJoinOp::ASOF_LEFT
 // ASOF JOIN index with inline values for cache-friendly branchless binary search.
 // IntType is the integer representation of the ASOF column value:
 //   uint32_t for DateV2, uint64_t for DateTimeV2 and TimestampTZ,
-//   int64_t for TimestampNs.
+//   int64_t for TimestampNs, and AsofMixedDateTimeKey for exact mixed
+//   TimestampNs/DateTimeV2 comparisons.
 // Rows are sorted by asof_value during build, then materialized into SoA arrays
 // so probe-side binary search only touches the ASOF values hot path.
 template <typename IntType>
@@ -150,10 +151,15 @@ struct AsofIndexGroup {
     }
 };
 
+using AsofMixedDateTimeKey = unsigned __int128;
+
 // Type-erased container for all ASOF index groups.
 // DateV2 -> uint32_t, DateTimeV2/TimestampTZ -> uint64_t, TimestampNs -> int64_t.
+// Mixed TimestampNs/DateTimeV2 uses a wider packed civil key with three extra
+// nanosecond digits, so neither side is narrowed to the other's physical type.
 using AsofIndexVariant =
         std::variant<std::monostate, std::vector<AsofIndexGroup<uint32_t>>,
-                     std::vector<AsofIndexGroup<uint64_t>>, std::vector<AsofIndexGroup<int64_t>>>;
+                     std::vector<AsofIndexGroup<uint64_t>>, std::vector<AsofIndexGroup<int64_t>>,
+                     std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>>;
 
 } // namespace doris

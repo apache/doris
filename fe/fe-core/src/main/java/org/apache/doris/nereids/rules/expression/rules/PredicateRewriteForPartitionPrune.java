@@ -19,12 +19,14 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
@@ -32,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.ArrayList;
@@ -56,6 +59,23 @@ public class PredicateRewriteForPartitionPrune
      */
     @Override
     public Expression visitInPredicate(InPredicate in, CascadesContext context) {
+        if (isDateTimeV2ToTimeStampNsCast(in.getCompareExpr())) {
+            Cast cast = (Cast) in.getCompareExpr();
+            DateTimeV2Type sourceType = (DateTimeV2Type) cast.child().getDataType();
+            List<Expression> children = new ArrayList<>();
+            children.add(cast.child());
+            for (Expression option : in.getOptions()) {
+                if (!(option instanceof TimeStampNsLiteral)) {
+                    return in;
+                }
+                TimeStampNsLiteral literal = (TimeStampNsLiteral) option;
+                if (canRepresentExactly(literal, sourceType.getScale())) {
+                    children.add(literal.roundFloorToDateTimeV2(sourceType.getScale()));
+                }
+            }
+            return children.size() == 1 ? BooleanLiteral.FALSE
+                    : in.withChildren(children);
+        }
         if (in.getCompareExpr() instanceof Date) {
             Expression dateChild = in.getCompareExpr().child(0);
             boolean convertable = true;
@@ -110,6 +130,15 @@ public class PredicateRewriteForPartitionPrune
 
     @Override
     public Expression visitEqualTo(EqualTo equalTo, CascadesContext context) {
+        if (isDateTimeV2ToTimeStampNsCast(equalTo.left())
+                && equalTo.right() instanceof TimeStampNsLiteral) {
+            Cast cast = (Cast) equalTo.left();
+            DateTimeV2Type sourceType = (DateTimeV2Type) cast.child().getDataType();
+            TimeStampNsLiteral literal = (TimeStampNsLiteral) equalTo.right();
+            return canRepresentExactly(literal, sourceType.getScale())
+                    ? new EqualTo(cast.child(), literal.roundFloorToDateTimeV2(sourceType.getScale()))
+                    : BooleanLiteral.FALSE;
+        }
         if (equalTo.left() instanceof Date) {
             Expression dateChild = equalTo.left().child(0);
             if (dateChild.getDataType() instanceof TimeStampNsType) {
@@ -117,6 +146,17 @@ public class PredicateRewriteForPartitionPrune
             }
         }
         return equalTo;
+    }
+
+    private static boolean isDateTimeV2ToTimeStampNsCast(Expression expression) {
+        return expression instanceof Cast
+                && expression.getDataType() instanceof TimeStampNsType
+                && expression.child(0).getDataType() instanceof DateTimeV2Type;
+    }
+
+    private static boolean canRepresentExactly(TimeStampNsLiteral literal, int scale) {
+        long scaleFactor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
+        return literal.getNanoSecond() % scaleFactor == 0;
     }
 
     private static Optional<Expression> timestampNsDateRange(Expression dateChild, Expression option) {

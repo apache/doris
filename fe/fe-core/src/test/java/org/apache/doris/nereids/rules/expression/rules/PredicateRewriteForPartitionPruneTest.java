@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -25,8 +26,11 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -73,5 +77,25 @@ class PredicateRewriteForPartitionPruneTest {
                 new LessThanEqual(slot,
                         new TimeStampNsLiteral("1969-12-31 23:59:59.999999999")));
         Assertions.assertEquals(expected, rewritten);
+    }
+
+    @Test
+    void testRewriteDateTimeV2CastToTimeStampNsForPruning() {
+        SlotReference slot = new SlotReference("dt", DateTimeV2Type.of(6), false);
+        Cast cast = new Cast(slot, TimeStampNsType.INSTANCE);
+        TimeStampNsLiteral first = new TimeStampNsLiteral("2024-01-01 00:00:00.000001000");
+        TimeStampNsLiteral second = new TimeStampNsLiteral("2024-01-02 00:00:00.000002000");
+
+        Expression rewrittenIn = PredicateRewriteForPartitionPrune.rewrite(
+                new InPredicate(cast, ImmutableList.of(first, second)), null);
+        Expression expectedIn = new InPredicate(slot, ImmutableList.of(
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2024-01-01 00:00:00.000001"),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2024-01-02 00:00:00.000002")));
+        Assertions.assertEquals(expectedIn, rewrittenIn);
+
+        Expression unreachable = PredicateRewriteForPartitionPrune.rewrite(
+                new EqualTo(cast,
+                        new TimeStampNsLiteral("2024-01-02 00:00:00.000002001")), null);
+        Assertions.assertEquals(BooleanLiteral.FALSE, unreachable);
     }
 }

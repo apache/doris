@@ -28,6 +28,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
@@ -691,6 +692,8 @@ public class ConnectContext {
                 return Literal.of(((StringLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
+            } else if (literalExpr instanceof TimeStampNsLiteral) {
+                return Literal.fromLegacyLiteral(literalExpr, literalExpr.getType());
             } else {
                 return Literal.of(literalExpr.getStringValue());
             }

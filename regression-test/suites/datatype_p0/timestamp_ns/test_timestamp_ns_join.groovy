@@ -198,4 +198,31 @@ suite("test_timestamp_ns_join") {
         on l.k = r.k
         order by l.id
     """
+
+    qt_timestamp_ns_asof_datetimev2 """
+        select l.id, r.id
+        from (
+            select 1 as id,
+                   cast('2024-01-01 00:00:00.000000001' as timestamp_ns) as dt
+        ) l
+        asof left join (
+            select 1 as id,
+                   cast('2024-01-01 00:00:00.000000' as datetimev2(6)) as dt
+        ) r
+        match_condition(l.dt >= r.dt)
+        on l.id = r.id
+    """
+    qt_datetimev2_asof_timestamp_ns """
+        select l.id, r.id
+        from (
+            select 1 as id,
+                   cast('2024-01-01 00:00:00.000000' as datetimev2(6)) as dt
+        ) l
+        asof left join (
+            select 1 as id,
+                   cast('2024-01-01 00:00:00.000000001' as timestamp_ns) as dt
+        ) r
+        match_condition(l.dt >= r.dt)
+        on l.id = r.id
+    """
 }
