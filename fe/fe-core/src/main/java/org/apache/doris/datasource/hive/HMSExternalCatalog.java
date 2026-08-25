@@ -35,6 +35,7 @@ import org.apache.doris.datasource.iceberg.IcebergCatalogResourceTracker;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
@@ -298,7 +299,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        cacheMgr.runCatalogLifecycle(getId(), () -> resetCatalogRuntime(cacheMgr, invalidCache));
+        resetCatalogRuntime(cacheMgr, invalidCache);
     }
 
     private void resetCatalogRuntime(ExternalMetaCacheMgr cacheMgr, boolean invalidCache) {

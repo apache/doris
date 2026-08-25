@@ -521,7 +521,7 @@ public class MetaCacheEntry<K, V> {
             return;
         }
         invalidateAll();
-        pendingRemovalNotifications.clear();
+        drainRemovalNotificationsOnClose();
         if (entryBudget != null) {
             entryBudget.close();
         }
@@ -835,12 +835,13 @@ public class MetaCacheEntry<K, V> {
         if (!weightBounded && !generationFencedRefresh && removalListener == null) {
             return;
         }
-        if (closed.get()) {
-            return;
-        }
         // Replacement transfers the existing reservation to the newly published generation. A
         // soft-value collection instead reports a null value with COLLECTED and must release it.
         if (cause == RemovalCause.REPLACED) {
+            return;
+        }
+        if (closed.get()) {
+            invokeRemovalListener(key, removalToken(value));
             return;
         }
         // The dead reservation is queued before the dependency notification so the shared
@@ -986,12 +987,26 @@ public class MetaCacheEntry<K, V> {
             if (removed == null || closed.get()) {
                 return;
             }
-            try {
-                removalListener.onRemoval(removed.key, removed.token);
-            } catch (RuntimeException e) {
-                LOG.warn("Failed to retire dependencies after removing external metadata cache entry {}",
-                        name, e);
-            }
+            invokeRemovalListener(removed.key, removed.token);
+        }
+    }
+
+    private void drainRemovalNotificationsOnClose() {
+        RemovedToken<K> removed;
+        while ((removed = pendingRemovalNotifications.poll()) != null) {
+            invokeRemovalListener(removed.key, removed.token);
+        }
+    }
+
+    private void invokeRemovalListener(K key, @Nullable Object token) {
+        if (removalListener == null) {
+            return;
+        }
+        try {
+            removalListener.onRemoval(key, token);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire dependencies after removing external metadata cache entry {}",
+                    name, e);
         }
     }
 

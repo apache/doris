@@ -85,6 +85,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
@@ -179,7 +180,7 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testReplacingTableGenerationRetiresSnapshotAndSchemaProjection() {
+    public void testReplacingTableGenerationRetiresSnapshotAndSchemaProjection() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
         try {
@@ -212,6 +213,12 @@ public class IcebergExternalMetaCacheTest {
             tables.invalidateKey(mapping);
             tables.put(mapping, second);
 
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);
+            while ((snapshots.peekIfPresent(oldSnapshotKey) != null
+                    || schemas.peekIfPresent(oldSchemaKey) != null)
+                    && System.nanoTime() < deadlineNanos) {
+                TimeUnit.MILLISECONDS.sleep(10L);
+            }
             Assert.assertNull(snapshots.peekIfPresent(oldSnapshotKey));
             Assert.assertNull(schemas.peekIfPresent(oldSchemaKey));
         } finally {
@@ -360,6 +367,7 @@ public class IcebergExternalMetaCacheTest {
         Mockito.when(catalog.getMetadataOps()).thenAnswer(invocation -> currentOps.get());
         Mockito.when(catalog.getExecutionAuthenticator()).thenAnswer(
                 invocation -> currentAuthenticator.get());
+        stubTableLoadContext(catalog);
         Table table = tableWithMetadataLocation("/metadata/coherent-acquisition-v1.json");
         org.mockito.stubbing.Answer<Table> loadFlipsGeneration = invocation -> {
             if (alterCompletesDuringLoad.get()) {
@@ -445,6 +453,7 @@ public class IcebergExternalMetaCacheTest {
             return authenticator;
         });
         Mockito.when(catalog.getMetadataOps()).thenReturn(currentOps);
+        stubTableLoadContext(catalog);
         Table table = tableWithMetadataLocation("/metadata/reset-before-capture-v1.json");
         Mockito.when(currentOps.loadTable("remote_db", "remote_tbl")).thenReturn(table);
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -643,6 +652,26 @@ public class IcebergExternalMetaCacheTest {
         return false;
     }
 
+    private static void stubTableLoadContext(IcebergExternalCatalog catalog) {
+        Mockito.when(catalog.beginTableLoad()).thenAnswer(invocation -> {
+            catalog.makeSureInitialized();
+            IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
+            ExecutionAuthenticator authenticator = catalog.getExecutionAuthenticator();
+            String catalogType = catalog.getIcebergCatalogType();
+            IcebergExternalCatalog.TableLoadContext context =
+                    Mockito.mock(IcebergExternalCatalog.TableLoadContext.class);
+            Mockito.when(context.getOps()).thenReturn(ops);
+            Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
+            Mockito.when(context.getCatalogType()).thenReturn(catalogType);
+            Mockito.when(context.loadTable(Mockito.anyString(), Mockito.anyString())).thenAnswer(load ->
+                    authenticator.execute(() -> ops.loadTable(load.getArgument(0), load.getArgument(1))));
+            IcebergCatalogResourceTracker.ResourceLease lease =
+                    Mockito.mock(IcebergCatalogResourceTracker.ResourceLease.class);
+            Mockito.when(context.promote()).thenReturn(lease);
+            return context;
+        });
+    }
+
     @Test
     public void testRejectedTableGenerationsDoNotAccumulateSnapshotOrSchemaProjections() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -655,6 +684,7 @@ public class IcebergExternalMetaCacheTest {
                 return task.call();
             }
         });
+        stubTableLoadContext(catalog);
         // Every reload advances the metadata location; every publication is rejected.
         Mockito.when(metadataOps.loadTable("remote_db", "remote_tbl")).thenReturn(
                 tableWithMetadataLocation("/metadata/rejected-v1.json"),
@@ -737,6 +767,7 @@ public class IcebergExternalMetaCacheTest {
                 return task.call();
             }
         });
+        stubTableLoadContext(catalog);
         TableMetadata metadata = metadataWithLocation("/metadata/ineffective-base.json");
         Table firstHandle = tableWithMetadata(metadata, new PropertiesFileIO("token", "one"));
         Table sameCredentials = tableWithMetadata(metadata, new PropertiesFileIO("token", "one"));
@@ -801,6 +832,7 @@ public class IcebergExternalMetaCacheTest {
                 return task.call();
             }
         });
+        stubTableLoadContext(catalog);
         Mockito.when(metadataOps.loadTable("remote_db", "remote_tbl")).thenAnswer(
                 invocation -> tableWithMetadataLocation("/metadata/ineffective-weighted.json"));
         AtomicInteger preparations = new AtomicInteger();
@@ -1733,6 +1765,7 @@ public class IcebergExternalMetaCacheTest {
                 }
             }
         });
+        stubTableLoadContext(catalog);
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
             @Override
             protected CatalogIf<?> getCatalog(long catalogId) {
@@ -1892,6 +1925,7 @@ public class IcebergExternalMetaCacheTest {
         IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
         Mockito.when(catalog.getMetadataOps()).thenReturn(metadataOps);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() { });
+        stubTableLoadContext(catalog);
         Mockito.when(metadataOps.loadTable("db", "tbl")).thenReturn(freshTable);
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
             @Override
