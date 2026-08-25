@@ -157,6 +157,7 @@ import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.RewritePartitionColumnMinMaxToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
@@ -289,6 +290,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     new NormalizeAggregate(),
                                     new CountLiteralRewrite(),
                                     new RewriteSimpleAggToConstantRule(),
+                                    new RewritePartitionColumnMinMaxToConstantRule(),
                                     new NormalizeSort()
                             ),
 
@@ -530,6 +532,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new NormalizeAggregate(),
                         new CountLiteralRewrite(),
                         new RewriteSimpleAggToConstantRule(),
+                        new RewritePartitionColumnMinMaxToConstantRule(),
                         new NormalizeSort()
                 ),
 
