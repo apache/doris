@@ -1162,7 +1162,7 @@ public abstract class Type {
             case TIMEV2:
                 return t.decimalPrecision();
             case TIMESTAMP_NS:
-                return 29;
+                return ScalarType.TIMESTAMP_NS_PRECISION;
             default:
                 return null;
         }
@@ -1200,7 +1200,7 @@ public abstract class Type {
             case DECIMAL256:
                 return t.decimalScale();
             case TIMESTAMP_NS:
-                return 9;
+                return ScalarType.TIMESTAMP_NS_SCALE;
             default:
                 return null;
         }

@@ -81,6 +81,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL256_PRECISION = 76;
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
+    public static final int TIMESTAMP_NS_PRECISION = 29;
     public static final int TIMESTAMP_NS_SCALE = 9;
     public static final int MAX_PRECISION = MAX_DECIMAL256_PRECISION;
 
@@ -854,11 +855,11 @@ public class ScalarType extends Type {
 
     // add scalar infix to override with getPrecision
     public int getScalarScale() {
-        return scale;
+        return type == PrimitiveType.TIMESTAMP_NS ? TIMESTAMP_NS_SCALE : scale;
     }
 
     public int getScalarPrecision() {
-        return precision;
+        return type == PrimitiveType.TIMESTAMP_NS ? TIMESTAMP_NS_PRECISION : precision;
     }
 
     public String getScalarPrecisionStr() {

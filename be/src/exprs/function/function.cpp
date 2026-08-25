@@ -361,6 +361,7 @@ bool contains_date_or_datetime_or_decimal(const DataTypePtr& type) {
         // For scalar types, check if it's date/datetime/decimal
         return is_date_or_datetime(type_ptr->get_primitive_type()) ||
                is_date_v2_or_datetime_v2(type_ptr->get_primitive_type()) ||
+               is_timestamp_ns_type(type_ptr->get_primitive_type()) ||
                is_decimal(type_ptr->get_primitive_type()) ||
                is_time_type(type_ptr->get_primitive_type());
     }
@@ -376,6 +377,12 @@ bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
             func_return_type->is_nullable()
                     ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
                     : func_return_type;
+    // A mismatched parent (for example, a STRUCT with one DATETIMEV2 scale difference) can still
+    // contain identical TIMESTAMP_NS or ordinary scalar children. Accept those exact subtrees
+    // before applying the historical date/decimal family compatibility rules below.
+    if (return_type_ptr->equals(*func_return_type_ptr)) {
+        return true;
+    }
     // make sure that map/struct/array also need to check
     if (return_type_ptr->get_primitive_type() != func_return_type_ptr->get_primitive_type()) {
         return false;

@@ -57,11 +57,16 @@ public class ColumnTest {
 
         Assert.assertEquals("2000-01-01 00:00:00.000000000", thriftColumn.getDefaultValue());
         Assert.assertEquals("CURRENT_TIMESTAMP(9)", thriftColumn.getDefaultValueExpr());
+        Assert.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION,
+                thriftColumn.getColumnType().getPrecision());
+        Assert.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, thriftColumn.getColumnType().getScale());
 
         OlapFile.ColumnPB protobufColumn = ColumnToProtobuf.toPb(column, null, null);
         Assert.assertEquals("2000-01-01 00:00:00.000000000",
                 protobufColumn.getDefaultValue().toStringUtf8());
         Assert.assertEquals("CURRENT_TIMESTAMP(9)", protobufColumn.getDefaultValueExpr().toStringUtf8());
+        Assert.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, protobufColumn.getPrecision());
+        Assert.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, protobufColumn.getFrac());
 
         Column datetimeColumn = new Column("dt", ScalarType.createDatetimeV2Type(6), false, null, true,
                 "CURRENT_TIMESTAMP(6)", "", true, null, 2,
