@@ -32,6 +32,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/logging.h"
@@ -168,6 +169,10 @@ public:
                                            std::vector<PIntegerPair>* offsets, int timeout);
 
 private:
+    Status _get_offsets_for_partitions(
+            const std::vector<std::pair<int32_t, int64_t>>& partition_offset_specs,
+            std::vector<PIntegerPair>* offsets, int timeout);
+
     std::string _brokers;
     std::string _topic;
     std::unordered_map<std::string, std::string> _custom_properties;
