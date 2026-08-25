@@ -60,16 +60,31 @@ public class DateTimeFormatterUtils {
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
             .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // HH[:mm][:ss][.fraction]
+    // HH[:mm][:ss][.microsecond]. Keep the historical seventh rounding-guard digit;
+    // TIMESTAMP_NS parsing selects the separate nine-digit formatter below.
     public static final DateTimeFormatter TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.HOUR_OF_DAY, 2)
+            .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+            .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            .appendOptional(new DateTimeFormatterBuilder()
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // Time without delimiter: HHmmss[.microsecond]
+    private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.HOUR_OF_DAY, 2)
+            .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+            .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            .appendOptional(new DateTimeFormatterBuilder()
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    private static final DateTimeFormatter TIMESTAMP_NS_TIME_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
             .appendOptional(new DateTimeFormatterBuilder()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 1, TimeStampNsType.SCALE, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // Time without delimiter: HHmmss[.microsecond]
-    private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
+    private static final DateTimeFormatter TIMESTAMP_NS_BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
@@ -95,6 +110,19 @@ public class DateTimeFormatterUtils {
             .appendOptional(BASIC_TIME_FORMATTER)
             .appendOptional(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter TIMESTAMP_NS_BASIC_DATE_TIME_FORMATTER
+            = new DateTimeFormatterBuilder()
+                    .append(BASIC_DATE_FORMATTER)
+                    .appendLiteral('T')
+                    .append(TIMESTAMP_NS_BASIC_TIME_FORMATTER)
+                    .appendOptional(ZONE_FORMATTER)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter TIMESTAMP_NS_BASIC_FORMATTER_WITHOUT_T
+            = new DateTimeFormatterBuilder()
+                    .append(BASIC_DATE_FORMATTER)
+                    .appendOptional(TIMESTAMP_NS_BASIC_TIME_FORMATTER)
+                    .appendOptional(ZONE_FORMATTER)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
     // Datetime
     public static final DateTimeFormatter DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
@@ -114,6 +142,13 @@ public class DateTimeFormatterUtils {
             .append(TIME_FORMATTER)
             .append(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter TIMESTAMP_NS_ZONE_DATE_TIME_FORMATTER
+            = new DateTimeFormatterBuilder()
+                    .append(DATE_FORMATTER)
+                    .appendLiteral(' ')
+                    .append(TIMESTAMP_NS_TIME_FORMATTER)
+                    .append(ZONE_FORMATTER)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
     private static final int WEEK_MONDAY_FIRST = 1;
     private static final int WEEK_YEAR = 2;

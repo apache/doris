@@ -101,6 +101,12 @@ class DateTimeLiteralTest {
         assertFunc.accept(check("220801010102", DateTimeV2Literal::new));
         assertFunc.accept(check("220801T010102", DateTimeV2Literal::new));
         assertFunc.accept(check("20220801010101.9999999", DateTimeV2Literal::new));
+
+        // TIMESTAMP_NS must not widen the basic-format parser used by legacy date-like types.
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new DateTimeV2Literal("20220801T010101.12345678"));
+        TimeStampNsLiteral timestampNs = new TimeStampNsLiteral("20220801T010101.1234567895");
+        Assertions.assertEquals("2022-08-01 01:01:01.123456790", timestampNs.getStringValue());
     }
 
     @Test
@@ -587,6 +593,16 @@ class DateTimeLiteralTest {
 
         Assertions.assertEquals(l1, l2);
         Assertions.assertNotEquals(l1, l3);
+
+        DateTimeLiteral legacyWithHiddenFraction = new DateTimeLiteral(
+                DateTimeType.INSTANCE, 2024, 1, 1, 0, 0, 0, 123456);
+        DateTimeLiteral legacyWithoutFraction = new DateTimeLiteral(
+                DateTimeType.INSTANCE, 2024, 1, 1, 0, 0, 0, 0);
+        Assertions.assertEquals(0, legacyWithHiddenFraction.compareTo(legacyWithoutFraction));
+        Assertions.assertNotEquals(0, new DateTimeV2Literal(
+                DateTimeV2Type.MAX, 2024, 1, 1, 0, 0, 0, 123456)
+                .compareTo(new DateTimeV2Literal(
+                        DateTimeV2Type.MAX, 2024, 1, 1, 0, 0, 0, 0)));
     }
 
     private <L extends DateLiteral> L check(String str, Function<String, L> literalBuilder) {
