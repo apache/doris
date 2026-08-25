@@ -55,13 +55,6 @@ public class QueryFinishCallbackRegistry {
     }
 
     /**
-     * Register a callback that must run before ordinary resource-cleanup callbacks.
-     */
-    public void registerFirst(String queryId, Runnable callback) {
-        callbacks.computeIfAbsent(queryId, k -> new CopyOnWriteArrayList<>()).add(0, callback);
-    }
-
-    /**
      * Run and remove all callbacks registered for the given query. Idempotent:
      * a second call, or a call for a query with no callbacks, is a no-op.
      * Exceptions thrown by an individual callback are isolated so that one

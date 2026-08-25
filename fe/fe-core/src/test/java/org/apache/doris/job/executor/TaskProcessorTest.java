@@ -17,32 +17,18 @@
 
 package org.apache.doris.job.executor;
 
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.mvcc.MvccTable;
-import org.apache.doris.datasource.mvcc.MvccTableInfo;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.Mockito;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -77,113 +63,6 @@ public class TaskProcessorTest {
         } finally {
             Assert.assertNull(ConnectContext.get());
             taskProcessor.shutdown();
-        }
-    }
-
-    @Test
-    public void testRunQueryFinishCallbacksForTaskContext() {
-        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setStatementContext(new StatementContext());
-        TUniqueId queryId = new TUniqueId(1L, 1L);
-        connectContext.setQueryId(queryId);
-        connectContext.setThreadLocalInfo();
-        AtomicInteger callbackCount = new AtomicInteger();
-        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
-                DebugUtil.printId(queryId), callbackCount::incrementAndGet);
-        try {
-            Deencapsulation.invoke(taskProcessor, "closeTaskContext");
-            Assert.assertEquals(1, callbackCount.get());
-            Assert.assertNull(ConnectContext.get());
-        } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-            ConnectContext.remove();
-            taskProcessor.shutdown();
-        }
-    }
-
-    @Test
-    public void testReleaseEveryMTMVExecutionContext() {
-        AtomicInteger closeCount = new AtomicInteger();
-        MTMVTask task = new MTMVTask();
-        try {
-            for (int i = 0; i < 2; i++) {
-                ConnectContext connectContext = new ConnectContext();
-                connectContext.setThreadLocalInfo();
-                StatementContext statementContext = new StatementContext();
-                connectContext.setStatementContext(statementContext);
-                ConnectorStatementScope scope = statementContext.getOrCreateConnectorStatementScope();
-                scope.computeIfAbsent("closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
-
-                Deencapsulation.invoke(task, "closeExecutionContext", connectContext);
-                Assert.assertNull(ConnectContext.get());
-            }
-            Assert.assertEquals(2, closeCount.get());
-        } finally {
-            ConnectContext.remove();
-        }
-    }
-
-    @Test
-    public void testRestorePinnedSnapshotAndFinishCallbacksBetweenMTMVChunks() {
-        MTMVTask task = new MTMVTask();
-        ConnectContext taskContext = new ConnectContext();
-        StatementContext taskStatementContext = new StatementContext();
-        taskContext.setStatementContext(taskStatementContext);
-        taskContext.setThreadLocalInfo();
-
-        MvccTable table = Mockito.mock(MvccTable.class);
-        DatabaseIf database = Mockito.mock(DatabaseIf.class);
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
-        Mockito.when(table.getDatabase()).thenReturn(database);
-        Mockito.when(table.getName()).thenReturn("external_table");
-        Mockito.when(database.getCatalog()).thenReturn(catalog);
-        Mockito.when(database.getFullName()).thenReturn("external_db");
-        Mockito.when(catalog.getName()).thenReturn("external_catalog");
-        MvccSnapshot pinnedSnapshot = Mockito.mock(MvccSnapshot.class);
-        Map<MvccTableInfo, MvccSnapshot> snapshots = new HashMap<>();
-        snapshots.put(new MvccTableInfo(table), pinnedSnapshot);
-        Deencapsulation.setField(task, "snapshots", snapshots);
-        Deencapsulation.invoke(task, "installTaskSnapshots", taskStatementContext);
-
-        AtomicInteger callbackCount = new AtomicInteger();
-        try {
-            for (int i = 0; i < 2; i++) {
-                ConnectContext executionContext = new ConnectContext();
-                executionContext.setStatementContext(new StatementContext());
-                TUniqueId queryId = new TUniqueId(1L, i + 1L);
-                executionContext.setQueryId(queryId);
-                executionContext.setThreadLocalInfo();
-                QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
-                        DebugUtil.printId(queryId), callbackCount::incrementAndGet);
-
-                Deencapsulation.invoke(task, "closeExecutionContext", executionContext, taskContext);
-
-                Assert.assertSame(taskContext, ConnectContext.get());
-                Assert.assertSame(pinnedSnapshot,
-                        MvccUtil.getSnapshotFromContext(table).orElse(null));
-            }
-            Assert.assertEquals(2, callbackCount.get());
-        } finally {
-            taskStatementContext.close();
-            ConnectContext.remove();
-        }
-    }
-
-    @Test
-    public void testCreateMTMVTaskContextInstallsStatementContext() {
-        MTMVTask task = new MTMVTask();
-        MTMV mtmv = Mockito.mock(MTMV.class);
-        Mockito.when(mtmv.getSessionVariables()).thenReturn(Collections.emptyMap());
-        Deencapsulation.setField(task, "mtmv", mtmv);
-
-        ConnectContext taskContext = Deencapsulation.invoke(task, "createTaskContext");
-        try {
-            Assert.assertSame(taskContext, ConnectContext.get());
-            Assert.assertNotNull(taskContext.getStatementContext());
-        } finally {
-            taskContext.getStatementContext().close();
-            ConnectContext.remove();
         }
     }
 

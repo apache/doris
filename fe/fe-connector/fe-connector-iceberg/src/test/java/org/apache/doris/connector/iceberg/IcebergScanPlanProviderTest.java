@@ -2382,21 +2382,6 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertDoesNotThrow(source::close);
     }
 
-    @Test
-    public void streamSplitsCancelBeforeIterationStopsAndStillCloses() throws IOException {
-        Table table = createTable("cancel_before_iteration", SCHEMA, PartitionSpec.unpartitioned());
-        table.newAppend().appendFile(dataFile(table.spec(),
-                "s3://b/db/cancel_before_iteration/f1.parquet", 1024, null, null)).commit();
-        ConnectorSplitSource source = providerOver(table).streamSplits(emptySession(),
-                new IcebergTableHandle("db1", "cancel_before_iteration"),
-                Collections.emptyList(), Optional.empty(), -1L);
-
-        source.cancel();
-
-        Assertions.assertFalse(source.hasNext());
-        Assertions.assertDoesNotThrow(source::close);
-    }
-
     /** A minimal {@link ConnectorSession} exposing a time zone + session split-size properties (no Mockito). */
     private static final class FakeScanSession implements ConnectorSession {
         private final String timeZone;

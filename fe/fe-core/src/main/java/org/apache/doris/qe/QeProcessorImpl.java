@@ -226,10 +226,6 @@ public final class QeProcessorImpl implements QeProcessor {
         queryFinishCallbackRegistry.register(queryId, callback);
     }
 
-    public void registerQueryFinishCallbackFirst(String queryId, Runnable callback) {
-        queryFinishCallbackRegistry.registerFirst(queryId, callback);
-    }
-
     @Override
     public Map<String, QueryStatisticsItem> getQueryStatistics() {
         final Map<String, QueryStatisticsItem> querySet = Maps.newHashMap();

@@ -20,7 +20,6 @@ package org.apache.doris.job.executor;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QeProcessorImpl;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -94,9 +93,6 @@ public class TaskProcessor {
         ConnectContext connectContext = ConnectContext.get();
         try {
             if (connectContext != null) {
-                if (connectContext.queryId() != null) {
-                    QeProcessorImpl.INSTANCE.unregisterQuery(connectContext.queryId());
-                }
                 StatementContext statementContext = connectContext.getStatementContext();
                 if (statementContext != null) {
                     statementContext.close();
