@@ -29,12 +29,11 @@
 -- !timestamp_old_snapshot --
 1	old-1
 
--- !pre_fast_forward_tag --
+-- !pre_fast_forward_branch --
 1	old-1	10
 
--- !t09_pre_rename_branch_write --
+-- !pre_fast_forward_tag --
 1	old-1	10
-3	branch-3	30
 
 -- !post_fast_forward_branch --
 1	old-1	10

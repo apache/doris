@@ -38,12 +38,13 @@
 4	CN-east	new-spec
 5	DE-west	\N
 6	\N	null-zone
+
 -- !branch_after_insert --
 1	CN	base-cn	\N
 2	US	base-us	\N
 3	\N	\N	\N
-7	JP-east	branch-insert	\N
-8	FR-west	branch-overwrite-seed	\N
+7	JP-east	branch	branch-insert
+8	FR-west	branch-seed	branch-overwrite-seed
 
 -- !main_unchanged_after_branch_insert --
 1
@@ -57,7 +58,7 @@
 1	CN	base-cn	\N
 2	US	base-us	\N
 3	\N	\N	\N
-7	JP-east	branch-insert	\N
+7	JP-east	branch	branch-insert
 8	FR-west	branch-overwrite	branch-overwrite
 
 -- !base_tag_after_branch_overwrite --

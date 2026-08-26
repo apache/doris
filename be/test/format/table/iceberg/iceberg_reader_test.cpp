@@ -124,8 +124,8 @@ public:
         _required_column_types[name] = type;
     }
 
-    Status materialize_missing_table_columns(Block* block, size_t rows) {
-        return _materialize_missing_table_columns(block, rows);
+    Status materialize_missing_table_columns(Block* block) {
+        return _materialize_missing_table_columns(block);
     }
 
     Status validate_required_table_columns(Block* block) {
@@ -607,6 +607,132 @@ protected:
         return (*desc_tbl)->get_tuple_descriptor(0);
     }
 
+    const TupleDescriptor* create_missing_required_nested_tuple_descriptor(
+            DescriptorTbl** desc_tbl, ObjectPool& obj_pool, TDescriptorTable& t_desc_table) {
+        TTableDescriptor table_desc;
+        table_desc.__set_id(0);
+        table_desc.__set_tableType(TTableType::OLAP_TABLE);
+        table_desc.__set_numCols(0);
+        table_desc.__set_numClusteringCols(0);
+        t_desc_table.tableDescriptors.push_back(table_desc);
+        t_desc_table.__isset.tableDescriptors = true;
+
+        TSlotDescriptor slot_desc;
+        slot_desc.__set_id(0);
+        slot_desc.__set_parent(0);
+        slot_desc.__set_col_unique_id(3);
+        slot_desc.__set_colName("profile");
+        slot_desc.__set_columnPos(0);
+        slot_desc.__set_byteOffset(0);
+        slot_desc.__set_nullIndicatorByte(0);
+        slot_desc.__set_nullIndicatorBit(-1);
+        slot_desc.__set_slotIdx(0);
+        slot_desc.__set_isMaterialized(true);
+
+        TTypeDesc type;
+        TTypeNode struct_node;
+        struct_node.__set_type(TTypeNodeType::STRUCT);
+        TStructField required_child;
+        required_child.__set_name("required_added");
+        // Iceberg requiredness travels separately from Doris type nullability.
+        required_child.__set_contains_null(true);
+        struct_node.__set_struct_fields({required_child});
+        type.types.push_back(struct_node);
+        TTypeNode child_node;
+        child_node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType child_scalar;
+        child_scalar.__set_type(TPrimitiveType::INT);
+        child_node.__set_scalar_type(child_scalar);
+        type.types.push_back(child_node);
+        slot_desc.__set_slotType(type);
+        t_desc_table.slotDescriptors.push_back(slot_desc);
+        t_desc_table.__isset.slotDescriptors = true;
+
+        TTupleDescriptor tuple_desc;
+        tuple_desc.__set_id(0);
+        tuple_desc.__set_byteSize(16);
+        tuple_desc.__set_numNullBytes(0);
+        tuple_desc.__set_tableId(0);
+        tuple_desc.__isset.tableId = true;
+        t_desc_table.tupleDescriptors.push_back(tuple_desc);
+
+        EXPECT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, desc_tbl).ok());
+        return (*desc_tbl)->get_tuple_descriptor(0);
+    }
+
+    void set_missing_required_nested_schema(TFileScanRangeParams* scan_params) {
+        const auto required_child = iceberg_int_field("required_added", 100, false);
+        schema::external::TFieldPtr child_ptr;
+        child_ptr.__set_field_ptr(required_child);
+        schema::external::TStructField profile_fields;
+        profile_fields.__set_fields({child_ptr});
+
+        auto profile = std::make_shared<schema::external::TField>();
+        profile->__set_name("profile");
+        profile->__set_id(3);
+        profile->__set_is_optional(true);
+        TColumnType profile_type;
+        profile_type.__set_type(TPrimitiveType::STRUCT);
+        profile->__set_type(profile_type);
+        profile->nestedField.__set_struct_field(profile_fields);
+        profile->__isset.nestedField = true;
+        schema::external::TFieldPtr profile_ptr;
+        profile_ptr.__set_field_ptr(profile);
+
+        schema::external::TStructField root;
+        root.__set_fields({profile_ptr});
+        schema::external::TSchema schema;
+        schema.__set_schema_id(100);
+        schema.__set_root_field(root);
+        scan_params->__set_current_schema_id(100);
+        scan_params->__set_history_schema_info({schema});
+        scan_params->__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    }
+
+    Status init_missing_required_nested_reader(TFileFormatType::type format,
+                                               const std::string& file_path,
+                                               const io::FileReaderSPtr& file_reader) {
+        RuntimeState runtime_state {TQueryGlobals()};
+        TFileScanRangeParams scan_params;
+        scan_params.__set_format_type(format);
+        set_missing_required_nested_schema(&scan_params);
+        TFileRangeDesc scan_range;
+        scan_range.__set_start_offset(0);
+        scan_range.__set_size(file_reader->size());
+        scan_range.__set_path(file_path);
+        RuntimeProfile profile("test_profile");
+
+        DescriptorTbl* desc_tbl;
+        ObjectPool obj_pool;
+        TDescriptorTable t_desc_table;
+        const auto* tuple_descriptor =
+                create_missing_required_nested_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table);
+        std::vector<std::string> table_col_names = {"profile"};
+        std::unordered_map<std::string, uint32_t> column_positions = {{"profile", 0}};
+        VExprContextSPtrs conjuncts;
+        if (format == TFileFormatType::FORMAT_PARQUET) {
+            auto parquet_reader = ParquetReader::create_unique(&profile, scan_params, scan_range,
+                                                               1024, &timezone_obj, nullptr,
+                                                               &runtime_state, cache.get());
+            DORIS_CHECK(parquet_reader != nullptr);
+            parquet_reader->set_file_reader(file_reader);
+            IcebergParquetReader reader(std::move(parquet_reader), &profile, &runtime_state,
+                                        scan_params, scan_range, nullptr, nullptr, cache.get());
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> predicates;
+            return reader.init_reader(table_col_names, &column_positions, conjuncts, predicates,
+                                      tuple_descriptor, nullptr, nullptr, nullptr, nullptr);
+        }
+
+        DORIS_CHECK(format == TFileFormatType::FORMAT_ORC);
+        auto orc_reader = OrcReader::create_unique(&profile, &runtime_state, scan_params,
+                                                   scan_range, 1024, "CST", nullptr, cache.get());
+        DORIS_CHECK(orc_reader != nullptr);
+        IcebergOrcReader reader(std::move(orc_reader), &profile, &runtime_state, scan_params,
+                                scan_range, nullptr, nullptr, cache.get());
+        return reader.init_reader(table_col_names, &column_positions, conjuncts, tuple_descriptor,
+                                  nullptr, nullptr, nullptr, nullptr);
+    }
+
     // Helper function to verify test results
     void verify_test_results(Block& block, size_t read_rows) {
         // Verify that we read some data
@@ -728,8 +854,28 @@ TEST_F(IcebergReaderTest, materializes_top_level_initial_default_with_v1_reader)
     auto placeholders = type->create_column();
     placeholders->insert_many_defaults(3);
     block.insert({std::move(placeholders), type, "added"});
-    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 3).ok());
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
     expect_repeated_nullable_int(block, 3, 17);
+}
+
+TEST_F(IcebergReaderTest, materializes_empty_block_after_missing_column_predicate_filter) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+
+    const auto field = iceberg_int_field("added", 7, true, "17");
+    reader.set_missing_table_field("added", field);
+    std::unordered_map<std::string, uint32_t> column_name_to_block_index {{"added", 0}};
+    reader.set_column_name_to_block_index(&column_name_to_block_index);
+
+    const auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    Block block;
+    block.insert({type->create_column(), type, "added"});
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
+    EXPECT_EQ(block.rows(), 0);
 }
 
 TEST_F(IcebergReaderTest, materializes_timestamptz_initial_default_in_session_timezone) {
@@ -758,7 +904,7 @@ TEST_F(IcebergReaderTest, materializes_timestamptz_initial_default_in_session_ti
     auto placeholders = type->create_column();
     placeholders->insert_default();
     block.insert({std::move(placeholders), type, "event_time"});
-    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 1).ok());
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
     EXPECT_EQ(type->to_string(*block.get_by_position(0).column, 0), "2025-01-18 09:02:03.654321");
 }
 
@@ -835,13 +981,13 @@ TEST_F(IcebergReaderTest, replaces_reader_placeholders_across_rowid_fetch_batche
     block.insert({std::move(placeholders), type, "added"});
 
     // Parquet and ORC fill a placeholder before each row-id batch reaches the Iceberg reader.
-    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 1).ok());
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
     {
         auto column = block.mutate_column_scoped(0);
         column.mutable_column()->insert_default();
     }
-    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 1).ok());
-    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 0).ok());
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
     expect_repeated_nullable_int(block, 2, 17);
 }
 
@@ -870,7 +1016,7 @@ TEST_F(IcebergReaderTest, preserves_generated_row_lineage_values_with_v1_reader)
     Block block;
     block.insert({ColumnNullable::create(std::move(values), ColumnUInt8::create(2, 0)), type,
                   IcebergTableReader::ROW_LINEAGE_ROW_ID});
-    ASSERT_TRUE(reader.materialize_missing_table_columns(&block, 2).ok());
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
 
     const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& preserved =
@@ -1012,7 +1158,7 @@ TEST_F(IcebergReaderTest, rejects_missing_required_top_level_field_with_v1_reade
     const auto type = std::make_shared<DataTypeInt32>();
     Block block;
     block.insert({type->create_column(), type, "required_added"});
-    const Status status = reader.materialize_missing_table_columns(&block, 1);
+    const Status status = reader.materialize_missing_table_columns(&block);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("has no initial default"), std::string::npos);
 }
@@ -1325,6 +1471,23 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     verify_test_results(block, read_rows);
 }
 
+TEST_F(IcebergReaderTest, rejects_missing_required_nested_field_before_parquet_lazy_read) {
+    const std::string test_file =
+            "./be/test/exec/test_data/complex_user_profiles_iceberg_parquet/data/"
+            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet";
+    io::FileReaderSPtr file_reader;
+    const auto open_status = io::global_local_filesystem()->open_file(test_file, &file_reader);
+    if (!open_status.ok()) {
+        GTEST_SKIP() << "Test file not found: " << test_file;
+    }
+
+    const auto status = init_missing_required_nested_reader(TFileFormatType::FORMAT_PARQUET,
+                                                            test_file, file_reader);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("required_added"), std::string::npos);
+    EXPECT_NE(status.to_string().find("has no initial default"), std::string::npos);
+}
+
 // Test reading real Iceberg Orc file using IcebergTableReader
 TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
@@ -1458,6 +1621,23 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
 
     // Verify test results using helper function
     verify_test_results(block, read_rows);
+}
+
+TEST_F(IcebergReaderTest, rejects_missing_required_nested_field_before_orc_lazy_read) {
+    const std::string test_file =
+            "./be/test/exec/test_data/complex_user_profiles_iceberg_orc/data/"
+            "00000-0-e4897963-0081-4127-bebe-35dc7dc1edeb-0-00001.orc";
+    io::FileReaderSPtr file_reader;
+    const auto open_status = io::global_local_filesystem()->open_file(test_file, &file_reader);
+    if (!open_status.ok()) {
+        GTEST_SKIP() << "Test file not found: " << test_file;
+    }
+
+    const auto status = init_missing_required_nested_reader(TFileFormatType::FORMAT_ORC, test_file,
+                                                            file_reader);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("required_added"), std::string::npos);
+    EXPECT_NE(status.to_string().find("has no initial default"), std::string::npos);
 }
 
 } // namespace doris

@@ -102,7 +102,7 @@ template <typename Offsets>
 const NullMap* project_iceberg_parent_null_map(const NullMap* own_null_map,
                                                const NullMap* ancestor_null_map, size_t rows,
                                                const Offsets& offsets, size_t child_rows,
-                                               NullMap* projected_null_map) {
+                                               NullMap* const projected_null_map) {
     if (own_null_map == nullptr && ancestor_null_map == nullptr) {
         return nullptr;
     }
@@ -124,6 +124,9 @@ const NullMap* project_iceberg_parent_null_map(const NullMap* own_null_map,
     return projected_null_map;
 }
 
+// This recursive type dispatcher mirrors Iceberg's nested types; DORIS_CHECK expansion inflates
+// the measured complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status validate_iceberg_required_field(const schema::external::TField& field,
                                        const DataTypePtr& data_type, const ColumnPtr& column,
                                        const NullMap* ancestor_null_map = nullptr) {
@@ -215,6 +218,96 @@ Status validate_iceberg_required_field(const schema::external::TField& field,
         return validate_iceberg_required_field(*map_field.value_field.field_ptr,
                                                map_type.get_value_type(),
                                                map_column.get_values_ptr(), entry_parent);
+    }
+    default:
+        return Status::OK();
+    }
+}
+
+Status validate_projected_missing_iceberg_field(const schema::external::TField& field,
+                                                const DataTypePtr& data_type,
+                                                const cctz::time_zone* timezone) {
+    DORIS_CHECK(field.__isset.is_optional);
+    // A missing optional field without an initial default materializes as NULL. Its required
+    // descendants are not logically visible, so validation stops at this missing ancestor.
+    if (field.is_optional && !field.__isset.initial_default_value) {
+        return Status::OK();
+    }
+    ColumnPtr default_value;
+    return iceberg::create_initial_default_column(field, data_type, &default_value, timezone);
+}
+
+// This recursive type dispatcher mirrors Iceberg's nested types; DORIS_CHECK expansion inflates
+// the measured complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+Status validate_projected_missing_required_iceberg_fields(
+        const schema::external::TField& field, const DataTypePtr& data_type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& mapping,
+        const cctz::time_zone* timezone) {
+    DORIS_CHECK(data_type != nullptr);
+    DORIS_CHECK(mapping != nullptr);
+    if (std::dynamic_pointer_cast<TableSchemaChangeHelper::ConstNode>(mapping) != nullptr) {
+        return Status::OK();
+    }
+
+    const auto value_type = remove_nullable(data_type);
+    switch (value_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto struct_mapping =
+                std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(mapping);
+        DORIS_CHECK(struct_mapping != nullptr);
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*value_type);
+        for (size_t child = 0; child < struct_type.get_elements().size(); ++child) {
+            const auto& child_name = struct_type.get_element_name(child);
+            const auto* child_field = find_iceberg_struct_child(field, child_name);
+            DORIS_CHECK(child_field != nullptr);
+            if (!struct_mapping->children_column_exists(child_name)) {
+                const auto* missing_field = struct_mapping->get_missing_column_field(child_name);
+                DORIS_CHECK(missing_field != nullptr);
+                RETURN_IF_ERROR(validate_projected_missing_iceberg_field(
+                        *missing_field, struct_type.get_element(child), timezone));
+                continue;
+            }
+            RETURN_IF_ERROR(validate_projected_missing_required_iceberg_fields(
+                    *child_field, struct_type.get_element(child),
+                    struct_mapping->get_children_node(child_name), timezone));
+        }
+        return Status::OK();
+    }
+    case TYPE_ARRAY: {
+        DORIS_CHECK(field.__isset.nestedField);
+        DORIS_CHECK(field.nestedField.__isset.array_field);
+        DORIS_CHECK(field.nestedField.array_field.__isset.item_field);
+        const auto& child_ptr = field.nestedField.array_field.item_field;
+        DORIS_CHECK(child_ptr.__isset.field_ptr && child_ptr.field_ptr != nullptr);
+        const auto array_mapping =
+                std::dynamic_pointer_cast<TableSchemaChangeHelper::ArrayNode>(mapping);
+        DORIS_CHECK(array_mapping != nullptr);
+        const auto& array_type = assert_cast<const DataTypeArray&>(*value_type);
+        return validate_projected_missing_required_iceberg_fields(
+                *child_ptr.field_ptr, array_type.get_nested_type(),
+                array_mapping->get_element_node(), timezone);
+    }
+    case TYPE_MAP: {
+        DORIS_CHECK(field.__isset.nestedField);
+        DORIS_CHECK(field.nestedField.__isset.map_field);
+        const auto& map_field = field.nestedField.map_field;
+        DORIS_CHECK(map_field.__isset.key_field);
+        DORIS_CHECK(map_field.__isset.value_field);
+        DORIS_CHECK(map_field.key_field.__isset.field_ptr &&
+                    map_field.key_field.field_ptr != nullptr);
+        DORIS_CHECK(map_field.value_field.__isset.field_ptr &&
+                    map_field.value_field.field_ptr != nullptr);
+        const auto map_mapping =
+                std::dynamic_pointer_cast<TableSchemaChangeHelper::MapNode>(mapping);
+        DORIS_CHECK(map_mapping != nullptr);
+        const auto& map_type = assert_cast<const DataTypeMap&>(*value_type);
+        RETURN_IF_ERROR(validate_projected_missing_required_iceberg_fields(
+                *map_field.key_field.field_ptr, map_type.get_key_type(),
+                map_mapping->get_key_node(), timezone));
+        return validate_projected_missing_required_iceberg_fields(
+                *map_field.value_field.field_ptr, map_type.get_value_type(),
+                map_mapping->get_value_node(), timezone);
     }
     default:
         return Status::OK();
@@ -627,7 +720,7 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
     RETURN_IF_ERROR(_expand_block_if_need(block));
 
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
-    RETURN_IF_ERROR(_materialize_missing_table_columns(block, *read_rows));
+    RETURN_IF_ERROR(_materialize_missing_table_columns(block));
     RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block, *read_rows));
     RETURN_IF_ERROR(_materialize_nested_equality_delete_columns(block));
     RETURN_IF_ERROR(_validate_required_table_columns(block));
@@ -806,7 +899,7 @@ std::vector<const schema::external::TField*> IcebergTableReader::_find_schema_fi
     return {};
 }
 
-Status IcebergTableReader::_materialize_missing_table_columns(Block* block, size_t rows) {
+Status IcebergTableReader::_materialize_missing_table_columns(Block* block) {
     if (!supports_iceberg_scan_semantics_v1(&_params)) {
         return Status::OK();
     }
@@ -845,13 +938,53 @@ Status IcebergTableReader::_materialize_missing_table_columns(Block* block, size
                     _missing_initial_default_values.emplace(col_name, std::move(value)).first;
         }
         // Parquet and ORC have already filled every missing column with placeholders. Replace the
-        // whole accumulated column because read_rows can be either the current batch size or the
-        // accumulated Block size in row-id fetch paths. Using Block::rows() both preserves earlier
-        // TopN fetch batches and avoids appending defaults after the reader's placeholders.
+        // whole accumulated column using the filtered Block size: the physical read count may be
+        // larger when predicates remove rows, while row-id fetch paths may retain earlier batches.
         const size_t materialized_rows = block->rows();
-        DCHECK_GE(materialized_rows, rows);
         block->get_by_position(position->second).column =
                 iceberg::repeat_initial_default_column(default_value->second, materialized_rows);
+    }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_validate_projected_missing_required_fields() const {
+    if (!supports_iceberg_scan_semantics_v2(&_params)) {
+        return Status::OK();
+    }
+    const auto struct_mapping =
+            std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(table_info_node_ptr);
+    DORIS_CHECK(struct_mapping != nullptr);
+    for (const auto& [field_id, column_name] : _id_to_block_column_name) {
+        if (std::ranges::find(_all_required_col_names, column_name) ==
+            _all_required_col_names.end()) {
+            continue;
+        }
+        if (_row_lineage_columns != nullptr &&
+            (column_name == ROW_LINEAGE_ROW_ID ||
+             column_name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER)) {
+            continue;
+        }
+        std::vector<const schema::external::TField*> path;
+        if (!_find_schema_field_path_in_root(_current_schema_root(), field_id, &path)) {
+            continue;
+        }
+        DORIS_CHECK(path.size() == 1);
+        const auto data_type = _required_column_types.find(column_name);
+        DORIS_CHECK(data_type != _required_column_types.end());
+        DORIS_CHECK(struct_mapping->get_children().contains(column_name));
+        if (!struct_mapping->children_column_exists(column_name)) {
+            const auto* missing_field = struct_mapping->get_missing_column_field(column_name);
+            DORIS_CHECK(missing_field != nullptr);
+            RETURN_IF_ERROR(validate_projected_missing_iceberg_field(
+                    *missing_field, data_type->second, &_state->timezone_obj()));
+            continue;
+        }
+        // FE replaces the file-scan SlotDescriptor type with NestedColumnPruning's pruned type.
+        // Recursing through this DataType therefore validates only projected nested children even
+        // though BuildTableInfo retains the complete table-schema mapping.
+        RETURN_IF_ERROR(validate_projected_missing_required_iceberg_fields(
+                *path.front(), data_type->second, struct_mapping->get_children_node(column_name),
+                &_state->timezone_obj()));
     }
     return Status::OK();
 }
@@ -879,6 +1012,9 @@ Status IcebergTableReader::_validate_required_table_columns(Block* block) const 
     return Status::OK();
 }
 
+// This helper keeps V1/V2 equality-delete fallback semantics together; DORIS_CHECK expansion
+// pushes the measured complexity just above the threshold.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status IcebergTableReader::_create_missing_equality_delete_value(int32_t field_id,
                                                                  const DataTypePtr& delete_key_type,
                                                                  size_t physical_path_size,
@@ -1491,6 +1627,7 @@ Status IcebergParquetReader::init_reader(
                 _params.history_schema_info.front().root_field, *_data_file_field_desc,
                 table_info_node_ptr, supports_iceberg_scan_semantics_v2(&_params)));
     }
+    RETURN_IF_ERROR(_validate_projected_missing_required_fields());
 
     auto column_id_result =
             _create_column_ids(_data_file_field_desc, tuple_descriptor, table_info_node_ptr);
@@ -1743,6 +1880,7 @@ Status IcebergOrcReader::init_reader(
                 ICEBERG_ORC_ATTRIBUTE, table_info_node_ptr,
                 supports_iceberg_scan_semantics_v2(&_params)));
     }
+    RETURN_IF_ERROR(_validate_projected_missing_required_fields());
 
     auto column_id_result =
             _create_column_ids(_data_file_type_desc, tuple_descriptor, table_info_node_ptr);

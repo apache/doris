@@ -190,37 +190,40 @@ suite("test_iceberg_schema_ref_actions_matrix",
             properties ('format-version'='2', 'write.format.default'='parquet')
         """
         sql """insert into ${fastForwardTable} values (1, 'old-1', 10)"""
+        String preRenameSnapshot = snapshots(fastForwardTable).last()
         sql """alter table ${fastForwardTable} create branch pre_rename_branch"""
-        sql """alter table ${fastForwardTable} create branch pre_rename_write_branch"""
         sql """alter table ${fastForwardTable} create tag pre_rename_tag"""
         sql """alter table ${fastForwardTable} rename column old_name new_name"""
         sql """alter table ${fastForwardTable} modify column metric bigint"""
         sql """insert into ${fastForwardTable} values (2, 'new-2', 6000000000)"""
 
-        // Scenario T08 negative contract: before fast-forward, branch reads use the latest rename schema.
-        test {
-            sql """
-                select id, old_name, metric
+        // Scenario T08: before fast-forward, the branch keeps old data under the current table schema.
+        qt_pre_fast_forward_branch """
+                select id, new_name, metric
                 from ${fastForwardTable}@branch(pre_rename_branch)
                 order by id
-            """
-            exception "Unknown column 'old_name'"
-        }
+        """
         qt_pre_fast_forward_tag """
             select id, old_name, metric
             from ${fastForwardTable}@tag(pre_rename_tag)
             order by id
         """
 
-        // Scenario T09: a pre-rename branch write uses the branch snapshot's schema.
+        // Scenario T09: writes use the table's latest schema even when targeting an old branch.
+        test {
+            sql """
+                insert into ${fastForwardTable}@branch(pre_rename_branch)
+                (id, old_name, metric) values (3, 'branch-3', 30)
+            """
+            exception "Unknown column 'old_name'"
+        }
+
+        // A historical source relation must not replace the latest schema used to bind the branch target.
         sql """
-            insert into ${fastForwardTable}@branch(pre_rename_write_branch)
-            (id, old_name, metric) values (3, 'branch-3', 30)
-        """
-        order_qt_t09_pre_rename_branch_write """
-            select id, new_name, metric
-            from ${fastForwardTable}@branch(pre_rename_write_branch)
-            order by id
+            explain insert into ${fastForwardTable}@branch(pre_rename_branch)
+            (id, new_name, metric)
+            select id, old_name, metric
+            from ${fastForwardTable} for version as of ${preRenameSnapshot}
         """
 
         sql """

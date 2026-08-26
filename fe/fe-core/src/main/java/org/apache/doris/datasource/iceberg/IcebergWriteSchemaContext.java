@@ -73,9 +73,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
-import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
-import org.apache.iceberg.util.SnapshotUtil;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -125,7 +123,7 @@ public final class IcebergWriteSchemaContext {
     private final Map<Integer, Types.NestedField> fieldsById;
     private final Map<Integer, Expression> writeDefaultsById;
 
-    /** Pin the statement snapshot's current table schema under the catalog authentication boundary. */
+    /** Pin the statement snapshot's table-current writer schema under the catalog authentication boundary. */
     public static IcebergWriteSchemaContext create(
             IcebergExternalTable dorisTable, Optional<String> branchName) {
         Objects.requireNonNull(dorisTable, "dorisTable should not be null");
@@ -133,13 +131,14 @@ public final class IcebergWriteSchemaContext {
         try {
             return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 Table table = dorisTable.getIcebergTable();
-                Schema schema = branchName.isPresent()
-                        ? resolveBranchSchema(table, branchName.get(), dorisTable.getName())
-                        : resolveStatementSchema(table, dorisTable);
                 if (branchName.isPresent()) {
-                    validateBranchWriterSchema(
-                            schema, table.schema(), branchName.get(), dorisTable.getName());
+                    validateTargetBranch(table, branchName.get(), dorisTable.getName());
                 }
+                // A branch selects only the snapshot parent/ref. Iceberg validates branch writes
+                // with the table-current schema and stamps that schema on the new snapshot.
+                Schema schema = branchName.isPresent()
+                        ? table.schema()
+                        : resolveStatementSchema(table, dorisTable);
                 int formatVersion = IcebergUtils.getFormatVersion(table);
                 TableIdentity tableIdentity = pinTableIdentity(table, formatVersion);
                 Map<String, String> properties = ImmutableMap.copyOf(table.properties());
@@ -327,7 +326,7 @@ public final class IcebergWriteSchemaContext {
         }
     }
 
-    private static Schema resolveBranchSchema(Table table, String branchName, String tableName) {
+    private static void validateTargetBranch(Table table, String branchName, String tableName) {
         SnapshotRef ref = table.refs().get(branchName);
         if (ref == null) {
             throw new AnalysisException(branchName + " is not founded in " + tableName);
@@ -336,7 +335,6 @@ public final class IcebergWriteSchemaContext {
             throw new AnalysisException(branchName
                     + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
         }
-        return SnapshotUtil.schemaFor(table, ref.snapshotId());
     }
 
     private static Schema resolveStatementSchema(Table table, IcebergExternalTable dorisTable) {
@@ -352,58 +350,6 @@ public final class IcebergWriteSchemaContext {
         return Preconditions.checkNotNull(schema,
                 "Iceberg schema %s is not available in the statement table metadata for %s",
                 schemaId, dorisTable.getName());
-    }
-
-    /**
-     * Reject branch writes whose files cannot satisfy the table-current schema.
-     *
-     * <p>Iceberg resolves columns from the branch-head schema, but stamps the new branch snapshot
-     * with the table-current schema. A field that is present in both schemas must remain required
-     * because an optional branch writer can emit an explicit null that no initial default repairs.
-     * A field absent from the branch can rely on an initial default.
-     */
-    private static void validateBranchWriterSchema(
-            Schema branchSchema, Schema currentSchema, String branchName, String tableName) {
-        Map<Integer, Types.NestedField> branchFields =
-                TypeUtil.indexById(branchSchema.asStruct());
-        Map<Integer, Types.NestedField> currentFields =
-                TypeUtil.indexById(currentSchema.asStruct());
-        Map<Integer, Integer> currentParents =
-                TypeUtil.indexParents(currentSchema.asStruct());
-        for (Types.NestedField currentField : currentFields.values()) {
-            Types.NestedField branchField = branchFields.get(currentField.fieldId());
-            if (branchField != null) {
-                if (currentField.isRequired() && branchField.isOptional()) {
-                    throw incompatibleBranchSchema(
-                            branchSchema, currentSchema, branchName, tableName, currentField,
-                            "is optional in the pinned branch schema and can contain explicit nulls");
-                }
-                continue;
-            }
-            Types.NestedField highestMissingField = currentField;
-            Integer parentId = currentParents.get(currentField.fieldId());
-            while (parentId != null && !branchFields.containsKey(parentId)) {
-                highestMissingField = Preconditions.checkNotNull(currentFields.get(parentId),
-                        "Iceberg parent field %s is absent from current schema", parentId);
-                parentId = currentParents.get(parentId);
-            }
-            if (highestMissingField.isRequired()
-                    && highestMissingField.initialDefault() == null) {
-                throw incompatibleBranchSchema(
-                        branchSchema, currentSchema, branchName, tableName, highestMissingField,
-                        "is absent from the pinned branch schema and has no initial default");
-            }
-        }
-    }
-
-    private static AnalysisException incompatibleBranchSchema(
-            Schema branchSchema, Schema currentSchema, String branchName, String tableName,
-            Types.NestedField field, String incompatibility) {
-        return new AnalysisException("Iceberg table current schema " + currentSchema.schemaId()
-                + " cannot label files written with pinned branch " + branchName + " schema "
-                + branchSchema.schemaId() + " for table " + tableName + ": required field "
-                + field.name() + " (id " + field.fieldId() + ") " + incompatibility
-                + "; retry after updating the branch schema");
     }
 
     /** Resolve a write default by the pinned target field name. */
@@ -448,9 +394,10 @@ public final class IcebergWriteSchemaContext {
      * definition to remain available.
      */
     public void validateCurrentSchema(Table table, boolean requireCurrentPartitionSpec) {
-        Schema currentSchema = branchName.isPresent()
-                ? resolveBranchSchema(table, branchName.get(), tableName)
-                : table.schema();
+        if (branchName.isPresent()) {
+            validateTargetBranch(table, branchName.get(), tableName);
+        }
+        Schema currentSchema = table.schema();
         int currentFormatVersion = IcebergUtils.getFormatVersion(table);
         validateTableIdentity(table, currentFormatVersion);
         if (currentSchema.schemaId() != getSchemaId() || currentFormatVersion != formatVersion) {
@@ -464,10 +411,6 @@ public final class IcebergWriteSchemaContext {
                 || !writerProperties.equals(table.properties())) {
             throw new AnalysisException("Iceberg table writer properties or data location changed during "
                     + "write planning for " + tableName + "; retry the statement");
-        }
-        if (branchName.isPresent()) {
-            validateBranchWriterSchema(
-                    schema, table.schema(), branchName.get(), tableName);
         }
         PartitionSpec currentSpec = table.specs().get(partitionSpec.specId());
         if (currentSpec == null || !partitionSpecJson.equals(PartitionSpecParser.toJson(currentSpec))) {

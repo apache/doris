@@ -3607,6 +3607,71 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesDroppedFieldHistoricalInitial
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesSplitLocalDroppedFieldSchema) {
+    const auto run_case = [](FileFormat file_format) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v2_split_local_equality_delete_" + format_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+
+        const auto file_path = (test_dir / ("split." + format_name)).string();
+        const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
+        if (is_parquet) {
+            write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+            write_iceberg_equality_delete_parquet_file(delete_file_path, 1, 7, "dropped_column");
+        } else {
+            write_single_int_orc_file(file_path, "id", {1, 2, 3}, 0);
+            write_single_int_orc_file(delete_file_path, "dropped_column", {7}, 1);
+        }
+
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+        auto scan_params = make_local_scan_params(file_format);
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(100);
+        // The query-wide carrier deliberately omits field ID 1. The split-local schema below is
+        // the only source for the dropped equality field and its historical initial default.
+        scan_params.__set_history_schema_info(
+                {external_schema(100, {external_schema_field("id", 0)})});
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile,
+                            file_format);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_split_format = file_format;
+        const auto thrift_file_format =
+                is_parquet ? TFileFormatType::FORMAT_PARQUET : TFileFormatType::FORMAT_ORC;
+        auto table_format_desc = make_iceberg_table_format_desc(
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {1}, thrift_file_format)}, 3);
+        table_format_desc.iceberg_params.__set_equality_delete_schema(external_schema(
+                -1, {external_schema_field("dropped_column", 1, {}, "7",
+                                           external_primitive_type(TPrimitiveType::INT), false,
+                                           true)}));
+        split_options.current_range.__set_table_format_params(std::move(table_format_desc));
+
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    };
+
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        run_case(file_format);
+    }
+}
+
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteRejectsDroppedFieldWithoutSchemaMetadata) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_iceberg_equality_delete_missing_metadata_test";

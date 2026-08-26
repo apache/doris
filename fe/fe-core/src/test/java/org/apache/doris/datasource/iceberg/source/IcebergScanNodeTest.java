@@ -38,6 +38,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -600,6 +602,43 @@ public class IcebergScanNodeTest {
 
         int getPlanFileScanCalls() {
             return planFileScanCalls;
+        }
+    }
+
+    private static class ExactFallbackIcebergScanNode extends IcebergScanNode {
+        private final TableScan tableScan;
+        private int exactPlanFileScanCalls;
+
+        ExactFallbackIcebergScanNode(SessionVariable sessionVariable, TableScan tableScan) {
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                    sessionVariable, ScanContext.EMPTY);
+            this.tableScan = tableScan;
+        }
+
+        @Override
+        public TableScan createTableScan() {
+            return tableScan;
+        }
+
+        @Override
+        CloseableIterable<FileScanTask> planFileScanTaskWithoutReuse(TableScan scan) {
+            exactPlanFileScanCalls++;
+            return scan.planFiles();
+        }
+
+        @Override
+        public List<String> getPathPartitionKeys() {
+            return Collections.emptyList();
+        }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
+
+        int getExactPlanFileScanCalls() {
+            return exactPlanFileScanCalls;
         }
     }
 
@@ -2190,6 +2229,106 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testCreateScanRangeLocationsRejectsSmoothUpgradeSourceForRecursiveDefault()
+            throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+
+        Types.NestedField existing = Types.NestedField.optional(
+                3, "existing", Types.IntegerType.get());
+        Types.NestedField nestedDefault = Types.NestedField.optional("added")
+                .withId(4)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(5)
+                .build();
+        Schema schema = new Schema(Types.NestedField.optional(
+                2, "payload", Types.StructType.of(existing, nestedDefault)));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        setIcebergTable(node, table);
+        node.addSlot(1, IcebergUtils.parseSchema(schema, false, false).get(0));
+
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(null);
+        node.setTableScan(tableScan);
+
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10006L);
+        setBackendPolicy(node, Collections.singletonList(smoothUpgradeSource));
+
+        ConnectContext context = new ConnectContext();
+        context.setSessionVariable(sessionVariable);
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            UserException exception = Assert.assertThrows(
+                    UserException.class, node::createScanRangeLocations);
+            Assert.assertEquals(
+                    "Current Iceberg scan semantics are unavailable while backend 10006"
+                            + " is a smooth upgrade source",
+                    exception.getDetailMessage());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testCreateScanRangeLocationsFallsBackToExactTasksForSmoothUpgradeSource()
+            throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.optional(7, "delete_key", Types.IntegerType.get()));
+        DeleteFile equalityDelete = equalityDeleteFile(
+                7, "file:///tmp/exact-fallback-delete.parquet");
+        FileScanTask task = fileScanTask(
+                "file:///tmp/exact-fallback-data.parquet", equalityDelete);
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.summary()).thenReturn(
+                ImmutableMap.of(IcebergUtils.TOTAL_EQUALITY_DELETES, "1"));
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
+        Mockito.when(tableScan.planFiles()).thenAnswer(ignored ->
+                CloseableIterable.withNoopClose(Collections.singletonList(task)));
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        ExactFallbackIcebergScanNode node = new ExactFallbackIcebergScanNode(
+                sessionVariable, tableScan);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        setIcebergTable(node, table);
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {
+        });
+        node.addSlot(1, IcebergUtils.parseSchema(schema, false, false).get(0));
+        setPrivateField(node, "isBatchMode", true);
+
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10007L);
+        setBackendPolicy(node, Collections.singletonList(smoothUpgradeSource));
+
+        ConnectContext context = new ConnectContext();
+        context.setSessionVariable(sessionVariable);
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            UserException exception = Assert.assertThrows(
+                    UserException.class, node::createScanRangeLocations);
+            Assert.assertEquals(
+                    "Current Iceberg scan semantics are unavailable while backend 10007"
+                            + " is a smooth upgrade source",
+                    exception.getDetailMessage());
+            Assert.assertEquals(1, node.getExactPlanFileScanCalls());
+            Assert.assertFalse(node.isBatchMode());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testReusedNestedNameRejectsSmoothUpgradeSourceBackend() throws Exception {
         Types.NestedField unrelated = Types.NestedField.optional(
                 8, "id", Types.IntegerType.get());
@@ -3139,6 +3278,16 @@ public class IcebergScanNodeTest {
                 "preExecutionAuthenticator");
         authenticatorField.setAccessible(true);
         authenticatorField.set(node, authenticator);
+    }
+
+    private static void setBackendPolicy(IcebergScanNode node, List<Backend> backends)
+            throws Exception {
+        FederationBackendPolicy backendPolicy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(backendPolicy.getBackends()).thenReturn(backends);
+        Mockito.when(backendPolicy.numBackends()).thenReturn(backends.size());
+        Field backendPolicyField = ExternalScanNode.class.getDeclaredField("backendPolicy");
+        backendPolicyField.setAccessible(true);
+        backendPolicyField.set(node, backendPolicy);
     }
 
     @Test

@@ -150,7 +150,10 @@ protected:
     Status _expand_block_if_need(Block* block);
     // Remove the added delete columns
     Status _shrink_block_if_need(Block* block);
-    Status _materialize_missing_table_columns(Block* block, size_t rows);
+    Status _materialize_missing_table_columns(Block* block);
+    // V1 readers may evaluate lazy predicates before decoding non-predicate complex columns.
+    // Validate their projected missing required fields while the physical schema mapping is intact.
+    Status _validate_projected_missing_required_fields() const;
     Status _validate_required_table_columns(Block* block) const;
     const schema::external::TStructField* _current_schema_root() const;
     const schema::external::TField* _find_current_schema_field(const std::string& name) const;

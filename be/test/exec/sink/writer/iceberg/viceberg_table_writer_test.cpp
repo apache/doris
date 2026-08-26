@@ -37,7 +37,8 @@ TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {
     TIcebergTableSink iceberg_sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(iceberg_sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VExprContextSPtrs output_exprs;
+    VIcebergTableWriter writer(data_sink, output_exprs);
     writer._schema = schema;
     writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
 

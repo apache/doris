@@ -605,6 +605,54 @@ public class IcebergTransactionTest {
     }
 
     @Test
+    public void testMergeCommitReplayRejectsRequiredSchemaChangeAfterStaging() throws UserException {
+        String tableName = "merge_commit_replay_schema_drift";
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        Table table = ops.getCatalog().createTable(
+                TableIdentifier.of(dbName, tableName), schema);
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 2, table.spec(), table.sortOrder(), FileFormat.PARQUET,
+                MetricsConfig.getDefault(),
+                org.apache.iceberg.TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                table.location() + "/data", table.properties(), true, true);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tableName);
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath(table.location() + "/data/output.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        IcebergTransaction txn = getTxn();
+        try (MockedStatic<IcebergUtils> mockedUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.getWritableIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            txn.beginMerge(dorisTable, Optional.of(insertContext));
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+            txn.finishMerge(NameMapping.createForTest(dbName, tableName));
+            // RowDelta is staged in the Iceberg transaction, but is not visible before final commit.
+            Assert.assertNull(table.currentSnapshot());
+
+            table.updateSchema()
+                    .allowIncompatibleChanges()
+                    .addRequiredColumn("required_after_staging", Types.IntegerType.get())
+                    .commit();
+            table.refresh();
+
+            RuntimeException exception =
+                    Assert.assertThrows(RuntimeException.class, txn::commit);
+            Assert.assertTrue(exception.getMessage().contains("schema changed during write planning"));
+            Assert.assertTrue(exception.getMessage().contains("retry the statement"));
+            Assert.assertNull(table.currentSnapshot());
+        }
+    }
+
+    @Test
     public void testCommitRejectsTableReplacementAfterStaging() throws UserException {
         String tableName = "commit_table_replacement";
         TableIdentifier identifier = TableIdentifier.of(dbName, tableName);

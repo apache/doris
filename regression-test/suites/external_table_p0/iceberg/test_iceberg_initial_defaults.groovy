@@ -597,10 +597,10 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
                         sparkUpdateMergeVerification)
     }
 
-    // Pin a branch while default_int still has write-default 35, then evolve only the main schema
-    // to 36. INSERT OVERWRITE performs its first VALUES(DEFAULT) normalization before constructing
-    // the inner INSERT command, so both that first pass and the writer must use the same target-ref
-    // schema. The branch check also proves the inner command does not silently fall back to main.
+    // Pin a branch while default_int still has write-default 35, then evolve the table-current
+    // schema to 36. Iceberg selects the branch as the parent snapshot but writes the new snapshot
+    // with the table-current schema, so VALUES(DEFAULT) normalization and the writer must both use
+    // the current value 36 even when the target is the older branch.
     String oldDefaultsBranch = "before_default_int_36"
     tableNames.each { String format, String currentTable ->
         sql """ALTER TABLE ${currentTable} CREATE BRANCH ${oldDefaultsBranch}"""
