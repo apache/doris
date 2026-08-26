@@ -28,6 +28,9 @@ public class StructField {
     @SerializedName(value = "name")
     protected final String name;
 
+    @SerializedName(value = "originalName")
+    protected final String originalName;
+
     @SerializedName(value = "type")
     protected final Type type;
 
@@ -51,7 +54,15 @@ public class StructField {
 
     public StructField(String name, Type type, String comment, boolean containsNull,
             boolean commentSpecified) {
+        this(name, name, type, comment, containsNull, commentSpecified);
+    }
+
+    public StructField(String name, String originalName, Type type, String comment, boolean containsNull,
+            boolean commentSpecified) {
         this.name = name.toLowerCase();
+        // Runtime struct lookup is case-insensitive, but external schemas such as Iceberg must preserve the
+        // original spelling. Keep both so metadata writes never leak the normalized lookup key.
+        this.originalName = originalName;
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;
@@ -82,6 +93,10 @@ public class StructField {
         return name;
     }
 
+    public String getOriginalName() {
+        return originalName == null ? name : originalName;
+    }
+
     public Type getType() {
         return type;
     }
@@ -105,7 +120,7 @@ public class StructField {
         } else {
             typeSql = "...";
         }
-        StringBuilder sb = new StringBuilder(name);
+        StringBuilder sb = new StringBuilder(getOriginalName());
         if (type != null) {
             sb.append(":").append(typeSql);
         }
@@ -121,7 +136,7 @@ public class StructField {
      */
     public String prettyPrint(int lpad) {
         String leftPadding = Strings.repeat(" ", lpad);
-        StringBuilder sb = new StringBuilder(leftPadding + name);
+        StringBuilder sb = new StringBuilder(leftPadding + getOriginalName());
         if (type != null) {
             // Pass in the padding to make sure nested fields are aligned properly,
             // even if we then strip the top-level padding.
@@ -162,7 +177,7 @@ public class StructField {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder(name);
+        StringBuilder sb = new StringBuilder(getOriginalName());
         if (type != null) {
             sb.append(":").append(type);
         }

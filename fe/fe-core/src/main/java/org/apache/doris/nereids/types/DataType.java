@@ -467,7 +467,7 @@ public abstract class DataType {
 
         if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
-                    .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
+                    .map(cf -> new StructField(cf.getName(), cf.getOriginalName(), fromCatalogType(cf.getType()),
                             cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment(),
                             cf.isCommentSpecified()))
                     .collect(ImmutableList.toImmutableList());

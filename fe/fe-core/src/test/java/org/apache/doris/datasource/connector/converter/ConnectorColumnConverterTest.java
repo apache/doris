@@ -118,6 +118,21 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void mixedCaseStructFieldKeepsSchemaSpellingAndNormalizedRuntimeName() {
+        ConnectorType connectorType = ConnectorType.structOf(
+                Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")));
+
+        StructType converted = (StructType) ConnectorColumnConverter.convertType(connectorType);
+        StructField field = converted.getFields().get(0);
+
+        Assertions.assertEquals("casesensitive", field.getName());
+        Assertions.assertEquals("CaseSensitive", field.getOriginalName());
+        Assertions.assertEquals("struct<CaseSensitive:int>", converted.toSql());
+        Assertions.assertEquals("casesensitive",
+                converted.toThrift().getTypes().get(0).getStructFields().get(0).getName());
+    }
+
+    @Test
     void testNestedComplexType() {
         // ARRAY<MAP<STRING, INT>>
         MapType innerMap = new MapType(ScalarType.createStringType(), ScalarType.INT);
