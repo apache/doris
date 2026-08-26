@@ -188,7 +188,7 @@ suite("doc_date_error") {
     // LOCALTIME precision out of range
     test {
         sql """select LOCALTIME(-1);"""
-        exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: -1"
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: -1"
     }
     test {
         sql """select LOCALTIME(10);"""
@@ -300,7 +300,7 @@ suite("doc_date_error") {
     }
     test {
         sql """select NOW(-1);"""
-        exception "Scale of Datetime/Time must between 0 and 6. Scale was set to: -1"
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: -1"
     }
 
     // QUARTERS_ADD result out of range
