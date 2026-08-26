@@ -216,6 +216,28 @@ suite("test_timestamp_ns_functions") {
             microseconds_add(cast('1969-12-31 23:59:59.999999500' as timestamp_ns), 1)
     """
 
+    order_qt_nanosecond_functions """
+        select id,
+               nanosecond(value),
+               nanoseconds_add(value, 1),
+               nanoseconds_sub(value, 1)
+        from timestamp_ns_functions
+        where id between 2 and 5
+        order by id
+    """
+
+    qt_nanosecond_diff """
+        select
+            nanoseconds_diff(
+                cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
+                cast('1969-12-31 23:59:59.999999999' as timestamp_ns)),
+            nanoseconds_diff(
+                cast('1969-12-31 23:59:59.999999999' as timestamp_ns),
+                cast('1970-01-01 00:00:00.000000001' as timestamp_ns)),
+            nanosecond(cast('1969-12-31 23:59:59.999999999' as timestamp_ns)),
+            nanosecond(cast(null as timestamp_ns))
+    """
+
     order_qt_extract_calendar """
         select id,
                year(value), century(value), quarter(value), month(value), day(value),
@@ -602,6 +624,10 @@ suite("test_timestamp_ns_functions") {
 
     // Arithmetic and truncation never wrap across the signed epoch-nanosecond domain.
     for (def boundarySql : [
+            "select nanoseconds_sub(cast('1677-09-21 00:12:43.145224192' as timestamp_ns), 1)",
+            "select nanoseconds_add(cast('2262-04-11 23:47:16.854775807' as timestamp_ns), 1)",
+            "select nanoseconds_diff(cast('2262-04-11 23:47:16.854775807' as timestamp_ns), "
+                    + "cast('1677-09-21 00:12:43.145224192' as timestamp_ns))",
             "select microseconds_sub(cast('1677-09-21 00:12:43.145224192' as timestamp_ns), 1)",
             "select seconds_add(cast('2262-04-11 23:47:16.854775807' as timestamp_ns), 1)",
             "select date_trunc(cast('1677-09-21 00:12:43.145224192' as timestamp_ns), 'second')",

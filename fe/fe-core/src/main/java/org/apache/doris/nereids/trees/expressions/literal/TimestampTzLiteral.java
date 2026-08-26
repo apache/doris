@@ -176,7 +176,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
                     year, month, day, hour, minute, second, microSecond);
             dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
                     dtV2Lit, new StringLiteral("UTC"),
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone));
+                    new StringLiteral(getSessionTimeZone()));
             return new TimeStampNsLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
                     dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
                     dtV2Lit.getMicroSecond() * 1000L);
@@ -186,7 +186,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
                     dtV2Lit,
                     new StringLiteral("UTC"),
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone)));
+                    new StringLiteral(getSessionTimeZone())));
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
