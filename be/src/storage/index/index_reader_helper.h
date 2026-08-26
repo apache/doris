@@ -18,6 +18,7 @@
 #pragma once
 
 #include "storage/index/index_iterator.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
@@ -88,15 +89,36 @@ public:
         return iter->get_reader(InvertedIndexReaderType::STRING_TYPE) != nullptr;
     }
 
+    // Positions -- and therefore phrase and relevance work -- are only reachable
+    // when the index tokenizes. The reason is on the QUERY side, not the write
+    // side: InvertedIndexAnalyzer::get_analyse_result() returns the entire search
+    // string as ONE term whenever should_analyzer() is false, and every phrase
+    // variant (MATCH_PHRASE, _PREFIX, _EDGE) takes its terms from there. A
+    // single-term phrase is just a term query, so no query against a
+    // non-tokenizing index can observe a position.
+    //
+    // Note it is NOT enough to say such an index holds one term per document:
+    // an ARRAY column with parser=none emits one term per element and the writer
+    // does advance positions between them (SniiIndexColumnWriter::_add_array_values).
+    // Those positions are simply unreachable, because the query can never supply
+    // a second term to match against them.
+    //
+    // New indexes no longer carry the option at all (Index.java drops it), but
+    // tablet metadata already on disk still does, so the check is repeated here.
+    static bool persists_scoring_inputs(const TabletIndex* index_meta) {
+        const auto& properties = index_meta->properties();
+        return get_parser_phrase_support_string_from_properties(properties) ==
+                       INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES &&
+               inverted_index::InvertedIndexAnalyzer::should_analyzer(properties);
+    }
+
     static bool is_need_similarity_score(InvertedIndexQueryType query_type,
                                          const TabletIndex* index_meta) {
         if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
-            const auto& properties = index_meta->properties();
-            if (get_parser_phrase_support_string_from_properties(properties) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+            if (persists_scoring_inputs(index_meta)) {
                 return true;
             }
         }
@@ -108,9 +130,7 @@ public:
         if (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
             query_type == TExprOpcode::MATCH_PHRASE ||
             query_type == TExprOpcode::MATCH_PHRASE_PREFIX) {
-            const auto& properties = index_meta->properties();
-            if (get_parser_phrase_support_string_from_properties(properties) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+            if (persists_scoring_inputs(index_meta)) {
                 return true;
             }
         }
