@@ -83,7 +83,7 @@ public class LanceIndexEntriesTableValuedFunctionTest {
             Assert.assertFalse(schema.get(i).isAllowNull());
         }
         Assert.assertEquals(PrimitiveType.BIGINT, schema.get(5).getDataType());
-        Assert.assertTrue(schema.get(5).isAllowNull());
+        Assert.assertFalse(schema.get(5).isAllowNull());
     }
 
     @Test
@@ -270,31 +270,31 @@ public class LanceIndexEntriesTableValuedFunctionTest {
                 result = true;
                 env.getCatalogMgr();
                 result = catalogMgr;
-                catalogMgr.getCatalog("ctl");
+                catalogMgr.getCatalog(" ctl ");
                 result = lanceCatalog;
                 lanceCatalog.isRestCatalogConfigured();
                 result = false;
-                lanceCatalog.getDbOrAnalysisException("db");
+                lanceCatalog.getDbOrAnalysisException(" db ");
                 result = database;
-                database.getTableOrAnalysisException("tbl");
+                database.getTableOrAnalysisException(" tbl ");
                 result = lanceTable;
             }
         };
 
         LanceIndexEntriesTableValuedFunction tvf = new LanceIndexEntriesTableValuedFunction(
-                ImmutableMap.of("TABLE", "  ctl.db.tbl  "));
-        Assert.assertEquals("ctl", tvf.getCatalogName());
-        Assert.assertEquals("db", tvf.getDatabaseName());
-        Assert.assertEquals("tbl", tvf.getSourceTableName());
+                ImmutableMap.of("TABLE", "  ` ctl `.` db `.` tbl `  "));
+        Assert.assertEquals(" ctl ", tvf.getCatalogName());
+        Assert.assertEquals(" db ", tvf.getDatabaseName());
+        Assert.assertEquals(" tbl ", tvf.getSourceTableName());
         Assert.assertEquals(TMetadataType.LANCE_INDEX_ENTRIES, tvf.getMetadataType());
 
         TMetaScanRange scanRange = tvf.getMetaScanRange(Collections.emptyList());
         Assert.assertEquals(TMetadataType.LANCE_INDEX_ENTRIES, scanRange.getMetadataType());
         Assert.assertTrue(scanRange.isSetLanceIndexParams());
         TLanceIndexMetadataParams params = scanRange.getLanceIndexParams();
-        Assert.assertEquals("ctl", params.getCatalog());
-        Assert.assertEquals("db", params.getDatabase());
-        Assert.assertEquals("tbl", params.getTable());
+        Assert.assertEquals(" ctl ", params.getCatalog());
+        Assert.assertEquals(" db ", params.getDatabase());
+        Assert.assertEquals(" tbl ", params.getTable());
 
         new Verifications() {
             {

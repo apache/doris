@@ -266,8 +266,8 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         RETURN_IF_ERROR(_build_partition_values_metadata_request(meta_scan_range, &request));
         break;
     case TMetadataType::LANCE_INDEX_ENTRIES:
-        RETURN_IF_ERROR(_build_lance_index_entries_metadata_request(meta_scan_range,
-                                                                    _user_identity, &request));
+        RETURN_IF_ERROR(_build_lance_index_entries_metadata_request(meta_scan_range, _user_identity,
+                                                                    &request));
         break;
     default:
         _meta_eos = true;

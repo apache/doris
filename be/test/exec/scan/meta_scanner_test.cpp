@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/scan/meta_scanner.h"
+
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
@@ -23,17 +25,6 @@
 #include <string>
 
 #include "common/status.h"
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wkeyword-macro"
-#endif
-#define private public
-#include "exec/scan/meta_scanner.h"
-#undef private
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
 
 namespace doris {
 

@@ -740,8 +740,12 @@ public class LanceIndexMetadataLoaderTest {
     @Test
     public void testCollectPhysicalEntriesBoundsRawListBeforeFiltering() {
         Dataset atLimitDataset = Mockito.mock(Dataset.class);
-        Mockito.when(atLimitDataset.getIndexes()).thenReturn(Collections.nCopies(16384,
-                index("__lance_frag_reuse", "11111111-1111-1111-1111-111111111111", 1)));
+        List<Index> atLimit = new ArrayList<>(16384);
+        for (int i = 0; i < 16384; ++i) {
+            atLimit.add(index("__lance_frag_reuse",
+                    new UUID(0, i).toString(), 1));
+        }
+        Mockito.when(atLimitDataset.getIndexes()).thenReturn(atLimit);
         Assertions.assertTrue(
                 LanceIndexMetadataLoader.collectPhysicalEntries(atLimitDataset).isEmpty());
 
@@ -751,7 +755,7 @@ public class LanceIndexMetadataLoaderTest {
         List<Index> overLimit = new ArrayList<>(16385);
         for (int i = 0; i < 16384; ++i) {
             overLimit.add(index("bulk_idx",
-                    String.format("00000000-0000-0000-0000-%012d", i), 1));
+                    new UUID(0, i).toString(), 1));
         }
         overLimit.add(index("__lance_mem_wal", "22222222-2222-2222-2222-222222222222", 1));
         Mockito.when(overLimitDataset.getIndexes()).thenReturn(overLimit);
@@ -777,10 +781,17 @@ public class LanceIndexMetadataLoaderTest {
         assertPhysicalEntryFailure(Collections.singletonList(
                 index("idx", null, 1)), "uuid");
         assertPhysicalEntryFailure(Collections.singletonList(
-                index("idx", "11111111-1111-1111-1111-111111111111", -1)), "version");
+                index("idx", "11111111-1111-1111-1111-111111111111", 0)), "positive");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index("idx", "11111111-1111-1111-1111-111111111111", -1)), "positive");
         assertPhysicalEntryFailure(Arrays.asList(
                 index("first_idx", "11111111-1111-1111-1111-111111111111", 1),
                 index("second_idx", "11111111-1111-1111-1111-111111111111", 2)), "Duplicate");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index("__lance_frag_reuse", null, 1)), "uuid");
+        assertPhysicalEntryFailure(Arrays.asList(
+                index("__lance_frag_reuse", "11111111-1111-1111-1111-111111111111", 1),
+                index("user_idx", "11111111-1111-1111-1111-111111111111", 1)), "Duplicate");
     }
 
     private static void assertPhysicalEntryFailure(List<Index> indexes, String expectedMessage) {

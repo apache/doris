@@ -68,7 +68,7 @@ public class LanceIndexEntriesTableValuedFunction extends MetadataTableValuedFun
             new Column("TableName", ScalarType.createStringType()),
             new Column("IndexName", ScalarType.createStringType()),
             new Column("IndexUuid", ScalarType.createStringType()),
-            new Column("DatasetVersion", PrimitiveType.BIGINT, true));
+            new Column("DatasetVersion", PrimitiveType.BIGINT, false));
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = buildColumnIndex();
 
     private final TableName sourceTableName;

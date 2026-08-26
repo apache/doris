@@ -48,7 +48,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 
-/** Loads and normalizes logical index metadata from one latest Lance dataset snapshot. */
+/** Loads and normalizes logical and physical index metadata from one latest Lance dataset snapshot. */
 public final class LanceIndexMetadataLoader {
     private static final int MAX_LOGICAL_INDEXES = 256;
     private static final int MAX_COLUMNS_PER_INDEX = 64;
@@ -122,25 +122,27 @@ public final class LanceIndexMetadataLoader {
                 throw new IllegalArgumentException(
                         "Lance physical index entry must not be null");
             }
-            String rawName = index.name();
-            if (rawName != null && SYSTEM_INDEX_NAMES.contains(rawName)) {
-                continue;
-            }
-            String name = requireExternalString(rawName, "Lance physical index entry name");
+            String name = requireExternalString(
+                    index.name(), "Lance physical index entry name");
             UUID uuid = index.uuid();
             if (uuid == null) {
                 throw new IllegalArgumentException(
                         "Lance physical index entry uuid must not be null");
             }
             long datasetVersion = index.datasetVersion();
-            if (datasetVersion < 0) {
+            if (datasetVersion <= 0) {
                 throw new IllegalArgumentException(
-                        "Lance physical index entry dataset version must not be negative");
+                        "Lance physical index entry dataset version must be positive");
             }
             String uuidString = uuid.toString();
             if (!seenUuids.add(uuidString)) {
                 throw new IllegalArgumentException(
                         "Duplicate Lance physical index entry uuid '" + uuidString + "'");
+            }
+            // Validate every raw entry before filtering so malformed system metadata or a UUID
+            // collision between a system and user entry cannot be hidden from the all-or-error read.
+            if (SYSTEM_INDEX_NAMES.contains(name)) {
+                continue;
             }
             entries.add(new LancePhysicalIndexEntry(name, uuidString, datasetVersion));
         }

@@ -139,7 +139,7 @@ public class LanceIndexEntriesTableValuedFunctionAuthTest {
     }
 
     @Test
-    public void testMasterBuildsSixCellRowsFromResolvedNames() throws Exception {
+    public void testMasterPreservesRelayedNamesAndBuildsSixCellRows() throws Exception {
         new Expectations() {
             {
                 Env.getCurrentEnv();
@@ -148,17 +148,17 @@ public class LanceIndexEntriesTableValuedFunctionAuthTest {
                 env.getAccessManager();
                 result = accessManager;
                 accessManager.checkTblPriv(withInstanceOf(UserIdentity.class),
-                        "ctl", "db", "tbl", PrivPredicate.SHOW);
+                        " ctl ", " db ", " tbl ", PrivPredicate.SHOW);
                 result = true;
                 env.getCatalogMgr();
                 result = catalogMgr;
-                catalogMgr.getCatalog("ctl");
+                catalogMgr.getCatalog(" ctl ");
                 result = catalog;
                 catalog.isRestCatalogConfigured();
                 result = false;
-                catalog.getDbOrAnalysisException("db");
+                catalog.getDbOrAnalysisException(" db ");
                 result = database;
-                database.getTableOrAnalysisException("tbl");
+                database.getTableOrAnalysisException(" tbl ");
                 result = table;
                 catalog.getName();
                 result = "resolved_catalog";
@@ -172,7 +172,7 @@ public class LanceIndexEntriesTableValuedFunctionAuthTest {
         };
 
         TFetchSchemaTableDataResult result = MetadataGenerator.lanceIndexEntriesMetadataResult(
-                masterParams("ctl", "db", "tbl"));
+                masterParams(" ctl ", " db ", " tbl "));
 
         Assert.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
         Assert.assertEquals(1, result.getDataBatchSize());

@@ -12,4 +12,3 @@ test_lance_index_entries	doris	nested_index	nested_label_btree	UUID	SET
 0
 
 -- !entries_predicate --
-

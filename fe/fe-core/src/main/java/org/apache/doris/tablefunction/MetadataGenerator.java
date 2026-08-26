@@ -429,9 +429,11 @@ public class MetadataGenerator {
             return errorResult("Invalid Lance index metadata table identity.");
         }
 
-        String catalogName = lanceParams.getCatalog().trim();
-        String databaseName = lanceParams.getDatabase().trim();
-        String tableName = lanceParams.getTable().trim();
+        // These names were already parsed by the analyzer. Preserve their exact spelling because
+        // whitespace inside a backtick-quoted identifier is part of the identifier.
+        String catalogName = lanceParams.getCatalog();
+        String databaseName = lanceParams.getDatabase();
+        String tableName = lanceParams.getTable();
         UserIdentity userIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
 
         // The master repeats authorization before resolving or initializing an external

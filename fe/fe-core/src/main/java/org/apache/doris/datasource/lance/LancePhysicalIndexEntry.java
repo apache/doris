@@ -32,8 +32,8 @@ public final class LancePhysicalIndexEntry {
         if (StringUtils.isBlank(uuid)) {
             throw new IllegalArgumentException("uuid must not be null or blank");
         }
-        if (datasetVersion < 0) {
-            throw new IllegalArgumentException("dataset version must not be negative");
+        if (datasetVersion <= 0) {
+            throw new IllegalArgumentException("dataset version must be positive");
         }
         this.name = name;
         this.uuid = uuid;
