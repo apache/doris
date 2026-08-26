@@ -26,8 +26,10 @@ import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.CDataDictionaryProvider;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.crosspartition.IndexBootstrap;
 import org.apache.paimon.data.BinaryRow;
@@ -111,6 +113,9 @@ public class PaimonJniWriter {
     private boolean fullCompactionChangelog;
     private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
     private List<CommitMessage> preparedCommitMessages = Collections.emptyList();
+    private boolean abortPending;
+    private boolean deferAbortAfterOutOfMemory;
+    private Throwable allocatorCloseFailure;
 
     public PaimonJniWriter() {
         // Imported C Data vectors reference Doris-owned buffers; this allocator owns only Arrow's
@@ -223,12 +228,17 @@ public class PaimonJniWriter {
             preExecutionAuthenticator.execute(() -> {
                 try (ArrowArray array = ArrowArray.wrap(arrayAddress);
                         ArrowSchema schema = ArrowSchema.wrap(schemaAddress);
-                        CDataDictionaryProvider dictionaries = new CDataDictionaryProvider();
-                        VectorSchemaRoot root = Data.importVectorSchemaRoot(
-                                allocator, array, schema, dictionaries)) {
-                    writeBatch(root);
-                    return null;
+                        CDataDictionaryProvider dictionaries = new CDataDictionaryProvider()) {
+                    Schema importedSchema = Data.importSchema(allocator, schema, dictionaries);
+                    try (VectorSchemaRoot root =
+                                 VectorSchemaRoot.create(importedSchema, allocator)) {
+                        Data.importIntoVectorSchemaRoot(
+                                allocator, array, root, dictionaries);
+                        writeBatch(root);
+                        return null;
+                    }
                 } catch (Throwable t) {
+                    recordOutOfMemoryFailure(t);
                     throw new RuntimeException("PaimonJniWriter C Data write failed", t);
                 }
             });
@@ -257,6 +267,7 @@ public class PaimonJniWriter {
                     LOG.info("PaimonJniWriter prepareCommit: {} messages", messages.size());
                     return commitCodec.encode(messages);
                 } catch (Throwable t) {
+                    recordOutOfMemoryFailure(t);
                     throw new RuntimeException("PaimonJniWriter prepareCommit failed", t);
                 }
             });
@@ -264,12 +275,11 @@ public class PaimonJniWriter {
     }
 
     /**
-     * Abort an already prepared commit, if present, and close the SDK writer.
-     * Called from C++ when write or prepareCommit fails.
+     * Abort uncommitted files and close the SDK writer after a write or prepare failure.
      *
-     * <p>Do not call prepareCommit from this error path: preparing may flush and compact data,
-     * which needs more heap precisely when the caller is recovering from an OOM. Files without a
-     * prepared commit message remain uncommitted and are handled by Paimon's orphan cleanup.
+     * <p>For ordinary failures, prepare commit messages before aborting so files already flushed by
+     * Paimon can be deleted. After an OOM, defer that allocation-heavy work until a later recovery
+     * attempt has enough memory.
      */
     public void abort() throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
@@ -282,9 +292,10 @@ public class PaimonJniWriter {
                 } else {
                     abortWriter();
                 }
-            } catch (Exception e) {
-                LOG.error("PaimonJniWriter abort failed", e);
-                throw e;
+            } catch (Throwable t) {
+                recordOutOfMemoryFailure(t);
+                LOG.error("PaimonJniWriter abort failed", t);
+                throwIfFailed(t);
             }
         }
     }
@@ -306,6 +317,28 @@ public class PaimonJniWriter {
             } catch (Exception e) {
                 LOG.warn("PaimonJniWriter close error", e);
                 throw e;
+            }
+        }
+    }
+
+    /** Retry deferred abort cleanup and close all resources after memory pressure subsides. */
+    public void recoverAndClose() throws Exception {
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            try {
+                if (preExecutionAuthenticator != null) {
+                    preExecutionAuthenticator.execute(() -> {
+                        finishPendingAbort();
+                        closeResources();
+                        return null;
+                    });
+                } else {
+                    finishPendingAbort();
+                    closeResources();
+                }
+            } catch (Throwable t) {
+                recordOutOfMemoryFailure(t);
+                LOG.warn("PaimonJniWriter recovery cleanup error", t);
+                throwIfFailed(t);
             }
         }
     }
@@ -529,24 +562,15 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void closeResources() throws Exception {
-        Throwable failure = null;
-        try {
-            closeWriter();
-        } catch (Throwable closeFailure) {
-            failure = closeFailure;
+        if (abortPending) {
+            throw new IllegalStateException(
+                    "Paimon writer abort cleanup is pending; recovery must finish abort before close");
         }
 
+        closeWriter();
         writeSchema = null;
         arrowAdapter = null;
-        if (allocator != null) {
-            Throwable allocatorFailure = closeResource(allocator);
-            if (allocatorFailure == null) {
-                allocator = null;
-            } else {
-                failure = mergeFailure(failure, allocatorFailure);
-            }
-        }
-        throwIfFailed(failure);
+        closeAllocator();
     }
 
     private List<CommitMessage> prepareCommitMessages() throws Exception {
@@ -582,34 +606,59 @@ public class PaimonJniWriter {
         }
     }
 
-    private void closeWriter() throws Exception {
-        Throwable failure = null;
-
+    void closeWriter() throws Exception {
         Throwable writerFailure = closeResource(writer);
-        if (writerFailure == null) {
-            writer = null;
-        } else {
-            failure = writerFailure;
+        if (writerFailure != null) {
+            throwIfFailed(writerFailure);
         }
+        writer = null;
 
         Throwable indexAssignerFailure = closeResource(globalIndexAssigner);
-        if (indexAssignerFailure == null) {
-            globalIndexAssigner = null;
-        } else {
-            failure = mergeFailure(failure, indexAssignerFailure);
+        if (indexAssignerFailure != null) {
+            throwIfFailed(indexAssignerFailure);
         }
+        globalIndexAssigner = null;
 
+        // Paimon writers may still need spill files while close is in progress. Close the shared
+        // IOManager only after every writer has stopped successfully.
         Throwable ioManagerFailure = closeResource(ioManager);
-        if (ioManagerFailure == null) {
-            ioManager = null;
-        } else {
-            failure = mergeFailure(failure, ioManagerFailure);
+        if (ioManagerFailure != null) {
+            throwIfFailed(ioManagerFailure);
+        }
+        ioManager = null;
+
+        clearWriterState();
+    }
+
+    private void closeAllocator() throws Exception {
+        if (allocator == null) {
+            return;
+        }
+        if (allocatorCloseFailure != null) {
+            throw new IllegalStateException(
+                    "Arrow allocator entered a terminal failed-close state",
+                    allocatorCloseFailure);
         }
 
-        if (writer == null && globalIndexAssigner == null && ioManager == null) {
-            clearWriterState();
+        verifyAllocatorHasNoOutstandingMemory(allocator);
+        try {
+            allocator.close();
+            allocator = null;
+        } catch (Throwable closeFailure) {
+            // Arrow 19 marks BaseAllocator closed before validating all resources. Retrying close
+            // would return successfully without proving cleanup, so remember this terminal failure.
+            allocatorCloseFailure = closeFailure;
+            throwIfFailed(closeFailure);
         }
-        throwIfFailed(failure);
+    }
+
+    static void verifyAllocatorHasNoOutstandingMemory(BufferAllocator allocator) {
+        long allocatedMemory = allocator.getAllocatedMemory();
+        if (allocatedMemory != 0) {
+            throw new IllegalStateException(
+                    "Arrow allocator still owns " + allocatedMemory
+                            + " bytes; defer terminal close until imported resources are released");
+        }
     }
 
     static Throwable closeResource(AutoCloseable resource) {
@@ -669,26 +718,63 @@ public class PaimonJniWriter {
     }
 
     private void abortWriter() throws Exception {
-        Throwable failure = null;
-        try {
-            List<CommitMessage> messages = preparedCommitMessages;
-            if (!messages.isEmpty()) {
-                InnerTableCommit committer = table.newCommit(commitUser);
-                try {
-                    committer.abort(messages);
-                } finally {
-                    committer.close();
-                }
+        if (writer == null && preparedCommitMessages.isEmpty()) {
+            abortPending = false;
+            deferAbortAfterOutOfMemory = false;
+            return;
+        }
+
+        abortPending = true;
+        if (deferAbortAfterOutOfMemory && preparedCommitMessages.isEmpty()) {
+            LOG.warn("Deferring Paimon prepare-and-abort cleanup after OOM");
+            return;
+        }
+        finishPendingAbort();
+        closeWriter();
+    }
+
+    private void finishPendingAbort() throws Exception {
+        if (!abortPending) {
+            return;
+        }
+
+        List<CommitMessage> messages = preparedCommitMessages;
+        if (messages.isEmpty() && writer != null) {
+            messages = prepareCommitMessages();
+        }
+        if (!messages.isEmpty()) {
+            InnerTableCommit committer = table.newCommit(commitUser);
+            try {
+                committer.abort(messages);
+            } finally {
+                committer.close();
             }
-        } catch (Throwable abortFailure) {
-            failure = abortFailure;
         }
-        try {
-            closeWriter();
-        } catch (Throwable closeFailure) {
-            failure = mergeFailure(failure, closeFailure);
+
+        preparedCommitMessages = Collections.emptyList();
+        abortPending = false;
+        deferAbortAfterOutOfMemory = false;
+    }
+
+    private void recordOutOfMemoryFailure(Throwable failure) {
+        if (containsOutOfMemory(failure)) {
+            deferAbortAfterOutOfMemory = true;
         }
-        throwIfFailed(failure);
+    }
+
+    static boolean containsOutOfMemory(Throwable failure) {
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 32; depth++) {
+            if (current instanceof OutOfMemoryError || current instanceof OutOfMemoryException) {
+                return true;
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                break;
+            }
+            current = cause;
+        }
+        return false;
     }
 
     // ────────────────────────────────────────────────────────────

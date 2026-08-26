@@ -78,6 +78,7 @@ private:
     jmethodID _prepare_commit_id = nullptr;
     jmethodID _abort_id = nullptr;
     jmethodID _close_id = nullptr;
+    jmethodID _recover_and_close_id = nullptr;
 
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     std::shared_ptr<arrow::Schema> _arrow_schema;

@@ -17,9 +17,17 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.paimon.disk.IOManager;
+import org.apache.paimon.operation.FileStoreWrite;
+import org.apache.paimon.table.sink.TableWriteImpl;
+import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collections;
@@ -133,5 +141,144 @@ public class PaimonJniWriterTest {
         Assertions.assertSame(firstFailure, PaimonJniWriter.closeResource(resource));
         Assertions.assertNull(PaimonJniWriter.closeResource(resource));
         Assertions.assertEquals(2, closeAttempts.get());
+    }
+
+    @Test
+    public void testDetectNestedOutOfMemoryFailure() {
+        RuntimeException wrapped = new RuntimeException(
+                "write failed", new IllegalStateException(new OutOfMemoryError("test OOM")));
+        Assertions.assertTrue(PaimonJniWriter.containsOutOfMemory(wrapped));
+        Assertions.assertFalse(PaimonJniWriter.containsOutOfMemory(
+                new RuntimeException("not an OOM")));
+    }
+
+    @Test
+    public void testAllocatorCloseWaitsForOutstandingBuffers() {
+        RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+        try {
+            try (ArrowBuf ignored = allocator.buffer(8)) {
+                IllegalStateException exception = Assertions.assertThrows(
+                        IllegalStateException.class,
+                        () -> PaimonJniWriter.verifyAllocatorHasNoOutstandingMemory(allocator));
+                Assertions.assertTrue(exception.getMessage().contains("still owns 8 bytes"));
+            }
+
+            Assertions.assertDoesNotThrow(
+                    () -> PaimonJniWriter.verifyAllocatorHasNoOutstandingMemory(allocator));
+        } finally {
+            allocator.close();
+        }
+    }
+
+    @Test
+    public void testWriterCloseFailureKeepsIoManagerForRetry() throws Exception {
+        AtomicInteger writerCloseAttempts = new AtomicInteger();
+        AtomicInteger ioManagerCloseAttempts = new AtomicInteger();
+        FileStoreWrite<?> fileStoreWrite = (FileStoreWrite<?>) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {FileStoreWrite.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("close")
+                            && writerCloseAttempts.getAndIncrement() == 0) {
+                        throw new OutOfMemoryError("test writer close OOM");
+                    }
+                    return null;
+                });
+        TableWriteImpl<?> tableWrite = new TableWriteImpl<>(
+                RowType.of(), fileStoreWrite, null, null, null, null);
+        IOManager ioManager = (IOManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {IOManager.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("close")) {
+                        ioManagerCloseAttempts.incrementAndGet();
+                    }
+                    return null;
+                });
+
+        PaimonJniWriter writer = new PaimonJniWriter();
+        setField(writer, "writer", tableWrite);
+        setField(writer, "ioManager", ioManager);
+        try {
+            Assertions.assertThrows(OutOfMemoryError.class, writer::closeWriter);
+            Assertions.assertEquals(1, writerCloseAttempts.get());
+            Assertions.assertEquals(0, ioManagerCloseAttempts.get());
+
+            Assertions.assertDoesNotThrow(writer::closeWriter);
+            Assertions.assertEquals(2, writerCloseAttempts.get());
+            Assertions.assertEquals(1, ioManagerCloseAttempts.get());
+        } finally {
+            writer.close();
+        }
+    }
+
+    @Test
+    public void testOutOfMemoryAbortDefersPrepareUntilRecovery() throws Exception {
+        AtomicInteger prepareAttempts = new AtomicInteger();
+        AtomicInteger writerCloseAttempts = new AtomicInteger();
+        FileStoreWrite<?> fileStoreWrite = (FileStoreWrite<?>) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {FileStoreWrite.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("prepareCommit")) {
+                        prepareAttempts.incrementAndGet();
+                        return Collections.emptyList();
+                    }
+                    if (method.getName().equals("close")) {
+                        writerCloseAttempts.incrementAndGet();
+                    }
+                    return null;
+                });
+        TableWriteImpl<?> tableWrite = new TableWriteImpl<>(
+                RowType.of(), fileStoreWrite, null, null, null, null);
+
+        PaimonJniWriter writer = new PaimonJniWriter();
+        setField(writer, "writer", tableWrite);
+        setField(writer, "deferAbortAfterOutOfMemory", true);
+
+        writer.abort();
+        Assertions.assertEquals(0, prepareAttempts.get());
+        Assertions.assertEquals(0, writerCloseAttempts.get());
+        Assertions.assertThrows(IllegalStateException.class, writer::close);
+
+        writer.recoverAndClose();
+        Assertions.assertEquals(1, prepareAttempts.get());
+        Assertions.assertEquals(1, writerCloseAttempts.get());
+        Assertions.assertDoesNotThrow(writer::close);
+    }
+
+    @Test
+    public void testOrdinaryAbortPreparesAndClosesWriterImmediately() throws Exception {
+        AtomicInteger prepareAttempts = new AtomicInteger();
+        AtomicInteger writerCloseAttempts = new AtomicInteger();
+        FileStoreWrite<?> fileStoreWrite = (FileStoreWrite<?>) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {FileStoreWrite.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("prepareCommit")) {
+                        prepareAttempts.incrementAndGet();
+                        return Collections.emptyList();
+                    }
+                    if (method.getName().equals("close")) {
+                        writerCloseAttempts.incrementAndGet();
+                    }
+                    return null;
+                });
+        TableWriteImpl<?> tableWrite = new TableWriteImpl<>(
+                RowType.of(), fileStoreWrite, null, null, null, null);
+
+        PaimonJniWriter writer = new PaimonJniWriter();
+        setField(writer, "writer", tableWrite);
+
+        writer.abort();
+        Assertions.assertEquals(1, prepareAttempts.get());
+        Assertions.assertEquals(1, writerCloseAttempts.get());
+        Assertions.assertDoesNotThrow(writer::close);
+    }
+
+    private static void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = PaimonJniWriter.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 }

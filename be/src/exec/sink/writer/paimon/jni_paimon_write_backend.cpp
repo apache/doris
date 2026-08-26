@@ -50,19 +50,25 @@ struct PaimonJniCloseState {
     // The global writer reference keeps both the Java object and its defining class alive. The
     // cached method ID therefore remains valid until release_writer_ref() deletes this reference.
     jobject writer_obj = nullptr;
-    jmethodID close_id = nullptr;
+    jmethodID recover_and_close_id = nullptr;
     std::unique_ptr<PaimonJniMemoryManager> memory_manager;
 
-    Status retry_close(JNIEnv* env) const {
+    Status retry_cleanup(JNIEnv* env) const {
         if (writer_obj == nullptr) {
             return Status::OK();
         }
-        if (close_id == nullptr) {
-            return Status::InternalError("PaimonJniWriter.close method is unavailable");
+        if (recover_and_close_id == nullptr) {
+            return Status::InternalError("PaimonJniWriter.recoverAndClose method is unavailable");
         }
-        env->CallVoidMethod(writer_obj, close_id);
-        return Jni::Env::GetJniExceptionMsg(env, true,
-                                            "JNI exception retrying PaimonJniWriter.close: ");
+
+        if (env->PushLocalFrame(16) != JNI_OK) {
+            env->ExceptionClear();
+            return Status::InternalError(
+                    "Failed to create a JNI local frame for Paimon cleanup recovery");
+        }
+        Defer pop_local_frame {[&] { env->PopLocalFrame(nullptr); }};
+        env->CallVoidMethod(writer_obj, recover_and_close_id);
+        return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception retrying Paimon cleanup: ");
     }
 
     void release_writer_ref(JNIEnv* env) {
@@ -85,13 +91,14 @@ std::vector<PaimonJniCloseState>& quarantined_close_states() {
     return *states;
 }
 
-void quarantine_failed_close(jobject writer_obj, jmethodID close_id,
+void quarantine_failed_close(jobject writer_obj, jmethodID recover_and_close_id,
                              std::unique_ptr<PaimonJniMemoryManager> memory_manager) {
     // An unconfirmed Java close means a background Paimon task may still reference this manager's
-    // native pages. Keep the Java writer reachable as well, so a later open can retry close before
-    // admitting more writers instead of requiring a BE restart.
+    // native pages. Keep the Java writer reachable as well, so a later open can finish deferred
+    // abort and close cleanup before admitting more writers instead of requiring a BE restart.
     std::lock_guard<std::mutex> lock(quarantined_close_states_mutex());
-    quarantined_close_states().push_back({writer_obj, close_id, std::move(memory_manager)});
+    quarantined_close_states().push_back(
+            {writer_obj, recover_and_close_id, std::move(memory_manager)});
 }
 
 Status recover_quarantined_writers(JNIEnv* env) {
@@ -100,7 +107,7 @@ Status recover_quarantined_writers(JNIEnv* env) {
     size_t recovered = 0;
     auto& close_states = quarantined_close_states();
     for (auto it = close_states.begin(); it != close_states.end();) {
-        Status close_status = it->retry_close(env);
+        Status close_status = it->retry_cleanup(env);
         if (!close_status.ok()) {
             if (first_failure.ok()) {
                 first_failure = close_status;
@@ -167,7 +174,7 @@ Status JniPaimonWriteBackend::close() {
     Status env_status = Jni::Env::Get(&env);
     if (!env_status.ok()) {
         // Preserve the writer and manager so a later open can finish cleanup safely.
-        quarantine_failed_close(std::exchange(_jni_writer_obj, nullptr), _close_id,
+        quarantine_failed_close(std::exchange(_jni_writer_obj, nullptr), _recover_and_close_id,
                                 std::move(_memory_manager));
         _arrow_schema.reset();
         _opened = false;
@@ -200,8 +207,8 @@ Status JniPaimonWriteBackend::close() {
         }
         // Paimon may still have asynchronous flush or compaction tasks using MemorySegments backed
         // by these pages. Preserve both Java and native ownership to prevent UAF. A subsequent open
-        // retries this same Java close and releases everything only after it succeeds.
-        quarantine_failed_close(std::exchange(_jni_writer_obj, nullptr), _close_id,
+        // retries Java abort/close cleanup and releases everything only after it succeeds.
+        quarantine_failed_close(std::exchange(_jni_writer_obj, nullptr), _recover_and_close_id,
                                 std::move(_memory_manager));
     }
     _arrow_schema.reset();
@@ -327,6 +334,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _prepare_commit_id = env->GetMethodID(writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(writer_cls, "abort", "()V");
     _close_id = env->GetMethodID(writer_cls, "close", "()V");
+    _recover_and_close_id = env->GetMethodID(writer_cls, "recoverAndClose", "()V");
     jmethodID ctor_id = env->GetMethodID(writer_cls, "<init>", "()V");
     RETURN_IF_ERROR(_check_jni_exception(env, "GetMethodID"));
 
