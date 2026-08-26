@@ -438,7 +438,7 @@ public class ScopedMetaCacheConcurrencyTest {
             Assertions.assertEquals(
                     "stale-load-result", loaded.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             Assertions.assertEquals("direct-put", cache.getIfPresent("key", TABLE));
-            Assertions.assertEquals("stale-load-result", retired.get());
+            Assertions.assertNull(retired.get());
         } finally {
             releaseLoader.countDown();
             executor.shutdownNow();

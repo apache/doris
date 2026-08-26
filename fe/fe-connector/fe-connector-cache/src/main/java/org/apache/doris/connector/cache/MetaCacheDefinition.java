@@ -20,6 +20,7 @@ package org.apache.doris.connector.cache;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -35,6 +36,7 @@ public final class MetaCacheDefinition<K, V> {
     private final Function<K, ScopePath> scopeResolver;
     private final Function<K, V> loader;
     private final MetaCacheRemovalListener<K, V> removalListener;
+    private final BiConsumer<K, V> discardListener;
     private final Duration refreshAfterWrite;
     private final Executor refreshExecutor;
 
@@ -44,6 +46,7 @@ public final class MetaCacheDefinition<K, V> {
         scopeResolver = Objects.requireNonNull(builder.scopeResolver, "scopeResolver can not be null");
         loader = builder.loader;
         removalListener = builder.removalListener;
+        discardListener = builder.discardListener;
         refreshAfterWrite = builder.refreshAfterWrite;
         refreshExecutor = builder.refreshExecutor;
         if (refreshAfterWrite != null && loader == null) {
@@ -78,6 +81,10 @@ public final class MetaCacheDefinition<K, V> {
         return removalListener;
     }
 
+    BiConsumer<K, V> discardListener() {
+        return discardListener;
+    }
+
     Duration refreshAfterWrite() {
         return refreshAfterWrite;
     }
@@ -100,6 +107,7 @@ public final class MetaCacheDefinition<K, V> {
         private final Function<K, ScopePath> scopeResolver;
         private Function<K, V> loader;
         private MetaCacheRemovalListener<K, V> removalListener;
+        private BiConsumer<K, V> discardListener;
         private Duration refreshAfterWrite;
         private Executor refreshExecutor;
 
@@ -116,6 +124,15 @@ public final class MetaCacheDefinition<K, V> {
 
         public Builder<K, V> removalListener(MetaCacheRemovalListener<K, V> removalListener) {
             this.removalListener = Objects.requireNonNull(removalListener, "removalListener can not be null");
+            return this;
+        }
+
+        /**
+         * Registers cleanup for a loaded value that never becomes cache-owned, for example because caching is
+         * disabled or invalidation rejects publication. The caller still owns and may return the value.
+         */
+        public Builder<K, V> discardListener(BiConsumer<K, V> discardListener) {
+            this.discardListener = Objects.requireNonNull(discardListener, "discardListener can not be null");
             return this;
         }
 

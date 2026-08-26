@@ -81,17 +81,19 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             String name, CacheSpec cacheSpec, RemovalListener<K, V> removalListener,
             Duration refreshAfterWrite, Executor refreshExecutor) {
         return createCacheWithRemovalListener(name, cacheSpec, null, removalListener,
-                refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP);
+                null, refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP);
     }
 
     <K, V> ScopedMetaCache<K, V> createCacheWithMetaRemovalListener(
             String name, CacheSpec cacheSpec, MetaCacheRemovalListener<K, V> removalListener,
+            BiConsumer<K, V> discardListener,
             Duration refreshAfterWrite, Executor refreshExecutor) {
         RemovalListener<K, V> caffeineListener = removalListener == null ? null
                 : (key, value, cause) -> removalListener.onRemoval(
                         key, value, MetaCacheRemovalReason.valueOf(cause.name()));
         return createCacheWithRemovalListener(
-                name, cacheSpec, caffeineListener, refreshAfterWrite, refreshExecutor);
+                name, cacheSpec, null, caffeineListener, discardListener,
+                refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP);
     }
 
     <K, V> ScopedMetaCache<K, V> createCache(
@@ -122,7 +124,8 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                 ? null
                 : (key, value, cause) -> beforeRemoval.accept(key, value);
         return createCacheWithRemovalListener(
-                name, cacheSpec, ticker, listener, null, null, afterLoadElection, afterBulkStage, NO_OP);
+                name, cacheSpec, ticker, listener, null, null, null,
+                afterLoadElection, afterBulkStage, NO_OP);
     }
 
     <K, V> ScopedMetaCache<K, V> createCacheWithRefresh(
@@ -132,7 +135,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             Executor refreshExecutor,
             Runnable afterRefreshRegistration) {
         return createCacheWithRemovalListener(
-                name, cacheSpec, null, null, refreshAfterWrite, refreshExecutor,
+                name, cacheSpec, null, null, null, refreshAfterWrite, refreshExecutor,
                 NO_OP, NO_OP, afterRefreshRegistration);
     }
 
@@ -141,6 +144,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             CacheSpec cacheSpec,
             Ticker ticker,
             RemovalListener<K, V> removalListener,
+            BiConsumer<K, V> discardListener,
             Duration refreshAfterWrite,
             Executor refreshExecutor,
             Runnable afterLoadElection,
@@ -153,6 +157,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                 cacheSpec,
                 ticker,
                 removalListener,
+                discardListener,
                 refreshAfterWrite,
                 refreshExecutor,
                 afterLoadElection,

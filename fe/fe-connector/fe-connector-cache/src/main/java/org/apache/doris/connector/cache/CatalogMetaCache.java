@@ -55,6 +55,7 @@ public final class CatalogMetaCache implements AutoCloseable {
             return new MetaCache<>(nonNullDefinition,
                     registry.createCacheWithMetaRemovalListener(nonNullDefinition.name(),
                             nonNullDefinition.cacheSpec(), nonNullDefinition.removalListener(),
+                            nonNullDefinition.discardListener(),
                             nonNullDefinition.refreshAfterWrite(), nonNullDefinition.refreshExecutor()));
         } catch (RuntimeException | Error throwable) {
             names.remove(nonNullDefinition.name());

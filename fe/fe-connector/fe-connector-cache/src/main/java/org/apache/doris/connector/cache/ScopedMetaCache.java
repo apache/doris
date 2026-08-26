@@ -91,6 +91,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final AtomicReference<Long> lastLoadFailureTimeMs = new AtomicReference<>(-1L);
     private final AtomicReference<String> lastError = new AtomicReference<>("");
     private final RemovalListener<K, V> beforeRemoval;
+    private final BiConsumer<K, V> discardListener;
     private final Ticker ticker;
     private final long refreshAfterWriteNanos;
     private final Executor refreshExecutor;
@@ -107,6 +108,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             CacheSpec cacheSpec,
             Ticker ticker,
             RemovalListener<K, V> beforeRemoval,
+            BiConsumer<K, V> discardListener,
             Duration refreshAfterWrite,
             Executor refreshExecutor,
             Runnable afterLoadElection,
@@ -116,6 +118,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         this.name = Objects.requireNonNull(name, "name can not be null");
         Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
         this.beforeRemoval = beforeRemoval;
+        this.discardListener = discardListener;
         this.ticker = ticker == null ? Ticker.systemTicker() : ticker;
         this.refreshAfterWriteNanos = refreshAfterWrite == null ? 0L : refreshAfterWrite.toNanos();
         this.refreshExecutor = refreshExecutor;
@@ -176,7 +179,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                         throw new IllegalStateException("Metadata cache publication callback was not invoked");
                     }
                 } finally {
-                    notifyUnpublishedRemoval(key, loaded);
+                    notifyDiscarded(key, loaded);
                 }
             }
             return loaded;
@@ -229,7 +232,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                         }
                     } finally {
                         if (!retained.get()) {
-                            notifyUnpublishedRemoval(key, loaded);
+                            notifyDiscarded(key, loaded);
                         }
                     }
                 }
@@ -477,11 +480,13 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return;
         }
         registry.removeCache(this);
+        refreshing.clear();
         closePhysicalState();
     }
 
     void closeFromRegistry() {
         if (closed.compareAndSet(false, true)) {
+            refreshing.clear();
             closePhysicalState();
         }
     }
@@ -559,33 +564,36 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 || refreshing.putIfAbsent(key, current) != null) {
             return;
         }
-        PublicationLease<K, V> lease;
         try {
             afterRefreshRegistration.run();
-            lease = acquirePublicationLease(key, path, true);
+            checkOpen();
         } catch (RuntimeException | Error throwable) {
             refreshing.remove(key, current);
             throw throwable;
         }
         if (data.getIfPresent(key) != current || !current.isCurrent(registry, keyNodes)) {
-            lease.close();
             refreshing.remove(key, current);
             return;
         }
         try {
             refreshExecutor.execute(() -> {
-                try (PublicationLease<K, V> ignored = lease) {
+                try {
                     if (closed.get()) {
                         return;
                     }
-                    V refreshed = loadAndRecord(key, loader);
-                    if (refreshed != null) {
-                        boolean retained = false;
-                        try {
-                            retained = replaceRefreshExpected(lease, key, current, refreshed);
-                        } finally {
-                            if (!retained) {
-                                notifyUnpublishedRemoval(key, refreshed);
+                    try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
+                        if (data.getIfPresent(key) != current || !current.isCurrent(registry, keyNodes)) {
+                            return;
+                        }
+                        V refreshed = loadAndRecord(key, loader);
+                        if (refreshed != null) {
+                            boolean retained = false;
+                            try {
+                                retained = replaceRefreshExpected(lease, key, current, refreshed);
+                            } finally {
+                                if (!retained && refreshed != current.value) {
+                                    notifyDiscarded(key, refreshed);
+                                }
                             }
                         }
                     }
@@ -596,7 +604,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 }
             });
         } catch (RejectedExecutionException exception) {
-            lease.close();
             refreshing.remove(key, current);
         }
     }
@@ -613,6 +620,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         return guardedCommit(lease, () -> {
             if (data.getIfPresent(key) != expected || !expected.isCurrent(registry, keyNodes)) {
                 return false;
+            }
+            if (refreshed == expected.value) {
+                expected.writeTimeNanos = ticker.read();
+                return true;
             }
             VersionedValue<K, V> replacement = newVersionedValue(lease, key, refreshed);
             registry.register(replacement.address, replacement, replacement.scopeSnapshot);
@@ -804,14 +815,14 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         tryPruneKey(key, versioned.keyNode);
     }
 
-    private void notifyUnpublishedRemoval(K key, V value) {
-        if (beforeRemoval == null) {
+    private void notifyDiscarded(K key, V value) {
+        if (discardListener == null) {
             return;
         }
         try {
-            beforeRemoval.onRemoval(key, value, RemovalCause.EXPLICIT);
+            discardListener.accept(key, value);
         } catch (Throwable t) {
-            LOG.warn("Scoped metadata cache removal callback failed", t);
+            LOG.warn("Scoped metadata cache discard callback failed", t);
         }
     }
 
@@ -1093,7 +1104,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final ScopeSnapshot scopeSnapshot;
         private final KeyNode<K, V> keyNode;
         private final KeyState keyState;
-        private final long writeTimeNanos;
+        private volatile long writeTimeNanos;
 
         private VersionedValue(
                 K key,

@@ -114,23 +114,21 @@ class CatalogMetaCacheTest {
     }
 
     @Test
-    void disabledLoadRetiresValueNotOwnedByCache() {
-        AtomicReference<String> retired = new AtomicReference<>();
-        AtomicReference<MetaCacheRemovalReason> reason = new AtomicReference<>();
+    void disabledLoadUsesDiscardCallbackWithoutRemovingCallerOwnedValue() {
+        AtomicReference<String> removed = new AtomicReference<>();
+        AtomicReference<String> discarded = new AtomicReference<>();
         MetaCacheDefinition<TableKey, String> definition = MetaCacheDefinition
                 .<TableKey, String>builder("disabled", CacheSpec.of(true, 0L, 100L), TableKey::scope)
-                .removalListener((key, value, removalReason) -> {
-                    retired.set(value);
-                    reason.set(removalReason);
-                })
+                .removalListener((key, value, removalReason) -> removed.set(value))
+                .discardListener((key, value) -> discarded.set(value))
                 .build();
         try (CatalogMetaCache catalog = new CatalogMetaCache()) {
             MetaCache<TableKey, String> cache = catalog.create(definition);
 
             Assertions.assertEquals("loaded", cache.get(
                     new TableKey("db", "table"), key -> "loaded"));
-            Assertions.assertEquals("loaded", retired.get());
-            Assertions.assertEquals(MetaCacheRemovalReason.EXPLICIT, reason.get());
+            Assertions.assertNull(removed.get());
+            Assertions.assertEquals("loaded", discarded.get());
         }
     }
 
@@ -167,34 +165,90 @@ class CatalogMetaCacheTest {
     }
 
     @Test
-    void invalidationRejectsRefreshAdmittedBeforeGenerationChange() {
+    void invalidationDuringRefreshDiscardsTheReloadedValue() {
         AtomicInteger loads = new AtomicInteger();
-        AtomicReference<String> retired = new AtomicReference<>();
-        QueuedExecutor executor = new QueuedExecutor();
+        AtomicReference<String> removed = new AtomicReference<>();
+        AtomicReference<String> discarded = new AtomicReference<>();
+        CatalogMetaCache catalog = new CatalogMetaCache();
         MetaCacheDefinition<TableKey, String> definition = MetaCacheDefinition
                 .<TableKey, String>builder("refresh", SPEC, TableKey::scope)
-                .loader(key -> "v" + loads.incrementAndGet())
-                .removalListener((key, value, reason) -> retired.set(value))
-                .refreshAfterWrite(Duration.ofNanos(1), executor)
+                .loader(key -> {
+                    String loaded = "v" + loads.incrementAndGet();
+                    if (loads.get() > 1) {
+                        catalog.invalidateTable("db", "table");
+                    }
+                    return loaded;
+                })
+                .removalListener((key, value, reason) -> removed.set(value))
+                .discardListener((key, value) -> discarded.set(value))
+                .refreshAfterWrite(Duration.ofNanos(1), Runnable::run)
                 .build();
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache ignored = catalog) {
             MetaCache<TableKey, String> cache = catalog.create(definition);
             TableKey key = new TableKey("db", "table");
 
             Assertions.assertEquals("v1", cache.get(key));
             Assertions.assertEquals("v1", cache.get(key));
-            Assertions.assertEquals(1, executor.size());
-            catalog.invalidateTable("db", "table");
-            executor.runNext();
 
             Assertions.assertNull(cache.getIfPresent(key));
             Assertions.assertEquals(2, loads.get());
-            Assertions.assertEquals("v2", retired.get());
+            Assertions.assertEquals("v1", removed.get());
+            Assertions.assertEquals("v2", discarded.get());
         }
     }
 
     @Test
-    void closeSkipsRefreshLoaderAlreadyQueued() {
+    void identityRefreshPreservesThePublishedOwner() {
+        Object value = new Object();
+        AtomicInteger removals = new AtomicInteger();
+        MetaCacheDefinition<TableKey, Object> definition = MetaCacheDefinition
+                .<TableKey, Object>builder("refresh", SPEC, TableKey::scope)
+                .loader(key -> value)
+                .removalListener((key, removed, reason) -> removals.incrementAndGet())
+                .refreshAfterWrite(Duration.ofNanos(1), Runnable::run)
+                .build();
+        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+            MetaCache<TableKey, Object> cache = catalog.create(definition);
+            TableKey key = new TableKey("db", "table");
+
+            Assertions.assertSame(value, cache.get(key));
+            Assertions.assertSame(value, cache.get(key));
+            Assertions.assertSame(value, cache.getIfPresent(key));
+            Assertions.assertEquals(0, removals.get());
+        }
+    }
+
+    @Test
+    void rejectedIdentityRefreshIsRemovedExactlyOnce() {
+        Object value = new Object();
+        AtomicInteger loads = new AtomicInteger();
+        AtomicInteger removals = new AtomicInteger();
+        CatalogMetaCache catalog = new CatalogMetaCache();
+        MetaCacheDefinition<TableKey, Object> definition = MetaCacheDefinition
+                .<TableKey, Object>builder("refresh", SPEC, TableKey::scope)
+                .loader(key -> {
+                    if (loads.incrementAndGet() > 1) {
+                        catalog.invalidateTable("db", "table");
+                    }
+                    return value;
+                })
+                .removalListener((key, removed, reason) -> removals.incrementAndGet())
+                .discardListener((key, discarded) -> removals.incrementAndGet())
+                .refreshAfterWrite(Duration.ofNanos(1), Runnable::run)
+                .build();
+        try (CatalogMetaCache ignored = catalog) {
+            MetaCache<TableKey, Object> cache = catalog.create(definition);
+            TableKey key = new TableKey("db", "table");
+
+            Assertions.assertSame(value, cache.get(key));
+            Assertions.assertSame(value, cache.get(key));
+            Assertions.assertNull(cache.getIfPresent(key));
+            Assertions.assertEquals(1, removals.get());
+        }
+    }
+
+    @Test
+    void closeReleasesRefreshAdmissionWhenQueuedWorkIsDiscarded() {
         AtomicInteger loads = new AtomicInteger();
         QueuedExecutor executor = new QueuedExecutor();
         MetaCacheDefinition<TableKey, String> definition = MetaCacheDefinition
@@ -210,10 +264,11 @@ class CatalogMetaCacheTest {
         Assertions.assertEquals("v1", cache.get(key));
         Assertions.assertEquals(1, executor.size());
         catalog.close();
-        executor.runNext();
+        executor.discardNext();
 
         Assertions.assertEquals(1, loads.get());
         Assertions.assertEquals(0, catalog.metrics().getRegistrationCount());
+        Assertions.assertEquals(0, catalog.metrics().getActiveLoadCount());
     }
 
     private static MetaCacheDefinition<TableKey, String> tableDefinition(String name) {
@@ -248,6 +303,10 @@ class CatalogMetaCacheTest {
 
         private void runNext() {
             tasks.remove().run();
+        }
+
+        private void discardNext() {
+            tasks.remove();
         }
     }
 }

@@ -87,6 +87,60 @@ public class FeMetaCacheEntryTest {
     }
 
     @Test
+    public void testDisabledEntryDoesNotRetireTheReturnedValue() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        AtomicBoolean usable = new AtomicBoolean(true);
+        try {
+            CacheSpec disabledSpec = CacheSpec.of(true, 0L, 100L);
+            FeMetaCacheEntry<String, AtomicBoolean> entry = FeMetaCacheEntry.withSyncRemovalListener(
+                    "databases", ignored -> usable, disabledSpec, executor,
+                    (key, value, cause) -> value.set(false));
+
+            AtomicBoolean loaded = entry.get("db");
+
+            Assert.assertSame(usable, loaded);
+            Assert.assertTrue(loaded.get());
+            Assert.assertNull(entry.getIfPresent("db"));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidationDoesNotRetireARejectedMissValue() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch loadedBeforePublication = new CountDownLatch(1);
+        CountDownLatch continuePublication = new CountDownLatch(1);
+        AtomicBoolean usable = new AtomicBoolean(true);
+        try {
+            FeMetaCacheEntry<String, AtomicBoolean> entry = new FeMetaCacheEntry<String, AtomicBoolean>(
+                    "databases", ignored -> usable, ENABLED, refreshExecutor, false, false, 1,
+                    (key, value, cause) -> value.set(false)) {
+                @Override
+                void beforeManualCachePutForTest(String key, AtomicBoolean value) {
+                    loadedBeforePublication.countDown();
+                    await(continuePublication);
+                }
+            };
+
+            Future<AtomicBoolean> load = worker.submit(() -> entry.get("db"));
+            await(loadedBeforePublication);
+            entry.invalidateKey("db");
+            continuePublication.countDown();
+
+            AtomicBoolean returned = load.get(3L, TimeUnit.SECONDS);
+            Assert.assertSame(usable, returned);
+            Assert.assertTrue(returned.get());
+            Assert.assertNull(entry.getIfPresent("db"));
+        } finally {
+            continuePublication.countDown();
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testMutationAndAuxiliaryIndexSharePublicationWindow() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         List<String> index = new ArrayList<>();

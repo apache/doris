@@ -125,7 +125,7 @@ public class FeMetaCacheEntry<K, V> {
                 Objects.requireNonNull(removalListener, "removalListener can not be null"));
     }
 
-    private FeMetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+    FeMetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount,
             @Nullable RemovalListener<K, V> removalListener) {
         this.name = Objects.requireNonNull(name, "name can not be null");

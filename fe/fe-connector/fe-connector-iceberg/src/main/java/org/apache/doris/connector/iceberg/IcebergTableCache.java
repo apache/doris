@@ -91,6 +91,7 @@ final class IcebergTableCache {
         this.entry = owner.create(MetaCacheDefinition
                 .<TableIdentifier, TableOwner>builder("iceberg-table", spec, IcebergTableCache::scope)
                 .removalListener((identifier, tableOwner, reason) -> tableOwner.release())
+                .discardListener((identifier, tableOwner) -> tableOwner.release())
                 .build());
     }
 
