@@ -168,4 +168,14 @@ public class MTMVComputeGroupTest {
         Assert.assertEquals("cg_b", resolvedB);
         Assert.assertNotEquals(resolvedA, resolvedB);
     }
+
+    // A task carries no task context when it is read back from meta, so resolving must fall back to
+    // the declaration rather than fail, and stay a no-op when there is no declaration either.
+    @Test
+    public void testTaskWithoutTaskContextUsesDeclaredComputeGroup() {
+        Config.deploy_mode = "cloud";
+        Config.cloud_unique_id = "";
+        Assert.assertEquals(DECLARED_CG, resolveComputeGroup(new MTMVTask(newMTMV(DECLARED_CG), null, null)));
+        Assert.assertTrue(Strings.isNullOrEmpty(resolveComputeGroup(new MTMVTask(newMTMV(null), null, null))));
+    }
 }

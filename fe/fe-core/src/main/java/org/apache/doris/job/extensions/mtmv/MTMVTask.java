@@ -413,7 +413,12 @@ public class MTMVTask extends AbstractTask {
         // Only when the MV declares nothing does a manual REFRESH keep borrowing the session's group,
         // which is the behaviour every existing MV keeps.
         String declared = mtmv == null ? null : mtmv.getComputeGroup().orElse(null);
-        String effective = Strings.isNullOrEmpty(declared) ? taskContext.getComputeGroup() : declared;
+        String effective = declared;
+        // A task read back from meta carries no taskContext, which the class already tolerates
+        // elsewhere, so the session's group is only consulted when there is one.
+        if (Strings.isNullOrEmpty(effective) && taskContext != null) {
+            effective = taskContext.getComputeGroup();
+        }
         if (!Strings.isNullOrEmpty(effective)) {
             ctx.setCloudCluster(effective);
         }
