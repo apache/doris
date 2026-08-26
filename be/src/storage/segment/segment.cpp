@@ -369,25 +369,24 @@ std::optional<Field> Segment::_read_time_const_value(int32_t col_uid,
     // __DORIS_BINLOG_TSO__ both read as the rowset's commit_tso, and __DORIS_VERSION_COL__ as its
     // version.
     if (col_uid < 0 || read_options.version.second <= 0 ||
-        read_options.version.first != read_options.version.second) {
+        read_options.version.first != read_options.version.second ||
+        !_tablet_schema->has_column_unique_id(col_uid)) {
         return std::nullopt;
     }
-    const auto uid_of = [&](int32_t idx) {
-        return idx == -1 ? -1 : _tablet_schema->column(idx).unique_id();
-    };
+    // Match on the name, because TabletSchema's cached column indexes cannot be trusted.
+    const std::string& name = _tablet_schema->column_by_uid(col_uid).name();
     // end_tso is -1 before publish, when the on-disk value is all there is.
-    if (uid_of(_tablet_schema->commit_tso_col_idx()) == col_uid &&
-        read_options.commit_tso.end_tso() != -1) {
+    if (name == COMMIT_TSO_COL && read_options.commit_tso.end_tso() != -1) {
         return Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
     }
     // _update_tso_col_if_needed() only fills this one on a binlog read, and it writes 0 rather
     // than nothing when the tso is not assigned yet.
-    if (read_options.read_row_binlog && uid_of(_tablet_schema->binlog_tso_col_idx()) == col_uid) {
+    if (read_options.read_row_binlog && name == BINLOG_TSO_COL) {
         const Int64 tso =
                 read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
         return Field::create_field<TYPE_BIGINT>(tso);
     }
-    if (uid_of(_tablet_schema->version_col_idx()) == col_uid) {
+    if (name == VERSION_COL) {
         return Field::create_field<TYPE_BIGINT>(read_options.version.second);
     }
     return std::nullopt;
