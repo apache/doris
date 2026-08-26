@@ -1208,11 +1208,19 @@ Status LanceTableReader::_fill_block_from_record_batch(
         }
         const auto output_idx = output_it->second;
         try {
+            const auto& arrow_column = record_batch->column(arrow_idx);
+            if (arrow_column->type_id() == arrow::Type::NA) {
+                columns[output_idx]->insert_many_defaults(row_count);
+                continue;
+            }
+            std::shared_ptr<arrow::Array> normalized_column;
+            RETURN_IF_ERROR(
+                    normalize_lance_arrow_array(field, arrow_column, &normalized_column));
             RETURN_IF_ERROR(columns_guard.get_datatype_by_position(output_idx)
                                     ->get_serde()
                                     ->read_column_from_arrow(*columns[output_idx],
-                                                             record_batch->column(arrow_idx).get(),
-                                                             0, row_count, _ctz));
+                                                             normalized_column.get(), 0, row_count,
+                                                             _ctz));
         } catch (const Exception& e) {
             return Status::InternalError("convert Lance Arrow column '{}' failed: {}",
                                          field->name(), e.what());
