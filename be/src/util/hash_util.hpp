@@ -462,6 +462,29 @@ public:
         return XXH64(reinterpret_cast<const void*>(&INT_VALUE), sizeof(int), seed);
     }
 
+    static inline unsigned __int128 xxh128_to_uint128(XXH128_hash_t h) {
+        return (static_cast<unsigned __int128>(h.high64) << 64) | h.low64;
+    }
+
+    static unsigned __int128 xxHash128WithSeed(const char* s, size_t len, xxh_u64 seed) {
+        return xxh128_to_uint128(XXH3_128bits_withSeed(s, len, seed));
+    }
+
+    // same to the up function, just for null value
+    static unsigned __int128 xxHash128NullWithSeed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return xxh128_to_uint128(XXH3_128bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed));
+    }
+
+    static unsigned __int128 xxhash128_compat_with_seed(const char* s, size_t len, xxh_u64 seed) {
+        return xxh128_to_uint128(XXH128(reinterpret_cast<const void*>(s), len, seed));
+    }
+
+    static unsigned __int128 xxhash128_compat_null_with_seed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return xxh128_to_uint128(XXH128(reinterpret_cast<const void*>(&INT_VALUE), sizeof(int), seed));
+    }
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

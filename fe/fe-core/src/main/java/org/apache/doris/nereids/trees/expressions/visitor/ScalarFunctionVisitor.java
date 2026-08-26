@@ -590,6 +590,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -2034,6 +2035,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitXxHash64(XxHash64 xxHash64, C context) {
         return visitScalarFunction(xxHash64, context);
+    }
+
+    default R visitXxHash128(XxHash128 xxHash128, C context) {
+        return visitScalarFunction(xxHash128, context);
     }
 
     default R visitNegative(Negative negative, C context) {

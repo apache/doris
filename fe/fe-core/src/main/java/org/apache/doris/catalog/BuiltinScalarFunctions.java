@@ -573,6 +573,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -1162,6 +1163,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(WidthBucket.class, "width_bucket"),
             scalar(XxHash32.class, "xxhash_32"),
             scalar(XxHash64.class, "xxhash_64", "xxhash3_64"),
+            scalar(XxHash128.class, "xxhash_128"),
             scalar(Xor.class, "xor"),
             scalar(XpathString.class, "xpath_string"),
             scalar(Year.class, "year"),
