@@ -75,10 +75,11 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
             order by id
         """
 
-        "order_qt_mixed_column_nested_loop_join_${mode}" """
+        "order_qt_mixed_column_hash_join_${mode}" """
             select l.id, r.id
-            from timestamp_ns_mixed_datetime_coercion l
-            join timestamp_ns_mixed_datetime_coercion r on l.ts = r.dt
+            from (select * from timestamp_ns_mixed_datetime_coercion where id >= 3) l
+            join (select * from timestamp_ns_mixed_datetime_coercion where id >= 3) r
+              on l.ts = r.dt
             order by l.id, r.id
         """
 

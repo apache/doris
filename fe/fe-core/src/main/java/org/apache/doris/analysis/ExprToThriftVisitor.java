@@ -445,6 +445,9 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     public Void visitCastExpr(CastExpr expr, TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(TExprOpcode.CAST);
+        if (expr.isStrict()) {
+            msg.setIsStrictCast(true);
+        }
         return null;
     }
 

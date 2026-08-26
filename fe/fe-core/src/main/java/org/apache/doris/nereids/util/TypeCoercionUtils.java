@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -1386,6 +1387,16 @@ public class TypeCoercionUtils {
      * process comparison predicate type coercion.
      */
     public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate) {
+        return processComparisonPredicateInternal(comparisonPredicate, false);
+    }
+
+    /** Normalize equality keys in join conditions to a hash-compatible common type. */
+    public static Expression processJoinComparisonPredicate(ComparisonPredicate comparisonPredicate) {
+        return processComparisonPredicateInternal(comparisonPredicate, true);
+    }
+
+    private static Expression processComparisonPredicateInternal(ComparisonPredicate comparisonPredicate,
+            boolean isJoinCondition) {
         comparisonPredicate.checkLegalityBeforeTypeCoercion();
 
         Expression left = comparisonPredicate.left();
@@ -1422,6 +1433,14 @@ public class TypeCoercionUtils {
         comparisonPredicate = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(comparisonPredicate);
         left = comparisonPredicate.left();
         right = comparisonPredicate.right();
+
+        if (isJoinCondition && comparisonPredicate instanceof EqualPredicate
+                && isTimeStampNsAndJoinCompatibleTemporalPair(
+                        left.getDataType(), right.getDataType())) {
+            left = strictCastIfNotSameType(left, TimeStampNsType.INSTANCE);
+            right = strictCastIfNotSameType(right, TimeStampNsType.INSTANCE);
+            return comparisonPredicate.withChildren(left, right);
+        }
 
         Optional<DataType> commonType;
         if (isTimeStampNsAndDateLikePair(left.getDataType(), right.getDataType())) {
@@ -1857,6 +1876,25 @@ public class TypeCoercionUtils {
                 && !(right instanceof TimeStampNsType))
                 || (right instanceof TimeStampNsType && left.isDateLikeType()
                 && !(left instanceof TimeStampNsType));
+    }
+
+    private static boolean isTimeStampNsAndJoinCompatibleTemporalPair(DataType left, DataType right) {
+        return (left instanceof TimeStampNsType && isJoinCompatibleTemporalType(right))
+                || (right instanceof TimeStampNsType && isJoinCompatibleTemporalType(left));
+    }
+
+    private static boolean isJoinCompatibleTemporalType(DataType dataType) {
+        return dataType.isDateType() || dataType.isDateV2Type()
+                || dataType.isDateTimeType() || dataType.isDateTimeV2Type()
+                || dataType.isTimeStampTzType();
+    }
+
+    private static Expression strictCastIfNotSameType(Expression expression, DataType targetType) {
+        if (expression.getDataType().equals(targetType)) {
+            return expression;
+        }
+        checkCanCastTo(expression.getDataType(), targetType);
+        return new Cast(expression, targetType, false, true);
     }
 
     private static Optional<DataType> findExactCommonTypeForTimeStampNsAndDateLike(

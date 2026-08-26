@@ -355,18 +355,20 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
     """
     order_qt_mixed_join """
         select l.id, r.id
-        from timestamp_ns_mixed_datetime_expressions l
-        join timestamp_ns_mixed_datetime_expressions r on l.ts = r.dt
+        from (select * from timestamp_ns_mixed_datetime_expressions where id <= 3 or id = 7) l
+        join (select * from timestamp_ns_mixed_datetime_expressions where id <= 3 or id = 7) r
+          on l.ts = r.dt
         order by l.id, r.id
     """
     explain {
         sql """
             shape plan
             select l.id
-            from timestamp_ns_mixed_datetime_expressions l
-            join timestamp_ns_mixed_datetime_expressions r on l.ts = r.dt
+            from (select * from timestamp_ns_mixed_datetime_expressions where id <= 3 or id = 7) l
+            join (select * from timestamp_ns_mixed_datetime_expressions where id <= 3 or id = 7) r
+              on l.ts = r.dt
         """
-        contains "NestedLoopJoin"
+        contains "hashJoin"
     }
 
     // DATEDIFF consumes the two civil day numbers independently. Other difference functions still

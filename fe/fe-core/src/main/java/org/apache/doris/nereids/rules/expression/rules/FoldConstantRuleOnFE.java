@@ -542,9 +542,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
+        boolean strictCast = cast.isStrict() || SessionVariable.enableStrictCast();
         // Unsupported type pairs must be handled by CheckCast, rather than being folded into a
         // literal or NULL based on the value-conversion result.
-        if (!CheckCast.check(child.getDataType(), dataType, SessionVariable.enableStrictCast())) {
+        if (!CheckCast.check(child.getDataType(), dataType, strictCast)) {
             return cast;
         }
         // todo: process other null case
@@ -575,7 +576,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
             return castResult;
         } catch (CastException c) {
-            if (SessionVariable.enableStrictCast()) {
+            if (strictCast) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);

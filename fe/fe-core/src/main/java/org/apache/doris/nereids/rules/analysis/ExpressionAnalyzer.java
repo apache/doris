@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -123,6 +124,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -872,7 +874,25 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
-        return TypeCoercionUtils.processComparisonPredicate(cp);
+        return isEqualityBetweenJoinChildren(cp)
+                ? TypeCoercionUtils.processJoinComparisonPredicate(cp)
+                : TypeCoercionUtils.processComparisonPredicate(cp);
+    }
+
+    private boolean isEqualityBetweenJoinChildren(ComparisonPredicate comparisonPredicate) {
+        if (!(comparisonPredicate instanceof EqualPredicate) || !(currentPlan instanceof LogicalJoin)) {
+            return false;
+        }
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) currentPlan;
+        Set<Slot> leftInputs = comparisonPredicate.left().getInputSlots();
+        Set<Slot> rightInputs = comparisonPredicate.right().getInputSlots();
+        if (leftInputs.isEmpty() || rightInputs.isEmpty()) {
+            return false;
+        }
+        Set<Slot> leftOutputs = join.left().getOutputSet();
+        Set<Slot> rightOutputs = join.right().getOutputSet();
+        return (leftOutputs.containsAll(leftInputs) && rightOutputs.containsAll(rightInputs))
+                || (rightOutputs.containsAll(leftInputs) && leftOutputs.containsAll(rightInputs));
     }
 
     @Override

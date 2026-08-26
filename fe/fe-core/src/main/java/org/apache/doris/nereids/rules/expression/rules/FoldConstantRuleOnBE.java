@@ -290,7 +290,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             // expression normalization. Folding them can turn an analysis error into NULL or a
             // literal. Also preserve cast(null as dataType) for callers such as CTAS.
             if (!CheckCast.check(cast.child().getDataType(), cast.getDataType(),
-                    SessionVariable.enableStrictCast()) || cast.child().isNullLiteral()) {
+                    cast.isStrict() || SessionVariable.enableStrictCast()) || cast.child().isNullLiteral()) {
                 return true;
             }
         }

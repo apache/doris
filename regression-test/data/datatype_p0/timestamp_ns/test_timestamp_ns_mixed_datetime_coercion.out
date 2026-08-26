@@ -20,7 +20,7 @@ true	true	true	true
 4	2024-01-02 03:04:05.123456000	2262-04-11 23:47:16.854775000
 5	2024-01-02 03:04:05.123456000	2024-01-02 03:04:05.123456000
 
--- !mixed_column_nested_loop_join_false --
+-- !mixed_column_hash_join_false --
 3	3
 4	4
 
@@ -55,7 +55,7 @@ true	true	true	true
 4	2024-01-02 03:04:05.123456000	2262-04-11 23:47:16.854775000
 5	2024-01-02 03:04:05.123456000	2024-01-02 03:04:05.123456000
 
--- !mixed_column_nested_loop_join_true --
+-- !mixed_column_hash_join_true --
 3	3
 4	4
 
