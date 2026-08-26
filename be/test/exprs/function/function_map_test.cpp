@@ -18,6 +18,7 @@
 #include <fmt/core.h>
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -26,6 +27,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
@@ -555,6 +557,38 @@ TEST(FunctionMapTest, map_from_entries_unique_skips_deduplication) {
     const auto& result = assert_cast<const ColumnMap&>(*block.get_by_position(1).column);
     EXPECT_EQ(result.get_keys().size(), 2);
     EXPECT_EQ(result.get_values().size(), 2);
+}
+
+TEST(FunctionMapTest, map_filter_rejects_unrepresentable_selector_position) {
+    if (std::numeric_limits<size_t>::max() <= std::numeric_limits<IColumn::ColumnIndex>::max()) {
+        GTEST_SKIP() << "size_t cannot represent positions beyond IColumn::Selector";
+    }
+
+    const size_t entry_count = static_cast<size_t>(
+            static_cast<uint64_t>(std::numeric_limits<IColumn::ColumnIndex>::max()) + 2);
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(entry_count);
+    auto predicate_offsets = ColumnArray::ColumnOffsets::create();
+    predicate_offsets->insert_value(entry_count);
+
+    auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int, nullable_int);
+    auto bool_array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeUInt8>()));
+
+    Block block;
+    block.insert({ColumnMap::create(ColumnNothing::create(entry_count),
+                                    ColumnNothing::create(entry_count), std::move(offsets)),
+                  map_type, "map"});
+    block.insert(
+            {ColumnArray::create(ColumnNothing::create(entry_count), std::move(predicate_offsets)),
+             bool_array_type, "predicate"});
+    block.insert({nullptr, map_type, "result"});
+
+    auto status = execute_map_function("map_filter", block, {0, 1}, 2, map_type);
+    ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status.to_string();
+    EXPECT_NE(status.to_string().find("selector positions are limited to 4294967295"),
+              std::string::npos);
 }
 
 TEST(FunctionMapTest, map_from_filtered_entries_unique) {
