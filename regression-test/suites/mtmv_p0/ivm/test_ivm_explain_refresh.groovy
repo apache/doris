@@ -16,6 +16,14 @@
 // under the License.
 
 suite("test_ivm_explain_refresh") {
+    // Cloud mode: the refresh sink plan has no
+    // PhysicalDistribute[DistributionSpecOlapTableSinkHashPartitioned] node (the cloud
+    // OlapTableSink does not hash-distribute like local), so shape-plan lines differ.
+    if (isCloudMode()) {
+        logger.info("skip test_ivm_explain_refresh on cloud mode: " +
+                "sink distribution plan differs between cloud and local")
+        return
+    }
     def explainIvmPlanWithoutStreamId = { String tag, String sql ->
         delegate.quickRunTest(
                 tag,
