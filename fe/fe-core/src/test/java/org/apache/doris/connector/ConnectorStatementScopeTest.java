@@ -45,9 +45,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Tests for the per-statement {@link ConnectorStatementScope}: the {@link ConnectorStatementScope#NONE} no-op,
  * the memoizing {@link ConnectorStatementScopeImpl}, the {@link StatementContext} hosting + per-execution
- * reset a reused prepared statement relies on, and that {@link ExecuteCommand} actually invokes that reset on
- * every execution (external/connector tables are planned through the reused prepared context, so a missing
- * reset would leak one execution's loaded table into the next — see {@code executeCommandResetsConnectorScope*}).
+ * reset primitive, and that {@link ExecuteCommand} allocates a fresh StatementContext (and therefore a fresh
+ * connector scope) on every execution (external/connector tables are planned through the context, so a missing
+ * fresh context would leak one execution's loaded table into the next — see
+ * {@code executeCommandAllocatesFreshConnectorScopePerExecution}).
  */
 public class ConnectorStatementScopeTest {
 
@@ -184,21 +185,23 @@ public class ConnectorStatementScopeTest {
     }
 
     @Test
-    public void executeCommandResetsConnectorScopePerExecution() throws Exception {
-        // WIRING test: the reset above is only load-bearing if ExecuteCommand.run() actually calls it. A prepared
-        // statement reuses ONE StatementContext across every EXECUTE, and an EXTERNAL/connector table is planned
-        // through that reused context each execution (external tables never take the OLAP short-circuit fast path;
-        // they always fall to the normal executor.execute() planner, which re-resolves the table per execution).
-        // So run() must drop the connector per-statement scope at the top of every execution, or a prior execution's
-        // memoized (loaded) table leaks into the next. The tests above cover only the reset PRIMITIVE; this covers
-        // that the command invokes it. MUTATION: delete `statementContext.resetConnectorStatementScope()` from
-        // ExecuteCommand.run() -> the seeded value survives -> the assertNotSame below flips -> red.
+    public void executeCommandAllocatesFreshConnectorScopePerExecution() throws Exception {
+        // WIRING test: a prepared statement lives as long as its connection, so ExecuteCommand must not let one
+        // execution's connector state leak into the next. Previously run() reused ONE StatementContext and reset
+        // its connector per-statement scope at the top of every execution; now it allocates a brand-new
+        // StatementContext per EXECUTE (dropping the previous one, whose per-statement maps were the OOM source
+        // on long-lived connections), so the fresh context starts with a brand-new connector scope by
+        // construction. External/connector tables never take the OLAP short-circuit fast path; they always fall
+        // to the normal executor.execute() planner, which re-resolves the table per execution through that fresh
+        // context. MUTATION: reverting to reusing one StatementContext across executions (without a reset) -> the
+        // seeded value survives in the context still used by the next execution -> the assertNotSame below flips
+        // -> red.
         StatementContext statementContext = new StatementContext();
         // Seed a value the way a first execution's connector planning would (one loaded table the statement shares).
         ConnectorStatementScope firstScope = statementContext.getOrCreateConnectorStatementScope();
         Object memoizedTable = firstScope.computeIfAbsent("table:1", Object::new);
 
-        // A prepared statement wrapping that reused StatementContext, with a plain (non-cache, non-insert) plan.
+        // A prepared statement wrapping that StatementContext, with a plain (non-cache, non-insert) plan.
         LogicalPlan plan = Mockito.mock(LogicalPlan.class);
         PrepareCommand prepareCommand = Mockito.mock(PrepareCommand.class);
         Mockito.when(prepareCommand.getLogicalPlan()).thenReturn(plan);
@@ -213,15 +216,20 @@ public class ConnectorStatementScopeTest {
         Mockito.when(ctx.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
 
-        // A no-op executor: we pin the reset wiring, not the planner. execute() is a mock no-op.
+        // A no-op executor: we pin the fresh-context wiring, not the planner. execute() is a mock no-op.
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
         Mockito.when(executor.getContext()).thenReturn(ctx);
 
         new ExecuteCommand("s", prepareCommand, statementContext).run(ctx, executor);
 
-        ConnectorStatementScope secondScope = statementContext.getOrCreateConnectorStatementScope();
+        // run() must swap in a fresh StatementContext for this execution, releasing the previous one...
+        StatementContext nextContext = preparedStmtCtx.getStatementContext();
+        Assertions.assertNotSame(statementContext, nextContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE so the old one is released");
+        // ...whose connector scope is brand-new, so a prior execution's memoized connector table cannot leak.
+        ConnectorStatementScope secondScope = nextContext.getOrCreateConnectorStatementScope();
         Assertions.assertNotSame(firstScope, secondScope,
-                "ExecuteCommand drops the reused context's connector scope so the next execution starts fresh");
+                "the fresh context starts with a fresh connector scope");
         Assertions.assertNotSame(memoizedTable, secondScope.computeIfAbsent("table:1", Object::new),
                 "a prior execution's memoized connector table must not leak into the next EXECUTE");
     }

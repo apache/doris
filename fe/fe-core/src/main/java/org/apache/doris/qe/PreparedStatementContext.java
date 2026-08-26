@@ -54,6 +54,23 @@ public class PreparedStatementContext {
         this.statementContext = statementContext;
     }
 
+    /**
+     * Allocate a fresh StatementContext for this EXECUTE and replace the previous one, so the
+     * old context (with the per-statement state accumulated by prior executions: bound tables,
+     * CTE maps, statistics, snapshots, ...) becomes unreachable and is promptly GC'd.
+     *
+     * <p>A prepared statement lives as long as its connection. Reusing one StatementContext
+     * across all executions would keep growing those maps and could OOM long-lived connections,
+     * so we create a new object per execution and carry over only the state that must survive
+     * (placeholder bindings, comparison slots, id generator positions, short-circuit flags).
+     *
+     * @return the fresh StatementContext to use for the current execution
+     */
+    public StatementContext nextStatementContext() {
+        statementContext = statementContext.createNextExecuteContext();
+        return statementContext;
+    }
+
     public void setStartTime() {
         startTime = System.currentTimeMillis();
     }

@@ -395,6 +395,53 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Create a fresh StatementContext for the next EXECUTE of a prepared statement.
+     *
+     * <p>A prepared statement keeps its StatementContext inside {@code PreparedStatementContext}
+     * for the whole lifetime of the connection. Reusing the same object across executions makes
+     * its per-statement state (bound tables, CTE maps, statistics, snapshots, connector scope,
+     * ...) accumulate and it is only released when the connection closes, which can OOM
+     * long-lived connections. Instead of clearing in place, allocate a brand-new context per
+     * EXECUTE and copy over only the state that must survive between executions, so the previous
+     * context becomes unreachable and is promptly GC'd.
+     *
+     * <p>Carried over:
+     * <ul>
+     *   <li>id generator positions, so ids generated during this execution never collide with
+     *       ids already present in the cached analyzed plan from PREPARE;</li>
+     *   <li>the placeholder real expressions bound by this EXECUTE (the protocol layer fills
+     *       them on the previous context before this method runs) and the placeholder list;</li>
+     *   <li>the placeholder to comparison-slot registry used by the short-circuit fast path;</li>
+     *   <li>the short-circuit and nondeterministic flags that gate the short-circuit fast path
+     *       before this execution re-plans.</li>
+     * </ul>
+     * Everything else (tables, CTEs, statistics, snapshots, planner resources, connector
+     * scope, ...) starts empty/fresh on the new context.
+     */
+    public StatementContext createNextExecuteContext() {
+        // Continue the id generators from the previous context. The cached analyzed plan from
+        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
+        // generator starting at 0 would collide with those ids during this execution's planning.
+        StatementContext next = new StatementContext(connectContext, originStatement,
+                exprIdGenerator.getCurrentId());
+        next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
+        next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
+        next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
+        next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
+        next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
+        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
+        // conjuncts on the cached short-circuit plan without re-planning.
+        next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.placeholders = new ArrayList<>(placeholders);
+        // Short-circuit gating flags are computed by the previous execution's planning and gate
+        // the fast path of this execution before any re-planning happens.
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
+    }
+
     public void setNeedLockTables(boolean needLockTables) {
         this.needLockTables = needLockTables;
     }

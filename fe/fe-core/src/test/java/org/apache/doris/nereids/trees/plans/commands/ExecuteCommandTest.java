@@ -141,11 +141,11 @@ public class ExecuteCommandTest {
 
     @Test
     public void testPreparedConnectorUpdateRefreshesWriteDefaultEveryExecution() throws Exception {
-        // Prepared UPDATE reuses one StatementContext. Model connector metadata changing from default 1 to 2
-        // between executions: each planner callback pins the current schema only when no schema is already pinned,
-        // then expands DEFAULT(v) and writes the resulting value.
-        // MUTATION: resetConnectorStatementScope() not clearing connectorWriteSchemas makes execution two reuse
-        // default 1, so the written values become [1, 1] instead of [1, 2].
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE. Model connector metadata changing from
+        // default 1 to 2 between executions: each execution's planner callback pins the current schema only when
+        // the fresh context has no schema pinned, then expands DEFAULT(v) and writes the resulting value.
+        // MUTATION: reusing one StatementContext across executions without dropping connectorWriteSchemas makes
+        // execution two reuse default 1, so the written values become [1, 1] instead of [1, 2].
         String sql = "update ext_catalog.db.t set v = default(v) where id = 1";
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         Assertions.assertInstanceOf(UpdateCommand.class, logicalPlan);
@@ -166,12 +166,16 @@ public class ExecuteCommandTest {
         AtomicInteger metadataDefault = new AtomicInteger(1);
         List<String> writtenValues = new ArrayList<>();
         Mockito.doAnswer(invocation -> {
-            if (!statementContext.getConnectorWriteSchema(tableId).isPresent()) {
+            // Each execution plans through the fresh StatementContext allocated by ExecuteCommand, so resolve/pin
+            // the connector writer schema on THAT context (a stale pin would make the second execution reuse
+            // default 1).
+            StatementContext currentContext = preparedStatement.getStatementContext();
+            if (!currentContext.getConnectorWriteSchema(tableId).isPresent()) {
                 Column column = new Column("v", ScalarType.createType(PrimitiveType.INT),
                         false, null, String.valueOf(metadataDefault.get()), "");
-                statementContext.setConnectorWriteSchema(tableId, Collections.singletonList(column));
+                currentContext.setConnectorWriteSchema(tableId, Collections.singletonList(column));
             }
-            writtenValues.add(statementContext.getConnectorWriteSchema(tableId).get()
+            writtenValues.add(currentContext.getConnectorWriteSchema(tableId).get()
                     .get(0).getDefaultValueSql());
             return null;
         }).when(executor).execute();
@@ -219,10 +223,17 @@ public class ExecuteCommandTest {
                 statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
 
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
-        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE, so the next execution must not reuse the
+        // snapshot pinned on the previous context (a stale snapshot would make a later commit permanently
+        // invisible).
+        StatementContext nextContext = preparedStatement.getStatementContext();
+        Assertions.assertNotSame(statementContext, nextContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE");
+        nextContext.loadSnapshots(table, Optional.empty(), Optional.empty());
 
         Assertions.assertSame(second,
-                statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+                nextContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
         Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
     }
 
