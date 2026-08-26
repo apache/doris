@@ -29,12 +29,14 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -95,6 +97,87 @@ TEST_F(CloudMetaMgrTest, response_status_returns_undefined_without_any_code) {
 
     status.set_code(MetaServiceCode::OK);
     EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+}
+
+TEST_F(CloudMetaMgrTest, PreRowsetDeleteBitmapStatsRequestEncoding) {
+    CloudStorageEngine engine(EngineOptions {});
+    CloudMetaMgr meta_mgr;
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
+    DeleteBitmap delete_bitmap(tablet->tablet_id());
+    std::map<std::string, int64_t> rowset_to_versions;
+
+    int32_t old_write_version = config::delete_bitmap_store_write_version;
+    bool old_remove_agg_by_keys = config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys;
+    config::delete_bitmap_store_write_version = 1;
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+    Defer cleanup {[&] {
+        config::delete_bitmap_store_write_version = old_write_version;
+        config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = old_remove_agg_by_keys;
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto capture_request = [&](const CloudTablet::PreRowsetDeleteBitmapStats* stats) {
+        bool called = false;
+        UpdateDeleteBitmapRequest captured_req;
+        SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "CloudMetaMgr::cloud_update_delete_bitmap_without_lock.before_rpc",
+                [&](auto&& args) {
+                    auto* req = try_any_cast<UpdateDeleteBitmapRequest*>(args[0]);
+                    captured_req.CopyFrom(*req);
+                    called = true;
+                    auto* ret = try_any_cast<std::pair<Status, bool>*>(args.back());
+                    ret->first = Status::OK();
+                    ret->second = true;
+                },
+                &guard);
+        auto status = meta_mgr.cloud_update_delete_bitmap_without_lock(
+                *tablet, &delete_bitmap, rowset_to_versions, stats, tablet->table_id(), 1, 2);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(called);
+        return captured_req;
+    };
+
+    config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = false;
+    auto config_disabled_req = capture_request(nullptr);
+    EXPECT_FALSE(config_disabled_req.enable_remove_agg_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_FALSE(config_disabled_req.enable_remove_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_EQ(config_disabled_req.pre_rowset_delete_bitmap_stats_size(), 0);
+
+    CloudTablet::PreRowsetDeleteBitmapStats empty_stats;
+    empty_stats.emplace(
+            "rowset_without_delete_bitmap",
+            std::vector<std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>> {});
+    empty_stats.emplace(
+            "second_rowset_without_delete_bitmap",
+            std::vector<std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>> {});
+    config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = true;
+    auto config_enabled_req = capture_request(&empty_stats);
+    EXPECT_TRUE(config_enabled_req.enable_remove_agg_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_TRUE(config_enabled_req.enable_remove_pre_rowsets_delete_bitmap_by_keys());
+    EXPECT_EQ(config_enabled_req.pre_rowset_delete_bitmap_stats_size(), 0);
+
+    using DeleteBitmapStat = std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>;
+    CloudTablet::PreRowsetDeleteBitmapStats populated_stats;
+    populated_stats.emplace("rowset_with_delete_bitmap",
+                            std::vector<DeleteBitmapStat> {{3, 7, 1024}, {8, 9, 2048}});
+    auto populated_stats_req = capture_request(&populated_stats);
+    ASSERT_EQ(populated_stats_req.pre_rowset_delete_bitmap_stats_size(), 1);
+    const auto& rowset_stats = populated_stats_req.pre_rowset_delete_bitmap_stats(0);
+    EXPECT_EQ(rowset_stats.rowset_id(), "rowset_with_delete_bitmap");
+    ASSERT_EQ(rowset_stats.delete_bitmap_stats_size(), 2);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(0).segment_id(), 3);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(0).version(), 7);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(0).delete_bitmap_size(), 1024);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(1).segment_id(), 8);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(1).version(), 9);
+    EXPECT_EQ(rowset_stats.delete_bitmap_stats(1).delete_bitmap_size(), 2048);
 }
 
 static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {
