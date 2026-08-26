@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.InsertLoadJob;
@@ -273,6 +274,12 @@ public abstract class AbstractInsertExecutor {
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }
+            long beforeOnCompleteSleepMs = DebugPointUtil.getDebugParamOrDefault(
+                    "AbstractInsertExecutor.beforeOnComplete.sleep", 0L);
+            if (beforeOnCompleteSleepMs > 0) {
+                Thread.sleep(beforeOnCompleteSleepMs);
+            }
+            executor.beginTransactionCommit();
             onComplete();
             for (InsertExecutorListener listener : listeners) {
                 try {

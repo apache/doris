@@ -113,8 +113,7 @@ public class ConnectPoolMgr {
         for (ConnectContext ctx : connectionMap.values()) {
             TUniqueId qid = ctx.queryId();
             if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
-                ctx.cancelQuery(cancelReason);
-                return true;
+                return ctx.cancelQuery(cancelReason);
             }
         }
         return false;

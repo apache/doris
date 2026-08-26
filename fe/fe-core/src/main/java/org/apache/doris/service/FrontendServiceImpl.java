@@ -85,6 +85,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.common.util.Util;
@@ -1243,11 +1244,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new TException("a query id is needed to cancel a query");
         }
         ConnectContext context = proxyQueryIdToConnCtx.get(params.getQueryId());
-        if (context != null) {
-            context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
-        }
+        boolean cancelled = context != null && context.cancelQuery(
+                new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
         TMasterOpResult result = createForwardResultWithJournalSync();
-        result.setStatusCode(0);
+        result.setStatusCode(cancelled ? 0 : 1);
+        if (!cancelled) {
+            result.setErrMessage("Query not found or already committing: " + DebugUtil.printId(params.getQueryId()));
+        }
         return result;
     }
 

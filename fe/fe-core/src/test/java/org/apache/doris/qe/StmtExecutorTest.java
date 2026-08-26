@@ -24,6 +24,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -33,6 +35,7 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -117,6 +120,37 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testCancelBeforeCoordinatorIsPublished() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Status cancelReason = new Status(TStatusCode.CANCELLED, "cancel before coordinator");
+
+        Assert.assertTrue(stmtExecutor.cancel(cancelReason));
+        stmtExecutor.setCoord(coordinator);
+
+        Mockito.verify(coordinator).cancel(cancelReason);
+    }
+
+    @Test
+    public void testCancelWinsBeforeTransactionCommit() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Status cancelReason = new Status(TStatusCode.CANCELLED, "cancel before commit");
+
+        Assert.assertTrue(stmtExecutor.cancel(cancelReason));
+        UserException exception = Assertions.assertThrows(UserException.class,
+                stmtExecutor::beginTransactionCommit);
+        Assert.assertTrue(exception.getMessage().contains("cancel before commit"));
+    }
+
+    @Test
+    public void testTransactionCommitRejectsLateCancel() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+
+        stmtExecutor.beginTransactionCommit();
+        Assert.assertFalse(stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "late cancel")));
     }
 
     @Test

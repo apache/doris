@@ -67,14 +67,16 @@ public class FlightSqlConnectContext extends ConnectContext {
 
     // kill operation with no protect.
     @Override
-    public void kill(boolean killConnection) {
+    public boolean kill(boolean killConnection) {
         LOG.warn("kill query from {}, kill flight sql connection: {}", getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             killConnection();
         }
         // Now, cancel running query.
-        cancelQuery(new Status(TStatusCode.CANCELLED, "arrow flight query killed by user"));
+        boolean queryCancelled = cancelQuery(
+                new Status(TStatusCode.CANCELLED, "arrow flight query killed by user"));
+        return killConnection || queryCancelled;
     }
 
     @Override
