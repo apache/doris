@@ -24,10 +24,10 @@
 #include <gen_cpp/types.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stdlib.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <set>
@@ -169,8 +169,8 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 
 class TestEngineStorageMigrationTask : public ::testing::Test {
 public:
-    TestEngineStorageMigrationTask() {}
-    ~TestEngineStorageMigrationTask() {}
+    TestEngineStorageMigrationTask() = default;
+    ~TestEngineStorageMigrationTask() override = default;
     static void SetUpTestSuite() {
         config::min_file_descriptor_number = 100;
         set_up();
@@ -190,8 +190,7 @@ protected:
         WriteRequest group_request;
     };
 
-    void create_row_binlog_group_load_context(int64_t base_tablet_id,
-                                              int64_t row_binlog_tablet_id,
+    void create_row_binlog_group_load_context(int64_t base_tablet_id, int64_t row_binlog_tablet_id,
                                               int64_t transaction_id,
                                               RowBinlogGroupLoadContext* context) {
         RuntimeProfile create_tablet_profile("CreateRowBinlogTablets");
@@ -214,13 +213,11 @@ protected:
                 context->base_request.tablet_schema,
                 context->base_request.tablet_schema.schema_hash + 1);
         context->row_binlog_request.__set_base_tablet_id(base_tablet_id);
-        context->row_binlog_request.__set_tablet_role(
-                TTabletRole::TABLET_ROLE_ROW_BINLOG);
+        context->row_binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
         status = engine_ref->create_tablet(context->row_binlog_request, &create_tablet_profile);
         ASSERT_TRUE(status.ok()) << status;
 
-        context->row_binlog_tablet =
-                engine_ref->tablet_manager()->get_tablet(row_binlog_tablet_id);
+        context->row_binlog_tablet = engine_ref->tablet_manager()->get_tablet(row_binlog_tablet_id);
         ASSERT_NE(context->row_binlog_tablet, nullptr);
         ASSERT_TRUE(context->row_binlog_tablet->is_row_binlog_tablet());
         ASSERT_EQ(context->base_tablet->data_dir(), context->row_binlog_tablet->data_dir());
@@ -274,14 +271,12 @@ protected:
                                            bool expected) {
         int64_t found_partition_id = -1;
         std::set<int64_t> transaction_ids;
-        engine_ref->txn_manager()->get_tablet_related_txns(
-                context->row_binlog_tablet->tablet_id(),
-                context->row_binlog_tablet->tablet_uid(), &found_partition_id,
-                &transaction_ids);
+        engine_ref->txn_manager()->get_tablet_related_txns(context.row_binlog_tablet->tablet_id(),
+                                                           context.row_binlog_tablet->tablet_uid(),
+                                                           &found_partition_id, &transaction_ids);
         if (expected) {
-            ASSERT_EQ(found_partition_id, context->data_request.partition_id);
-            ASSERT_EQ(transaction_ids,
-                      std::set<int64_t> {context->data_request.txn_id});
+            ASSERT_EQ(found_partition_id, context.data_request.partition_id);
+            ASSERT_EQ(transaction_ids, std::set<int64_t> {context.data_request.txn_id});
         } else {
             ASSERT_TRUE(transaction_ids.empty());
         }
@@ -292,37 +287,38 @@ protected:
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rowsets;
         std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> tablet_related_txn_infos;
         engine_ref->txn_manager()->get_txn_related_tablets(
-                context->data_request.txn_id, context->data_request.partition_id,
+                context.data_request.txn_id, context.data_request.partition_id,
                 &tablet_related_rowsets, &tablet_related_txn_infos);
 
-        const TabletInfo base_tablet_info = context->base_tablet->get_tablet_info();
+        const TabletInfo base_tablet_info = context.base_tablet->get_tablet_info();
         auto rowset_it = tablet_related_rowsets.find(base_tablet_info);
         auto txn_info_it = tablet_related_txn_infos.find(base_tablet_info);
         ASSERT_NE(rowset_it, tablet_related_rowsets.end());
         ASSERT_NE(txn_info_it, tablet_related_txn_infos.end());
         ASSERT_EQ(txn_info_it->second->attach_row_binlog.tablet.get(),
-                  context->row_binlog_tablet.get());
+                  context.row_binlog_tablet.get());
         ASSERT_NE(txn_info_it->second->attach_row_binlog.rowset, nullptr);
 
         TabletPublishTxnTask publish_task(
-                *engine_ref, nullptr, context->base_tablet, rowset_it->second,
-                txn_info_it->second->attach_row_binlog, context->data_request.partition_id,
-                context->data_request.txn_id, Version(version, version), base_tablet_info, -1);
+                *engine_ref, nullptr, context.base_tablet, rowset_it->second,
+                txn_info_it->second->attach_row_binlog, context.data_request.partition_id,
+                context.data_request.txn_id, Version(version, version), base_tablet_info, -1);
         publish_task.handle();
         ASSERT_TRUE(publish_task.result().ok()) << publish_task.result();
     }
 
     static void drop_row_binlog_group(const RowBinlogGroupLoadContext& context) {
         Status status = engine_ref->tablet_manager()->drop_tablet(
-                context->row_binlog_request.tablet_id,
-                context->row_binlog_request.replica_id, false);
+                context.row_binlog_request.tablet_id, context.row_binlog_request.replica_id, false);
         ASSERT_TRUE(status.ok()) << status;
-        status = engine_ref->tablet_manager()->drop_tablet(
-                context->base_request.tablet_id, context->base_request.replica_id, false);
+        status = engine_ref->tablet_manager()->drop_tablet(context.base_request.tablet_id,
+                                                           context.base_request.replica_id, false);
         ASSERT_TRUE(status.ok()) << status;
     }
 };
 
+// The two-way migration scenario intentionally keeps setup, publish, and both migrations together.
+// NOLINTNEXTLINE(readability-function-size, readability-function-cognitive-complexity)
 TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
@@ -517,8 +513,7 @@ TEST_F(TestEngineStorageMigrationTask, row_binlog_committed_txn_blocks_migration
     constexpr int64_t publish_version = 2;
     publish_group_transaction(context, publish_version);
     assert_related_transaction(context, false);
-    ASSERT_NE(context.base_tablet->get_rowset_by_version(
-                      Version(publish_version, publish_version)),
+    ASSERT_NE(context.base_tablet->get_rowset_by_version(Version(publish_version, publish_version)),
               nullptr);
     ASSERT_NE(context.row_binlog_tablet->get_rowset_by_version(
                       Version(publish_version, publish_version)),
@@ -536,8 +531,7 @@ TEST_F(TestEngineStorageMigrationTask, row_binlog_committed_txn_blocks_migration
     ASSERT_NE(migrated_tablet.get(), context.row_binlog_tablet.get());
     ASSERT_NE(migrated_tablet->tablet_uid(), old_uid);
     ASSERT_EQ(migrated_tablet->data_dir(), dest_store);
-    ASSERT_NE(migrated_tablet->get_rowset_by_version(
-                      Version(publish_version, publish_version)),
+    ASSERT_NE(migrated_tablet->get_rowset_by_version(Version(publish_version, publish_version)),
               nullptr);
 
     drop_row_binlog_group(context);

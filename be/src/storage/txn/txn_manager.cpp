@@ -187,9 +187,10 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
-Status TxnManager::attach_row_binlog_tablet_to_txn(
-        TPartitionId partition_id, TTransactionId transaction_id,
-        const TabletInfo& base_tablet_info, const BaseTabletSPtr& row_binlog_tablet) {
+Status TxnManager::attach_row_binlog_tablet_to_txn(TPartitionId partition_id,
+                                                   TTransactionId transaction_id,
+                                                   const TabletInfo& base_tablet_info,
+                                                   const BaseTabletSPtr& row_binlog_tablet) {
     DCHECK(row_binlog_tablet != nullptr);
     TxnKey key(partition_id, transaction_id);
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));

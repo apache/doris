@@ -174,8 +174,7 @@ public:
 
     // Internal: attach the independent row-binlog tablet to an existing base-tablet transaction
     // before commit, so tablet lifecycle operations can drain the whole group transaction.
-    Status attach_row_binlog_tablet_to_txn(TPartitionId partition_id,
-                                           TTransactionId transaction_id,
+    Status attach_row_binlog_tablet_to_txn(TPartitionId partition_id, TTransactionId transaction_id,
                                            const TabletInfo& base_tablet_info,
                                            const BaseTabletSPtr& row_binlog_tablet);
 
