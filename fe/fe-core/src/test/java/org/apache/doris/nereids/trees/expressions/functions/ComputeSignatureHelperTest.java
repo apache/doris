@@ -469,6 +469,80 @@ public class ComputeSignatureHelperTest {
     }
 
     @Test
+    void testMapNestedArrayDecimalV3ComputePrecision() {
+        // the item of an ARRAY nested in a MAP value keeps its own precision/scale
+        // instead of being merged with the MAP key into the global wider type, otherwise
+        // expectedInputTypes() inserts a lossy cast before map_values() executes
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(MapType.of(DecimalV3Type.WILDCARD, ArrayType.of(DecimalV3Type.WILDCARD)));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("12345678901234567890123456789012345678")),
+                new ArrayLiteral(Lists.newArrayList(
+                        new DecimalV3Literal(new BigDecimal("0.123456789012345678")))));
+        List<Expression> arguments = Lists.newArrayList(new MapLiteral(map));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        MapType mapType = (MapType) signature.getArgType(0);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 0), mapType.getKeyType());
+        Assertions.assertTrue(mapType.getValueType() instanceof ArrayType);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(18, 18),
+                ((ArrayType) mapType.getValueType()).getItemType());
+    }
+
+    @Test
+    void testNestedMapDecimalV3ComputePrecision() {
+        // the key/value of a MAP nested in a MAP value keep their own groups instead of
+        // being merged with the outer MAP leaves
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(MapType.of(DecimalV3Type.WILDCARD,
+                        MapType.of(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD)));
+        Map<Literal, Literal> inner = Maps.newLinkedHashMap();
+        inner.put(new DecimalV3Literal(new BigDecimal("12.34")),
+                new DecimalV3Literal(new BigDecimal("123.456")));
+        Map<Literal, Literal> outer = Maps.newLinkedHashMap();
+        outer.put(new DecimalV3Literal(new BigDecimal("12345678901234567890")), new MapLiteral(inner));
+        List<Expression> arguments = Lists.newArrayList(new MapLiteral(outer));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        MapType outerType = (MapType) signature.getArgType(0);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(20, 0), outerType.getKeyType());
+        Assertions.assertTrue(outerType.getValueType() instanceof MapType);
+        MapType innerType = (MapType) outerType.getValueType();
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(4, 2), innerType.getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 3), innerType.getValueType());
+    }
+
+    @Test
+    void testNestedMapLinkedScalarDoesNotPromoteInnerKey() {
+        // a scalar linked with the outer MAP key must not promote an unrelated inner key
+        // that happens to share the same resolved type
+        FunctionSignature signature = FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(5, 2))
+                .args(MapType.of(DecimalV3Type.createDecimalV3Type(9, 2),
+                                MapType.of(DecimalV3Type.createDecimalV3Type(9, 2),
+                                        DecimalV3Type.createDecimalV3Type(5, 2))),
+                        DecimalV3Type.createDecimalV3Type(9, 2));
+        Map<Literal, Literal> inner = Maps.newLinkedHashMap();
+        inner.put(new DecimalV3Literal(new BigDecimal("1234567.89")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        Map<Literal, Literal> outer = Maps.newLinkedHashMap();
+        outer.put(new DecimalV3Literal(new BigDecimal("1234567.89")), new MapLiteral(inner));
+        List<Expression> arguments = Lists.newArrayList(
+                new MapLiteral(outer),
+                new DecimalV3Literal(new BigDecimal("1234567.891")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        MapType outerType = (MapType) signature.getArgType(0);
+        // the outer key is promoted together with the linked lookup slot
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), outerType.getKeyType());
+        Assertions.assertTrue(outerType.getValueType() instanceof MapType);
+        MapType innerType = (MapType) outerType.getValueType();
+        // the inner key with the same resolved type is NOT promoted by the outer lookup
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(9, 2), innerType.getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 2), innerType.getValueType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), signature.getArgType(1));
+    }
+
+    @Test
     void testArrayDateTimeV2ComputePrecision() {
         FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
                 .args(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT),

@@ -129,7 +129,54 @@ suite("nereids_scalar_fn_map_decimal_precision") {
                      cast('2.000' as decimal(4,3)))
     """
 
-    // 10. basic decimal v3 precision promotion (single slot) is not affected
+    // 10. nonconstant nested containers: the item of an ARRAY nested in a MAP value
+    // keeps its own precision/scale instead of being merged with the key into the wider
+    // type, otherwise map_values() discards the low-order fractional digits
+    sql "drop table if exists fn_test_map_nested_decimal"
+    sql """
+        create table fn_test_map_nested_decimal (
+            id int null,
+            m map<decimal(38,0), array<decimal(38,18)>> null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_map_nested_decimal values
+        (1, map(cast('12345678901234567890123456789012345678' as decimal(38,0)),
+                array(cast('0.123456789012345678' as decimal(38,18)))));
+    """
+    order_qt_map_values_nested_array """
+        select cast(map_values(m) as string) as v from fn_test_map_nested_decimal order by id
+    """
+    order_qt_map_keys_nested_array """
+        select cast(map_keys(m) as string) as k from fn_test_map_nested_decimal order by id
+    """
+
+    // 11. nonconstant nested MAP: the key/value of a MAP nested in a MAP value keep
+    // their own precision/scale instead of being merged with the outer MAP leaves
+    sql "drop table if exists fn_test_nested_map_decimal"
+    sql """
+        create table fn_test_nested_map_decimal (
+            id int null,
+            m map<decimal(38,0), map<decimal(9,2), decimal(5,2)>> null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_nested_map_decimal values
+        (1, map(cast('12345678901234567890123456789012345678' as decimal(38,0)),
+                map(cast('1234567.89' as decimal(9,2)), cast('12.34' as decimal(5,2)))));
+    """
+    order_qt_map_values_nested_map """
+        select cast(map_values(m) as string) as v from fn_test_nested_map_decimal order by id
+    """
+    order_qt_map_keys_nested_map """
+        select cast(map_keys(m) as string) as k from fn_test_nested_map_decimal order by id
+    """
+
+    // 12. basic decimal v3 precision promotion (single slot) is not affected
     order_qt_basic_decimal256 """
         SELECT ABS(CAST('123.456' AS DECIMAL(10,3))) AS abs_v,
                ROUND(CAST('123.456' AS DECIMAL(10,3)), 2) AS round_v;
