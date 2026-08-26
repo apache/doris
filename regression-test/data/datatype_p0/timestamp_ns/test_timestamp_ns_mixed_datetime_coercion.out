@@ -53,6 +53,15 @@ true	false
 2200-01-01 00:00:00.000000000
 2262-04-11 23:47:16.854775807
 
+-- !cmp_dtv2_out_of_range_value --
+false
+
+-- !cmp_dtv2_out_of_range_value --
+false
+
+-- !cmp_dtv2_out_of_range_value --
+false
+
 -- !mixed_column_comparison_true --
 1	false	false	false
 2	true	true	false
@@ -106,4 +115,13 @@ true	false
 2200-01-01 00:00:00.000000000
 2200-01-01 00:00:00.000000000
 2262-04-11 23:47:16.854775807
+
+-- !cmp_dtv2_out_of_range_value --
+false
+
+-- !cmp_dtv2_out_of_range_value --
+false
+
+-- !cmp_dtv2_out_of_range_value --
+false
 
