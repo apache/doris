@@ -26,9 +26,11 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -94,6 +96,15 @@ DEFINE_string(output_path, "", "output directory path (default: current director
 DEFINE_int32(num_short_key_columns, 0, "number of short key columns");
 DEFINE_bool(has_sequence_col, false, "whether has sequence column");
 DEFINE_bool(enable_unique_key_merge_on_write, false, "whether enable unique key merge on write");
+DEFINE_bool(scan_segment_pages, false,
+            "scan every data page referenced by the ordinal index and report checksum ranges");
+DEFINE_int64(rows, 10,
+             "maximum logical rows to read per column for show_segment_data; -1 means all rows");
+DEFINE_uint64(row_start, 0, "first logical row ordinal to read for show_segment_data");
+DEFINE_uint64(batch_rows, 4096, "maximum rows per read batch for show_segment_data");
+DEFINE_bool(check_only, false, "decode rows without printing values for show_segment_data");
+DEFINE_bool(verify_checksum, true,
+            "verify page checksums while decoding data for show_segment_data");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
@@ -110,7 +121,9 @@ std::string get_usage(const std::string& progname) {
     ss << "./meta_tool --operation=batch_delete_meta --tablet_file=file_path\n";
     ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     ss << "./meta_tool --operation=show_segment_footer --file=/path/to/segment/file\n";
-    ss << "./meta_tool --operation=show_segment_data --file=/path/to/segment/file\n";
+    ss << "./meta_tool --operation=show_segment_data --file=/path/to/segment/file "
+          "[--row_start=N] [--rows=N|-1] [--batch_rows=N] [--check_only] "
+          "[--verify_checksum]\n";
     ss << "./meta_tool --operation=gen_empty_segment [--output_path=/path/to/output]\n";
     ss << "  Generates an empty segment file (0 rows) at specified path or current directory\n";
     ss << "  Default output file name: empty.dat\n";
@@ -572,23 +585,172 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
     }
 }
 
-// Read and print column data values
-void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta,
-                              const FileReaderSPtr& file_reader, uint64_t num_segment_rows,
-                              int indent_level) {
-    std::string indent(indent_level * 2, ' ');
+struct PageChecksumScanResult {
+    bool readable = false;
+    bool checksum_ok = false;
+    uint32_t actual_checksum = 0;
+    uint32_t expected_checksum = 0;
+    uint32_t footer_size = 0;
+};
 
-    doris::FieldType field_type = static_cast<doris::FieldType>(column_meta.type());
-
-    // Skip complex types for now
-    if (!doris::is_scalar_type(field_type)) {
-        std::cout << indent << "(Complex type - cannot display values)" << std::endl;
-        return;
+PageChecksumScanResult scan_page_checksum(const FileReaderSPtr& file_reader,
+                                          const PagePointer& page_pointer) {
+    PageChecksumScanResult result;
+    if (page_pointer.size < 8 || page_pointer.offset + page_pointer.size > file_reader->size()) {
+        return result;
     }
 
-    if (num_segment_rows == 0) {
-        std::cout << indent << "(No data)" << std::endl;
-        return;
+    std::vector<char> page(page_pointer.size);
+    Slice page_slice(page.data(), page.size());
+    size_t bytes_read = 0;
+    Status status = file_reader->read_at(page_pointer.offset, page_slice, &bytes_read);
+    if (!status.ok() || bytes_read != page.size()) {
+        return result;
+    }
+
+    result.readable = true;
+    result.expected_checksum = doris::decode_fixed32_le(
+            reinterpret_cast<const uint8_t*>(page.data() + page.size() - 4));
+    result.actual_checksum = crc32c::Crc32c(page.data(), page.size() - 4);
+    result.checksum_ok = result.actual_checksum == result.expected_checksum;
+    result.footer_size = doris::decode_fixed32_le(
+            reinterpret_cast<const uint8_t*>(page.data() + page.size() - 8));
+    return result;
+}
+
+// Keep the forensic scan linear so every counter and printed example follows page order.
+// NOLINTNEXTLINE(readability-function-size)
+Status print_column_page_checksums(const std::shared_ptr<ColumnReader>& column_reader,
+                                   const doris::segment_v2::ColumnMetaPB& column_meta,
+                                   const FileReaderSPtr& file_reader, int indent_level) {
+    std::string indent(indent_level * 2, ' ');
+    doris::OlapReaderStatistics stats;
+    OrdinalIndexReader* ordinal_index = nullptr;
+    Status status = column_reader->get_ordinal_index_reader(ordinal_index, &stats);
+    if (!status.ok()) {
+        status.prepend("failed to load ordinal index for column " +
+                       std::to_string(column_meta.column_id()) + ": ");
+        return status;
+    }
+
+    constexpr uint64_t s3_part_size = 5 * 1024 * 1024;
+    int valid_pages = 0;
+    int bad_pages = 0;
+    int unreadable_pages = 0;
+    int noncontiguous_pages = 0;
+    int multipart_crossing_pages = 0;
+    bool dict_bad = false;
+    bool dict_unreadable = false;
+    uint64_t span_begin = file_reader->size();
+    uint64_t span_end = 0;
+    uint64_t previous_end = 0;
+    bool have_previous = false;
+    int bad_examples = 0;
+
+    std::cout << indent << "Page checksum scan:" << std::endl;
+    for (auto iter = ordinal_index->begin(); iter.valid(); iter.next()) {
+        const PagePointer& pp = iter.page();
+        span_begin = std::min(span_begin, pp.offset);
+        span_end = std::max(span_end, pp.offset + pp.size);
+        if (have_previous && pp.offset != previous_end) {
+            ++noncontiguous_pages;
+        }
+        previous_end = pp.offset + pp.size;
+        have_previous = true;
+
+        bool crosses_part =
+                pp.size > 0 && pp.offset / s3_part_size != (pp.offset + pp.size - 1) / s3_part_size;
+        if (crosses_part) {
+            ++multipart_crossing_pages;
+        }
+
+        PageChecksumScanResult page = scan_page_checksum(file_reader, pp);
+        if (!page.readable) {
+            ++unreadable_pages;
+        } else if (page.checksum_ok) {
+            ++valid_pages;
+        } else {
+            ++bad_pages;
+        }
+
+        if (iter.page_index() < 2 || crosses_part || (!page.checksum_ok && bad_examples < 3)) {
+            std::cout << indent << "  page=" << iter.page_index()
+                      << " ordinals=" << iter.first_ordinal() << ".." << iter.last_ordinal()
+                      << " offset=" << pp.offset << " size=" << pp.size
+                      << " readable=" << (page.readable ? "true" : "false")
+                      << " checksum_ok=" << (page.checksum_ok ? "true" : "false")
+                      << " actual=" << page.actual_checksum << " expect=" << page.expected_checksum
+                      << " footer_size=" << page.footer_size
+                      << " crosses_s3_part=" << (crosses_part ? "true" : "false") << std::endl;
+            if (!page.checksum_ok) {
+                ++bad_examples;
+            }
+        }
+    }
+
+    if (column_meta.has_dict_page()) {
+        PagePointer dict_page(column_meta.dict_page());
+        PageChecksumScanResult page = scan_page_checksum(file_reader, dict_page);
+        std::cout << indent << "  dict offset=" << dict_page.offset << " size=" << dict_page.size
+                  << " readable=" << (page.readable ? "true" : "false")
+                  << " checksum_ok=" << (page.checksum_ok ? "true" : "false")
+                  << " actual=" << page.actual_checksum << " expect=" << page.expected_checksum
+                  << " footer_size=" << page.footer_size << std::endl;
+        if (!page.readable) {
+            dict_unreadable = true;
+        } else if (!page.checksum_ok) {
+            dict_bad = true;
+        }
+    }
+
+    std::cout << indent << "  summary pages=" << ordinal_index->num_data_pages()
+              << " valid=" << valid_pages << " bad=" << bad_pages
+              << " unreadable=" << unreadable_pages << " span=[" << span_begin << "," << span_end
+              << ") noncontiguous=" << noncontiguous_pages
+              << " crosses_s3_part=" << multipart_crossing_pages << std::endl;
+
+    if (bad_pages > 0 || unreadable_pages > 0 || dict_bad || dict_unreadable) {
+        return Status::Corruption(
+                "page checksum scan failed for column {}: data_bad={}, data_unreadable={}, "
+                "dict_bad={}, dict_unreadable={}",
+                column_meta.column_id(), bad_pages, unreadable_pages, dict_bad, dict_unreadable);
+    }
+    return Status::OK();
+}
+
+Status validate_segment_data_options(uint64_t num_segment_rows, uint64_t* rows_to_read) {
+    if (FLAGS_rows < -1) {
+        return Status::InvalidArgument("rows must be -1 or non-negative, got {}", FLAGS_rows);
+    }
+    if (FLAGS_batch_rows == 0 || FLAGS_batch_rows > std::numeric_limits<size_t>::max()) {
+        return Status::InvalidArgument("batch_rows must be in [1, {}], got {}",
+                                       std::numeric_limits<size_t>::max(), FLAGS_batch_rows);
+    }
+    if (FLAGS_row_start > num_segment_rows) {
+        return Status::InvalidArgument("row_start {} exceeds segment row count {}", FLAGS_row_start,
+                                       num_segment_rows);
+    }
+
+    uint64_t remaining_rows = num_segment_rows - FLAGS_row_start;
+    *rows_to_read = FLAGS_rows == -1
+                            ? remaining_rows
+                            : std::min<uint64_t>(static_cast<uint64_t>(FLAGS_rows), remaining_rows);
+    return Status::OK();
+}
+
+// Read and print column data values. Keep reader setup and the bounded decode loop together so
+// failures retain exact column/row context.
+// NOLINTNEXTLINE(readability-function-size)
+Status print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta,
+                                const FileReaderSPtr& file_reader, uint64_t num_segment_rows,
+                                uint64_t row_start, uint64_t rows_to_read, int indent_level) {
+    std::string indent(indent_level * 2, ' ');
+
+    auto field_type = static_cast<doris::FieldType>(column_meta.type());
+
+    if (!doris::is_scalar_type(field_type)) {
+        return Status::NotSupported("cannot read complex column {} as scalar data",
+                                    column_meta.column_id());
     }
 
     // Create a virtual TabletColumn for the column
@@ -602,24 +764,24 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
 
     // Create column reader
     ColumnReaderOptions reader_opts;
-    reader_opts.verify_checksum = false; // Don't verify checksum for performance
+    reader_opts.verify_checksum = FLAGS_verify_checksum;
 
     std::shared_ptr<ColumnReader> column_reader;
     Status status = ColumnReader::create(reader_opts, column_meta, num_segment_rows, file_reader,
                                          &column_reader);
     if (!status.ok()) {
-        std::cout << indent << "(Failed to create column reader: " << status.to_string() << ")"
-                  << std::endl;
-        return;
+        status.prepend("failed to create reader for column " +
+                       std::to_string(column_meta.column_id()) + ": ");
+        return status;
     }
 
     // Create column iterator
     ColumnIteratorUPtr iterator;
     status = column_reader->new_iterator(&iterator, &tablet_column);
     if (!status.ok()) {
-        std::cout << indent << "(Failed to create column iterator: " << status.to_string() << ")"
-                  << std::endl;
-        return;
+        status.prepend("failed to create iterator for column " +
+                       std::to_string(column_meta.column_id()) + ": ");
+        return status;
     }
 
     // Initialize iterator
@@ -630,77 +792,116 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
 
     status = iterator->init(iter_opts);
     if (!status.ok()) {
-        std::cout << indent << "(Failed to initialize column iterator: " << status.to_string()
-                  << ")" << std::endl;
-        return;
+        status.prepend("failed to initialize iterator for column " +
+                       std::to_string(column_meta.column_id()) + ": ");
+        return status;
     }
 
-    // Seek to the beginning
-    status = iterator->seek_to_ordinal(0);
+    if (FLAGS_scan_segment_pages) {
+        RETURN_IF_ERROR(
+                print_column_page_checksums(column_reader, column_meta, file_reader, indent_level));
+    }
+
+    if (rows_to_read == 0) {
+        if (FLAGS_check_only) {
+            std::cout << indent << "Data check: rows=0 range=[" << row_start << "," << row_start
+                      << ") batches=0 verify_checksum="
+                      << (FLAGS_verify_checksum ? "true" : "false") << " status=OK" << std::endl;
+        } else {
+            std::cout << indent << "Data Values (rows [" << row_start << "," << row_start << ") of "
+                      << num_segment_rows << "):" << std::endl;
+        }
+        return Status::OK();
+    }
+
+    status = iterator->seek_to_ordinal(row_start);
     if (!status.ok()) {
-        std::cout << indent << "(Failed to seek to ordinal 0: " << status.to_string() << ")"
-                  << std::endl;
-        return;
+        status.prepend("failed to seek column " + std::to_string(column_meta.column_id()) +
+                       " to row " + std::to_string(row_start) + ": ");
+        return status;
     }
 
-    // Create destination column for reading data
     auto data_type = doris::DataTypeFactory::instance().create_data_type(column_meta);
     if (!data_type) {
-        std::cout << indent << "(Failed to create data type for field type "
-                  << static_cast<int>(field_type) << ")" << std::endl;
-        return;
+        return Status::InternalError("failed to create data type for column {}, field type {}",
+                                     column_meta.column_id(), static_cast<int>(field_type));
     }
 
-    doris::MutableColumnPtr dst_column = data_type->create_column();
-
-    // Determine how many rows to display (max 10 rows for readability)
-    const size_t max_display_rows = 10;
-    size_t rows_to_read = std::min(static_cast<size_t>(num_segment_rows), max_display_rows);
-    size_t rows_read = rows_to_read;
-
-    status = iterator->next_batch(&rows_read, dst_column);
-    if (!status.ok()) {
-        std::cout << indent << "(Failed to read column data: " << status.to_string() << ")"
-                  << std::endl;
-        return;
+    if (!FLAGS_check_only) {
+        std::cout << indent << "Data Values (rows [" << row_start << ","
+                  << (row_start + rows_to_read) << ") of " << num_segment_rows << "):" << std::endl;
     }
 
-    if (rows_read == 0) {
-        std::cout << indent << "(No data read)" << std::endl;
-        return;
-    }
+    uint64_t decoded_rows = 0;
+    uint64_t batches = 0;
+    while (decoded_rows < rows_to_read) {
+        uint64_t current_row = row_start + decoded_rows;
+        size_t requested_rows = static_cast<size_t>(
+                std::min<uint64_t>(FLAGS_batch_rows, rows_to_read - decoded_rows));
+        size_t rows_read = requested_rows;
+        doris::MutableColumnPtr dst_column = data_type->create_column();
 
-    // Print the values
-    std::cout << indent << "Data Values (" << rows_read << " of " << num_segment_rows
-              << " rows, showing first " << std::min(rows_read, max_display_rows)
-              << "):" << std::endl;
-
-    for (size_t i = 0; i < rows_read; ++i) {
-        std::cout << indent << "  [" << i << "] ";
-        if (column_meta.is_nullable()) {
-            const auto& nullable_col = assert_cast<const doris::ColumnNullable&>(*dst_column);
-            if (nullable_col.is_null_at(i)) {
-                std::cout << "NULL";
-            } else {
-                const doris::IColumn& nested_col = nullable_col.get_nested_column();
-                std::cout << format_column_value(nested_col, i, field_type);
-            }
-        } else {
-            std::cout << format_column_value(*dst_column, i, field_type);
+        status = iterator->next_batch(&rows_read, dst_column);
+        if (!status.ok()) {
+            status.prepend("failed to read column " + std::to_string(column_meta.column_id()) +
+                           " at row " + std::to_string(current_row) + ": ");
+            return status;
         }
-        std::cout << std::endl;
+        if (rows_read == 0) {
+            return Status::Corruption(
+                    "column {} reached an unexpected EOF at row {}, expected range end {}",
+                    column_meta.column_id(), current_row, row_start + rows_to_read);
+        }
+        if (rows_read > requested_rows || dst_column->size() != rows_read) {
+            return Status::Corruption(
+                    "column {} returned an invalid batch at row {}: requested={}, read={}, "
+                    "values={}",
+                    column_meta.column_id(), current_row, requested_rows, rows_read,
+                    dst_column->size());
+        }
+
+        if (!FLAGS_check_only) {
+            for (size_t i = 0; i < rows_read; ++i) {
+                std::cout << indent << "  [" << (current_row + i) << "] ";
+                if (column_meta.is_nullable()) {
+                    const auto& nullable_col =
+                            assert_cast<const doris::ColumnNullable&>(*dst_column);
+                    if (nullable_col.is_null_at(i)) {
+                        std::cout << "NULL";
+                    } else {
+                        const doris::IColumn& nested_col = nullable_col.get_nested_column();
+                        std::cout << format_column_value(nested_col, i, field_type);
+                    }
+                } else {
+                    std::cout << format_column_value(*dst_column, i, field_type);
+                }
+                std::cout << std::endl;
+            }
+        }
+
+        decoded_rows += rows_read;
+        ++batches;
     }
 
-    if (num_segment_rows > max_display_rows) {
-        std::cout << indent << "  ... (" << (num_segment_rows - max_display_rows) << " more rows)"
-                  << std::endl;
+    if (FLAGS_check_only) {
+        std::cout << indent << "Data check: rows=" << decoded_rows << " range=[" << row_start << ","
+                  << (row_start + decoded_rows) << ") batches=" << batches
+                  << " verify_checksum=" << (FLAGS_verify_checksum ? "true" : "false")
+                  << " status=OK" << std::endl;
+    } else if (rows_to_read < num_segment_rows) {
+        std::cout << indent << "  ... (" << (num_segment_rows - rows_to_read)
+                  << " rows outside selected range)" << std::endl;
     }
+
+    return Status::OK();
 }
 
-// Helper function to print column metadata
-void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
-                       const FileReaderSPtr& file_reader, uint64_t num_segment_rows,
-                       int indent_level) {
+// Helper function to print column metadata. The output intentionally mirrors protobuf field order
+// for forensic readability.
+// NOLINTNEXTLINE(readability-function-size)
+Status print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
+                         const FileReaderSPtr& file_reader, uint64_t num_segment_rows,
+                         uint64_t row_start, uint64_t rows_to_read, int indent_level) {
     std::string indent(indent_level * 2, ' ');
     std::string column_name;
     if (column_meta.has_column_path_info() && column_meta.column_path_info().has_path()) {
@@ -709,7 +910,7 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
         column_name = "column_id_" + std::to_string(column_meta.column_id());
     }
 
-    doris::FieldType field_type = static_cast<doris::FieldType>(column_meta.type());
+    auto field_type = static_cast<doris::FieldType>(column_meta.type());
     std::cout << indent << "=== " << column_name << ": type=" << get_field_type_string(field_type)
               << ", nullable=" << (column_meta.is_nullable() ? "true" : "false")
               << ", encoding=" << get_encoding_string(column_meta.encoding())
@@ -740,7 +941,9 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
     if (column_meta.indexes_size() > 0) {
         std::cout << indent << "Indexes: ";
         for (int i = 0; i < column_meta.indexes_size(); ++i) {
-            if (i > 0) std::cout << ", ";
+            if (i > 0) {
+                std::cout << ", ";
+            }
             const auto& index_meta = column_meta.indexes(i);
             if (index_meta.has_type()) {
                 switch (index_meta.type()) {
@@ -767,19 +970,27 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
 
     // Handle complex types recursively
     if (column_meta.children_columns_size() > 0) {
+        if (FLAGS_check_only) {
+            return Status::NotSupported(
+                    "check_only does not yet support complex column {} with {} children",
+                    column_meta.column_id(), column_meta.children_columns_size());
+        }
         std::cout << indent << "Sub-columns: " << column_meta.children_columns_size() << std::endl;
         for (int i = 0; i < column_meta.children_columns_size(); ++i) {
-            print_column_meta(column_meta.children_columns(i), file_reader, num_segment_rows,
-                              indent_level + 1);
+            RETURN_IF_ERROR(print_column_meta(column_meta.children_columns(i), file_reader,
+                                              num_segment_rows, row_start, rows_to_read,
+                                              indent_level + 1));
         }
-        return;
+        return Status::OK();
     }
 
     // Print column data values for scalar types
     if (doris::is_scalar_type(field_type)) {
-        print_column_data_values(column_meta, file_reader, num_segment_rows, indent_level);
+        return print_column_data_values(column_meta, file_reader, num_segment_rows, row_start,
+                                        rows_to_read, indent_level);
     } else {
-        std::cout << indent << "(Complex type - cannot display values)" << std::endl;
+        return Status::NotSupported("cannot display values for column {} with type {}",
+                                    column_meta.column_id(), get_field_type_string(field_type));
     }
 }
 
@@ -791,7 +1002,9 @@ ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, doris::ExecEnv,
 ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, doris::ExecEnv, std::atomic_bool,
                             _s_tracking_memory);
 
-void show_segment_data(const std::string& file_name) {
+// Keep report sections in execution order so a failure never prints a misleading final summary.
+// NOLINTNEXTLINE(readability-function-size)
+Status show_segment_data(const std::string& file_name) {
     // Initialize ExecEnv components needed for ColumnReader
     // Use macro to access private members temporarily
     auto* exec_env = doris::ExecEnv::GetInstance();
@@ -815,16 +1028,19 @@ void show_segment_data(const std::string& file_name) {
     doris::io::FileReaderSPtr file_reader;
     Status status = doris::io::global_local_filesystem()->open_file(file_name, &file_reader);
     if (!status.ok()) {
-        std::cout << "open file failed: " << status << std::endl;
-        return;
+        status.prepend("failed to open segment file " + file_name + ": ");
+        return status;
     }
 
     SegmentFooterPB footer;
     status = get_segment_footer(file_reader.get(), &footer);
     if (!status.ok()) {
-        std::cout << "get footer failed: " << status.to_string() << std::endl;
-        return;
+        status.prepend("failed to read segment footer from " + file_name + ": ");
+        return status;
     }
+
+    uint64_t rows_to_read = 0;
+    RETURN_IF_ERROR(validate_segment_data_options(footer.num_rows(), &rows_to_read));
 
     // Print basic info
     std::cout << "\n=== Segment File Info ===" << std::endl;
@@ -832,6 +1048,10 @@ void show_segment_data(const std::string& file_name) {
     std::cout << "Num Rows: " << footer.num_rows() << std::endl;
     std::cout << "Num Columns: " << footer.columns_size() << std::endl;
     std::cout << "Compression: " << get_compression_string(footer.compress_type()) << std::endl;
+    std::cout << "Selected Row Range: [" << FLAGS_row_start << ","
+              << (FLAGS_row_start + rows_to_read) << ")" << std::endl;
+    std::cout << "Check Only: " << (FLAGS_check_only ? "true" : "false") << std::endl;
+    std::cout << "Verify Checksum: " << (FLAGS_verify_checksum ? "true" : "false") << std::endl;
     if (footer.has_version()) {
         std::cout << "Version: " << footer.version() << std::endl;
     }
@@ -849,7 +1069,8 @@ void show_segment_data(const std::string& file_name) {
     // Print each column
     for (int i = 0; i < footer.columns_size(); ++i) {
         const auto& column_meta = footer.columns(i);
-        print_column_meta(column_meta, file_reader, footer.num_rows(), 0);
+        RETURN_IF_ERROR(print_column_meta(column_meta, file_reader, footer.num_rows(),
+                                          FLAGS_row_start, rows_to_read, 0));
 
         // Collect statistics
         if (column_meta.has_compressed_data_bytes()) {
@@ -918,6 +1139,16 @@ void show_segment_data(const std::string& file_name) {
                   << std::setprecision(2) << (footer.data_footprint() / 1024.0) << " KB)"
                   << std::endl;
     }
+
+    std::cout << "\n=== Data Read Summary ===" << std::endl;
+    std::cout << "Columns Checked: " << footer.columns_size() << std::endl;
+    std::cout << "Rows Per Column: " << rows_to_read << std::endl;
+    std::cout << "Row Range: [" << FLAGS_row_start << "," << (FLAGS_row_start + rows_to_read) << ")"
+              << std::endl;
+    std::cout << "Check Only: " << (FLAGS_check_only ? "true" : "false") << std::endl;
+    std::cout << "Verify Checksum: " << (FLAGS_verify_checksum ? "true" : "false") << std::endl;
+    std::cout << "Status: OK" << std::endl;
+    return Status::OK();
 }
 
 void init_common_components() {
@@ -1089,11 +1320,16 @@ int main(int argc, char** argv) {
         show_segment_footer(FLAGS_file);
     } else if (FLAGS_operation == "show_segment_data") {
         if (FLAGS_file == "") {
-            std::cout << "no file flag for show_segment_data" << std::endl;
-            return -1;
+            std::cerr << "no file flag for show_segment_data" << std::endl;
+            return 2;
         }
         init_common_components();
-        show_segment_data(FLAGS_file);
+        Status status = show_segment_data(FLAGS_file);
+        if (!status.ok()) {
+            std::cerr << "show_segment_data failed: " << status.to_string() << std::endl;
+            gflags::ShutDownCommandLineFlags();
+            return status.is<ErrorCode::INVALID_ARGUMENT>() ? 2 : 1;
+        }
     } else if (FLAGS_operation == "gen_empty_segment") {
         gen_empty_segment();
     } else {
