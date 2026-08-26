@@ -133,13 +133,10 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
                 "1677-09-21 00:12:43.145224",
                 "2262-04-11 23:47:16.854776",
                 "2500-01-01 00:00:00.000000"]) {
-            test {
-                sql """
+                qt_cmp_dtv2_out_of_range_value """
                     select cast('1970-01-01 00:00:00' as timestamp_ns)
                         = cast('${badValue}' as datetimev2(6))
                 """
-                exception "outside Int64 epoch nanosecond range"
-            }
         }
     }
 

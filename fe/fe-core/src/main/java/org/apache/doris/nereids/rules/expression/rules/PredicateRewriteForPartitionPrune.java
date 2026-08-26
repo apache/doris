@@ -193,7 +193,8 @@ public class PredicateRewriteForPartitionPrune
                 new LessThanEqual(dateChild, end)));
     }
 
-    private static final class RewriteContext {
+    /** Context that controls whether cast predicates can be rewritten. */
+    public static final class RewriteContext {
         private static final RewriteContext ALLOW_CAST_REWRITE = new RewriteContext(true);
         private static final RewriteContext DISALLOW_CAST_REWRITE = new RewriteContext(false);
 
