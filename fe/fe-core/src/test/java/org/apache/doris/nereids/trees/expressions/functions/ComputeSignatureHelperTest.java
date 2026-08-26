@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -222,7 +221,7 @@ public class ComputeSignatureHelperTest {
     }
 
     @Test
-    void testDateTimeV2ArrayWithExactTimestampNsLiteralImplementAnyDataTypeWithIndex() {
+    void testDateTimeV2ArrayWithTimestampNsLiteralImplementAnyDataTypeWithIndex() {
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
         List<Expression> arguments = Lists.newArrayList(
@@ -231,21 +230,24 @@ public class ComputeSignatureHelperTest {
 
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
 
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(TimeStampNsType.INSTANCE,
                 ((ArrayType) signature.getArgType(0)).getItemType());
-        Assertions.assertEquals(DateTimeV2Type.of(6), signature.getArgType(1));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, signature.getArgType(1));
     }
 
     @Test
-    void testTimestampNsAndDateTimeV2ColumnsRejectIndexedAnyCommonType() {
+    void testTimestampNsAndDateTimeV2ColumnsUseTimestampNsIndexedAnyCommonType() {
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
         List<Expression> arguments = Lists.newArrayList(
                 new SlotReference("values", ArrayType.of(TimeStampNsType.INSTANCE)),
                 new SlotReference("value", DateTimeV2Type.of(6)));
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments));
+        signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
+
+        Assertions.assertEquals(TimeStampNsType.INSTANCE,
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, signature.getArgType(1));
     }
 
     @Test
