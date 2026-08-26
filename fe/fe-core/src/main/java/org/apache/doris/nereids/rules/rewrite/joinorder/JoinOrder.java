@@ -47,29 +47,29 @@ public abstract class JoinOrder {
     protected final List<Edge> edges = Lists.newArrayList();
     protected final Map<BitSet, GroupInfo> bitSetToGroupInfo = Maps.newHashMap();
 
-    /**ExpressionInfo*/
-    static class ExpressionInfo {
-        final Plan expr;
+    /**PlanInfo*/
+    static class PlanInfo {
+        final Plan plan;
         GroupInfo leftChild;
         GroupInfo rightChild;
         double cost = -1L;
         double rowCount = -1L;
 
-        ExpressionInfo(Plan expr) {
-            this.expr = expr;
+        PlanInfo(Plan plan) {
+            this.plan = plan;
         }
 
-        ExpressionInfo(Plan expr,
+        PlanInfo(Plan plan,
                 GroupInfo leftChild,
                 GroupInfo rightChild) {
-            this.expr = expr;
+            this.plan = plan;
             this.leftChild = leftChild;
             this.rightChild = rightChild;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(expr.hashCode(), leftChild, rightChild);
+            return Objects.hash(plan.hashCode(), leftChild, rightChild);
         }
 
         @Override
@@ -77,12 +77,12 @@ public abstract class JoinOrder {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof ExpressionInfo)) {
+            if (!(obj instanceof PlanInfo)) {
                 return false;
             }
 
-            ExpressionInfo other = (ExpressionInfo) obj;
-            return Objects.equals(expr, other.expr)
+            PlanInfo other = (PlanInfo) obj;
+            return Objects.equals(plan, other.plan)
                     && Objects.equals(leftChild, other.leftChild)
                     && Objects.equals(rightChild, other.rightChild);
         }
@@ -91,8 +91,8 @@ public abstract class JoinOrder {
     /**GroupInfo*/
     static class GroupInfo {
         final BitSet atoms;
-        ExpressionInfo bestExprInfo = null;
-        double lowestExprCost = Double.MAX_VALUE;
+        PlanInfo bestPlanInfo = null;
+        double lowestPlanCost = Double.MAX_VALUE;
 
         GroupInfo(BitSet atoms) {
             this.atoms = atoms;
@@ -190,26 +190,26 @@ public abstract class JoinOrder {
         for (int i = 0; i < atomSize; ++i) {
             BitSet atomBit = new BitSet();
             atomBit.set(i);
-            ExpressionInfo atomExprInfo = new ExpressionInfo(atoms.get(i));
-            computeCost(atomExprInfo);
+            PlanInfo atomPlanInfo = new PlanInfo(atoms.get(i));
+            computeCost(atomPlanInfo);
 
             GroupInfo groupInfo = new GroupInfo(atomBit);
-            groupInfo.bestExprInfo = atomExprInfo;
-            groupInfo.lowestExprCost = atomExprInfo.cost;
+            groupInfo.bestPlanInfo = atomPlanInfo;
+            groupInfo.lowestPlanCost = atomPlanInfo.cost;
             atomLevel.groups.add(groupInfo);
         }
         return true;
     }
 
-    protected void computeCost(ExpressionInfo exprInfo) {
-        double cost = exprInfo.expr.getStats().getRowCount();
-        exprInfo.rowCount = cost;
-        if (exprInfo.leftChild != null) {
-            cost = cost > (MAXIMUM_COST - exprInfo.leftChild.bestExprInfo.cost)
-                    ? MAXIMUM_COST : cost + exprInfo.leftChild.bestExprInfo.cost;
-            cost = cost > (MAXIMUM_COST - exprInfo.rightChild.bestExprInfo.cost)
-                    ? MAXIMUM_COST : cost + exprInfo.rightChild.bestExprInfo.cost;
-            LogicalJoin join = (LogicalJoin) exprInfo.expr;
+    protected void computeCost(PlanInfo planInfo) {
+        double cost = planInfo.plan.getStats().getRowCount();
+        planInfo.rowCount = cost;
+        if (planInfo.leftChild != null) {
+            cost = cost > (MAXIMUM_COST - planInfo.leftChild.bestPlanInfo.cost)
+                    ? MAXIMUM_COST : cost + planInfo.leftChild.bestPlanInfo.cost;
+            cost = cost > (MAXIMUM_COST - planInfo.rightChild.bestPlanInfo.cost)
+                    ? MAXIMUM_COST : cost + planInfo.rightChild.bestPlanInfo.cost;
+            LogicalJoin join = (LogicalJoin) planInfo.plan;
             if (join.getJoinType().isCrossJoin()) {
                 // punish cross join
                 cost = cost > (MAXIMUM_COST / CROSS_JOIN_PENALTY) ? MAXIMUM_COST : cost * CROSS_JOIN_PENALTY;
@@ -218,7 +218,7 @@ public abstract class JoinOrder {
                 cost = cost > (MAXIMUM_COST / EXECUTE_COST_PENALTY) ? MAXIMUM_COST : cost * EXECUTE_COST_PENALTY;
             }
         }
-        exprInfo.cost = cost;
+        planInfo.cost = cost;
     }
 
     private boolean computeEdgeCover(List<Plan> atoms) {
