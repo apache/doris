@@ -343,3 +343,19 @@ diff --git a/src/paimon/format/blob/blob_format_writer.cpp b/src/paimon/format/b
 +   list(GET Thrift_VERSION_LIST 0 Thrift_VERSION_MAJOR)
 +   list(GET Thrift_VERSION_LIST 1 Thrift_VERSION_MINOR)
 +   list(GET Thrift_VERSION_LIST 2 Thrift_VERSION_PATCH)
+
+diff --git a/src/paimon/CMakeLists.txt b/src/paimon/CMakeLists.txt
+index 76dd03b..9317324 100644
+--- a/src/paimon/CMakeLists.txt
++++ b/src/paimon/CMakeLists.txt
+@@ -281,6 +281,10 @@ add_paimon_lib(paimon
+                ${PAIMON_COMMON_SRCS}
+                ${PAIMON_CORE_SRCS}
+                DEPENDENCIES
++               # Codec headers come from ExternalProject install steps, so object
++               # compilation must not race those steps in clean parallel builds.
++               zstd
++               snappy
+                arrow
+                tbb
+                glog

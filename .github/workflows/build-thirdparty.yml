@@ -66,6 +66,7 @@ jobs:
               - 'thirdparty/patches/apache-arrow-*.patch'
               - 'thirdparty/patches/paimon-cpp-*.patch'
               - 'thirdparty/test/arrow-paimon-lifecycle-test.sh'
+              - 'thirdparty/test/paimon-codec-dependency-test.sh'
               - '.github/workflows/build-thirdparty.yml'
 
   arrow_paimon_lifecycle_test:
@@ -78,7 +79,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Test focused thirdparty lifecycle
-        run: thirdparty/test/arrow-paimon-lifecycle-test.sh
+        run: |
+          thirdparty/test/arrow-paimon-lifecycle-test.sh
+          thirdparty/test/paimon-codec-dependency-test.sh
 
   build_linux:
     name: Build Third Party Libraries (Linux)
