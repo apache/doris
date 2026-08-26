@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+
+import java.util.Optional;
+
 /** A monotonic function whose result is guaranteed to be on one side of its input. */
 public interface RoundingMonotonic extends Monotonic {
     /** Direction in which the function rounds its input. */
@@ -30,5 +35,21 @@ public interface RoundingMonotonic extends Monotonic {
     /** Whether the current arguments preserve the declared relation between the result and input. */
     default boolean isRoundingRelationGuaranteed() {
         return true;
+    }
+
+    /**
+     * Return the next bucket boundary for an equality predicate on a floor function. For example,
+     * {@code date_trunc(dt, 'day') = c} has the preimage {@code [c, nextBoundary(c))}.
+     */
+    default Optional<Expression> nextBucketBoundary(Literal value) {
+        return Optional.empty();
+    }
+
+    /**
+     * Return the previous bucket boundary for an equality predicate on a ceil function. For
+     * example, {@code day_ceil(dt) = c} has the preimage {@code (previousBoundary(c), c]}.
+     */
+    default Optional<Expression> previousBucketBoundary(Literal value) {
+        return Optional.empty();
     }
 }
