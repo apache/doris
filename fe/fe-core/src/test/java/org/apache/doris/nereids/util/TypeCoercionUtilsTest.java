@@ -298,6 +298,44 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testTimestampNsJoinComparisonUsesStrictCast() {
+        for (DataType temporalType : ImmutableList.of(
+                DateType.INSTANCE, DateV2Type.INSTANCE, DateTimeType.INSTANCE,
+                DateTimeV2Type.MAX, TimeStampTzType.MAX)) {
+            assertTimestampNsJoinComparisonUsesStrictCast(temporalType, false);
+            assertTimestampNsJoinComparisonUsesStrictCast(temporalType, true);
+        }
+
+        NullSafeEqual nullSafeEqual = (NullSafeEqual) TypeCoercionUtils.processJoinComparisonPredicate(
+                new NullSafeEqual(new SlotReference("ts", TimeStampNsType.INSTANCE),
+                        new SlotReference("dt", DateTimeV2Type.MAX)));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, nullSafeEqual.left().getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, nullSafeEqual.right().getDataType());
+        Assertions.assertTrue(((Cast) nullSafeEqual.right()).isStrict());
+
+        GreaterThan nonEquality = (GreaterThan) TypeCoercionUtils.processJoinComparisonPredicate(
+                new GreaterThan(new SlotReference("ts", TimeStampNsType.INSTANCE),
+                        new SlotReference("dt", DateTimeV2Type.MAX)));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, nonEquality.left().getDataType());
+        Assertions.assertEquals(DateTimeV2Type.MAX, nonEquality.right().getDataType());
+    }
+
+    private void assertTimestampNsJoinComparisonUsesStrictCast(DataType temporalType, boolean temporalOnLeft) {
+        SlotReference timestampNs = new SlotReference("ts", TimeStampNsType.INSTANCE);
+        SlotReference temporal = new SlotReference("temporal", temporalType);
+        EqualTo comparison = temporalOnLeft
+                ? new EqualTo(temporal, timestampNs) : new EqualTo(timestampNs, temporal);
+
+        EqualTo normalized = (EqualTo) TypeCoercionUtils.processJoinComparisonPredicate(comparison);
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, normalized.left().getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, normalized.right().getDataType());
+        Expression castExpression = temporalOnLeft ? normalized.left() : normalized.right();
+        Assertions.assertTrue(castExpression instanceof Cast);
+        Assertions.assertTrue(((Cast) castExpression).isStrict());
+        Assertions.assertFalse(((Cast) castExpression).isExplicitType());
+    }
+
+    @Test
     public void testTimestampNsDateTimeV2RangeAwareCoercionInBothModes() {
         boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
         try {

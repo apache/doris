@@ -452,6 +452,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         CastExpr castExpr = new CastExpr(cast.getDataType().toCatalogDataType(),
                 cast.child().accept(this, context), cast.nullable());
         castExpr.setImplicit(!cast.isExplicitType());
+        castExpr.setStrict(cast.isStrict());
         return castExpr;
     }
 

@@ -60,24 +60,41 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
     protected final boolean isExplicitType; //FIXME: now not useful
 
+    // Some system-inserted casts are part of correctness-sensitive normalization and must fail
+    // instead of producing NULL, independently of the session's enable_strict_cast setting.
+    protected final boolean isStrict;
+
     protected final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
-        this(child, targetType, false);
+        this(child, targetType, false, false);
     }
 
     public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        this(ImmutableList.of(child), targetType, isExplicitType);
+        this(child, targetType, isExplicitType, false);
+    }
+
+    public Cast(Expression child, DataType targetType, boolean isExplicitType, boolean isStrict) {
+        this(ImmutableList.of(child), targetType, isExplicitType, isStrict);
     }
 
     protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+        this(child, targetType, isExplicitType, false);
+    }
+
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType, boolean isStrict) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
+        this.isStrict = isStrict;
     }
 
     public boolean isExplicitType() {
         return isExplicitType;
+    }
+
+    public boolean isStrict() {
+        return isStrict;
     }
 
     @Override
@@ -237,13 +254,13 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children, targetType, isExplicitType);
+        return new Cast(children, targetType, isExplicitType, isStrict);
     }
 
     /** Return this cast with a different immutable target type. */
     public Cast withTargetType(DataType targetType) {
         return this.targetType.equals(targetType)
-                ? this : new Cast(children, targetType, isExplicitType);
+                ? this : new Cast(children, targetType, isExplicitType, isStrict);
     }
 
     @Override
@@ -278,12 +295,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         Cast cast = (Cast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return isStrict == cast.isStrict && Objects.equals(targetType, cast.targetType);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), targetType);
+        return Objects.hash(super.computeHashCode(), targetType, isStrict);
     }
 
     @Override
@@ -298,7 +315,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new Cast(literal, targetType, isExplicitType);
+        return new Cast(literal, targetType, isExplicitType, isStrict);
     }
 
     @Override

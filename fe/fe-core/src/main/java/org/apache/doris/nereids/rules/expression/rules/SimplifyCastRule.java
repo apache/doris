@@ -147,7 +147,7 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
         }
 
         if (child != cast.child()) {
-            return new Cast(child, cast.getDataType());
+            return cast.withChildren(ImmutableList.of(child));
         }
         return cast;
     }
