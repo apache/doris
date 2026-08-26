@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,6 +47,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -64,6 +67,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     private final long timeoutDeadline;
     private final CoordinatorContext coordinatorContext;
     private final BackendServiceProxy backendServiceProxy;
+    private final Set<Long> dispatchedBackendIdsForAudit = ConcurrentHashMap.newKeySet();
 
     // mutable states
     public PipelineExecutionTask(
@@ -93,6 +97,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     @Override
     public void execute() throws Exception {
         coordinatorContext.withLock(() -> {
+            dispatchedBackendIdsForAudit.clear();
             sendAndWaitPhaseOneRpc();
             if (coordinatorContext.twoPhaseExecution()) {
                 sendAndWaitPhaseTwoRpc();
@@ -115,6 +120,8 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     private void sendAndWaitPhaseOneRpc() throws UserException, RpcException {
         List<RpcInfo> rpcs = Lists.newArrayList();
         for (MultiFragmentsPipelineTask fragmentsTask : childrenTasks.allTasks()) {
+            // Include uncertain RPC outcomes, but never a planned backend whose dispatch was not attempted.
+            dispatchedBackendIdsForAudit.add(fragmentsTask.getBackend().getId());
             rpcs.add(new RpcInfo(
                     fragmentsTask,
                     DateTime.now().getMillis(),
@@ -127,6 +134,10 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
         coordinatorContext.updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(rpcs.size()));
         coordinatorContext.updateProfileIfPresent(SummaryProfile::setFragmentSendPhase1Time);
         coordinatorContext.updateProfileIfPresent(profile -> profile.setRpcPhase1Latency(rpcPhase1Latency));
+    }
+
+    public Set<Long> getDispatchedBackendIdsForAudit() {
+        return ImmutableSet.copyOf(dispatchedBackendIdsForAudit);
     }
 
     private void sendAndWaitPhaseTwoRpc() throws RpcException, UserException {

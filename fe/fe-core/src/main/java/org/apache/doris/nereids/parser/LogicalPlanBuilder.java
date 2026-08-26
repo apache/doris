@@ -522,7 +522,6 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
-import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -4857,26 +4856,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             break;
                         case "ordered":
                             hints.add(new SelectHintOrdered(hintName));
-                            break;
-                        case "use_cbo_rule":
-                            List<String> useRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
-                                    useRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, useRuleParameters, false));
-                            break;
-                        case "no_use_cbo_rule":
-                            List<String> noUseRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                if (kv.key != null) {
-                                    noUseRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
                             break;
                         default:
                             break;
