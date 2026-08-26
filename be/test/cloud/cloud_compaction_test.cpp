@@ -456,6 +456,8 @@ TEST_F(CloudCompactionTest, cumulative_global_lock_failure_keeps_thread_count_ba
 
     EXPECT_FALSE(_engine.has_cumu_compaction(tablet->tablet_id()));
     EXPECT_EQ(_engine._cumu_compaction_thread_pool_used_threads, 0);
+}
+
 static RowsetSharedPtr create_delete_rowset(Version version) {
     auto rowset = create_rowset(version, 0, false, 0);
     DORIS_CHECK(rowset != nullptr);
