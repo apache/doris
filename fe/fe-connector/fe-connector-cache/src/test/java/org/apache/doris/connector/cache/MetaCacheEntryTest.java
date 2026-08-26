@@ -243,6 +243,41 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void removalCallbackReceivesDisabledAndSuppressedLoads() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger removals = new AtomicInteger();
+            MetaCacheEntry<String, Integer> disabled = new MetaCacheEntry<>(
+                    "disabled", null, CacheSpec.of(true, 0L, 10L), refreshExecutor,
+                    false, true, 0L, true, (key, value) -> removals.incrementAndGet());
+            Assertions.assertEquals(Integer.valueOf(1), disabled.get("k", key -> 1));
+            Assertions.assertEquals(1, removals.get(), "a disabled cache must release the unretained value");
+
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "racing", null, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L), refreshExecutor,
+                    false, true, 0L, true, (key, value) -> removals.incrementAndGet());
+            Future<Integer> load = queryExecutor.submit(() -> entry.get("k", key -> {
+                loaderStarted.countDown();
+                awaitLatch(releaseLoader);
+                return 2;
+            }));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseLoader.countDown();
+            Assertions.assertEquals(Integer.valueOf(2), load.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(entry.getIfPresent("k"));
+            Assertions.assertEquals(2, removals.get(),
+                    "an invalidation-before-publication must release the suppressed value");
+        } finally {
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static LoadingCache<Object, Object> extractLoadingCache(MetaCacheEntry<?, ?> entry) throws Exception {
         Field field = MetaCacheEntry.class.getDeclaredField("loadingData");
