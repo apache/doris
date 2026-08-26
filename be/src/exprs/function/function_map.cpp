@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -223,8 +224,9 @@ public:
 
         IColumn::Selector selector;
         auto result_offsets = ColumnArray::ColumnOffsets::create();
-        build_selector_and_offsets(map, map_is_const, predicate, predicate_is_const,
-                                   result_null_map_data, selector, *result_offsets);
+        RETURN_IF_ERROR(build_selector_and_offsets(map, map_is_const, predicate, predicate_is_const,
+                                                   result_null_map_data, selector,
+                                                   *result_offsets));
 
         auto result_keys = map.get_keys().clone_empty();
         auto result_values = map.get_values().clone_empty();
@@ -249,11 +251,18 @@ public:
     }
 
 private:
-    static void build_selector_and_offsets(const ColumnMap& map, bool map_is_const,
-                                           const ColumnArray& predicate, bool predicate_is_const,
-                                           const NullMap& result_null_map,
-                                           IColumn::Selector& selector,
-                                           ColumnArray::ColumnOffsets& result_offsets) {
+    static Status build_selector_and_offsets(const ColumnMap& map, bool map_is_const,
+                                             const ColumnArray& predicate, bool predicate_is_const,
+                                             const NullMap& result_null_map,
+                                             IColumn::Selector& selector,
+                                             ColumnArray::ColumnOffsets& result_offsets) {
+        constexpr auto max_selector_position = std::numeric_limits<IColumn::ColumnIndex>::max();
+        if (map.get_keys().size() > 0 && map.get_keys().size() - 1 > max_selector_position) {
+            return Status::InvalidArgument(
+                    "Function {} cannot process {} nested entries because selector positions are "
+                    "limited to {}",
+                    name, map.get_keys().size(), max_selector_position);
+        }
         const auto& nullable_predicate = assert_cast<const ColumnNullable&>(predicate.get_data());
         const auto& predicate_null_map = nullable_predicate.get_null_map_data();
         const auto& predicate_values =
@@ -282,6 +291,7 @@ private:
             }
             result_offsets.insert_value(selector.size());
         }
+        return Status::OK();
     }
 
     static Status check_arguments(const ColumnMap& map, bool map_is_const,
@@ -697,8 +707,8 @@ public:
         if (nullable_entries.has_null()) {
             IColumn::Selector selector;
             auto filtered_offsets = ColumnArray::ColumnOffsets::create();
-            build_selector_and_offsets(entries, nullable_entries, nullable_array, selector,
-                                       *filtered_offsets);
+            RETURN_IF_ERROR(build_selector_and_offsets(entries, nullable_entries, nullable_array,
+                                                       selector, *filtered_offsets));
 
             auto filtered_keys = entry_struct.get_column(0).clone_empty();
             auto filtered_values = entry_struct.get_column(1).clone_empty();
@@ -723,11 +733,18 @@ public:
     }
 
 private:
-    static void build_selector_and_offsets(const ColumnArray& entries,
-                                           const ColumnNullable& nullable_entries,
-                                           const ColumnNullable* nullable_array,
-                                           IColumn::Selector& selector,
-                                           ColumnArray::ColumnOffsets& filtered_offsets) {
+    static Status build_selector_and_offsets(const ColumnArray& entries,
+                                             const ColumnNullable& nullable_entries,
+                                             const ColumnNullable* nullable_array,
+                                             IColumn::Selector& selector,
+                                             ColumnArray::ColumnOffsets& filtered_offsets) {
+        constexpr auto max_selector_position = std::numeric_limits<IColumn::ColumnIndex>::max();
+        if (nullable_entries.size() > 0 && nullable_entries.size() - 1 > max_selector_position) {
+            return Status::InvalidArgument(
+                    "Function {} cannot process {} nested entries because selector positions are "
+                    "limited to {}",
+                    name, nullable_entries.size(), max_selector_position);
+        }
         selector.reserve(nullable_entries.size());
         filtered_offsets.reserve(entries.size());
 
@@ -737,12 +754,13 @@ private:
                 const size_t end = entries.get_offsets()[row];
                 for (size_t entry = begin; entry < end; ++entry) {
                     if (!nullable_entries.is_null_at(entry)) {
-                        selector.push_back(static_cast<uint32_t>(entry));
+                        selector.push_back(entry);
                     }
                 }
             }
             filtered_offsets.insert_value(selector.size());
         }
+        return Status::OK();
     }
 };
 
