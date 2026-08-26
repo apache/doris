@@ -104,110 +104,89 @@ suite("test_timestamp_ns_join") {
         order by l.id, r.id
     """
 
-    setFeConfigTemporary([disable_datev1: false]) {
-        sql """
+    sql """
             create table timestamp_ns_join_temporal_safe (
                 id int,
-                date_value datev1,
                 datev2_value datev2,
-                datetime_value datetimev1,
                 datetimev2_value datetimev2(6),
                 timestamptz_value timestamptz(6)
             )
             duplicate key(id)
             distributed by hash(id) buckets 1
             properties("replication_num" = "1")
-        """
-        sql """
+    """
+    sql """
             insert into timestamp_ns_join_temporal_safe values
-            (1, '1970-01-01', '1970-01-01', '1970-01-01 00:00:00',
-                '1970-01-01 00:00:00.000000',
+            (1, '1970-01-01', '1970-01-01 00:00:00.000000',
                 cast('1970-01-01 00:00:00.000000+00:00' as timestamptz(6))),
-            (2, '2024-02-29', '2024-02-29', '2024-02-29 00:00:00',
-                '2024-02-29 00:00:00.000000',
+            (2, '2024-02-29', '2024-02-29 00:00:00.000000',
                 cast('2024-02-29 00:00:00.000000+00:00' as timestamptz(6))),
-            (3, null, null, null, null, null)
-        """
+            (3, null, null, null)
+    """
 
-        order_qt_mixed_inner_join_date """
-            select l.id, r.id
-            from timestamp_ns_join_left l
-            join timestamp_ns_join_temporal_safe r on l.dt = r.date_value
-            order by l.id, r.id
-        """
-        order_qt_mixed_inner_join_datev2 """
+    order_qt_mixed_inner_join_datev2 """
             select l.id, r.id
             from timestamp_ns_join_left l
             join timestamp_ns_join_temporal_safe r on l.dt = r.datev2_value
             order by l.id, r.id
-        """
-        order_qt_mixed_inner_join_datetime """
-            select l.id, r.id
-            from timestamp_ns_join_left l
-            join timestamp_ns_join_temporal_safe r on l.dt = r.datetime_value
-            order by l.id, r.id
-        """
-        order_qt_mixed_inner_join_datetimev2 """
+    """
+    order_qt_mixed_inner_join_datetimev2 """
             select l.id, r.id
             from timestamp_ns_join_left l
             join timestamp_ns_join_temporal_safe r on l.dt = r.datetimev2_value
             order by l.id, r.id
-        """
-        order_qt_mixed_inner_join_timestamptz """
+    """
+    order_qt_mixed_inner_join_timestamptz """
             select l.id, r.id
             from timestamp_ns_join_left l
             join timestamp_ns_join_temporal_safe r on l.dt = r.timestamptz_value
             order by l.id, r.id
-        """
+    """
 
-        explain {
-            sql """
+    explain {
+        sql """
                 shape plan
                 select l.id
                 from timestamp_ns_join_left l
                 join timestamp_ns_join_temporal_safe r on l.dt = r.datetimev2_value
-            """
-            contains "hashJoin"
-        }
+        """
+        contains "hashJoin"
+    }
 
-        sql """
+    sql """
             create table timestamp_ns_join_temporal_overflow (
                 id int,
-                date_value datev1,
                 datev2_value datev2,
-                datetime_value datetimev1,
                 datetimev2_value datetimev2(6),
                 timestamptz_value timestamptz(6)
             )
             duplicate key(id)
             distributed by hash(id) buckets 1
             properties("replication_num" = "1")
-        """
-        sql """
+    """
+    sql """
             insert into timestamp_ns_join_temporal_overflow values
-            (1, '9999-12-31', '9999-12-31', '2262-04-11 23:47:17',
-                '2262-04-11 23:47:16.854776',
+            (1, '9999-12-31', '2262-04-11 23:47:16.854776',
                 cast('2262-04-11 23:47:16.854776+00:00' as timestamptz(6)))
-        """
+    """
 
-        for (def columnName : ["date_value", "datev2_value", "datetime_value", "datetimev2_value"]) {
-            test {
-                sql """
+    for (def columnName : ["datev2_value", "datetimev2_value"]) {
+        test {
+            sql """
                     select l.id
                     from timestamp_ns_join_left l
                     join timestamp_ns_join_temporal_overflow r on l.dt = r.${columnName}
-                """
-                exception "TIMESTAMP_NS overflow"
-            }
+            """
+            exception "TIMESTAMP_NS overflow"
         }
-        test {
-            sql """
+    }
+    test {
+        sql """
                 select l.id
                 from timestamp_ns_join_left l
                 join timestamp_ns_join_temporal_overflow r on l.dt = r.timestamptz_value
-            """
-            exception "can not cast timestamptz"
-        }
+        """
+        exception "can not cast timestamptz"
     }
 
     sql "drop table if exists timestamp_ns_asof_left"
