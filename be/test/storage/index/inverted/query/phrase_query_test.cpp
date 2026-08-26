@@ -744,6 +744,92 @@ TEST_F(PhraseQueryTest, candidate_rows_restrict_phrase_search) {
     }
 }
 
+// Scoring queries must keep real per-document norms when a candidate is
+// pushed down: a selective candidate becomes the leapfrog lead, but BM25
+// norms must still come from a real term iterator, so per-document scores are
+// identical with and without the candidate (for the documents both runs
+// return).
+TEST_F(PhraseQueryTest, candidate_rows_keep_scoring_norms) {
+    std::string_view rowset_id = "test_candidate_norms";
+    int seg_id = 0;
+
+    // Different document lengths => different norms => wrong norm source shows
+    // up as a score difference.
+    std::vector<Slice> values = {
+            Slice("big red"),                                                  // doc 0 short
+            Slice("big red with quite a few extra filler words in this line"), // doc 1 long
+            Slice("big red medium length document"),                           // doc 2 medium
+            Slice("unrelated words only")                                      // doc 3
+    };
+
+    TabletIndex idx_meta;
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_candidate_norms");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1);
+    index_meta_pb->mutable_properties()->insert({"parser", "english"});
+    index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
+    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix;
+    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+    auto searcher = create_searcher(index_path_prefix, idx_meta);
+    ASSERT_NE(searcher, nullptr);
+
+    RuntimeState runtime_state;
+    io::IOContext io_ctx;
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"1";
+    query_info.term_infos.emplace_back("big", 0);
+    query_info.term_infos.emplace_back("red", 1);
+    query_info.slop = 0;
+    query_info.is_similarity_score = true;
+
+    // Fixed idf/avgdl so BM25 needs no collected statistics; norms still come
+    // from the index, which is exactly what this test pins down.
+    class FixedStats : public CollectionStatistics {
+    public:
+        float get_or_calculate_idf(const std::wstring&, const std::wstring&) override {
+            return 1.0F;
+        }
+        float get_or_calculate_avg_dl(const std::wstring&) override { return 5.0F; }
+    };
+
+    auto run_scoring = [&](const roaring::Roaring* candidate) {
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->runtime_state = &runtime_state;
+        context->collection_statistics = std::make_shared<FixedStats>();
+        context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        context->candidate_rows = candidate;
+        PhraseQuery query(searcher, context);
+        query.add(query_info);
+        roaring::Roaring result;
+        query.search(result);
+        return context->collection_similarity->release_scores();
+    };
+
+    auto baseline = run_scoring(nullptr);
+    ASSERT_TRUE(baseline.find(0) != baseline.end());
+    ASSERT_TRUE(baseline.find(1) != baseline.end());
+
+    // Candidate {0, 1}: cardinality 2 is below the term doc-freq (3), so the
+    // candidate iterator becomes the leapfrog lead.
+    roaring::Roaring candidate;
+    candidate.add(0);
+    candidate.add(1);
+    auto restricted = run_scoring(&candidate);
+
+    ASSERT_TRUE(restricted.find(0) != restricted.end());
+    ASSERT_TRUE(restricted.find(1) != restricted.end());
+    EXPECT_FLOAT_EQ(restricted.at(0), baseline.at(0));
+    EXPECT_FLOAT_EQ(restricted.at(1), baseline.at(1));
+}
+
 // A candidate covering every row must not change the result (equivalence with
 // the full-segment evaluation).
 TEST_F(PhraseQueryTest, candidate_rows_full_cover_keeps_results) {
