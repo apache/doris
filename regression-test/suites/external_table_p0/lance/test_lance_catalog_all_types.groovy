@@ -29,7 +29,6 @@ suite("test_lance_catalog_all_types","p0,external") {
     String catalogName = "test_lance_catalog_all_types"
     String databaseName = "default"
     String tableName = "all_types"
-    String unsupported = "unknown type: UNSUPPORTED_TYPE"
 
     /*
      * Lance/Arrow to Doris type mapping exercised by this fixture:
@@ -38,7 +37,7 @@ suite("test_lance_catalog_all_types","p0,external") {
      *
      * | Lance / Arrow type | Doris DESC type | Status / notes |
      * |---|---|---|
-     * | null | UNSUPPORTED | Unsupported |
+     * | null | null_type | Supported; every value is SQL NULL |
      * | bool | boolean | Supported |
      * | int8 | tinyint | Supported |
      * | uint8 | smallint | Supported by lossless widening |
@@ -65,19 +64,19 @@ suite("test_lance_catalog_all_types","p0,external") {
      * | timestamp(ms) | datetime(3) | Supported |
      * | timestamp(us/ns) | datetime(6) | Nanoseconds are truncated to microseconds |
      * | timestamp(us, UTC) | timestamptz(6) | UTC instant; rendered in the Doris session timezone |
-     * | duration(s/ms/us/ns) | UNSUPPORTED | Unsupported |
+     * | duration(s/ms/us/ns) | bigint | Exact signed count in the Arrow field's declared unit |
      * | struct | struct<...> | Child types are converted recursively |
      * | list / large_list / fixed_size_list | array<...> | Item type is converted recursively |
      * | fixed_size_list<uint8> | array<smallint> | Item type is widened recursively |
      * | fixed_size_list<float16> | array<float> | Item type is widened recursively |
      * | map | map<...,...> | Key/value types are converted recursively |
      * | dictionary<int16, utf8> | smallint | SDK currently exposes only the physical index type |
-     * | Lance Blob v2 | UNSUPPORTED | Blob materialization is not implemented |
-     * | Arrow JSON extension | UNSUPPORTED | JSON extension decoding is not implemented |
-     * | fixed_size_list<Lance BFloat16> | UNSUPPORTED | BFloat16 decoding is not implemented |
+     * | Lance Blob v2 | varbinary(2147483647) | Materialized as the complete binary payload |
+     * | Arrow JSON extension | json | Returned as Doris JSON |
+     * | fixed_size_list<Lance BFloat16> | array<float> | BFloat16 values are widened exactly |
      *
      * Dataset.getSchema() preserves extension metadata for Blob, JSON, and BFloat16,
-     * allowing Doris to reject them without interpreting their physical storage.
+     * allowing Doris to validate each physical storage type before mapping it.
      * The current Lance Java SDK erases Dictionary metadata from getSchema(), and
      * getLanceSchema() fails on a schema containing Dictionary, so Dictionary remains
      * a physical fallback until the SDK conversion is fixed.

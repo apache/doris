@@ -33,6 +33,8 @@ struct LanceDataset;
 struct LanceScanner;
 
 namespace arrow {
+class Array;
+class Field;
 class Schema;
 } // namespace arrow
 
@@ -62,6 +64,18 @@ size_t lance_vector_element_width(TVectorElementType::type type);
 Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids);
 Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count);
+
+// Normalize Lance extension arrays into Arrow arrays supported by Doris.
+Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
+                                   const std::shared_ptr<arrow::Array>& array,
+                                   std::shared_ptr<arrow::Array>* normalized);
+
+#ifdef BE_TEST
+// Expose Lance Arrow normalization for allocation-sensitive unit tests.
+Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>& field,
+                                            const std::shared_ptr<arrow::Array>& array,
+                                            std::shared_ptr<arrow::Array>* normalized);
+#endif
 
 // Convert every top-level field without discarding unsupported columns. Malformed schemas still
 // return an error and leave both output vectors unchanged. DataTypeNothing is the local sentinel
