@@ -81,8 +81,15 @@ namespace doris::debug {
 
 class ScopedLSANDisabler {
 public:
+#if defined(DORIS_LSAN_ENABLED) && defined(__linux__)
     ScopedLSANDisabler() { __lsan_disable(); }
     ~ScopedLSANDisabler() { __lsan_enable(); }
+#else
+    // User-provided (non-trivial) destructor so the variable is not optimized out
+    // and does not trigger -Wunused-variable when LSAN is disabled.
+    ScopedLSANDisabler() {}
+    ~ScopedLSANDisabler() {}
+#endif
 };
 
 } // namespace doris::debug

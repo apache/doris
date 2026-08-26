@@ -1470,6 +1470,10 @@ DEFINE_Int32(workload_policy_check_interval_ms, "500");
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
+// Ingest binlog distribute work pool size for single-replica fan-out to followers.
+// 0 means auto (hardware concurrency), negative values are invalid and will fail startup.
+DEFINE_Int32(ingest_binlog_distribute_work_pool_size, "0");
+
 // Ingest binlog with persistent connection
 DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
 

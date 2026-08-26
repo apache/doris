@@ -1556,6 +1556,10 @@ DECLARE_Bool(enable_flush_file_cache_async);
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
+// Ingest binlog distribute work pool size for single-replica fan-out to followers.
+// 0 means auto (hardware concurrency), negative values are invalid and will fail startup.
+DECLARE_Int32(ingest_binlog_distribute_work_pool_size);
+
 // Ingest binlog with persistent connection
 DECLARE_Bool(enable_ingest_binlog_with_persistent_connection);
 

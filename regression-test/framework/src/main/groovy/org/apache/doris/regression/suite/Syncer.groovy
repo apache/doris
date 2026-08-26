@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TGetSnapshotResult
 import org.apache.doris.thrift.TIngestBinlogRequest
 import org.apache.doris.thrift.TIngestBinlogResult
 import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TReplicaDistributionInfo
 import org.apache.doris.thrift.TRestoreSnapshotResult
 import org.apache.doris.thrift.TStatus
 import org.apache.doris.thrift.TStatusCode
@@ -577,7 +578,8 @@ class Syncer {
         }
         for (List<Object> row : backendInformation) {
             TNetworkAddress address = new TNetworkAddress(row[1] as String, row[3] as int)
-            BackendClientImpl client = new BackendClientImpl(address, row[4] as int)
+            int brpcPort = (row.size() > 5) ? (row[5] as int) : -1
+            BackendClientImpl client = new BackendClientImpl(address, row[4] as int, brpcPort)
             clientsMap.put(row[0] as Long, client)
         }
         return clientsMap
@@ -950,6 +952,166 @@ class Syncer {
                 List<TTabletCommitInfo> tabletCommitInfos = subTxnIdToTabletCommitInfos.get(subTxnId)
                 TSubTxnInfo subTxnInfo = new TSubTxnInfo().setSubTxnId(subTxnId).setTableId(subTxnIdToTableId.get(subTxnId)).setTabletCommitInfos(tabletCommitInfos)
                 context.subTxnInfos.add(subTxnInfo)
+            }
+        }
+        return true
+    }
+
+    // Single-replica ingest binlog: the leader replica downloads the rowset and
+    // fans it out to followers inside BE. This matches the ccr-syncer
+    // handleSingleReplica path and requires the target table to have
+    // replication_num > 1.
+    Boolean ingestBinlogSingleReplica(long fakePartitionId = -1, long fakeVersion = -1) {
+        logger.info("Begin to ingest binlog with single replica download.")
+
+        if (!context.metaIsValid()) {
+            logger.error("Meta data miss match, src: ${context.sourceTableMap}, target: ${context.targetTableMap}")
+            return false
+        }
+
+        BinlogData binlogData = context.lastBinlog
+        if (binlogData == null || binlogData.tableRecords == null || binlogData.tableRecords.isEmpty()) {
+            logger.info("Skip ingest: lastBinlog has no tableRecords. lastBinlog=${binlogData}")
+            return true
+        }
+
+        for (Entry<String, TableMeta> tableInfo : context.sourceTableMap) {
+            String tableName = tableInfo.key
+            TableMeta srcTableMeta = tableInfo.value
+            if (!binlogData.tableRecords.containsKey(srcTableMeta.id)) {
+                continue
+            }
+
+            PartitionRecords binlogRecords = binlogData.tableRecords.get(srcTableMeta.id)
+            TableMeta tarTableMeta = context.targetTableMap.get(tableName)
+
+            Iterator sourcePartitionIter = srcTableMeta.partitionMap.iterator()
+            Iterator targetPartitionIter = tarTableMeta.partitionMap.iterator()
+
+            while (sourcePartitionIter.hasNext()) {
+                Entry srcPartition = sourcePartitionIter.next()
+                Entry tarPartition = targetPartitionIter.next()
+                if (!binlogRecords.contains(srcPartition.key)) {
+                    continue
+                }
+
+                for (PartitionData partitionRecord : binlogRecords.partitionRecords) {
+                    if (partitionRecord.partitionId != srcPartition.key) {
+                        continue
+                    }
+
+                    long txnId = partitionRecord.stid == -1 ? context.txnId : context.sourceToTargetSubTxnId.get(partitionRecord.stid)
+                    long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
+                    long version = fakeVersion == -1 ? partitionRecord.version : fakeVersion
+
+                    Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
+                    Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
+                    while (srcTabletIter.hasNext()) {
+                        Entry srcTabletMap = srcTabletIter.next()
+                        Entry tarTabletMap = tarTabletIter.next()
+                        TabletMeta srcTabletMeta = srcTabletMap.value
+                        TabletMeta tarTabletMeta = tarTabletMap.value
+
+                        if (tarTabletMeta.replicas.size() <= 1) {
+                            logger.error("Single replica ingest requires target tablet has more than 1 replica, tabletId=${tarTabletMap.key}")
+                            return false
+                        }
+
+                        // Pick leader by tablet id hash to match ccr-syncer logic.
+                        int leaderIdx = (int) (tarTabletMap.key % tarTabletMeta.replicas.size())
+                        Iterator tarReplicaIter = tarTabletMeta.replicas.iterator()
+                        int idx = 0
+                        long leaderBackendId = -1
+                        List<TReplicaDistributionInfo> followerReplicas = new ArrayList<TReplicaDistributionInfo>()
+                        List<Long> allBackendIds = new ArrayList<Long>()
+                        while (tarReplicaIter.hasNext()) {
+                            Entry tarReplicaMap = tarReplicaIter.next()
+                            if (idx == leaderIdx) {
+                                leaderBackendId = tarReplicaMap.value
+                            } else {
+                                BackendClientImpl followerClient = context.targetBackendClients.get(tarReplicaMap.value)
+                                if (followerClient == null) {
+                                    logger.error("Can't find follower target tabletId-${tarTabletMap.key} -> beId-${tarReplicaMap.value}")
+                                    return false
+                                }
+                                if (followerClient.address.port <= 0) {
+                                    logger.error("Follower backend be port is invalid, beId=${tarReplicaMap.value}")
+                                    return false
+                                }
+                                TReplicaDistributionInfo info = new TReplicaDistributionInfo()
+                                info.setBackendId(tarReplicaMap.value)
+                                info.setHost(followerClient.address.hostname)
+                                info.setBePort(followerClient.address.port)
+                                followerReplicas.add(info)
+                            }
+                            allBackendIds.add(tarReplicaMap.value)
+                            idx++
+                        }
+
+                        BackendClientImpl leaderClient = context.targetBackendClients.get(leaderBackendId)
+                        if (leaderClient == null) {
+                            logger.error("Can't find leader target tabletId-${tarTabletMap.key} -> beId=${leaderBackendId}")
+                            return false
+                        }
+
+                        // Pick source replica by tablet id hash.
+                        int srcIdx = (int) (srcTabletMap.key % srcTabletMeta.replicas.size())
+                        Iterator srcReplicaIter = srcTabletMeta.replicas.iterator()
+                        int sIdx = 0
+                        long srcBackendId = -1
+                        while (srcReplicaIter.hasNext()) {
+                            Entry srcReplicaMap = srcReplicaIter.next()
+                            if (sIdx == srcIdx) {
+                                srcBackendId = srcReplicaMap.value
+                                break
+                            }
+                            sIdx++
+                        }
+                        BackendClientImpl srcClient = context.sourceBackendClients.get(srcBackendId)
+                        if (srcClient == null) {
+                            logger.error("Can't find src tabletId-${srcTabletMap.key} -> beId-${srcBackendId}")
+                            return false
+                        }
+
+                        tarPartition.value.version = srcPartition.value.version
+
+                        TIngestBinlogRequest request = new TIngestBinlogRequest()
+                        TUniqueId uid = new TUniqueId(-1, -1)
+                        request.setTxnId(txnId)
+                        request.setRemoteTabletId(srcTabletMap.key)
+                        request.setBinlogVersion(version)
+                        request.setRemoteHost(srcClient.address.hostname)
+                        request.setRemotePort(srcClient.httpPort.toString())
+                        request.setPartitionId(partitionId)
+                        request.setLocalTabletId(tarTabletMap.key)
+                        request.setLoadId(uid)
+                        request.setSingleReplicaDownload(true)
+                        request.setFollowerReplicas(followerReplicas)
+                        logger.info("single replica request -> ${request}")
+                        TIngestBinlogResult result = leaderClient.client.ingestBinlog(request)
+                        if (!checkIngestBinlog(result)) {
+                            logger.error("Single replica ingest binlog error! result: ${result}")
+                            return false
+                        }
+                        if (!result.isSetSuccessReplicaBackendIds()) {
+                            logger.error("Single replica ingest result has no success_replica_backend_ids, old BE fallback")
+                            return false
+                        }
+
+                        Set<Long> successBackendIds = new HashSet<Long>(result.getSuccessReplicaBackendIds())
+                        for (TReplicaDistributionInfo follower : followerReplicas) {
+                            long backendId = follower.getBackendId()
+                            if (!successBackendIds.contains(backendId)) {
+                                logger.error("Single replica ingest follower failed, backendId=${backendId}, result=${result}")
+                                return false
+                            }
+                        }
+
+                        for (long backendId : allBackendIds) {
+                            addCommitInfo(tarTabletMap.key, backendId)
+                        }
+                    }
+                }
             }
         }
         return true

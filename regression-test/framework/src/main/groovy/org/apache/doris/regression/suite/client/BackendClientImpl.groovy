@@ -28,11 +28,13 @@ class BackendClientImpl {
 
     public TNetworkAddress address
     public int httpPort
+    public int brpcPort
     public BackendService.Client client
 
-    BackendClientImpl(TNetworkAddress address, int httpPort) throws TTransportException {
+    BackendClientImpl(TNetworkAddress address, int httpPort, int brpcPort = -1) throws TTransportException {
         this.address = address
         this.httpPort = httpPort
+        this.brpcPort = brpcPort
         this.tSocket = new TSocket(address.hostname, address.port)
         this.client = new BackendService.Client(new TBinaryProtocol(this.tSocket))
         this.tSocket.open()
