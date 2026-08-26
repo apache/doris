@@ -19,6 +19,14 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
+    // Cloud mode: the failure injections target DatabaseTransactionMgr.commitTransaction.failed
+    // and the local insert RPC path; the cloud transaction manager never hits them,
+    // so the refresh task succeeds and the no-fallback property cannot be exercised here.
+    if (isCloudMode()) {
+        logger.info("skip test_ivm_execution_failure_no_fallback on cloud mode: " +
+                "failure injection debug points only fire on the local txn path")
+        return
+    }
     def commitFailureDebugPoint = "DatabaseTransactionMgr.commitTransaction.failed"
     def rpcFailureDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure"
     def rpcFailureFilterDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure.filter"
