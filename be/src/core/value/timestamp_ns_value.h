@@ -42,6 +42,9 @@ public:
     static constexpr int64_t NANOS_PER_SECOND = 1000000000;
     static constexpr int64_t NANOS_PER_MILLISECOND = 1000000;
     static constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+    static constexpr int64_t SECONDS_PER_DAY = 86400;
+    static constexpr int64_t NANOS_PER_DAY = SECONDS_PER_DAY * NANOS_PER_SECOND;
+    static constexpr int64_t UNIX_EPOCH_DAYNR = 719528;
 
     constexpr TimeStampNsValue() = default;
     explicit constexpr TimeStampNsValue(int64_t epoch_nanos) : _epoch_nanos(epoch_nanos) {}
@@ -72,32 +75,41 @@ public:
     uint32_t microsecond() const { return nanosecond() / 1000; }
     uint16_t nanosecond_remainder() const { return static_cast<uint16_t>(nanosecond() % 1000); }
 
-    // DATETIMEV2 is used only as a civil-calendar adapter. It carries the first six fractional
-    // digits; callers must preserve nanosecond_remainder() separately when the operation should
-    // not discard the final three digits.
+    // DATEV2 and DATETIMEV2 are used only as civil-calendar adapters. DATETIMEV2 carries the first
+    // six fractional digits; callers must preserve nanosecond_remainder() separately when the
+    // operation should not discard the final three digits.
+    DateV2Value<DateV2ValueType> to_date() const;
     DateV2Value<DateTimeV2ValueType> to_datetime() const;
     bool from_datetime(const DateV2Value<DateTimeV2ValueType>& value,
                        uint16_t nanosecond_remainder = 0);
 
-    // Calendar functions use the packed DATETIMEV2 value as a civil-field adapter. Keep all
-    // timezone handling outside this class: TIMESTAMP_NS itself is timezone-naive.
-    uint16_t year() const { return to_datetime().year(); }
-    uint8_t month() const { return to_datetime().month(); }
-    uint8_t day() const { return to_datetime().day(); }
-    uint8_t hour() const { return to_datetime().hour(); }
-    uint8_t minute() const { return to_datetime().minute(); }
-    uint8_t second() const { return to_datetime().second(); }
-    int quarter() const { return to_datetime().quarter(); }
-    int64_t daynr() const { return to_datetime().daynr(); }
-    uint16_t year_of_week() const { return to_datetime().year_of_week(); }
-    uint8_t week(uint8_t mode) const { return to_datetime().week(mode); }
-    uint32_t year_week(uint8_t mode) const { return to_datetime().year_week(mode); }
-    int day_of_year() const { return to_datetime().day_of_year(); }
-    int day_of_week() const { return to_datetime().day_of_week(); }
-    uint8_t weekday() const { return to_datetime().weekday(); }
-    int64_t time_part_to_seconds() const { return to_datetime().time_part_to_seconds(); }
+    // Calendar-only fields use the packed DATEV2 value as an adapter. Epoch-derived fields stay on
+    // the Int64 representation so extraction and difference functions do not pay for a
+    // civil-calendar conversion.
+    uint16_t year() const { return to_date().year(); }
+    uint8_t month() const { return to_date().month(); }
+    uint8_t day() const { return to_date().day(); }
+    uint8_t hour() const { return static_cast<uint8_t>(time_part_to_seconds() / 3600); }
+    uint8_t minute() const { return static_cast<uint8_t>(time_part_to_seconds() / 60 % 60); }
+    uint8_t second() const { return static_cast<uint8_t>(time_part_to_seconds() % 60); }
+    int quarter() const { return (month() - 1) / 3 + 1; }
+    int64_t daynr() const { return UNIX_EPOCH_DAYNR + epoch_days(); }
+    uint16_t year_of_week() const { return to_date().year_of_week(); }
+    uint8_t week(uint8_t mode) const { return to_date().week(mode); }
+    uint32_t year_week(uint8_t mode) const { return to_date().year_week(mode); }
+    int day_of_year() const { return to_date().day_of_year(); }
+    int day_of_week() const { return (weekday() + 1) % 7 + 1; }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    int64_t time_part_to_nanosecond() const {
+        int64_t nanos = _epoch_nanos % NANOS_PER_DAY;
+        if (nanos < 0) {
+            nanos += NANOS_PER_DAY;
+        }
+        return nanos;
+    }
+    int64_t time_part_to_seconds() const { return time_part_to_nanosecond() / NANOS_PER_SECOND; }
     int64_t time_part_to_microsecond() const {
-        return time_part_to_seconds() * 1000000 + microsecond();
+        return time_part_to_nanosecond() / NANOS_PER_MICROSECOND;
     }
 
     template <typename RHS>
@@ -109,8 +121,12 @@ public:
     // the contract used by sequence_match's second-based pattern conditions.
     template <typename RHS>
     int64_t datetime_diff_in_seconds(const RHS& rhs) const {
-        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_to_seconds() -
-               rhs.time_part_to_seconds();
+        if constexpr (std::is_same_v<std::remove_cvref_t<RHS>, TimeStampNsValue>) {
+            return epoch_seconds() - rhs.epoch_seconds();
+        } else {
+            return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY +
+                   time_part_to_seconds() - rhs.time_part_to_seconds();
+        }
     }
 
     template <typename RHS>
@@ -140,10 +156,10 @@ public:
     }
 
     const char* day_name_with_locale(const char* const* day_names) const {
-        return to_datetime().day_name_with_locale(day_names);
+        return to_date().day_name_with_locale(day_names);
     }
     const char* month_name_with_locale(const char* const* month_names) const {
-        return to_datetime().month_name_with_locale(month_names);
+        return to_date().month_name_with_locale(month_names);
     }
     bool to_format_string_conservative(const char* format, size_t len, char* to,
                                        size_t max_valid_length) const {
@@ -209,6 +225,14 @@ public:
     }
 
 private:
+    int64_t epoch_days() const {
+        int64_t days = _epoch_nanos / NANOS_PER_DAY;
+        if (_epoch_nanos % NANOS_PER_DAY < 0) {
+            --days;
+        }
+        return days;
+    }
+
     int64_t _epoch_nanos = 0;
 };
 
