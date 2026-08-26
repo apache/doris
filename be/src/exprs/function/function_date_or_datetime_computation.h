@@ -1657,9 +1657,13 @@ protected:
 
 template <typename DateValue>
 DateV2Value<DateV2ValueType> date_v2_from_date_like(const DateValue& value) {
-    DateV2Value<DateV2ValueType> date;
-    date.unchecked_set_time(value.year(), value.month(), value.day(), 0, 0, 0, 0);
-    return date;
+    if constexpr (std::is_same_v<DateValue, TimeStampNsValue>) {
+        return value.to_date();
+    } else {
+        DateV2Value<DateV2ValueType> date;
+        date.unchecked_set_time(value.year(), value.month(), value.day(), 0, 0, 0, 0);
+        return date;
+    }
 }
 
 class FunctionMonthsBetween : public IFunction {
@@ -1932,7 +1936,12 @@ private:
         for (size_t i = 0; i < arg.size(); ++i) {
             const auto& v = arg.get_element(i);
             // TIMEV2 has microsecond precision, so TIMESTAMP_NS intentionally drops digits 7-9.
-            res_data[i] = TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
+            if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                res_data[i] = static_cast<TimeValue::TimeType>(v.time_part_to_microsecond());
+            } else {
+                res_data[i] =
+                        TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
+            }
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();

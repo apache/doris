@@ -148,12 +148,13 @@ public:
             }
 
             const auto& source = col_from.get_data()[i];
-            const auto civil = source.to_datetime();
             if constexpr (IsDateType<ToDataType>) {
+                const auto civil = source.to_datetime();
                 DataTypeDateTimeV2::cast_to_date(civil, col_to->get_data()[i]);
             } else if constexpr (IsDateV2Type<ToDataType>) {
-                DataTypeDateTimeV2::cast_to_date_v2(civil, col_to->get_data()[i]);
+                col_to->get_data()[i] = source.to_date();
             } else if constexpr (IsDateTimeType<ToDataType>) {
+                const auto civil = source.to_datetime();
                 DataTypeDateTimeV2::cast_to_date_time(civil, col_to->get_data()[i]);
             } else if constexpr (IsDateTimeV2Type<ToDataType>) {
                 const auto to_scale = block.get_by_position(result).type->get_scale();
@@ -164,9 +165,10 @@ public:
             } else {
                 static_assert(IsTimeV2Type<ToDataType>);
                 const auto to_scale = block.get_by_position(result).type->get_scale();
-                uint32_t hour = civil.hour();
-                uint32_t minute = civil.minute();
-                uint32_t second = civil.second();
+                const int64_t seconds = source.time_part_to_seconds();
+                uint32_t hour = static_cast<uint32_t>(seconds / 3600);
+                uint32_t minute = static_cast<uint32_t>(seconds / 60 % 60);
+                uint32_t second = static_cast<uint32_t>(seconds % 60);
                 uint32_t nanoseconds = source.nanosecond();
                 const auto divisor = static_cast<uint32_t>(common::exp10_i64(9 - to_scale));
                 const uint32_t remainder = nanoseconds % divisor;

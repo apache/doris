@@ -756,52 +756,57 @@ struct DateTimeFloorCeilCore {
             }
         } else if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
             const auto nanos_since_midnight = [](const TimeStampNsValue& value) {
-                return value.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
-                       value.nanosecond();
+                return value.time_part_to_nanosecond();
             };
-            const auto nanos_since_date = [&](const TimeStampNsValue& value, uint8_t month,
-                                              uint8_t day) {
-                return (value.daynr() - calc_daynr(value.year(), month, day)) * HOUR_PER_DAY *
-                               SECOND_PER_HOUR * TimeStampNsValue::NANOS_PER_SECOND +
+            const auto nanos_since_month = [&](const TimeStampNsValue& value,
+                                               const auto& civil_value) {
+                return (civil_value.day() - 1) * TimeStampNsValue::NANOS_PER_DAY +
                        nanos_since_midnight(value);
             };
 
             if constexpr (Flag::Unit == YEAR) {
-                diff = ts_arg.year() - ts_origin.year();
-                const auto calendar_remainder = [&](const TimeStampNsValue& value) {
-                    return (static_cast<int64_t>(value.month()) * 32 + value.day()) * HOUR_PER_DAY *
-                                   SECOND_PER_HOUR * TimeStampNsValue::NANOS_PER_SECOND +
+                const auto arg_date = ts_arg.to_date();
+                const auto origin_date = ts_origin.to_date();
+                diff = arg_date.year() - origin_date.year();
+                const auto calendar_remainder = [&](const TimeStampNsValue& value,
+                                                    const auto& civil_value) {
+                    return (static_cast<int64_t>(civil_value.month()) * 32 + civil_value.day()) *
+                                   TimeStampNsValue::NANOS_PER_DAY +
                            nanos_since_midnight(value);
                 };
-                trivial_part_ts_arg = calendar_remainder(ts_arg);
-                trivial_part_ts_res = calendar_remainder(ts_origin);
+                trivial_part_ts_arg = calendar_remainder(ts_arg, arg_date);
+                trivial_part_ts_res = calendar_remainder(ts_origin, origin_date);
             }
             if constexpr (Flag::Unit == QUARTER) {
-                const int64_t total_months = (ts_arg.year() - ts_origin.year()) * 12 +
-                                             ts_arg.month() - ts_origin.month();
+                const auto arg_date = ts_arg.to_date();
+                const auto origin_date = ts_origin.to_date();
+                const int64_t total_months = (arg_date.year() - origin_date.year()) * 12 +
+                                             arg_date.month() - origin_date.month();
                 diff = total_months / 3;
                 const int64_t remaining_months = total_months % 3;
                 if (remaining_months != 0) {
                     trivial_part_ts_arg = remaining_months;
                     trivial_part_ts_res = 0;
                 } else {
-                    trivial_part_ts_arg = nanos_since_date(ts_arg, ts_arg.month(), 1);
-                    trivial_part_ts_res = nanos_since_date(ts_origin, ts_origin.month(), 1);
+                    trivial_part_ts_arg = nanos_since_month(ts_arg, arg_date);
+                    trivial_part_ts_res = nanos_since_month(ts_origin, origin_date);
                 }
             }
             if constexpr (Flag::Unit == MONTH) {
-                diff = (ts_arg.year() - ts_origin.year()) * 12 +
-                       (ts_arg.month() - ts_origin.month());
-                trivial_part_ts_arg = nanos_since_date(ts_arg, ts_arg.month(), 1);
-                trivial_part_ts_res = nanos_since_date(ts_origin, ts_origin.month(), 1);
+                const auto arg_date = ts_arg.to_date();
+                const auto origin_date = ts_origin.to_date();
+                diff = (arg_date.year() - origin_date.year()) * 12 + arg_date.month() -
+                       origin_date.month();
+                trivial_part_ts_arg = nanos_since_month(ts_arg, arg_date);
+                trivial_part_ts_res = nanos_since_month(ts_origin, origin_date);
             }
             if constexpr (Flag::Unit == WEEK) {
-                diff = ts_arg.daynr() / 7 - ts_origin.daynr() / 7;
-                trivial_part_ts_arg = ts_arg.daynr() % 7 * HOUR_PER_DAY * SECOND_PER_HOUR *
-                                              TimeStampNsValue::NANOS_PER_SECOND +
+                const int64_t arg_daynr = ts_arg.daynr();
+                const int64_t origin_daynr = ts_origin.daynr();
+                diff = arg_daynr / 7 - origin_daynr / 7;
+                trivial_part_ts_arg = arg_daynr % 7 * TimeStampNsValue::NANOS_PER_DAY +
                                       nanos_since_midnight(ts_arg);
-                trivial_part_ts_res = ts_origin.daynr() % 7 * HOUR_PER_DAY * SECOND_PER_HOUR *
-                                              TimeStampNsValue::NANOS_PER_SECOND +
+                trivial_part_ts_res = origin_daynr % 7 * TimeStampNsValue::NANOS_PER_DAY +
                                       nanos_since_midnight(ts_origin);
             }
             if constexpr (Flag::Unit == DAY) {
@@ -810,27 +815,29 @@ struct DateTimeFloorCeilCore {
                 trivial_part_ts_res = nanos_since_midnight(ts_origin);
             }
             if constexpr (Flag::Unit == HOUR) {
-                diff = (ts_arg.daynr() - ts_origin.daynr()) * HOUR_PER_DAY + ts_arg.hour() -
-                       ts_origin.hour();
-                trivial_part_ts_arg = (ts_arg.minute() * SECOND_PER_MINUTE + ts_arg.second()) *
-                                              TimeStampNsValue::NANOS_PER_SECOND +
+                const int64_t arg_seconds = ts_arg.time_part_to_seconds();
+                const int64_t origin_seconds = ts_origin.time_part_to_seconds();
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * HOUR_PER_DAY + arg_seconds / 3600 -
+                       origin_seconds / 3600;
+                trivial_part_ts_arg = arg_seconds % 3600 * TimeStampNsValue::NANOS_PER_SECOND +
                                       ts_arg.nanosecond();
-                trivial_part_ts_res =
-                        (ts_origin.minute() * SECOND_PER_MINUTE + ts_origin.second()) *
-                                TimeStampNsValue::NANOS_PER_SECOND +
-                        ts_origin.nanosecond();
-            }
-            if constexpr (Flag::Unit == MINUTE) {
-                diff = (ts_arg.daynr() - ts_origin.daynr()) * HOUR_PER_DAY * SECOND_PER_MINUTE +
-                       (ts_arg.hour() - ts_origin.hour()) * SECOND_PER_MINUTE + ts_arg.minute() -
-                       ts_origin.minute();
-                trivial_part_ts_arg =
-                        ts_arg.second() * TimeStampNsValue::NANOS_PER_SECOND + ts_arg.nanosecond();
-                trivial_part_ts_res = ts_origin.second() * TimeStampNsValue::NANOS_PER_SECOND +
+                trivial_part_ts_res = origin_seconds % 3600 * TimeStampNsValue::NANOS_PER_SECOND +
                                       ts_origin.nanosecond();
             }
+            if constexpr (Flag::Unit == MINUTE) {
+                const int64_t arg_seconds = ts_arg.time_part_to_seconds();
+                const int64_t origin_seconds = ts_origin.time_part_to_seconds();
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * HOUR_PER_DAY * SECOND_PER_MINUTE +
+                       arg_seconds / SECOND_PER_MINUTE - origin_seconds / SECOND_PER_MINUTE;
+                trivial_part_ts_arg =
+                        arg_seconds % SECOND_PER_MINUTE * TimeStampNsValue::NANOS_PER_SECOND +
+                        ts_arg.nanosecond();
+                trivial_part_ts_res =
+                        origin_seconds % SECOND_PER_MINUTE * TimeStampNsValue::NANOS_PER_SECOND +
+                        ts_origin.nanosecond();
+            }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.datetime_diff_in_seconds(ts_origin);
+                diff = ts_arg.epoch_seconds() - ts_origin.epoch_seconds();
                 trivial_part_ts_arg = ts_arg.nanosecond();
                 trivial_part_ts_res = ts_origin.nanosecond();
             }

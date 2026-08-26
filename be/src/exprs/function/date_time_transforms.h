@@ -147,10 +147,7 @@ struct ToDateImpl {
             t.cast_to_date();
             return t;
         } else if constexpr (std::is_same_v<DateType, TimeStampNsValue>) {
-            DateV2Value<DateV2ValueType> result;
-            const auto civil_value = t.to_datetime();
-            DataTypeDateTimeV2::cast_to_date_v2(civil_value, result);
-            return result;
+            return t.to_date();
         } else {
             return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
                     (UInt32)(t.to_date_int_val() >> TIME_PART_LENGTH));
@@ -332,7 +329,21 @@ struct DateTimeV2FormatImpl {
     static auto execute(const ArgType& dt, ColumnString::Chars& res_data, size_t& offset,
                         const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
         auto* buf = reinterpret_cast<char*>(&res_data[offset]);
-        offset += FormatImpl::date_to_str(dt, buf);
+        constexpr bool needs_civil_datetime =
+                std::is_same_v<FormatImpl, time_format_type::dd_HHImpl> ||
+                std::is_same_v<FormatImpl, time_format_type::dd_HH_mmImpl> ||
+                std::is_same_v<FormatImpl, time_format_type::dd_HH_mm_ssImpl> ||
+                std::is_same_v<FormatImpl, time_format_type::dd_HH_mm_ss_SSSSSSImpl>;
+        if constexpr (PType == TYPE_TIMESTAMP_NS &&
+                      std::is_same_v<FormatImpl, time_format_type::yyyy_MMImpl>) {
+            const auto civil_value = dt.to_date();
+            offset += FormatImpl::date_to_str(civil_value, buf);
+        } else if constexpr (PType == TYPE_TIMESTAMP_NS && needs_civil_datetime) {
+            const auto civil_value = dt.to_datetime();
+            offset += FormatImpl::date_to_str(civil_value, buf);
+        } else {
+            offset += FormatImpl::date_to_str(dt, buf);
+        }
         return offset;
     }
 
@@ -421,7 +432,23 @@ struct DateFormatImpl {
 
             // No buffer is needed here because these specially optimized formats have fixed lengths,
             // and sufficient memory has already been reserved.
-            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            const auto len = [&]() {
+                if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                    constexpr bool needs_civil_time =
+                            std::is_same_v<Impl, time_format_type::yyyy_MM_dd_HH_mm_ssImpl> ||
+                            std::is_same_v<Impl, time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl>;
+                    const auto civil_value = [&]() {
+                        if constexpr (needs_civil_time) {
+                            return dt.to_datetime();
+                        } else {
+                            return dt.to_date();
+                        }
+                    }();
+                    return Impl::date_to_str(civil_value, (char*)res_data.data() + offset);
+                } else {
+                    return Impl::date_to_str(dt, (char*)res_data.data() + offset);
+                }
+            }();
             offset += len;
 
             return false;
@@ -828,6 +855,8 @@ private:
     TimeValue::TimeType get_time_value(const ArgCppType& datetime_val) const {
         if constexpr (ArgPType == PrimitiveType::TYPE_TIMEV2) {
             return static_cast<TimeValue::TimeType>(datetime_val);
+        } else if constexpr (ArgPType == PrimitiveType::TYPE_TIMESTAMP_NS) {
+            return static_cast<TimeValue::TimeType>(datetime_val.time_part_to_microsecond());
         } else {
             return TimeValue::make_time(datetime_val.hour(), datetime_val.minute(),
                                         datetime_val.second(), datetime_val.microsecond());

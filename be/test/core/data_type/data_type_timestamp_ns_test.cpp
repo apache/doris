@@ -99,6 +99,64 @@ TEST(DataTypeTimeStampNsTest, NegativeEpochUsesFloorSecondAndNormalizedFraction)
     }
 }
 
+TEST(DataTypeTimeStampNsTest, EpochDerivedAndCivilAccessorsAgreeAtBoundaries) {
+    struct TestCase {
+        const char* input;
+        uint16_t year;
+        uint8_t month;
+        uint8_t day;
+        uint8_t hour;
+        uint8_t minute;
+        uint8_t second;
+    };
+    const std::vector<TestCase> cases = {
+            {"1677-09-21 00:12:43.145224192", 1677, 9, 21, 0, 12, 43},
+            {"1969-12-31 23:59:59.999999999", 1969, 12, 31, 23, 59, 59},
+            {"1970-01-01 00:00:00.000000000", 1970, 1, 1, 0, 0, 0},
+            {"2000-02-29 12:34:56.123456789", 2000, 2, 29, 12, 34, 56},
+            {"2262-04-11 23:47:16.854775807", 2262, 4, 11, 23, 47, 16},
+    };
+
+    for (const auto& test_case : cases) {
+        int64_t raw = 0;
+        ASSERT_TRUE(parse_timestamp_ns(StringRef(test_case.input), &raw).ok()) << test_case.input;
+        const TimeStampNsValue value(raw);
+        const auto civil_date = value.to_date();
+        const auto civil_value = value.to_datetime();
+        const int64_t expected_daynr = calc_daynr(test_case.year, test_case.month, test_case.day);
+        const int64_t expected_time =
+                test_case.hour * 3600 + test_case.minute * 60 + test_case.second;
+
+        EXPECT_EQ(value.year(), test_case.year);
+        EXPECT_EQ(value.month(), test_case.month);
+        EXPECT_EQ(value.day(), test_case.day);
+        EXPECT_EQ(value.hour(), test_case.hour);
+        EXPECT_EQ(value.minute(), test_case.minute);
+        EXPECT_EQ(value.second(), test_case.second);
+        EXPECT_EQ(value.quarter(), (test_case.month - 1) / 3 + 1);
+        EXPECT_EQ(value.daynr(), expected_daynr);
+        EXPECT_EQ(value.time_part_to_seconds(), expected_time);
+        EXPECT_EQ(value.time_part_to_nanosecond(),
+                  expected_time * TimeStampNsValue::NANOS_PER_SECOND + value.nanosecond());
+        EXPECT_EQ(value.time_part_to_microsecond(),
+                  value.time_part_to_nanosecond() / TimeStampNsValue::NANOS_PER_MICROSECOND);
+        EXPECT_EQ(value.weekday(), calc_weekday(expected_daynr, false));
+        EXPECT_EQ(value.day_of_week(), (value.weekday() + 1) % 7 + 1);
+        EXPECT_EQ(civil_date.year(), test_case.year);
+        EXPECT_EQ(civil_date.month(), test_case.month);
+        EXPECT_EQ(civil_date.day(), test_case.day);
+        EXPECT_EQ(civil_value.year(), test_case.year);
+        EXPECT_EQ(civil_value.month(), test_case.month);
+        EXPECT_EQ(civil_value.day(), test_case.day);
+        EXPECT_EQ(civil_value.hour(), test_case.hour);
+        EXPECT_EQ(civil_value.minute(), test_case.minute);
+        EXPECT_EQ(civil_value.second(), test_case.second);
+    }
+
+    EXPECT_EQ(TimeStampNsValue(-1).datetime_diff_in_seconds(TimeStampNsValue(0)), -1);
+    EXPECT_EQ(TimeStampNsValue(0).datetime_diff_in_seconds(TimeStampNsValue(-1)), 1);
+}
+
 TEST(DataTypeTimeStampNsTest, ParseAtFixedNanosecondPrecision) {
     int64_t value = 0;
 

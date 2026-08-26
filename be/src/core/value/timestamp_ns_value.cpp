@@ -17,8 +17,6 @@
 
 #include "core/value/timestamp_ns_value.h"
 
-#include <cctz/time_zone.h>
-
 #include "core/type_limit.h"
 #include "exec/common/int_exp.h"
 
@@ -32,20 +30,43 @@ TimeStampNsValue type_limit<TimeStampNsValue>::max() {
     return TimeStampNsValue(std::numeric_limits<int64_t>::max());
 }
 
+DateV2Value<DateV2ValueType> TimeStampNsValue::to_date() const {
+    DateV2Value<DateV2ValueType> value;
+    [[maybe_unused]] const bool valid = value.get_date_from_daynr(static_cast<uint64_t>(daynr()));
+    DCHECK(valid);
+    return value;
+}
+
 DateV2Value<DateTimeV2ValueType> TimeStampNsValue::to_datetime() const {
-    // epoch_seconds() is floor-divided, so set_microsecond() always receives the first six digits
-    // of a non-negative fractional second even for timestamps before the epoch.
+    int64_t days = _epoch_nanos / NANOS_PER_DAY;
+    int64_t nanos_of_day = _epoch_nanos % NANOS_PER_DAY;
+    if (nanos_of_day < 0) {
+        nanos_of_day += NANOS_PER_DAY;
+        --days;
+    }
+
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(epoch_seconds(), cctz::utc_time_zone());
-    value.set_microsecond(microsecond());
+    [[maybe_unused]] const bool valid =
+            value.get_date_from_daynr(static_cast<uint64_t>(UNIX_EPOCH_DAYNR + days));
+    DCHECK(valid);
+
+    int64_t seconds = nanos_of_day / NANOS_PER_SECOND;
+    const auto hour = static_cast<uint8_t>(seconds / 3600);
+    seconds %= 3600;
+    const auto minute = static_cast<uint8_t>(seconds / 60);
+    const auto second = static_cast<uint16_t>(seconds % 60);
+    const auto microsecond =
+            static_cast<uint32_t>(nanos_of_day % NANOS_PER_SECOND / NANOS_PER_MICROSECOND);
+    value.unchecked_set_time(value.year(), value.month(), value.day(), hour, minute, second,
+                             microsecond);
     return value;
 }
 
 bool TimeStampNsValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& value,
                                      uint16_t nanosecond_remainder) {
     DORIS_CHECK_LE(nanosecond_remainder, 999);
-    int64_t seconds = 0;
-    value.unix_timestamp(&seconds, cctz::utc_time_zone());
+    const int64_t seconds =
+            (value.daynr() - UNIX_EPOCH_DAYNR) * SECONDS_PER_DAY + value.time_part_to_seconds();
     // The civil adapter and remainder form one exact epoch-nanosecond value. Int128 is required:
     // valid boundary dates overflow Int64 during the intermediate seconds-to-nanoseconds product.
     const __int128 epoch_nanos = static_cast<__int128>(seconds) * NANOS_PER_SECOND +

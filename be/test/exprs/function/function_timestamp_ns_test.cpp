@@ -117,6 +117,13 @@ TEST(TimestampNsFunctionTest, nanosecond_extract) {
 
 TEST(TimestampNsFunctionTest, additional_calendar_functions) {
     const InputTypeSet one_argument = {{PrimitiveType::TYPE_TIMESTAMP_NS}};
+    EXPECT_TRUE(
+            (check_function<DataTypeDateV2, true>(
+                     "to_date", one_argument,
+                     {{{std::string("1677-09-21 00:12:43.145224192")}, std::string("1677-09-21")},
+                      {{std::string("2000-02-29 12:34:56.123456789")}, std::string("2000-02-29")},
+                      {{std::string("2262-04-11 23:47:16.854775807")}, std::string("2262-04-11")}})
+                     .ok()));
     EXPECT_TRUE((check_function<DataTypeInt16, true>(
                          "year_of_week", one_argument,
                          {{{std::string("1677-09-21 00:12:43.145224192")}, int16_t(1677)},
@@ -130,6 +137,20 @@ TEST(TimestampNsFunctionTest, additional_calendar_functions) {
                           {{std::string("2024-02-29 12:34:56.123456789")}, int32_t(45296)},
                           {{std::string("2262-04-11 23:47:16.854775807")}, int32_t(85636)}})
                          .ok()));
+    EXPECT_TRUE(
+            (check_function<DataTypeDateV2, true>(
+                     "last_day", one_argument,
+                     {{{std::string("1677-09-21 00:12:43.145224192")}, std::string("1677-09-30")},
+                      {{std::string("2000-02-29 12:34:56.123456789")}, std::string("2000-02-29")},
+                      {{std::string("2262-04-11 23:47:16.854775807")}, std::string("2262-04-30")}})
+                     .ok()));
+    EXPECT_TRUE(
+            (check_function<DataTypeDateV2, true>(
+                     "to_monday", one_argument,
+                     {{{std::string("1970-01-04 23:59:59.999999999")}, std::string("1970-01-01")},
+                      {{std::string("2000-02-29 12:34:56.123456789")}, std::string("2000-02-28")},
+                      {{std::string("2262-04-11 23:47:16.854775807")}, std::string("2262-04-07")}})
+                     .ok()));
 
     const InputTypeSet months_between_arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
                                                    {PrimitiveType::TYPE_TIMESTAMP_NS},

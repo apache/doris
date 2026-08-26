@@ -1145,16 +1145,20 @@ struct LastDayImpl {
             if (!ts_value.is_valid_date()) {
                 throw_out_of_bound_one_date<DateValueType>("last_day", cur_data);
             }
-            int day = get_last_month_day(ts_value.year(), ts_value.month());
-            if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                const auto civil_value = ts_value.to_date();
+                const int day = get_last_month_day(civil_value.year(), civil_value.month());
+                res_data[i].unchecked_set_time(civil_value.year(), civil_value.month(), day, 0, 0,
+                                               0, 0);
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+                const int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 res_data[i] = ts_value;
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+                const int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
-            } else {
-                res_data[i].unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
             }
         }
     }
@@ -1243,15 +1247,16 @@ struct ToMondayImpl {
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
                                             0, 0);
                 DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
-            } else {
-                if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    res_data[i].unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0,
-                                                   0);
+            } else if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                const int64_t daynr = ts_value.daynr();
+                if (daynr >= TimeStampNsValue::UNIX_EPOCH_DAYNR &&
+                    daynr <= TimeStampNsValue::UNIX_EPOCH_DAYNR + 3) {
+                    res_data[i].unchecked_set_time(1970, 1, 1, 0, 0, 0, 0);
                     continue;
                 }
                 int day_of_week = ts_value.weekday() + 1;
                 int gap_of_monday = day_of_week - 1;
-                if (!res_data[i].get_date_from_daynr(ts_value.daynr() - gap_of_monday)) {
+                if (!res_data[i].get_date_from_daynr(daynr - gap_of_monday)) {
                     throw_out_of_bound_one_date<DateValueType>("to_monday", cur_data);
                 }
             }
