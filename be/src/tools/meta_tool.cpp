@@ -21,6 +21,7 @@
 #include <gflags/gflags.h>
 
 #include <cctype>
+#include <charconv>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/logging.h"
@@ -84,7 +86,8 @@ using namespace doris;
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
               "valid operation: get_meta, flag, load_meta, delete_meta, show_meta, "
-              "show_segment_footer, show_segment_data, gen_empty_segment");
+              "show_segment_footer, show_segment_data, check_page_crc, scan_page_crc, "
+              "gen_empty_segment");
 DEFINE_int64(tablet_id, 0, "tablet_id for tablet meta");
 DEFINE_int32(num_rows_per_block, 1024, "num rows per block");
 DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
@@ -105,6 +108,13 @@ DEFINE_uint64(batch_rows, 4096, "maximum rows per read batch for show_segment_da
 DEFINE_bool(check_only, false, "decode rows without printing values for show_segment_data");
 DEFINE_bool(verify_checksum, true,
             "verify page checksums while decoding data for show_segment_data");
+DEFINE_string(page_ranges, "",
+              "comma-separated OFFSET:SIZE ranges for the check_page_crc operation");
+DEFINE_string(page_ranges_file, "",
+              "file containing OFFSET SIZE pairs for the check_page_crc operation");
+DEFINE_uint64(page_scan_start, 0, "known first page offset for the scan_page_crc operation");
+DEFINE_uint64(page_scan_end, 0, "exclusive scan end offset for the scan_page_crc operation");
+DEFINE_string(page_output, "all", "page CRC output level: all, errors, or summary");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
@@ -124,6 +134,12 @@ std::string get_usage(const std::string& progname) {
     ss << "./meta_tool --operation=show_segment_data --file=/path/to/segment/file "
           "[--row_start=N] [--rows=N|-1] [--batch_rows=N] [--check_only] "
           "[--verify_checksum]\n";
+    ss << "./meta_tool --operation=check_page_crc --file=/path/to/segment/file "
+          "(--page_ranges=OFFSET:SIZE,... | --page_ranges_file=/path/to/ranges) "
+          "[--page_output=all|errors|summary]\n";
+    ss << "./meta_tool --operation=scan_page_crc --file=/path/to/segment/file "
+          "--page_scan_start=OFFSET --page_scan_end=OFFSET "
+          "[--page_output=all|errors|summary]\n";
     ss << "./meta_tool --operation=gen_empty_segment [--output_path=/path/to/output]\n";
     ss << "  Generates an empty segment file (0 rows) at specified path or current directory\n";
     ss << "  Default output file name: empty.dat\n";
@@ -585,37 +601,452 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
     }
 }
 
+enum class PageOutputMode { ALL, ERRORS, SUMMARY };
+
+struct RawPageRange {
+    uint64_t offset = 0;
+    uint64_t size = 0;
+};
+
 struct PageChecksumScanResult {
+    uint64_t offset = 0;
+    uint64_t size = 0;
+    bool range_valid = false;
     bool readable = false;
     bool checksum_ok = false;
+    bool footer_size_ok = false;
+    bool footer_ok = false;
     uint32_t actual_checksum = 0;
     uint32_t expected_checksum = 0;
     uint32_t footer_size = 0;
+    PageTypePB page_type = UNKNOWN_PAGE_TYPE;
+    std::string error;
+
+    bool ok() const {
+        return range_valid && readable && checksum_ok && footer_size_ok && footer_ok;
+    }
 };
+
+struct PageCrcSummary {
+    uint64_t pages_checked = 0;
+    uint64_t valid = 0;
+    uint64_t bad_crc = 0;
+    uint64_t bad_footer = 0;
+    uint64_t unreadable = 0;
+    uint64_t invalid_range = 0;
+
+    void add(const PageChecksumScanResult& result) {
+        ++pages_checked;
+        if (result.ok()) {
+            ++valid;
+            return;
+        }
+        if (!result.range_valid) {
+            ++invalid_range;
+        } else if (!result.readable) {
+            ++unreadable;
+        } else {
+            if (!result.checksum_ok) {
+                ++bad_crc;
+            }
+            if (!result.footer_size_ok || !result.footer_ok) {
+                ++bad_footer;
+            }
+        }
+    }
+
+    bool ok() const { return pages_checked > 0 && valid == pages_checked; }
+};
+
+Status read_file_exact(const FileReaderSPtr& file_reader, uint64_t offset, char* data,
+                       size_t size) {
+    size_t bytes_read = 0;
+    Status status =
+            file_reader->read_at(static_cast<size_t>(offset), Slice(data, size), &bytes_read);
+    if (!status.ok()) {
+        status.prepend("failed to read file at offset " + std::to_string(offset) + ": ");
+        return status;
+    }
+    if (bytes_read != size) {
+        return Status::IOError("short read at offset {}: expected={}, actual={}", offset, size,
+                               bytes_read);
+    }
+    return Status::OK();
+}
+
+PageChecksumScanResult check_page_checksum(const FileReaderSPtr& file_reader, uint64_t offset,
+                                           uint64_t size) {
+    PageChecksumScanResult result;
+    result.offset = offset;
+    result.size = size;
+    if (size < 8) {
+        result.error = "size_less_than_8";
+        return result;
+    }
+
+    const uint64_t file_size = file_reader->size();
+    if (offset > file_size || size > file_size - offset) {
+        result.error = "out_of_range";
+        return result;
+    }
+    result.range_valid = true;
+
+    char trailer[8];
+    if (!read_file_exact(file_reader, offset + size - sizeof(trailer), trailer, sizeof(trailer))
+                 .ok()) {
+        result.error = "read_failed";
+        return result;
+    }
+    result.footer_size = doris::decode_fixed32_le(reinterpret_cast<const uint8_t*>(trailer));
+    result.expected_checksum =
+            doris::decode_fixed32_le(reinterpret_cast<const uint8_t*>(trailer + 4));
+
+    constexpr size_t crc_chunk_size = 1024 * 1024;
+    size_t buffer_size = static_cast<size_t>(std::min<uint64_t>(size - 4, crc_chunk_size));
+    std::vector<char> buffer(buffer_size);
+    uint64_t cursor = offset;
+    uint64_t remaining = size - 4;
+    uint32_t checksum = 0;
+    while (remaining > 0) {
+        size_t bytes_to_read = static_cast<size_t>(std::min<uint64_t>(remaining, buffer.size()));
+        if (!read_file_exact(file_reader, cursor, buffer.data(), bytes_to_read).ok()) {
+            result.error = "read_failed";
+            return result;
+        }
+        checksum = crc32c::Extend(checksum, reinterpret_cast<const uint8_t*>(buffer.data()),
+                                  bytes_to_read);
+        cursor += bytes_to_read;
+        remaining -= bytes_to_read;
+    }
+    result.readable = true;
+    result.actual_checksum = checksum;
+    result.checksum_ok = result.actual_checksum == result.expected_checksum;
+
+    result.footer_size_ok = result.footer_size > 0 && result.footer_size <= size - 8 &&
+                            result.footer_size <= std::numeric_limits<int>::max();
+    if (result.footer_size_ok) {
+        std::vector<char> footer_buffer(result.footer_size);
+        uint64_t footer_offset = offset + size - 8 - result.footer_size;
+        Status footer_status = read_file_exact(file_reader, footer_offset, footer_buffer.data(),
+                                               footer_buffer.size());
+        if (footer_status.ok()) {
+            PageFooterPB footer;
+            result.footer_ok = footer.ParseFromArray(footer_buffer.data(),
+                                                     static_cast<int>(footer_buffer.size())) &&
+                               footer.has_type() && footer.has_uncompressed_size();
+            if (result.footer_ok) {
+                result.page_type = footer.type();
+            }
+        }
+    }
+
+    if (!result.checksum_ok) {
+        result.error = "checksum_mismatch";
+    } else if (!result.footer_size_ok) {
+        result.error = "invalid_footer_size";
+    } else if (!result.footer_ok) {
+        result.error = "invalid_footer";
+    }
+    return result;
+}
 
 PageChecksumScanResult scan_page_checksum(const FileReaderSPtr& file_reader,
                                           const PagePointer& page_pointer) {
-    PageChecksumScanResult result;
-    if (page_pointer.size < 8 || page_pointer.offset + page_pointer.size > file_reader->size()) {
-        return result;
+    return check_page_checksum(file_reader, page_pointer.offset, page_pointer.size);
+}
+
+std::string_view trim_ascii(std::string_view value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.remove_suffix(1);
+    }
+    return value;
+}
+
+Status parse_uint64_value(std::string_view text, const std::string& field_name, uint64_t& value) {
+    text = trim_ascii(text);
+    if (text.empty()) {
+        return Status::InvalidArgument("{} is empty", field_name);
+    }
+    auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value, 10);
+    if (error != std::errc() || end != text.data() + text.size()) {
+        return Status::InvalidArgument("invalid decimal {}: '{}'", field_name, text);
+    }
+    return Status::OK();
+}
+
+Status parse_page_range_token(std::string_view token, RawPageRange& range) {
+    token = trim_ascii(token);
+    size_t separator = token.find(':');
+    if (separator == std::string_view::npos ||
+        token.find(':', separator + 1) != std::string_view::npos) {
+        return Status::InvalidArgument("invalid page range '{}', expected OFFSET:SIZE", token);
+    }
+    RETURN_IF_ERROR(parse_uint64_value(token.substr(0, separator), "page offset", range.offset));
+    RETURN_IF_ERROR(parse_uint64_value(token.substr(separator + 1), "page size", range.size));
+    return Status::OK();
+}
+
+Status parse_inline_page_ranges(const std::string& input, std::vector<RawPageRange>& ranges) {
+    size_t begin = 0;
+    while (begin <= input.size()) {
+        size_t end = input.find(',', begin);
+        std::string_view token(input.data() + begin,
+                               (end == std::string::npos ? input.size() : end) - begin);
+        if (trim_ascii(token).empty()) {
+            return Status::InvalidArgument("page_ranges contains an empty range");
+        }
+        RawPageRange range;
+        RETURN_IF_ERROR(parse_page_range_token(token, range));
+        ranges.push_back(range);
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+    return Status::OK();
+}
+
+Status parse_page_ranges_file(const std::string& file_name, std::vector<RawPageRange>& ranges) {
+    std::ifstream input(file_name);
+    if (!input.is_open()) {
+        return Status::IOError("failed to open page ranges file {}", file_name);
     }
 
-    std::vector<char> page(page_pointer.size);
-    Slice page_slice(page.data(), page.size());
-    size_t bytes_read = 0;
-    Status status = file_reader->read_at(page_pointer.offset, page_slice, &bytes_read);
-    if (!status.ok() || bytes_read != page.size()) {
-        return result;
+    std::string line;
+    uint64_t line_number = 0;
+    while (std::getline(input, line)) {
+        ++line_number;
+        size_t comment = line.find('#');
+        std::string_view content(line.data(), comment == std::string::npos ? line.size() : comment);
+        content = trim_ascii(content);
+        if (content.empty()) {
+            continue;
+        }
+
+        std::istringstream line_stream {std::string(content)};
+        std::string offset_text;
+        std::string size_text;
+        std::string extra;
+        if (!(line_stream >> offset_text >> size_text) || (line_stream >> extra)) {
+            return Status::InvalidArgument("invalid page ranges file line {}: expected OFFSET SIZE",
+                                           line_number);
+        }
+        RawPageRange range;
+        RETURN_IF_ERROR(parse_uint64_value(offset_text, "page offset", range.offset));
+        RETURN_IF_ERROR(parse_uint64_value(size_text, "page size", range.size));
+        ranges.push_back(range);
+    }
+    if (!input.eof()) {
+        return Status::IOError("failed while reading page ranges file {}", file_name);
+    }
+    return Status::OK();
+}
+
+Status load_page_ranges(std::vector<RawPageRange>& ranges) {
+    bool has_inline_ranges = !FLAGS_page_ranges.empty();
+    bool has_ranges_file = !FLAGS_page_ranges_file.empty();
+    if (has_inline_ranges == has_ranges_file) {
+        return Status::InvalidArgument(
+                "check_page_crc requires exactly one of page_ranges or page_ranges_file");
+    }
+    if (has_inline_ranges) {
+        RETURN_IF_ERROR(parse_inline_page_ranges(FLAGS_page_ranges, ranges));
+    } else {
+        RETURN_IF_ERROR(parse_page_ranges_file(FLAGS_page_ranges_file, ranges));
+    }
+    if (ranges.empty()) {
+        return Status::InvalidArgument("no page ranges were provided");
+    }
+    return Status::OK();
+}
+
+Status parse_page_output_mode(PageOutputMode& mode) {
+    if (FLAGS_page_output == "all") {
+        mode = PageOutputMode::ALL;
+    } else if (FLAGS_page_output == "errors") {
+        mode = PageOutputMode::ERRORS;
+    } else if (FLAGS_page_output == "summary") {
+        mode = PageOutputMode::SUMMARY;
+    } else {
+        return Status::InvalidArgument("page_output must be all, errors, or summary, got '{}'",
+                                       FLAGS_page_output);
+    }
+    return Status::OK();
+}
+
+bool should_print_page(PageOutputMode mode, const PageChecksumScanResult& result) {
+    return mode == PageOutputMode::ALL || (mode == PageOutputMode::ERRORS && !result.ok());
+}
+
+void print_page_checksum_result(uint64_t page_index, const PageChecksumScanResult& result) {
+    std::cout << "page=" << page_index << " offset=" << result.offset << " size=" << result.size
+              << " range_valid=" << (result.range_valid ? "true" : "false")
+              << " readable=" << (result.readable ? "true" : "false")
+              << " actual=" << result.actual_checksum << " expect=" << result.expected_checksum
+              << " checksum_ok=" << (result.checksum_ok ? "true" : "false")
+              << " footer_size=" << result.footer_size
+              << " footer_ok=" << (result.footer_ok ? "true" : "false")
+              << " page_type=" << PageTypePB_Name(result.page_type);
+    if (!result.error.empty()) {
+        std::cout << " error=" << result.error;
+    }
+    std::cout << std::endl;
+}
+
+void print_page_crc_summary(const std::string& mode, const PageCrcSummary& summary,
+                            const std::string& status) {
+    std::cout << "\n=== Page CRC Summary ===" << std::endl;
+    std::cout << "Mode: " << mode << std::endl;
+    std::cout << "Pages Checked: " << summary.pages_checked << std::endl;
+    std::cout << "Valid: " << summary.valid << std::endl;
+    std::cout << "Bad CRC: " << summary.bad_crc << std::endl;
+    std::cout << "Bad Footer: " << summary.bad_footer << std::endl;
+    std::cout << "Unreadable: " << summary.unreadable << std::endl;
+    std::cout << "Invalid Range: " << summary.invalid_range << std::endl;
+    std::cout << "Status: " << status << std::endl;
+}
+
+Status open_page_crc_file(FileReaderSPtr& file_reader) {
+    Status status = doris::io::global_local_filesystem()->open_file(FLAGS_file, &file_reader);
+    if (!status.ok()) {
+        status.prepend("failed to open page CRC input " + FLAGS_file + ": ");
+    }
+    return status;
+}
+
+Status check_page_crc_ranges() {
+    PageOutputMode output_mode;
+    RETURN_IF_ERROR(parse_page_output_mode(output_mode));
+    std::vector<RawPageRange> ranges;
+    RETURN_IF_ERROR(load_page_ranges(ranges));
+
+    FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(open_page_crc_file(file_reader));
+    std::cout << "=== Page CRC Check ===" << std::endl;
+    std::cout << "File: " << FLAGS_file << std::endl;
+    std::cout << "File Size: " << file_reader->size() << std::endl;
+    std::cout << "Ranges: " << ranges.size() << std::endl;
+
+    PageCrcSummary summary;
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        PageChecksumScanResult result =
+                check_page_checksum(file_reader, ranges[i].offset, ranges[i].size);
+        summary.add(result);
+        if (should_print_page(output_mode, result)) {
+            print_page_checksum_result(i, result);
+        }
     }
 
-    result.readable = true;
-    result.expected_checksum = doris::decode_fixed32_le(
-            reinterpret_cast<const uint8_t*>(page.data() + page.size() - 4));
-    result.actual_checksum = crc32c::Crc32c(page.data(), page.size() - 4);
-    result.checksum_ok = result.actual_checksum == result.expected_checksum;
-    result.footer_size = doris::decode_fixed32_le(
-            reinterpret_cast<const uint8_t*>(page.data() + page.size() - 8));
-    return result;
+    print_page_crc_summary("ranges", summary, summary.ok() ? "OK" : "CORRUPTION");
+    if (!summary.ok()) {
+        return Status::Corruption(
+                "page CRC check failed: valid={}, checked={}, bad_crc={}, bad_footer={}, "
+                "unreadable={}, invalid_range={}",
+                summary.valid, summary.pages_checked, summary.bad_crc, summary.bad_footer,
+                summary.unreadable, summary.invalid_range);
+    }
+    return Status::OK();
+}
+
+Status find_next_crc_page(const FileReaderSPtr& file_reader, uint64_t page_offset,
+                          uint64_t scan_end, PageChecksumScanResult& result, bool& found) {
+    constexpr size_t scan_chunk_size = 1024 * 1024;
+    std::vector<char> buffer(scan_chunk_size + 4);
+    uint64_t cursor = page_offset;
+    uint32_t checksum = 0;
+    found = false;
+
+    while (scan_end - cursor >= 5) {
+        size_t bytes_to_process =
+                static_cast<size_t>(std::min<uint64_t>(scan_chunk_size, scan_end - cursor - 4));
+        size_t bytes_to_read = bytes_to_process + 4;
+        RETURN_IF_ERROR(read_file_exact(file_reader, cursor, buffer.data(), bytes_to_read));
+        for (size_t i = 0; i < bytes_to_process; ++i) {
+            checksum = crc32c::Extend(checksum, reinterpret_cast<const uint8_t*>(buffer.data() + i),
+                                      1);
+            uint64_t payload_size = cursor + i - page_offset + 1;
+            if (payload_size < 4) {
+                continue;
+            }
+            uint32_t expected = doris::decode_fixed32_le(
+                    reinterpret_cast<const uint8_t*>(buffer.data() + i + 1));
+            if (checksum != expected) {
+                continue;
+            }
+
+            PageChecksumScanResult candidate =
+                    check_page_checksum(file_reader, page_offset, payload_size + 4);
+            if (candidate.ok()) {
+                result = std::move(candidate);
+                found = true;
+                return Status::OK();
+            }
+        }
+        cursor += bytes_to_process;
+    }
+    return Status::OK();
+}
+
+Status scan_page_crc_range() {
+    PageOutputMode output_mode;
+    RETURN_IF_ERROR(parse_page_output_mode(output_mode));
+    if (gflags::GetCommandLineFlagInfoOrDie("page_scan_start").is_default ||
+        gflags::GetCommandLineFlagInfoOrDie("page_scan_end").is_default) {
+        return Status::InvalidArgument(
+                "scan_page_crc requires explicit page_scan_start and page_scan_end");
+    }
+    if (FLAGS_page_scan_end <= FLAGS_page_scan_start) {
+        return Status::InvalidArgument("page_scan_end {} must be greater than page_scan_start {}",
+                                       FLAGS_page_scan_end, FLAGS_page_scan_start);
+    }
+
+    FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(open_page_crc_file(file_reader));
+    if (FLAGS_page_scan_end > file_reader->size()) {
+        return Status::InvalidArgument("page_scan_end {} exceeds file size {}", FLAGS_page_scan_end,
+                                       file_reader->size());
+    }
+
+    std::cout << "=== Page CRC Scan ===" << std::endl;
+    std::cout << "File: " << FLAGS_file << std::endl;
+    std::cout << "File Size: " << file_reader->size() << std::endl;
+    std::cout << "Range: [" << FLAGS_page_scan_start << "," << FLAGS_page_scan_end << ")"
+              << std::endl;
+
+    PageCrcSummary summary;
+    uint64_t page_offset = FLAGS_page_scan_start;
+    uint64_t page_index = 0;
+    while (page_offset < FLAGS_page_scan_end) {
+        PageChecksumScanResult result;
+        bool found = false;
+        RETURN_IF_ERROR(
+                find_next_crc_page(file_reader, page_offset, FLAGS_page_scan_end, result, found));
+        if (!found) {
+            if (output_mode != PageOutputMode::SUMMARY) {
+                std::cout << "no_page_boundary offset=" << page_offset
+                          << " remaining=" << (FLAGS_page_scan_end - page_offset) << std::endl;
+            }
+            print_page_crc_summary("scan", summary, "CORRUPTION");
+            return Status::Corruption("no page boundary at offset {}, remaining={}", page_offset,
+                                      FLAGS_page_scan_end - page_offset);
+        }
+
+        summary.add(result);
+        if (should_print_page(output_mode, result)) {
+            print_page_checksum_result(page_index, result);
+        }
+        page_offset += result.size;
+        ++page_index;
+    }
+
+    print_page_crc_summary("scan", summary, summary.ok() ? "OK" : "CORRUPTION");
+    if (!summary.ok()) {
+        return Status::Corruption("page CRC scan failed");
+    }
+    return Status::OK();
 }
 
 // Keep the forensic scan linear so every counter and printed example follows page order.
@@ -667,13 +1098,13 @@ Status print_column_page_checksums(const std::shared_ptr<ColumnReader>& column_r
         PageChecksumScanResult page = scan_page_checksum(file_reader, pp);
         if (!page.readable) {
             ++unreadable_pages;
-        } else if (page.checksum_ok) {
+        } else if (page.ok()) {
             ++valid_pages;
         } else {
             ++bad_pages;
         }
 
-        if (iter.page_index() < 2 || crosses_part || (!page.checksum_ok && bad_examples < 3)) {
+        if (iter.page_index() < 2 || crosses_part || (!page.ok() && bad_examples < 3)) {
             std::cout << indent << "  page=" << iter.page_index()
                       << " ordinals=" << iter.first_ordinal() << ".." << iter.last_ordinal()
                       << " offset=" << pp.offset << " size=" << pp.size
@@ -681,8 +1112,9 @@ Status print_column_page_checksums(const std::shared_ptr<ColumnReader>& column_r
                       << " checksum_ok=" << (page.checksum_ok ? "true" : "false")
                       << " actual=" << page.actual_checksum << " expect=" << page.expected_checksum
                       << " footer_size=" << page.footer_size
+                      << " footer_ok=" << (page.footer_ok ? "true" : "false")
                       << " crosses_s3_part=" << (crosses_part ? "true" : "false") << std::endl;
-            if (!page.checksum_ok) {
+            if (!page.ok()) {
                 ++bad_examples;
             }
         }
@@ -695,10 +1127,11 @@ Status print_column_page_checksums(const std::shared_ptr<ColumnReader>& column_r
                   << " readable=" << (page.readable ? "true" : "false")
                   << " checksum_ok=" << (page.checksum_ok ? "true" : "false")
                   << " actual=" << page.actual_checksum << " expect=" << page.expected_checksum
-                  << " footer_size=" << page.footer_size << std::endl;
+                  << " footer_size=" << page.footer_size
+                  << " footer_ok=" << (page.footer_ok ? "true" : "false") << std::endl;
         if (!page.readable) {
             dict_unreadable = true;
-        } else if (!page.checksum_ok) {
+        } else if (!page.ok()) {
             dict_bad = true;
         }
     }
@@ -1327,6 +1760,19 @@ int main(int argc, char** argv) {
         Status status = show_segment_data(FLAGS_file);
         if (!status.ok()) {
             std::cerr << "show_segment_data failed: " << status.to_string() << std::endl;
+            gflags::ShutDownCommandLineFlags();
+            return status.is<ErrorCode::INVALID_ARGUMENT>() ? 2 : 1;
+        }
+    } else if (FLAGS_operation == "check_page_crc" || FLAGS_operation == "scan_page_crc") {
+        if (FLAGS_file.empty()) {
+            std::cerr << "no file flag for " << FLAGS_operation << std::endl;
+            return 2;
+        }
+        init_common_components();
+        Status status = FLAGS_operation == "check_page_crc" ? check_page_crc_ranges()
+                                                            : scan_page_crc_range();
+        if (!status.ok()) {
+            std::cerr << FLAGS_operation << " failed: " << status.to_string() << std::endl;
             gflags::ShutDownCommandLineFlags();
             return status.is<ErrorCode::INVALID_ARGUMENT>() ? 2 : 1;
         }
