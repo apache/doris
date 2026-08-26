@@ -393,6 +393,11 @@ private:
 
     Status get_data_from_type(PrimitiveType pType, const IColumn& column,
                               ConstColumnVariant& column_variant) const {
+        if (pType == TYPE_VARBINARY) {
+            column_variant = &assert_cast<const ColumnVarbinary&>(column);
+            return Status::OK();
+        }
+
         if (pType == TYPE_ARRAY) {
             column_variant = &assert_cast<const ColumnArray&>(column);
             return Status::OK();
