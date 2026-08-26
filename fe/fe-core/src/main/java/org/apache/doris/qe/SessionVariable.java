@@ -596,6 +596,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORDERED_SCAN_RANGE_LOCATIONS = "enable_ordered_scan_range_locations";
 
+    public static final String ENABLE_INFER_PREDICATE_FROM_MONOTONIC_FUNCTION
+            = "enable_infer_predicate_from_monotonic_function";
+
     public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
@@ -2563,6 +2566,20 @@ public class SessionVariable implements Serializable, Writable {
                     + "The default value is true.",
             needForward = true)
     public boolean enableParquetLazyMat = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_INFER_PREDICATE_FROM_MONOTONIC_FUNCTION,
+            description = {"控制是否从单调函数谓词（如前缀函数 substring/left、date/date_trunc/*_floor 等"
+                    + "截断函数）推导出附加的裸列范围谓词。派生的是普通谓词，可被任何存储层的 min/max 统计消费："
+                    + "外表 ORC/Parquet 的 row group 裁剪、内表 zonemap 裁剪、以及分区裁剪。"
+                    + "对松弛（单向蕴含）推导原谓词始终保留，默认为 true。",
+                    "Controls whether to infer an extra bare-column range predicate from monotonic "
+                            + "function predicates (prefix functions like substring/left, and truncation "
+                            + "functions like date/date_trunc/*_floor). The derived predicate is an ordinary "
+                            + "one, consumable by any storage-layer min/max statistics: external ORC/Parquet "
+                            + "row group pruning, internal zonemap pruning, and partition pruning. For "
+                            + "relaxed (one-way) inference the original predicate is always kept. Default true."})
+    public boolean enableInferPredicateFromMonotonicFunction = true;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_ORC_LAZY_MAT,

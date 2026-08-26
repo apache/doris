@@ -37,6 +37,7 @@ import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
 import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneRules;
 import java.util.Locale;
 import java.util.Set;
 
@@ -420,5 +421,43 @@ public class DateUtils {
             transition = zoneId.getRules().nextTransition(transition.getInstant());
         }
         return false;
+    }
+
+    /**
+     * Whether the zone has any UTC-offset transition (DST start/end, or a historical base-offset
+     * change) inside the epoch-second interval {@code (lowerEpochSecond, upperEpochSecond]} -- open at
+     * the lower end, CLOSED at the upper end.
+     *
+     * <p>This is the single source of truth for reasoning about the monotonicity of epoch-to-local
+     * conversions such as {@code from_unixtime}. Across an offset transition the local wall-clock is
+     * not a monotonic image of epoch time (a fall-back repeats an hour, a gap skips one), so a
+     * transition inside the interval breaks the "increasing epoch => increasing local time" property.
+     * When no transition falls in the interval the conversion is a pure affine shift on that stretch
+     * and is strictly monotonic, so it can be reversed / pushed down soundly.
+     *
+     * <p>A {@code null} bound means unbounded on that side (negative / positive infinity), which the
+     * caller uses to encode a half-open range: {@code lower == null} scans all history before
+     * {@code upper}, {@code upper == null} scans all future after {@code lower}. Both {@code null}
+     * means the whole time axis, for which any zone with historical or future transitions returns
+     * true. The lower endpoint is exclusive (a transition exactly at {@code lower} leaves the whole
+     * interval on one side of it, so it does not break monotonicity), but the UPPER endpoint is
+     * INCLUSIVE: callers pass a CLOSED upper bound (e.g. a partition range's {@code <=} endpoint), and
+     * a fall-back transition exactly at that instant rewinds the wall clock at the endpoint itself, so
+     * it must count as breaking monotonicity.
+     */
+    public static boolean hasZoneOffsetTransition(ZoneId zone, Long lowerEpochSecond, Long upperEpochSecond) {
+        ZoneRules rules = zone.getRules();
+        if (rules.isFixedOffset()) {
+            return false;
+        }
+        Instant lower = lowerEpochSecond == null ? Instant.MIN : Instant.ofEpochSecond(lowerEpochSecond);
+        Instant upper = upperEpochSecond == null ? Instant.MAX : Instant.ofEpochSecond(upperEpochSecond);
+        ZoneOffsetTransition next = rules.nextTransition(lower);
+        // Upper bound is INCLUSIVE: nextTransition() is strict (> lower), so a transition exactly at
+        // lower is never returned (harmless -- it leaves the whole interval on one side of it). But a
+        // transition exactly at upper must count: a fall-back there rewinds the wall clock at upper
+        // itself (L(upper) < L(upper-1)), breaking monotonicity of the interval whose closed upper end
+        // is that instant. isBefore(upper) would miss it, so use !isAfter(upper) (i.e. <= upper).
+        return next != null && !next.getInstant().isAfter(upper);
     }
 }
