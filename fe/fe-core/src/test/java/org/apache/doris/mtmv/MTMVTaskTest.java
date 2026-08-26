@@ -172,6 +172,57 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testBuildAttemptsAutoCompleteMethodSkipsPartitionsAttempt() {
+        // setUp stubs refreshMethod=COMPLETE. The PARTITIONS attempt must be skipped:
+        // its sync check treats non-MTMVRelatedTableIf base tables as always synchronous,
+        // so a COMPLETE-method MV would never refresh through it.
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+        Assert.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsAutoNonCompleteMethodKeepsPartitionsAttempt() {
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+        Assert.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsAutoIvmIncrementalKeepsFullChain() {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+        Assert.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsExplicitPartitionsNeverUpgradeToComplete() {
+        // An explicit partition list is an exact request: even a COMPLETE-method MV
+        // (setUp default) must keep the PARTITIONS-only attempt instead of expanding
+        // the refresh scope to a full refresh.
+        MTMVTaskContext context = MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), RefreshMode.AUTO);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+        Assert.assertEquals(Lists.newArrayList("PARTITIONS"), toNames(attempts));
+    }
+
+    private static List<String> toNames(List<?> attempts) {
+        List<String> names = Lists.newArrayList();
+        for (Object attempt : attempts) {
+            names.add(String.valueOf(attempt));
+        }
+        return names;
+    }
+
+    @Test
     public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException, JobException {
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
