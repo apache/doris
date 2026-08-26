@@ -296,6 +296,14 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * Executable timestamp_ns extract nanosecond.
+     */
+    @ExecFunction(name = "nanosecond")
+    public static Expression nanosecond(TimeStampNsLiteral date) {
+        return new IntegerLiteral((int) date.getNanoSecond());
+    }
+
+    /**
      * Executable datetime extract dayofyear
      */
     @ExecFunction(name = "dayofyear")
@@ -1469,6 +1477,19 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "microseconds_diff")
     public static Expression microsecondsDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
         return new BigIntLiteral(timestampNsDiff(t1, t2, 1_000L));
+    }
+
+    /**
+     * Executable timestamp_ns difference in nanoseconds.
+     */
+    @ExecFunction(name = "nanoseconds_diff")
+    public static Expression nanosecondsDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
+        try {
+            return new BigIntLiteral(timestampNsDiff(t1, t2, 1L));
+        } catch (ArithmeticException e) {
+            throw new AnalysisException("Operation nanoseconds_diff of " + t1.getStringValue()
+                    + ", " + t2.getStringValue() + " out of range");
+        }
     }
 
     @ExecFunction(name = "milliseconds_diff")

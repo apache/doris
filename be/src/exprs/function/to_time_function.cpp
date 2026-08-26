@@ -95,6 +95,8 @@ using FunctionTimestampNsToDays =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_TIMESTAMP_NS>>;
 using FunctionTimestampNsMicroSecond =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsNanoSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToNanoSecondImpl<TYPE_TIMESTAMP_NS>>;
 using FunctionTimestampNsToDate =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_TIMESTAMP_NS>>;
 using FunctionTimestampNsDate =
@@ -136,6 +138,7 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToSeconds>();
     factory.register_function<FunctionTimestampNsTimestamp>();
     factory.register_function<FunctionTimestampNsMicroSecond>();
+    factory.register_function<FunctionTimestampNsNanoSecond>();
     factory.register_function<FunctionTimestampNsSecond>();
     factory.register_function<FunctionTimestampNsToDays>();
     factory.register_function<FunctionTimestampNsMinute>();

@@ -215,13 +215,26 @@ private:
 static_assert(sizeof(TimeStampNsValue) == sizeof(int64_t));
 static_assert(std::is_trivially_copyable_v<TimeStampNsValue>);
 
+inline __int128 datetime_diff_in_nanoseconds(const DateV2Value<DateTimeV2ValueType>& datetime1,
+                                             uint32_t nanosecond1,
+                                             const DateV2Value<DateTimeV2ValueType>& datetime2,
+                                             uint32_t nanosecond2) {
+    const __int128 day_difference = datetime2.daynr() - datetime1.daynr();
+    const int64_t second_difference =
+            datetime2.time_part_to_seconds() - datetime1.time_part_to_seconds();
+    return (day_difference * HOUR_PER_DAY * SECOND_PER_HOUR + second_difference) *
+                   TimeStampNsValue::NANOS_PER_SECOND +
+           static_cast<int64_t>(nanosecond2) - nanosecond1;
+}
+
 // Whole-unit differences follow DATETIMEV2 semantics: calendar units compare civil fields while
-// elapsed units use the exact signed epoch-nanosecond difference and truncate toward zero.
+// elapsed units use the exact civil nanosecond difference and truncate toward zero.
 template <TimeUnit UNIT>
-int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue& ts_value2) {
+int64_t datetime_diff_with_nanoseconds(const DateV2Value<DateTimeV2ValueType>& datetime1,
+                                       uint32_t nanosecond1,
+                                       const DateV2Value<DateTimeV2ValueType>& datetime2,
+                                       uint32_t nanosecond2) {
     if constexpr (UNIT == YEAR || UNIT == QUARTER || UNIT == MONTH || UNIT == WEEK || UNIT == DAY) {
-        const auto datetime1 = ts_value1.to_datetime();
-        const auto datetime2 = ts_value2.to_datetime();
         const auto time_key = [](const DateV2Value<DateTimeV2ValueType>& value, uint32_t nanosecond,
                                  bool include_month) {
             int64_t result = include_month ? value.month() : 0;
@@ -233,8 +246,8 @@ int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue&
         };
         if constexpr (UNIT == YEAR) {
             int year = datetime2.year() - datetime1.year();
-            const int64_t remainder1 = time_key(datetime1, ts_value1.nanosecond(), true);
-            const int64_t remainder2 = time_key(datetime2, ts_value2.nanosecond(), true);
+            const int64_t remainder1 = time_key(datetime1, nanosecond1, true);
+            const int64_t remainder2 = time_key(datetime2, nanosecond2, true);
             if (year > 0) {
                 year -= remainder2 < remainder1;
             } else if (year < 0) {
@@ -244,8 +257,8 @@ int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue&
         } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
             int month = (datetime2.year() - datetime1.year()) * 12 +
                         (datetime2.month() - datetime1.month());
-            const int64_t remainder1 = time_key(datetime1, ts_value1.nanosecond(), false);
-            const int64_t remainder2 = time_key(datetime2, ts_value2.nanosecond(), false);
+            const int64_t remainder1 = time_key(datetime1, nanosecond1, false);
+            const int64_t remainder2 = time_key(datetime2, nanosecond2, false);
             if (month > 0) {
                 month -= remainder2 < remainder1;
             } else if (month < 0) {
@@ -256,10 +269,10 @@ int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue&
             int64_t day = datetime2.daynr() - datetime1.daynr();
             const int64_t time1 =
                     datetime1.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
-                    ts_value1.nanosecond();
+                    nanosecond1;
             const int64_t time2 =
                     datetime2.time_part_to_seconds() * TimeStampNsValue::NANOS_PER_SECOND +
-                    ts_value2.nanosecond();
+                    nanosecond2;
             if (day > 0) {
                 day -= time2 < time1;
             } else if (day < 0) {
@@ -285,9 +298,29 @@ int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue&
             }
         }();
         return static_cast<int64_t>(
-                (static_cast<__int128>(ts_value2.epoch_nanos()) - ts_value1.epoch_nanos()) /
+                datetime_diff_in_nanoseconds(datetime1, nanosecond1, datetime2, nanosecond2) /
                 divisor);
     }
+}
+
+template <TimeUnit UNIT>
+int64_t datetime_diff(const TimeStampNsValue& ts_value1, const TimeStampNsValue& ts_value2) {
+    return datetime_diff_with_nanoseconds<UNIT>(ts_value1.to_datetime(), ts_value1.nanosecond(),
+                                                ts_value2.to_datetime(), ts_value2.nanosecond());
+}
+
+template <TimeUnit UNIT>
+int64_t datetime_diff(const TimeStampNsValue& ts_value1,
+                      const DateV2Value<DateTimeV2ValueType>& ts_value2) {
+    return datetime_diff_with_nanoseconds<UNIT>(ts_value1.to_datetime(), ts_value1.nanosecond(),
+                                                ts_value2, ts_value2.microsecond() * 1000);
+}
+
+template <TimeUnit UNIT>
+int64_t datetime_diff(const DateV2Value<DateTimeV2ValueType>& ts_value1,
+                      const TimeStampNsValue& ts_value2) {
+    return datetime_diff_with_nanoseconds<UNIT>(ts_value1, ts_value1.microsecond() * 1000,
+                                                ts_value2.to_datetime(), ts_value2.nanosecond());
 }
 
 } // namespace doris

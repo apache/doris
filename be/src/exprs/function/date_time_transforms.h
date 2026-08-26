@@ -102,6 +102,7 @@ TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
 TO_TIME_FUNCTION(ToSecondImpl, second);
 TO_TIME_FUNCTION(ToMicroSecondImpl, microsecond);
+TO_TIME_FUNCTION(ToNanoSecondImpl, nanosecond);
 
 TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());
@@ -210,8 +211,15 @@ struct ToIso8601Impl {
     static constexpr PrimitiveType OpArgType = PType;
     using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_iso8601";
-    static constexpr auto max_size =
-            PType == TYPE_DATEV2 ? 10 : (PType == TYPE_TIMESTAMP_NS ? 29 : 26);
+    static constexpr auto max_size = [] {
+        if constexpr (PType == TYPE_DATEV2) {
+            return 10;
+        } else if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return 29;
+        } else {
+            return 26;
+        }
+    }();
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
@@ -573,7 +581,13 @@ struct FromUnixTimeDecimalImpl {
         if (has_conflicting_from_unixtime_fraction_specifiers(format)) [[unlikely]] {
             return true;
         }
-        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) [[unlikely]] {
+        int64_t fraction_adjustment = 0;
+        if (fraction > 0) {
+            fraction_adjustment = 1;
+        } else if (fraction < 0) {
+            fraction_adjustment = -1;
+        }
+        if (!check_valid(interger + fraction_adjustment)) [[unlikely]] {
             return true;
         }
         const bool preserve_nanosecond = contains_from_unixtime_format_specifier(format, 'n');

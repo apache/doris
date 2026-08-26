@@ -230,6 +230,14 @@ public final class TimeStampNsLiteral extends DateLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds));
     }
 
+    public TimeStampNsLiteral plusNanoSeconds(long nanoSeconds) {
+        return fromJavaDateType(toJavaDateType().plusNanos(nanoSeconds));
+    }
+
+    public TimeStampNsLiteral minusNanoSeconds(long nanoSeconds) {
+        return fromJavaDateType(toJavaDateType().minusNanos(nanoSeconds));
+    }
+
     public TimeStampNsLiteral plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)));
     }

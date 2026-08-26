@@ -890,6 +890,14 @@ public class DateTimeArithmetic {
     }
 
     /**
+     * Timestamp_ns arithmetic function nanoseconds-add.
+     */
+    @ExecFunction(name = "nanoseconds_add")
+    public static Expression nanoSecondsAdd(TimeStampNsLiteral date, BigIntLiteral nanoSecond) {
+        return date.plusNanoSeconds(nanoSecond.getValue());
+    }
+
+    /**
      * datetime arithmetic function microseconds-add.
      */
     @ExecFunction(name = "microseconds_add")
@@ -1051,6 +1059,14 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "seconds_sub")
     public static Expression secondsSub(TimeStampNsLiteral date, BigIntLiteral second) {
         return secondsAdd(date, new BigIntLiteral(-second.getValue()));
+    }
+
+    /**
+     * Timestamp_ns arithmetic function nanoseconds-sub.
+     */
+    @ExecFunction(name = "nanoseconds_sub")
+    public static Expression nanoSecondsSub(TimeStampNsLiteral date, BigIntLiteral nanoSecond) {
+        return date.minusNanoSeconds(nanoSecond.getValue());
     }
 
     /**
