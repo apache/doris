@@ -433,7 +433,11 @@ public class LanceScanNode extends FileQueryScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder result = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
         if (isExternalSearch()) {
+            TVectorSearchParams vector = externalSearchRequest.getSearchQuery().getVectorSearch();
             result.append(prefix).append("externalSearchType=VECTOR\n");
+            result.append(prefix).append("lanceMetric=")
+                    .append(vector.isSetMetric() ? metricName(vector.getMetric()) : "default")
+                    .append("\n");
             result.append(prefix).append("lanceVersion=")
                     .append(plannedMetadata.getVersion()).append("\n");
             result.append(prefix).append("lanceSearchFragments=")
