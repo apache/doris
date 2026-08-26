@@ -25,6 +25,7 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -35,7 +36,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPartitionBoundary;
@@ -46,6 +49,7 @@ import com.google.common.collect.Range;
 import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -275,6 +279,38 @@ public class OlapScanNodeTest {
         Assert.assertEquals(Lists.newArrayList(oldTargetPartitionId, afterPartitionId), serializedPartitionIds);
 
         Assert.assertEquals("p_target,p_after", scanNode.getSelectedPartitionNamesForExplain());
+    }
+
+    @Test
+    public void testIncrementalReadGetsVisibleVersionFromMetaService() throws Exception {
+        long partitionId = 300L;
+        long visibleVersion = 10L;
+        CloudPartition partition = Mockito.mock(CloudPartition.class);
+        Mockito.when(partition.getId()).thenReturn(partitionId);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getPartition(partitionId)).thenReturn(partition);
+
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getSelectedPartitionIds()).thenReturn(Lists.newArrayList(partitionId));
+        Mockito.when(scanNode.getScanParams()).thenReturn(new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, Collections.emptyMap(), Collections.emptyList()));
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(CloudPartition.class)) {
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+            mockedPartition.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
+                    Mockito.anyList(), Mockito.eq(false))).thenReturn(Lists.newArrayList(visibleVersion));
+
+            ScanNode.setVisibleVersionForOlapScanNodes(Lists.newArrayList(scanNode));
+
+            mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
+                    Mockito.anyList(), Mockito.eq(false)));
+            mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()),
+                    Mockito.never());
+        }
+
+        Mockito.verify(scanNode).updateScanRangeVersions(Collections.singletonMap(partitionId, visibleVersion));
     }
 
     private Partition mockPartition(String name) {

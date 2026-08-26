@@ -649,6 +649,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
         List<CloudPartition> partitions = new ArrayList<>();
         Set<Long> partitionSet = new HashSet<>();
+        boolean hasIncrementalRead = false;
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
                 continue;
@@ -659,6 +660,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             if (table instanceof OlapTableWrapper
                     && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
                 continue;
+            }
+            if (scanNode.getScanParams() != null && scanNode.getScanParams().incrementalRead()) {
+                hasIncrementalRead = true;
             }
             for (Long id : scanNode.getSelectedPartitionIds()) {
                 if (!partitionSet.contains(id)) {
@@ -672,7 +676,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         if (!partitions.isEmpty()) {
             List<Long> versions;
             try {
-                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+                // A time-based change read may have just waited for an old transaction to finish.
+                // Bypass the FE cache so the scan uses the version made visible by that transaction.
+                versions = hasIncrementalRead
+                        ? CloudPartition.getSnapshotVisibleVersionFromMs(partitions, false)
+                        : CloudPartition.getSnapshotVisibleVersion(partitions);
             } catch (RpcException e) {
                 throw new UserException("get visible version for OlapScanNode failed", e);
             }
