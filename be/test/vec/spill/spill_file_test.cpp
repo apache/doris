@@ -1352,12 +1352,11 @@ TEST_F(SpillFileTest, ManagerAllocatesExternalSpillSessionOnManagedRoot) {
     std::vector<std::string> paths;
     st = spill_session->get_paths(&paths);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(paths.size(), 2);
+    ASSERT_EQ(paths.size(), 1);
     const std::string first_path = _data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon";
     const std::string second_path =
             _second_data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon";
-    ASSERT_TRUE(std::ranges::find(paths, first_path) != paths.end());
-    ASSERT_TRUE(std::ranges::find(paths, second_path) != paths.end());
+    ASSERT_TRUE(paths.front() == first_path || paths.front() == second_path);
     bool exists = false;
     for (const auto& path : paths) {
         st = io::global_local_filesystem()->exists(path, &exists);
@@ -1386,8 +1385,9 @@ TEST_F(SpillFileTest, ManagerAllocatesExternalSpillSessionOnManagedRoot) {
     ASSERT_TRUE(exists);
 
     spill_session.reset();
-    // The residual file remains charged after the external callback is destroyed.
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 768);
+    // Match SpillFile::gc(): logical usage is released with the writer, while QueryContext owns
+    // physical deletion and retries.
+    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 0);
     ASSERT_EQ(unselected_data_dir->get_spill_data_bytes(), 0);
 
     st = io::global_local_filesystem()->exists(query_dir, &exists);
@@ -1407,10 +1407,9 @@ TEST_F(SpillFileTest, ExternalSpillSessionSkipsFullManagedRoot) {
     auto query_id_str = print_id(query_id);
     auto query_ctx = MockQueryContext::create(query_id);
 
-    _data_dir_ptr->update_spill_data_usage(_data_dir_ptr->get_spill_data_limit());
-    Defer release_full_root([&]() {
-        _data_dir_ptr->update_spill_data_usage(-_data_dir_ptr->get_spill_data_limit());
-    });
+    const int64_t unavailable_bytes = _data_dir_ptr->get_spill_data_limit() + 1;
+    _data_dir_ptr->update_spill_data_usage(unavailable_bytes);
+    Defer release_full_root([&]() { _data_dir_ptr->update_spill_data_usage(-unavailable_bytes); });
 
     std::unique_ptr<ExternalSpillSession> spill_session;
     auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
@@ -1424,97 +1423,7 @@ TEST_F(SpillFileTest, ExternalSpillSessionSkipsFullManagedRoot) {
     ASSERT_EQ(paths.front(), _second_data_dir_ptr->get_spill_data_path(query_id_str) + "/paimon");
 }
 
-TEST_F(SpillFileTest, ExternalSpillSessionAccountsDirectFiles) {
-    TUniqueId query_id;
-    query_id.hi = 27;
-    query_id.lo = 28;
-    auto query_ctx = MockQueryContext::create(query_id);
-
-    std::unique_ptr<ExternalSpillSession> spill_session;
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
-            "paimon", query_ctx.get(), &spill_session);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    std::vector<std::string> paths;
-    ASSERT_TRUE(spill_session->get_paths(&paths).ok());
-
-    const std::string raw_file = paths.front() + "/rocksdb/index.sst";
-    _create_residual_file(raw_file);
-    std::filesystem::resize_file(raw_file, 2048);
-    ASSERT_TRUE(spill_session->reconcile_direct_file_usage(false).ok());
-
-    auto* selected_data_dir =
-            paths.front().starts_with(_data_dir_ptr->get_spill_data_path(print_id(query_id)))
-                    ? _data_dir_ptr
-                    : _second_data_dir_ptr;
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 2048);
-    spill_session.reset();
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 2048);
-    query_ctx.reset();
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 0);
-}
-
-TEST_F(SpillFileTest, ExternalSpillSessionFinalReconcileReleasesDeletedDirectFiles) {
-    TUniqueId query_id;
-    query_id.hi = 31;
-    query_id.lo = 32;
-    auto query_ctx = MockQueryContext::create(query_id);
-
-    std::unique_ptr<ExternalSpillSession> spill_session;
-    ASSERT_TRUE(ExecEnv::GetInstance()
-                        ->spill_file_mgr()
-                        ->create_external_spill_session("paimon", query_ctx.get(), &spill_session)
-                        .ok());
-    std::vector<std::string> paths;
-    ASSERT_TRUE(spill_session->get_paths(&paths).ok());
-    auto* selected_data_dir =
-            paths.front().starts_with(_data_dir_ptr->get_spill_data_path(print_id(query_id)))
-                    ? _data_dir_ptr
-                    : _second_data_dir_ptr;
-
-    const std::string raw_file = paths.front() + "/rocksdb/index.sst";
-    _create_residual_file(raw_file);
-    std::filesystem::resize_file(raw_file, 2048);
-    ASSERT_TRUE(spill_session->reconcile_direct_file_usage(false).ok());
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 2048);
-
-    ASSERT_TRUE(io::global_local_filesystem()->delete_file(raw_file).ok());
-    ASSERT_TRUE(spill_session->reconcile_direct_file_usage(false).ok());
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 2048);
-    ASSERT_TRUE(spill_session->reconcile_direct_file_usage(true).ok());
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 0);
-}
-
-TEST_F(SpillFileTest, ExternalSpillSessionDoesNotScanTrackedBufferFiles) {
-    TUniqueId query_id;
-    query_id.hi = 35;
-    query_id.lo = 36;
-    auto query_ctx = MockQueryContext::create(query_id);
-
-    std::unique_ptr<ExternalSpillSession> spill_session;
-    ASSERT_TRUE(ExecEnv::GetInstance()
-                        ->spill_file_mgr()
-                        ->create_external_spill_session("paimon", query_ctx.get(), &spill_session)
-                        .ok());
-    std::vector<std::string> paths;
-    ASSERT_TRUE(spill_session->get_paths(&paths).ok());
-    auto* selected_data_dir =
-            paths.front().starts_with(_data_dir_ptr->get_spill_data_path(print_id(query_id)))
-                    ? _data_dir_ptr
-                    : _second_data_dir_ptr;
-
-    const std::string channel = paths.front() + "/paimon-io/channel";
-    ASSERT_TRUE(spill_session->reserve(channel, 1024).ok());
-    _create_residual_file(channel);
-    std::filesystem::resize_file(channel, 1024);
-    ASSERT_TRUE(spill_session->reconcile_direct_file_usage(false).ok());
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
-
-    ASSERT_TRUE(io::global_local_filesystem()->delete_file(channel).ok());
-    spill_session->update_accounting(channel, -1024, 0, 0);
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 0);
-}
-
-TEST_F(SpillFileTest, ExternalSpillAccountingStaysChargedUntilGcRetrySucceeds) {
+TEST_F(SpillFileTest, ExternalSpillDirectoryCleanupRetriesAfterLeaseRelease) {
     ExecEnv::GetInstance()->spill_file_mgr()->stop();
     TUniqueId query_id;
     query_id.hi = 33;
@@ -1543,51 +1452,25 @@ TEST_F(SpillFileTest, ExternalSpillAccountingStaysChargedUntilGcRetrySucceeds) {
         config::enable_debug_points = previous_enable_debug_points;
     });
     auto debug_point = std::make_shared<DebugPoint>();
-    // QueryContext touched every managed root. Fail the first deletion on each root so this test
-    // does not depend on the iteration order of the pending-directory registry.
-    debug_point->execute_limit = static_cast<int64_t>(paths.size());
+    debug_point->execute_limit = 1;
     config::enable_debug_points = true;
     DebugPoints::instance()->add(debug_point_name, debug_point);
 
     query_ctx.reset();
     spill_session.reset();
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
-
-    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
-    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 0);
-}
 
-TEST_F(SpillFileTest, ExternalSpillSessionRejectsDirectFilesOverCapacity) {
-    TUniqueId query_id;
-    query_id.hi = 29;
-    query_id.lo = 30;
-    auto query_ctx = MockQueryContext::create(query_id);
+    const auto query_dir = selected_data_dir->get_spill_data_path(print_id(query_id));
+    bool exists = false;
+    ASSERT_TRUE(io::global_local_filesystem()->exists(query_dir, &exists).ok());
+    ASSERT_TRUE(exists);
 
-    std::unique_ptr<ExternalSpillSession> spill_session;
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
-            "paimon", query_ctx.get(), &spill_session);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    std::vector<std::string> paths;
-    ASSERT_TRUE(spill_session->get_paths(&paths).ok());
-
-    auto* selected_data_dir =
-            paths.front().starts_with(_data_dir_ptr->get_spill_data_path(print_id(query_id)))
-                    ? _data_dir_ptr
-                    : _second_data_dir_ptr;
-    const int64_t prefilled_bytes = selected_data_dir->get_spill_data_limit() - 1024;
-    selected_data_dir->update_spill_data_usage(prefilled_bytes);
-    Defer release_prefilled_bytes(
-            [&]() { selected_data_dir->update_spill_data_usage(-prefilled_bytes); });
-
-    const std::string raw_file = paths.front() + "/lookup/level-0";
-    _create_residual_file(raw_file);
-    std::filesystem::resize_file(raw_file, 2048);
-    st = spill_session->reconcile_direct_file_usage(false);
-    ASSERT_FALSE(st.ok());
-    ASSERT_NE(st.to_string().find("spill storage limit"), std::string::npos) << st.to_string();
-    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), prefilled_bytes);
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+    ASSERT_TRUE(io::global_local_filesystem()->exists(query_dir, &exists).ok());
+    ASSERT_TRUE(exists);
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+    ASSERT_TRUE(io::global_local_filesystem()->exists(query_dir, &exists).ok());
+    ASSERT_FALSE(exists);
 }
 
 TEST_F(SpillFileTest, ExternalSpillSessionIsLazyWhenNoRootAvailable) {

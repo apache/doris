@@ -232,10 +232,6 @@ public class PaimonJniWriter {
                         VectorSchemaRoot root = Data.importVectorSchemaRoot(
                                 allocator, array, schema, dictionaries)) {
                     writeBatch(root);
-                    // Some Paimon writers (lookup stores, global indexes and clustering indexes)
-                    // write raw files below IOManager paths. Observe their growth periodically
-                    // without turning every Doris block into a recursive filesystem scan.
-                    ioManager.reconcileIfDue();
                     return null;
                 } catch (Throwable t) {
                     throw new RuntimeException("PaimonJniWriter C Data write failed", t);
@@ -553,7 +549,6 @@ public class PaimonJniWriter {
         List<CommitMessage> messages = commitIdentifier > 0
                 ? writer.prepareCommit(true, commitIdentifier)
                 : writer.prepareCommit();
-        ioManager.reconcileNow(false);
         preparedCommitMessages = new ArrayList<>(messages);
         return messages;
     }
@@ -709,9 +704,6 @@ public class PaimonJniWriter {
     static native void updatePaimonSpillAccounting(
             long nativeSpillSession, String path,
             long currentBytesDelta, long writeBytes, long readBytes);
-
-    static native void reconcilePaimonSpill(
-            long nativeSpillSession, boolean allowRelease) throws IOException;
 
     private static class PartitionBucket {
         private final BinaryRow partition;

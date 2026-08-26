@@ -37,7 +37,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonJniWriterTest {
@@ -176,7 +175,6 @@ public class PaimonJniWriterTest {
             }
         };
         AtomicLong currentBytes = new AtomicLong();
-        AtomicBoolean finalReconcile = new AtomicBoolean();
         DorisIOManager.SpillAccountant accountant = new DorisIOManager.SpillAccountant() {
             @Override
             public String[] getSpillDirectories() {
@@ -205,11 +203,6 @@ public class PaimonJniWriterTest {
             public void release(String path, long bytes) {
                 currentBytes.addAndGet(-bytes);
             }
-
-            @Override
-            public void reconcile(boolean allowRelease) {
-                finalReconcile.set(allowRelease);
-            }
         };
         DorisIOManager ioManager = new DorisIOManager(failingCloseManager, accountant);
         FileIOChannel.ID channel = ioManager.createChannel();
@@ -224,7 +217,6 @@ public class PaimonJniWriterTest {
         ioManagerField.set(writer, ioManager);
 
         Assertions.assertDoesNotThrow(writer::close);
-        Assertions.assertTrue(finalReconcile.get());
         Assertions.assertTrue(channel.getPathFile().exists());
         Assertions.assertEquals(12, currentBytes.get());
         Assertions.assertDoesNotThrow(writer::close);

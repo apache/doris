@@ -31,7 +31,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class DorisIOManagerTest {
     @TempDir
@@ -167,42 +166,10 @@ public class DorisIOManagerTest {
                 DorisIOManager.SpillDirectoryCleanupException.class, manager::close);
         Assertions.assertTrue(channel.getPathFile().exists());
         Assertions.assertEquals(12, accountant.currentBytes);
-        Assertions.assertEquals(1, accountant.reconcileCalls);
-        Assertions.assertTrue(accountant.lastAllowRelease);
 
         writer.deleteChannel();
         Assertions.assertEquals(0, accountant.currentBytes);
         Assertions.assertEquals(12, accountant.releasedBytes);
-    }
-
-    @Test
-    public void testRawFileReconciliationIsRateLimitedAndFinalPassIsExact() throws Exception {
-        RecordingSpillAccountant accountant = new RecordingSpillAccountant(tempDir);
-        IOManager delegate = IOManager.create(tempDir.toString());
-        AtomicLong nanoTime = new AtomicLong(10);
-        DorisIOManager manager =
-                new DorisIOManager(delegate, accountant, nanoTime::get, 100);
-        try {
-            for (int i = 0; i < 100; i++) {
-                Files.writeString(tempDir.resolve("raw-" + i), "data-" + i);
-                manager.reconcileIfDue();
-            }
-            Assertions.assertEquals(1, accountant.reconcileCalls);
-            Assertions.assertFalse(accountant.lastAllowRelease);
-
-            nanoTime.addAndGet(100);
-            manager.reconcileIfDue();
-            Assertions.assertEquals(2, accountant.reconcileCalls);
-            Assertions.assertFalse(accountant.lastAllowRelease);
-
-            manager.close();
-            Assertions.assertEquals(3, accountant.reconcileCalls);
-            Assertions.assertTrue(accountant.lastAllowRelease);
-        } finally {
-            if (accountant.reconcileCalls < 3) {
-                delegate.close();
-            }
-        }
     }
 
     private static final class RecordingSpillAccountant implements DorisIOManager.SpillAccountant {
@@ -213,8 +180,6 @@ public class DorisIOManagerTest {
         private long writtenBytes;
         private long readBytes;
         private long releasedBytes;
-        private int reconcileCalls;
-        private boolean lastAllowRelease;
 
         private RecordingSpillAccountant(Path... spillDirectories) {
             this.spillDirectories = spillDirectories;
@@ -253,12 +218,6 @@ public class DorisIOManagerTest {
         public void release(String path, long bytes) {
             releasedBytes += bytes;
             currentBytes -= bytes;
-        }
-
-        @Override
-        public void reconcile(boolean allowRelease) {
-            reconcileCalls++;
-            lastAllowRelease = allowRelease;
         }
     }
 }

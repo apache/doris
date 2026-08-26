@@ -29,9 +29,6 @@ import java.io.UncheckedIOException;
 import java.nio.channels.FileChannel;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.LongSupplier;
 
 /** Paimon IOManager adapter which charges temporary I/O to Doris spill management. */
 final class DorisIOManager implements IOManager {
@@ -47,8 +44,6 @@ final class DorisIOManager implements IOManager {
         void recordRead(String path, long bytes);
 
         void release(String path, long bytes);
-
-        void reconcile(boolean allowRelease) throws IOException;
     }
 
     static final class SpillDirectoryCleanupException extends IOException {
@@ -57,11 +52,7 @@ final class DorisIOManager implements IOManager {
         }
     }
 
-    private static final long RAW_FILE_RECONCILE_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(5);
     private final SpillAccountant accountant;
-    private final LongSupplier nanoTime;
-    private final long rawFileReconcileIntervalNanos;
-    private final AtomicLong lastRawFileReconcileNanos = new AtomicLong(Long.MIN_VALUE);
     private final Map<String, Long> channelBytes = new ConcurrentHashMap<>();
     private final Map<String, Integer> activeChannelWriters = new ConcurrentHashMap<>();
     private volatile IOManager delegate;
@@ -71,19 +62,12 @@ final class DorisIOManager implements IOManager {
     }
 
     DorisIOManager(SpillAccountant accountant) {
-        this(null, accountant, System::nanoTime, RAW_FILE_RECONCILE_INTERVAL_NANOS);
+        this(null, accountant);
     }
 
     DorisIOManager(IOManager delegate, SpillAccountant accountant) {
-        this(delegate, accountant, System::nanoTime, RAW_FILE_RECONCILE_INTERVAL_NANOS);
-    }
-
-    DorisIOManager(IOManager delegate, SpillAccountant accountant,
-            LongSupplier nanoTime, long rawFileReconcileIntervalNanos) {
         this.accountant = accountant;
         this.delegate = delegate;
-        this.nanoTime = nanoTime;
-        this.rawFileReconcileIntervalNanos = rawFileReconcileIntervalNanos;
     }
 
     private IOManager delegate() throws IOException {
@@ -136,8 +120,8 @@ final class DorisIOManager implements IOManager {
 
     @Override
     public BufferFileWriter createBufferFileWriter(FileIOChannel.ID channelID) throws IOException {
-        // ExternalBuffer clears old channels with File.delete(), bypassing IOManager deletion.
-        // Reconcile once per writer so those files do not retain Doris spill quota indefinitely.
+        // ExternalBuffer clears old buffer channels with File.delete(), bypassing IOManager
+        // deletion. Release those known channels before reserving more space.
         releaseDeletedChannels();
         return new AccountingBufferFileWriter(delegate().createBufferFileWriter(channelID), this);
     }
@@ -154,54 +138,13 @@ final class DorisIOManager implements IOManager {
             return;
         }
 
-        Exception cleanupFailure = null;
         try {
             initializedDelegate.close();
         } catch (Exception e) {
-            cleanupFailure = e;
+            releaseDeletedChannels();
+            throw new SpillDirectoryCleanupException(e);
         }
         releaseDeletedChannels();
-        try {
-            // Writer, compaction and global-index resources are already quiescent. This exact pass
-            // can safely release disappeared raw files as well as charging any residual files.
-            accountant.reconcile(true);
-        } catch (IOException reconciliationFailure) {
-            if (cleanupFailure != null) {
-                reconciliationFailure.addSuppressed(cleanupFailure);
-            }
-            throw reconciliationFailure;
-        }
-        if (cleanupFailure != null) {
-            throw new SpillDirectoryCleanupException(cleanupFailure);
-        }
-    }
-
-    void reconcileIfDue() throws IOException {
-        if (delegate == null) {
-            return;
-        }
-        long now = nanoTime.getAsLong();
-        while (true) {
-            long previous = lastRawFileReconcileNanos.get();
-            if (previous != Long.MIN_VALUE
-                    && now - previous < rawFileReconcileIntervalNanos) {
-                return;
-            }
-            if (lastRawFileReconcileNanos.compareAndSet(previous, now)) {
-                try {
-                    reconcileNow(false);
-                } catch (IOException e) {
-                    lastRawFileReconcileNanos.compareAndSet(now, previous);
-                    throw e;
-                }
-                return;
-            }
-        }
-    }
-
-    void reconcileNow(boolean allowRelease) throws IOException {
-        releaseDeletedChannels();
-        accountant.reconcile(allowRelease);
     }
 
     private boolean releaseDeletedChannels() {
@@ -295,11 +238,6 @@ final class DorisIOManager implements IOManager {
         public void release(String path, long bytes) {
             PaimonJniWriter.updatePaimonSpillAccounting(
                     nativeSpillSession, path, -bytes, 0, 0);
-        }
-
-        @Override
-        public void reconcile(boolean allowRelease) throws IOException {
-            PaimonJniWriter.reconcilePaimonSpill(nativeSpillSession, allowRelease);
         }
     }
 

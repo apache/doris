@@ -64,9 +64,6 @@ public:
     // return true if limit reached, otherwise, return false.
     bool reach_capacity_limit(int64_t incoming_data_size);
 
-    // Atomically check the capacity limit and reserve spill usage for a writer.
-    bool try_reserve_spill_data(int64_t incoming_data_size);
-
     Status update_capacity();
 
     void update_spill_data_usage(int64_t incoming_data_size) {
@@ -119,7 +116,8 @@ private:
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
 };
 
-// Owns one external writer's Doris spill directories, capacity reservation and I/O accounting.
+// Adapts one external writer to the same root selection, capacity accounting and query cleanup
+// used by Doris spill files.
 class ExternalSpillSession {
 public:
     ~ExternalSpillSession();
@@ -131,31 +129,21 @@ public:
     void update_accounting(const std::string& path, int64_t current_bytes_delta,
                            int64_t write_bytes, int64_t read_bytes);
 
-    // Account files written directly below an IOManager temp directory by Paimon components which
-    // do not use BufferFileWriter (for example lookup stores and RocksDB global indexes).
-    Status reconcile_direct_file_usage(bool allow_release);
-
 private:
     friend class SpillFileManager;
 
-    struct ManagedPath {
-        SpillDataDir* data_dir;
-        std::string path;
-        int64_t buffer_accounted_bytes = 0;
-        std::unordered_map<std::string, int64_t> buffer_accounted_bytes_by_path;
-        int64_t direct_file_accounted_bytes = 0;
-    };
-
     ExternalSpillSession(SpillFileManager* manager, QueryContext* query_context,
                          std::string relative_path);
-    ManagedPath* _find_managed_path(const std::string& path);
+    bool _contains(const std::string& path) const;
 
     SpillFileManager* _manager;
     std::weak_ptr<QueryContext> _query_context;
     std::shared_ptr<ResourceContext> _resource_context;
     std::string _query_id;
     std::string _relative_path;
-    std::vector<ManagedPath> _managed_paths;
+    SpillDataDir* _data_dir = nullptr;
+    std::string _path;
+    int64_t _accounted_bytes = 0;
     std::mutex _mutex;
 };
 
@@ -199,26 +187,19 @@ public:
 private:
     friend class ExternalSpillSession;
 
-    // Query-directory lifecycle shared by regular spill cleanup and external spill users. An
-    // external session may finish before or after QueryContext requests deletion, so leases,
-    // residual accounting and the deletion request must be kept in one state object.
-    struct QuerySpillDirectoryState {
+    struct PendingQuerySpillDirectory {
         int failed_count {0};
-        SpillDataDir* data_dir = nullptr;
-        int64_t external_accounted_bytes = 0;
-        size_t external_leases = 0;
-        bool delete_requested = false;
+        std::string query_dir;
     };
 
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
-    Status _try_delete_query_spill_directory(const std::string& query_dir);
+    Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
     void _retry_pending_query_spill_directories();
     Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
     void _release_external_spill_session(ExternalSpillSession* spill_session);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
-    std::vector<SpillDataDir*> _get_stores_for_spill();
     SpillDataDir* _get_store_for_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
@@ -226,8 +207,12 @@ private:
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
 
-    std::mutex _query_spill_directories_mutex;
-    std::unordered_map<std::string, QuerySpillDirectoryState> _query_spill_directories;
+    // Query cleanup uses the regular pending-deletion path. External leases only defer deletion
+    // while an SDK task can still access the same query directory; filesystem I/O never holds this
+    // mutex.
+    std::mutex _pending_query_spill_directories_mutex;
+    std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
+    std::unordered_map<std::string, size_t> _external_spill_directory_leases;
 
     std::atomic_uint64_t id_ = 0;
 
