@@ -20,6 +20,21 @@ true
 -- !element_at_decimal256 --
 2.125000000000000000
 
+-- !element_at_wider_lookup --
+1	12.34
+2	\N
+
+-- !map_contains_key_wider_lookup --
+1	true
+2	false
+
+-- !element_at_null_lookup --
+1	\N
+2	\N
+
+-- !field_decimal --
+1
+
 -- !basic_decimal256 --
 123.456	123.46
 

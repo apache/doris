@@ -88,7 +88,48 @@ suite("nereids_scalar_fn_map_decimal_precision") {
         ), CAST('1.2500' AS DECIMAL(16,4))) AS value;
     """
 
-    // 8. basic decimal v3 precision promotion (single slot) is not affected
+    // 8. element_at / map_contains_key with a wider lookup on a Decimal32 key column.
+    // The lookup slot follows the MAP key type, so both must be promoted to one type
+    // (across the DECIMAL32 -> DECIMAL64 storage-width boundary) instead of being
+    // widened independently, otherwise the BE compares columns of different concrete
+    // decimal classes.
+    sql "drop table if exists fn_test_map_decimal_precision"
+    sql """
+        create table fn_test_map_decimal_precision (
+            id int null,
+            m map<decimal(9,2), decimal(5,2)> null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_map_decimal_precision values
+        (1, map(cast('1234567.89' as decimal(9,2)), cast('12.34' as decimal(5,2)))),
+        (2, map(cast('1.23' as decimal(9,2)), cast('0.01' as decimal(5,2))));
+    """
+    order_qt_element_at_wider_lookup """
+        select id, element_at(m, cast('1234567.890' as decimal(10,3)))
+        from fn_test_map_decimal_precision order by id
+    """
+    order_qt_map_contains_key_wider_lookup """
+        select id, map_contains_key(m, cast('1234567.890' as decimal(10,3)))
+        from fn_test_map_decimal_precision order by id
+    """
+    // a NULL lookup must fall back to the MAP key group instead of the wider type of
+    // an unrelated MAP leaf
+    order_qt_element_at_null_lookup """
+        select id, element_at(m, null)
+        from fn_test_map_decimal_precision order by id
+    """
+
+    // 9. field declares varArgs(DECIMALV3, DECIMALV3): its fixed first operand and the
+    // repeated tail are one comparison type and must keep one promoted type
+    order_qt_field_decimal """
+        select field(cast('1.20' as decimal(3,2)), cast('1.200' as decimal(4,3)),
+                     cast('2.000' as decimal(4,3)))
+    """
+
+    // 10. basic decimal v3 precision promotion (single slot) is not affected
     order_qt_basic_decimal256 """
         SELECT ABS(CAST('123.456' AS DECIMAL(10,3))) AS abs_v,
                ROUND(CAST('123.456' AS DECIMAL(10,3)), 2) AS round_v;
