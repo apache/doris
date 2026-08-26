@@ -30,8 +30,8 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 
 public class LanceTypeConverterTest {
 
@@ -139,7 +139,7 @@ public class LanceTypeConverterTest {
                         ArrowType.Struct.INSTANCE,
                         null,
                         Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
-                List.of(
+                Arrays.asList(
                         Field.nullable("data", ArrowType.LargeBinary.INSTANCE),
                         Field.nullable("uri", ArrowType.Utf8.INSTANCE),
                         Field.nullable("position", new ArrowType.Int(64, false)),
