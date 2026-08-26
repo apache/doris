@@ -85,8 +85,8 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     const InputTypeSet list_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
                                            Consted {PrimitiveType::TYPE_VARCHAR}};
     const DataSet list_data_set = {
-            {{"LIST", "edc_server2"}, "pedc5fserver211"},
-            {{"LiSt", "edc_server2"}, "pedc5fserver211"},
+            {{std::string("LIST"), std::string("edc_server2")}, std::string("pedc5fserver211")},
+            {{std::string("LiSt"), std::string("edc_server2")}, std::string("pedc5fserver211")},
     };
     for (const auto& data : list_data_set) {
         ASSERT_TRUE(check_function<DataTypeString>("auto_partition_name", list_input_types, {data})
@@ -97,8 +97,10 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
                                             Consted {PrimitiveType::TYPE_VARCHAR},
                                             Consted {PrimitiveType::TYPE_VARCHAR}};
     const DataSet range_data_set = {
-            {{"RANGE", "MONTH", "2022-12-12 19:20:30"}, "p20221201000000"},
-            {{"rAnGe", "dAy", "2022-12-12 19:20:30"}, "p20221212000000"},
+            {{std::string("RANGE"), std::string("MONTH"), std::string("2022-12-12 19:20:30")},
+             std::string("p20221201000000")},
+            {{std::string("rAnGe"), std::string("dAy"), std::string("2022-12-12 19:20:30")},
+             std::string("p20221212000000")},
     };
     for (const auto& data : range_data_set) {
         ASSERT_TRUE(check_function<DataTypeString>("auto_partition_name", range_input_types, {data})
