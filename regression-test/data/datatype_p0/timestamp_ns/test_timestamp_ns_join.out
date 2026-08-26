@@ -27,15 +27,7 @@
 2	1970-01-01 00:00:00.000000000	22	1970-01-01T00:00
 4	\N	100	\N
 
--- !mixed_inner_join_date --
-2	1
-5	2
-
 -- !mixed_inner_join_datev2 --
-2	1
-5	2
-
--- !mixed_inner_join_datetime --
 2	1
 5	2
 
