@@ -374,4 +374,50 @@ suite ("partition_curd_union_rewrite") {
     ${aggregate_on_detail_mv_sql}
     order by k
     """
+
+    sql "DROP MATERIALIZED VIEW IF EXISTS mv_10086"
+    sql "DROP MATERIALIZED VIEW IF EXISTS partition_compensation_topn_mv"
+    sql """
+    CREATE MATERIALIZED VIEW partition_compensation_topn_mv
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    PARTITION BY(l_shipdate)
+    DISTRIBUTED BY RANDOM BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem
+    left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+    group by l_shipdate, o_orderdate, l_partkey, l_suppkey
+    order by sum_total desc, l_shipdate desc, o_orderdate desc, l_partkey desc, l_suppkey desc
+    limit 100
+    """
+    waitingMTMVTaskFinished(getJobName(db, "partition_compensation_topn_mv"))
+    sql """
+    insert into lineitem values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k',
+            '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'stale-topn')
+    """
+    waitingPartitionIsExpected("partition_compensation_topn_mv", "p_20231017_20231018", false)
+
+    def stale_partition_topn_sql = """
+    select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem
+    left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+    group by l_shipdate, o_orderdate, l_partkey, l_suppkey
+    order by sum_total desc, l_shipdate desc, o_orderdate desc, l_partkey desc, l_suppkey desc
+    limit 2
+    """
+    mv_rewrite_success(stale_partition_topn_sql, "partition_compensation_topn_mv")
+    explain {
+        sql "${stale_partition_topn_sql}"
+        check { result ->
+            result.contains("partition_compensation_topn_mv")
+                    && result.contains("VTOP-N") && result.contains("VUNION")
+                    && result.indexOf("VTOP-N") < result.indexOf("VUNION")
+        }
+    }
+    sql "set enable_materialized_view_rewrite=false"
+    order_qt_stale_partition_topn_before "${stale_partition_topn_sql}"
+    sql "set enable_materialized_view_rewrite=true"
+    order_qt_stale_partition_topn_after "${stale_partition_topn_sql}"
 }

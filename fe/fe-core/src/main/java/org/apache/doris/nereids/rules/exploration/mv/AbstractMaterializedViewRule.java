@@ -57,12 +57,15 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -399,19 +402,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         continue;
                     }
                     if (planAndNeedAddFilterPair.value()) {
-                        List<Plan> children = Lists.newArrayList(rewrittenPlan, planAndNeedAddFilterPair.key());
-                        // Union query materialized view and source table
-                        rewrittenPlan = new LogicalUnion(Qualifier.ALL,
-                                queryPlan.getOutput().stream().map(NamedExpression.class::cast)
-                                        .collect(Collectors.toList()),
-                                children.stream()
-                                        .map(plan -> plan.getOutput().stream()
-                                                .map(slot -> (SlotReference) slot.toSlot())
-                                                .collect(Collectors.toList()))
-                                        .collect(Collectors.toList()),
-                                ImmutableList.of(),
-                                false,
-                                children);
+                        Plan compensationPlan = buildPartitionCompensationPlan(
+                                rewrittenPlan, planAndNeedAddFilterPair.key(), queryPlan);
+                        if (compensationPlan == null) {
+                            materializationContext.recordFailReason(queryStructInfo,
+                                    "Build partition compensation plan fail",
+                                    () -> String.format("Query plan shape can not preserve global TopN/Limit, "
+                                            + "queryPlan is %s", queryPlan.treeString()));
+                            continue;
+                        }
+                        rewrittenPlan = compensationPlan;
                     }
                 }
             }
@@ -469,6 +469,49 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             resetMaterializationContext(materializationContext, cascadesContext);
         }
         return rewriteResults;
+    }
+
+    Plan buildPartitionCompensationPlan(Plan rewrittenPlan, Plan baseTablePlan, Plan queryPlan) {
+        Plan queryGlobalLimit = queryPlan.<Plan>collectFirst(
+                node -> isGlobalLimitOrTopN((Plan) node)).orElse(null);
+        if (queryGlobalLimit == null) {
+            return buildCompensationUnion(queryPlan, Lists.newArrayList(rewrittenPlan, baseTablePlan));
+        }
+        Plan rewrittenGlobalLimit = rewrittenPlan.<Plan>collectFirst(
+                node -> isSameGlobalLimitOrTopN((Plan) node, queryGlobalLimit)).orElse(null);
+        Plan baseTableGlobalLimit = baseTablePlan.<Plan>collectFirst(
+                node -> isSameGlobalLimitOrTopN((Plan) node, queryGlobalLimit)).orElse(null);
+        if (rewrittenGlobalLimit == null || baseTableGlobalLimit == null
+                || getOffset(rewrittenGlobalLimit) != getOffset(queryGlobalLimit)) {
+            return null;
+        }
+        Plan compensationUnion = buildCompensationUnion(queryGlobalLimit.child(0), Lists.newArrayList(
+                rewrittenGlobalLimit.child(0), baseTableGlobalLimit.child(0)));
+        return queryPlan.rewriteDownShortCircuit(plan -> plan == queryGlobalLimit
+                ? queryGlobalLimit.withChildren(compensationUnion) : plan);
+    }
+
+    private boolean isGlobalLimitOrTopN(Plan plan) {
+        return plan instanceof LogicalTopN
+                || plan instanceof LogicalLimit && ((LogicalLimit<?>) plan).getPhase() == LimitPhase.GLOBAL;
+    }
+
+    private boolean isSameGlobalLimitOrTopN(Plan plan, Plan queryGlobalLimit) {
+        return plan.getType() == queryGlobalLimit.getType() && isGlobalLimitOrTopN(plan);
+    }
+
+    private long getOffset(Plan plan) {
+        return plan instanceof LogicalTopN
+                ? ((LogicalTopN<?>) plan).getOffset() : ((LogicalLimit<?>) plan).getOffset();
+    }
+
+    private LogicalUnion buildCompensationUnion(Plan queryPlan, List<Plan> children) {
+        return new LogicalUnion(Qualifier.ALL,
+                queryPlan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                children.stream().map(plan -> plan.getOutput().stream()
+                        .map(slot -> (SlotReference) slot.toSlot()).collect(Collectors.toList()))
+                        .collect(Collectors.toList()),
+                ImmutableList.of(), false, children);
     }
 
     // reset some materialization context state after one materialized view written successfully

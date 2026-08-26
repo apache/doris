@@ -32,7 +32,12 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
@@ -239,6 +244,95 @@ public class MvExplorationSuiteTest extends SqlTestBase {
                             Assertions.assertTrue(result);
                             Assertions.assertFalse(checkContext.isContainsTopAggregate());
                         });
+    }
+
+    @Test
+    void testPartitionUnionKeepsGlobalTopN() {
+        Plan queryPlan = PlanChecker.from(connectContext)
+                .analyze("select id from T1 order by id limit 2 offset 1")
+                .rewrite()
+                .getPlan().child(0);
+        Assertions.assertTrue(queryPlan instanceof LogicalTopN);
+
+        Plan compensatedPlan = TEST_RULE.buildPartitionCompensationPlan(queryPlan, queryPlan, queryPlan);
+        Assertions.assertTrue(compensatedPlan instanceof LogicalTopN);
+        LogicalTopN<?> globalTopN = (LogicalTopN<?>) compensatedPlan;
+        Assertions.assertEquals(2, globalTopN.getLimit());
+        Assertions.assertEquals(1, globalTopN.getOffset());
+        Assertions.assertTrue(globalTopN.child() instanceof LogicalUnion);
+        LogicalUnion union = (LogicalUnion) globalTopN.child();
+        Assertions.assertEquals(2, union.children().size());
+        Assertions.assertFalse(union.child(0) instanceof LogicalTopN);
+        Assertions.assertFalse(union.child(1) instanceof LogicalTopN);
+        Assertions.assertEquals(globalTopN.getOrderKeys().get(0).getExpr(), union.getOutput().get(0));
+    }
+
+    @Test
+    void testPartitionUnionKeepsGlobalLimit() {
+        Plan queryPlan = PlanChecker.from(connectContext)
+                .analyze("select id from T1 limit 2 offset 1")
+                .rewrite()
+                .getPlan().child(0);
+        Assertions.assertTrue(queryPlan instanceof LogicalLimit);
+
+        Plan compensatedPlan = TEST_RULE.buildPartitionCompensationPlan(queryPlan, queryPlan, queryPlan);
+        Assertions.assertTrue(compensatedPlan instanceof LogicalLimit);
+        LogicalLimit<?> globalLimit = (LogicalLimit<?>) compensatedPlan;
+        Assertions.assertEquals(2, globalLimit.getLimit());
+        Assertions.assertEquals(1, globalLimit.getOffset());
+        Assertions.assertEquals(LimitPhase.GLOBAL, globalLimit.getPhase());
+        Assertions.assertTrue(globalLimit.child() instanceof LogicalUnion);
+        LogicalUnion union = (LogicalUnion) globalLimit.child();
+        Assertions.assertEquals(2, union.children().size());
+        Assertions.assertTrue(union.child(0) instanceof LogicalLimit);
+        Assertions.assertTrue(union.child(1) instanceof LogicalLimit);
+        Assertions.assertEquals(3, ((LogicalLimit<?>) union.child(0)).getLimit());
+        Assertions.assertEquals(0, ((LogicalLimit<?>) union.child(0)).getOffset());
+        Assertions.assertEquals(LimitPhase.LOCAL, ((LogicalLimit<?>) union.child(0)).getPhase());
+        Assertions.assertEquals(3, ((LogicalLimit<?>) union.child(1)).getLimit());
+        Assertions.assertEquals(0, ((LogicalLimit<?>) union.child(1)).getOffset());
+        Assertions.assertEquals(LimitPhase.LOCAL, ((LogicalLimit<?>) union.child(1)).getPhase());
+    }
+
+    @Test
+    void testPartitionUnionKeepsProjectsAboveGlobalTopN() {
+        Plan topN = PlanChecker.from(connectContext)
+                .analyze("select id from T1 order by id limit 2 offset 1")
+                .rewrite()
+                .getPlan().child(0);
+        LogicalProject<Plan> innerProject = new LogicalProject<>(ImmutableList.of(topN.getOutput().get(0)), topN);
+        LogicalProject<Plan> queryPlan = new LogicalProject<>(
+                ImmutableList.of(innerProject.getOutput().get(0)), innerProject);
+
+        Plan compensatedPlan = TEST_RULE.buildPartitionCompensationPlan(queryPlan, queryPlan, queryPlan);
+        Assertions.assertTrue(compensatedPlan instanceof LogicalProject);
+        Assertions.assertEquals(queryPlan.getOutput(), compensatedPlan.getOutput());
+        Assertions.assertTrue(compensatedPlan.child(0) instanceof LogicalProject);
+        Assertions.assertTrue(compensatedPlan.child(0).child(0) instanceof LogicalTopN);
+        Assertions.assertTrue(compensatedPlan.child(0).child(0).child(0) instanceof LogicalUnion);
+    }
+
+    @Test
+    void testPartitionUnionRejectsAdjustedTopNOffset() {
+        Plan queryPlan = PlanChecker.from(connectContext)
+                .analyze("select id from T1 order by id limit 2 offset 1")
+                .rewrite()
+                .getPlan().child(0);
+        LogicalTopN<?> queryTopN = (LogicalTopN<?>) queryPlan;
+
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                queryTopN.withLimitChild(queryTopN.getLimit(), 0, queryTopN.child()), queryPlan, queryPlan));
+    }
+
+    @Test
+    void testPartitionUnionRejectsMismatchedTopNShape() {
+        Plan queryPlan = PlanChecker.from(connectContext)
+                .analyze("select id from T1 order by id limit 2")
+                .rewrite()
+                .getPlan().child(0);
+
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                queryPlan.child(0), queryPlan, queryPlan));
     }
 
     // -------------------------------------------------------------------------

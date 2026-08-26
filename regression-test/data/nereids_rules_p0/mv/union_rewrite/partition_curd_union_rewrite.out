@@ -5,3 +5,11 @@
 -- !aggregate_on_detail_mv_after_partition_delete --
 1	1
 
+-- !stale_partition_topn_before --
+2023-10-17	2023-10-17	2	3	1492.50
+2023-10-18	2023-10-18	2	3	982.80
+
+-- !stale_partition_topn_after --
+2023-10-17	2023-10-17	2	3	1492.50
+2023-10-18	2023-10-18	2	3	982.80
+
