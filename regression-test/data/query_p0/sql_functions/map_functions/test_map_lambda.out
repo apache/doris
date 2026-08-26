@@ -47,27 +47,6 @@
 -- !transform_values --
 11	21
 
--- !transform_values_null_type --
-2	\N	\N
-
--- !transform_keys_null_type --
-1	20
-
--- !map_apply_null_value_type --
-2	\N	\N
-
--- !transform_values_nested_array_null_type --
-[]
-
--- !map_apply_nested_array_null_type --
-[]
-
--- !transform_values_nested_map_null_type --
-0
-
--- !transform_values_nested_struct_null_type --
-{"col1":null, "col2":[]}
-
 -- !transform_values_string --
 x:a	y:b
 
@@ -141,4 +120,3 @@ x:a	y:b
 
 -- !map_from_arrays_nested_empty_array --
 {1:[]}
-

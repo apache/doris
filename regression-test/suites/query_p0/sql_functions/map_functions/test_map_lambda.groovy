@@ -156,52 +156,6 @@ suite("test_map_lambda", "p0") {
             from test_map_lambda where id = 1
         ) t
     """
-    qt_transform_values_null_type """
-        select map_size(r), r[1], r[2]
-        from (
-            select transform_values((k, v) -> null, mii) r
-            from test_map_lambda where id = 1
-        ) t
-    """
-    qt_transform_keys_null_type """
-        select map_size(r), map_values(r)[1]
-        from (
-            select transform_keys((k, v) -> null, mii) r
-            from test_map_lambda where id = 1
-        ) t
-    """
-    qt_map_apply_null_value_type """
-        select map_size(r), r[1], r[2]
-        from (
-            select map_apply((k, v) -> struct(k, null), mii) r
-            from test_map_lambda where id = 1
-        ) t
-    """
-    qt_transform_values_nested_array_null_type """
-        select r[1]
-        from (
-            select transform_values((k, v) -> [], map(1, [10])) r
-        ) t
-    """
-    qt_map_apply_nested_array_null_type """
-        select r[1]
-        from (
-            select map_apply((k, v) -> struct(k, []), map(1, [10])) r
-        ) t
-    """
-    qt_transform_values_nested_map_null_type """
-        select map_size(r[1])
-        from (
-            select transform_values((k, v) -> map(), map(1, map(2, 20))) r
-        ) t
-    """
-    qt_transform_values_nested_struct_null_type """
-        select r[1]
-        from (
-            select transform_values(
-                (k, v) -> struct(null, []), map(1, struct(10, [20]))) r
-        ) t
-    """
     qt_transform_values_string """
         select r['a'], r['b']
         from (

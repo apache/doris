@@ -22,11 +22,6 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.StructField;
-import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -61,36 +56,6 @@ final class MapLambdaFunctionUtils {
                     "The 1st arg of %s must be lambda but is %s", functionName, expression));
         }
         return (Lambda) expression;
-    }
-
-    /** Fill only NULL_TYPE positions from the corresponding input Map field type. */
-    static DataType mergeNestedNullTypes(DataType outputType, DataType inputType) {
-        if (outputType.isNullType()) {
-            return inputType;
-        } else if (outputType instanceof ArrayType && inputType instanceof ArrayType) {
-            return ArrayType.of(mergeNestedNullTypes(
-                    ((ArrayType) outputType).getItemType(), ((ArrayType) inputType).getItemType()));
-        } else if (outputType instanceof MapType && inputType instanceof MapType) {
-            return MapType.of(
-                    mergeNestedNullTypes(
-                            ((MapType) outputType).getKeyType(), ((MapType) inputType).getKeyType()),
-                    mergeNestedNullTypes(
-                            ((MapType) outputType).getValueType(), ((MapType) inputType).getValueType()));
-        } else if (outputType instanceof StructType && inputType instanceof StructType) {
-            List<StructField> outputFields = ((StructType) outputType).getFields();
-            List<StructField> inputFields = ((StructType) inputType).getFields();
-            if (outputFields.size() != inputFields.size()) {
-                return outputType;
-            }
-            ImmutableList.Builder<StructField> fields
-                    = ImmutableList.builderWithExpectedSize(outputFields.size());
-            for (int i = 0; i < outputFields.size(); i++) {
-                fields.add(outputFields.get(i).withDataType(mergeNestedNullTypes(
-                        outputFields.get(i).getDataType(), inputFields.get(i).getDataType())));
-            }
-            return new StructType(fields.build());
-        }
-        return outputType;
     }
 
     private static Expression extractMapExpression(Lambda lambda) {
