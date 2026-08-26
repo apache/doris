@@ -47,20 +47,31 @@ public class ScannerLoaderTest {
     }
 
     @Test
-    public void testOldFeCanCleanCacheByFunctionSignature() {
-        long functionId = 10003;
+    public void testCleanAllCachesByFunctionSignatureWithoutFunctionId() {
+        long firstFunctionId = 10003;
+        long secondFunctionId = 10004;
+        long otherFunctionId = 10005;
         String functionSignature = "legacy_function(INT)";
-        UdfClassCache cache = new UdfClassCache();
+        String otherFunctionSignature = "other_function(INT)";
+        UdfClassCache firstCache = new UdfClassCache();
+        UdfClassCache secondCache = new UdfClassCache();
+        UdfClassCache otherCache = new UdfClassCache();
         ScannerLoader loader = new ScannerLoader();
 
         try {
-            ScannerLoader.cacheClassLoader(functionSignature, functionId, cache, 0);
+            ScannerLoader.cacheClassLoader(functionSignature, firstFunctionId, firstCache, 0);
+            ScannerLoader.cacheClassLoader(functionSignature, secondFunctionId, secondCache, 0);
+            ScannerLoader.cacheClassLoader(otherFunctionSignature, otherFunctionId, otherCache, 0);
 
             loader.cleanUdfClassLoader(functionSignature, 0);
 
-            Assert.assertNull(ScannerLoader.getUdfClassLoader(functionId));
+            Assert.assertNull(ScannerLoader.getUdfClassLoader(firstFunctionId));
+            Assert.assertNull(ScannerLoader.getUdfClassLoader(secondFunctionId));
+            Assert.assertSame(otherCache, ScannerLoader.getUdfClassLoader(otherFunctionId));
         } finally {
-            loader.cleanUdfClassLoader(functionSignature, functionId);
+            loader.cleanUdfClassLoader(functionSignature, firstFunctionId);
+            loader.cleanUdfClassLoader(functionSignature, secondFunctionId);
+            loader.cleanUdfClassLoader(otherFunctionSignature, otherFunctionId);
         }
     }
 }

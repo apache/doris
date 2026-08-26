@@ -172,40 +172,49 @@ public class ScannerLoader {
         // Lost the race against a concurrent first-time load. The cache we just built has
         // never been exposed to any executor, so closing its URLClassLoader here cannot
         // affect anyone. Do NOT touch `existing` — another executor may already be using it.
-        closeUdfClassLoader(functionId, newEntry);
+        try {
+            newEntry.classCache.close();
+        } catch (Exception e) {
+            LOG.warn("Failed to close UdfClassCache for function signature: {}, function id: {}",
+                    newEntry.functionSignature, functionId, e);
+        }
         return existing.classCache;
     }
 
     public void cleanUdfClassLoader(String functionSignature, long functionId) {
-        boolean dropByFunctionId = functionId > 0;
-        LOG.info("cleanUdfClassLoader for function signature: {}, function id: {}, drop by function id: {}",
-                functionSignature, functionId, dropByFunctionId);
-        if (dropByFunctionId) {
-            closeUdfClassLoader(functionId, udfLoadedClasses.remove(functionId));
+        LOG.info("cleanUdfClassLoader for function signature: {}, function id: {}",
+                functionSignature, functionId);
+        if (functionId > 0) {
+            UdfClassCacheEntry removed = udfLoadedClasses.remove(functionId);
+            if (removed != null) {
+                // Immediately close the URLClassLoader. NOTE: any in-flight query still holding a
+                // reference to this cache (e.g. via JNIContext.executor) will fail with
+                // NoClassDefFoundError on lazy class resolution after this point. This is the
+                // accepted semantic of DROP FUNCTION: the function is gone, queries against it
+                // are expected to fail.
+                try {
+                    removed.classCache.close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close UdfClassCache for function signature: {}, function id: {}",
+                            removed.functionSignature, functionId, e);
+                }
+            }
             return;
         }
+
+        // Old FEs do not set function_id in cleanup requests, so remove every cache with
+        // the requested signature.
         udfLoadedClasses.forEach((cachedFunctionId, entry) -> {
             if (entry.functionSignature.equals(functionSignature)
                     && udfLoadedClasses.remove(cachedFunctionId, entry)) {
-                closeUdfClassLoader(cachedFunctionId, entry);
+                try {
+                    entry.classCache.close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close UdfClassCache for function signature: {}, function id: {}",
+                            entry.functionSignature, cachedFunctionId, e);
+                }
             }
         });
-    }
-
-    private static void closeUdfClassLoader(long functionId, UdfClassCacheEntry removed) {
-        if (removed != null) {
-            // Immediately close the URLClassLoader. NOTE: any in-flight query still holding a
-            // reference to this cache (e.g. via JNIContext.executor) will fail with
-            // NoClassDefFoundError on lazy class resolution after this point. This is the
-            // accepted semantic of DROP FUNCTION: the function is gone, queries against it
-            // are expected to fail.
-            try {
-                removed.classCache.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close UdfClassCache for function signature: {}, function id: {}",
-                        removed.functionSignature, functionId, e);
-            }
-        }
     }
 
     /**

@@ -2582,7 +2582,14 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     const auto& clean_req = req.clean_udf_cache_req;
-    const bool drop_by_function_id = clean_req.__isset.function_id && clean_req.function_id > 0;
+    if (clean_req.__isset.function_id && clean_req.function_id <= 0) {
+        LOG(WARNING) << "skip clean udf cache request with invalid function_id="
+                     << clean_req.function_id
+                     << ", function_signature=" << clean_req.function_signature;
+        return;
+    }
+    // Requests from old FEs do not set function_id and must keep signature-based cleanup.
+    const bool drop_by_function_id = clean_req.__isset.function_id;
 
     if (doris::config::enable_java_support) {
         WARN_IF_ERROR(
