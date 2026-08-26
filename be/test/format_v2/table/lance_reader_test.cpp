@@ -18,6 +18,7 @@
 #include "format_v2/table/lance_reader.h"
 
 #include <arrow/array/util.h>
+#include <arrow/builder.h>
 #include <arrow/c/bridge.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
@@ -860,6 +861,32 @@ DataTypePtr nullable_type(PrimitiveType type, int precision = 0, int scale = 0) 
     return DataTypeFactory::instance().create_data_type(type, true, precision, scale);
 }
 
+// 构造一行有效值和一行 NULL 的 Arrow Duration 测试数组。
+std::shared_ptr<arrow::Array> make_duration_array(arrow::TimeUnit::type unit, int64_t value) {
+    arrow::DurationBuilder builder(arrow::duration(unit), arrow::default_memory_pool());
+    EXPECT_TRUE(builder.Append(value).ok());
+    EXPECT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::DurationArray> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
+// 构造包含一个有效向量和一个 NULL 向量的 Lance BFloat16 测试数组。
+std::shared_ptr<arrow::Array> make_bfloat16_vector_array() {
+    auto values =
+            std::make_shared<arrow::FixedSizeBinaryBuilder>(arrow::fixed_size_binary(2));
+    arrow::FixedSizeListBuilder builder(arrow::default_memory_pool(), values, 2);
+    EXPECT_TRUE(builder.Append().ok());
+    const std::array<uint8_t, 2> one {0x80, 0x3F};
+    const std::array<uint8_t, 2> two {0x00, 0x40};
+    EXPECT_TRUE(values->Append(one.data()).ok());
+    EXPECT_TRUE(values->Append(two.data()).ok());
+    EXPECT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::FixedSizeListArray> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
 std::pair<size_t, size_t> array_range(const ColumnArray& array, size_t row) {
     const auto& offsets = array.get_offsets();
     return {row == 0 ? 0 : static_cast<size_t>(offsets[row - 1]),
@@ -910,17 +937,35 @@ TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitializa
               assert_cast<const DataTypeVarbinary&>(*binary_type).len());
 }
 
-TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics) {
-    const auto extension_metadata =
+// 验证新增 Arrow/Lance 类型映射，并确保未知扩展仍保留为不支持列。
+TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtensions) {
+    const auto unknown_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"doris.test.extension"});
-    const auto extension_item =
-            arrow::field("item", arrow::float32())->WithMetadata(extension_metadata);
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto bfloat16_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto blob_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.blob.v2"});
+    const auto bfloat16_item =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
+                    bfloat16_extension_metadata);
+    const auto blob_type = arrow::struct_({
+            arrow::field("data", arrow::large_binary()),
+            arrow::field("uri", arrow::utf8()),
+            arrow::field("position", arrow::uint64()),
+            arrow::field("size", arrow::uint64()),
+    });
     const auto arrow_schema = arrow::schema({
             arrow::field("row_id", arrow::int64()),
+            arrow::field("null_value", arrow::null()),
             arrow::field("duration", arrow::duration(arrow::TimeUnit::MILLI)),
-            arrow::field("json", arrow::utf8())->WithMetadata(extension_metadata),
+            arrow::field("json", arrow::utf8())->WithMetadata(json_extension_metadata),
+            arrow::field("blob", blob_type)->WithMetadata(blob_extension_metadata),
+            arrow::field("bfloat16_vector", arrow::fixed_size_list(bfloat16_item, 4)),
             arrow::field("dictionary", arrow::dictionary(arrow::int16(), arrow::utf8())),
-            arrow::field("nested_extension", arrow::list(extension_item)),
+            arrow::field("unknown_extension", arrow::utf8())
+                    ->WithMetadata(unknown_extension_metadata),
             arrow::field("name", arrow::utf8()),
     });
 
@@ -928,19 +973,238 @@ TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics
     std::vector<DataTypePtr> column_types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
 
-    EXPECT_EQ((std::vector<std::string> {"row_id", "duration", "json", "dictionary",
-                                         "nested_extension", "name"}),
+    EXPECT_EQ((std::vector<std::string> {"row_id", "null_value", "duration", "json", "blob",
+                                         "bfloat16_vector", "dictionary", "unknown_extension",
+                                         "name"}),
               column_names);
     ASSERT_EQ(column_names.size(), column_types.size());
     for (const auto& column_type : column_types) {
         ASSERT_NE(nullptr, column_type);
     }
     EXPECT_EQ(TYPE_BIGINT, column_types[0]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[1]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[2]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[3]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[4]->get_primitive_type());
-    EXPECT_EQ(TYPE_STRING, column_types[5]->get_primitive_type());
+    EXPECT_TRUE(column_types[1]->is_null_literal());
+    EXPECT_EQ(TYPE_BIGINT, column_types[2]->get_primitive_type());
+    EXPECT_EQ(TYPE_JSONB, column_types[3]->get_primitive_type());
+    EXPECT_EQ(TYPE_VARBINARY, column_types[4]->get_primitive_type());
+    ASSERT_EQ(TYPE_ARRAY, column_types[5]->get_primitive_type());
+    const auto& bfloat16_array =
+            assert_cast<const DataTypeArray&>(*remove_nullable(column_types[5]));
+    EXPECT_EQ(TYPE_FLOAT, bfloat16_array.get_nested_type()->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[6]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[7]->get_primitive_type());
+    EXPECT_EQ(TYPE_STRING, column_types[8]->get_primitive_type());
+}
+
+// 验证已知扩展使用错误物理布局时不会被误报为支持类型。
+TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto bfloat16_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto blob_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.blob.v2"});
+    const auto arrow_schema = arrow::schema({
+            arrow::field("json", arrow::binary())->WithMetadata(json_extension_metadata),
+            arrow::field("bfloat16", arrow::fixed_size_binary(4))
+                    ->WithMetadata(bfloat16_extension_metadata),
+            arrow::field("blob", arrow::struct_({}))->WithMetadata(blob_extension_metadata),
+    });
+
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
+    ASSERT_EQ(3, column_types.size());
+    for (const auto& column_type : column_types) {
+        ASSERT_NE(nullptr, column_type);
+        EXPECT_EQ(INVALID_TYPE, column_type->get_primitive_type());
+    }
+}
+
+// 验证新增类型从 Arrow 批次写入 Doris 列时的值、空值和精度。
+TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto bfloat16_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto bfloat16_item =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
+                    bfloat16_extension_metadata);
+    const auto schema = arrow::schema({
+            arrow::field("null_value", arrow::null()),
+            arrow::field("duration_s", arrow::duration(arrow::TimeUnit::SECOND)),
+            arrow::field("duration_ms", arrow::duration(arrow::TimeUnit::MILLI)),
+            arrow::field("duration_us", arrow::duration(arrow::TimeUnit::MICRO)),
+            arrow::field("duration_ns", arrow::duration(arrow::TimeUnit::NANO)),
+            arrow::field("json_value", arrow::utf8())->WithMetadata(json_extension_metadata),
+            arrow::field("bfloat16_vector", arrow::fixed_size_list(bfloat16_item, 2)),
+    });
+
+    arrow::StringBuilder json_builder;
+    ASSERT_TRUE(json_builder.Append(R"({"engine":"doris"})").ok());
+    ASSERT_TRUE(json_builder.AppendNull().ok());
+    std::shared_ptr<arrow::StringArray> json_array;
+    ASSERT_TRUE(json_builder.Finish(&json_array).ok());
+
+    const auto record_batch = arrow::RecordBatch::Make(
+            schema, 2,
+            {
+                    std::make_shared<arrow::NullArray>(2),
+                    make_duration_array(arrow::TimeUnit::SECOND, 1),
+                    make_duration_array(arrow::TimeUnit::MILLI, 1000),
+                    make_duration_array(arrow::TimeUnit::MICRO, 1000000),
+                    make_duration_array(arrow::TimeUnit::NANO, 1000000000),
+                    json_array,
+                    make_bfloat16_vector_array(),
+            });
+
+    const auto bfloat16_array_type = make_nullable(
+            std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
+    const Columns columns {
+            projected_column("null_value", nullable_type(TYPE_NULL)),
+            projected_column("duration_s", TYPE_BIGINT, true),
+            projected_column("duration_ms", TYPE_BIGINT, true),
+            projected_column("duration_us", TYPE_BIGINT, true),
+            projected_column("duration_ns", TYPE_BIGINT, true),
+            projected_column("json_value", TYPE_JSONB, true),
+            projected_column("bfloat16_vector", bfloat16_array_type),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_additional_types");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(2, rows);
+
+    const auto& null_values =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ((ColumnUInt8::Container {1, 1}), null_values.get_null_map_data());
+
+    const std::array<int64_t, 4> expected_durations {1, 1000, 1000000, 1000000000};
+    for (size_t column_idx = 0; column_idx < expected_durations.size(); ++column_idx) {
+        const auto& duration = assert_cast<const ColumnNullable&>(
+                *block.get_by_position(column_idx + 1).column);
+        const auto& values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
+        EXPECT_EQ(0, duration.get_null_map_data()[0]);
+        EXPECT_EQ(1, duration.get_null_map_data()[1]);
+        EXPECT_EQ(expected_durations[column_idx], values.get_data()[0]);
+    }
+
+    const auto& json_values =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(5).column);
+    EXPECT_EQ(0, json_values.get_null_map_data()[0]);
+    EXPECT_EQ(1, json_values.get_null_map_data()[1]);
+    EXPECT_EQ(R"({"engine":"doris"})", columns[5].type->to_string(json_values, 0));
+
+    const auto& vectors =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
+    EXPECT_EQ(0, vectors.get_null_map_data()[0]);
+    EXPECT_EQ(1, vectors.get_null_map_data()[1]);
+    const auto& vector_values = assert_cast<const ColumnArray&>(vectors.get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {2, 4}), vector_values.get_offsets());
+    const auto& bfloat16_values =
+            assert_cast<const ColumnNullable&>(vector_values.get_data());
+    const auto& floats =
+            assert_cast<const ColumnFloat32&>(bfloat16_values.get_nested_column());
+    EXPECT_FLOAT_EQ(1.0F, floats.get_data()[0]);
+    EXPECT_FLOAT_EQ(2.0F, floats.get_data()[1]);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// 验证固定 Lance 数据集中的新增类型可通过完整扫描链路读取。
+TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
+    const std::filesystem::path dataset_uri =
+            "./docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/lance/"
+            "all_types.lance";
+    const auto bfloat16_array_type = make_nullable(
+            std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
+    const auto blob_type = DataTypeFactory::instance().create_data_type(
+            TYPE_VARBINARY, true, 0, 0, std::numeric_limits<int32_t>::max());
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("null_col", nullable_type(TYPE_NULL)),
+            projected_column("duration_s_col", TYPE_BIGINT, true),
+            projected_column("duration_ms_col", TYPE_BIGINT, true),
+            projected_column("duration_us_col", TYPE_BIGINT, true),
+            projected_column("duration_ns_col", TYPE_BIGINT, true),
+            projected_column("blob_col", blob_type),
+            projected_column("json_col", TYPE_JSONB, true),
+            projected_column("bfloat16_vector_col", bfloat16_array_type),
+    };
+    TQueryOptions query_options;
+    query_options.__set_batch_size(4);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_additional_types_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool found = false;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto& null_values =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            EXPECT_EQ(1, null_values.get_null_map_data()[row]);
+            if (row_ids.get_data()[row] != 1) {
+                continue;
+            }
+            found = true;
+            const std::array<int64_t, 4> expected_durations {1, 1000, 1000000, 1000000000};
+            for (size_t duration_idx = 0; duration_idx < expected_durations.size();
+                 ++duration_idx) {
+                const auto& duration = assert_cast<const ColumnNullable&>(
+                        *block.get_by_position(duration_idx + 2).column);
+                const auto& values =
+                        assert_cast<const ColumnInt64&>(duration.get_nested_column());
+                EXPECT_EQ(0, duration.get_null_map_data()[row]);
+                EXPECT_EQ(expected_durations[duration_idx], values.get_data()[row]);
+            }
+
+            const auto& blobs =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
+            const auto& blob_values =
+                    assert_cast<const ColumnVarbinary&>(blobs.get_nested_column());
+            EXPECT_EQ(0, blobs.get_null_map_data()[row]);
+            EXPECT_EQ("blob payload", blob_values.get_data_at(row).to_string());
+
+            const auto& json_values =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(7).column);
+            EXPECT_EQ(R"({"engine":"doris","format":"lance"})",
+                      columns[7].type->to_string(json_values, row));
+
+            const auto& vectors =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(8).column);
+            const auto& vector_values =
+                    assert_cast<const ColumnArray&>(vectors.get_nested_column());
+            const auto [begin, end] = array_range(vector_values, row);
+            ASSERT_EQ(4, end - begin);
+            const auto& nullable_values =
+                    assert_cast<const ColumnNullable&>(vector_values.get_data());
+            const auto& floats =
+                    assert_cast<const ColumnFloat32&>(nullable_values.get_nested_column());
+            for (size_t index = 0; index < 4; ++index) {
+                EXPECT_FLOAT_EQ(static_cast<float>(index + 1), floats.get_data()[begin + index]);
+            }
+        }
+    }
+    EXPECT_TRUE(found);
+    EXPECT_TRUE(reader.close().ok());
 }
 
 TEST(LanceTableReaderSchemaTest, FetchesNegativeScaleDecimalAsUnsupported) {

@@ -923,7 +923,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             for (const auto& col_type : col_types) {
                 DORIS_CHECK(col_type != nullptr);
                 PTypeDesc* type_desc = result->add_column_types();
-                if (col_type->get_primitive_type() == INVALID_TYPE) {
+                if (col_type->is_null_literal()) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::NULL_TYPE);
+                } else if (col_type->get_primitive_type() == INVALID_TYPE) {
                     PTypeNode* node = type_desc->add_types();
                     node->set_type(TTypeNodeType::SCALAR);
                     node->mutable_scalar_type()->set_type(TPrimitiveType::UNSUPPORTED);
