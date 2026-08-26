@@ -1237,7 +1237,21 @@ Status SegmentIterator::_apply_index_expr() {
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
             _opts.runtime_state->query_options().enable_ann_index_result_cache;
 
+    // Intersect each consumed index result into _row_bitmap right away so a
+    // selective conjunct short-circuits the remaining (potentially expensive,
+    // e.g. MATCH_PHRASE_PREFIX) ones. A skipped conjunct stays pushed down and
+    // keeps its semantics on the row-level path, which then sees zero rows.
+    // Consumed conjuncts are erased only after the ANN pass below, which
+    // iterates the same list.
+    std::vector<const VExprContext*> consumed_by_index;
+    size_t considered_conjuncts = 0;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        if (_row_bitmap.isEmpty()) {
+            _opts.stats->inverted_index_conjuncts_short_circuited +=
+                    _common_expr_ctxs_push_down.size() - considered_conjuncts;
+            break;
+        }
+        ++considered_conjuncts;
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
@@ -1247,6 +1261,14 @@ Status SegmentIterator::_apply_index_expr() {
                              << expr_ctx->root()->debug_string()
                              << ", error msg: " << st.to_string();
                 return st;
+            }
+        }
+        if (expr_ctx->all_expr_inverted_index_evaluated()) {
+            const auto* result = expr_ctx->get_index_context()->get_index_result_for_expr(
+                    expr_ctx->root().get());
+            if (result != nullptr) {
+                _row_bitmap &= *result->get_data_bitmap();
+                consumed_by_index.push_back(expr_ctx.get());
             }
         }
     }
@@ -1300,6 +1322,13 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_range_fallback_small_candidate_rows +=
                 ann_index_stats.range_fallback_small_candidate_rows;
         _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
+    }
+
+    if (!consumed_by_index.empty()) {
+        std::erase_if(_common_expr_ctxs_push_down, [&](const VExprContextSPtr& ctx) {
+            return std::find(consumed_by_index.begin(), consumed_by_index.end(), ctx.get()) !=
+                   consumed_by_index.end();
+        });
     }
 
     return Status::OK();
