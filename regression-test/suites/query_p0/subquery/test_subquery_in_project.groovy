@@ -162,6 +162,29 @@ suite("test_subquery_in_project") {
         ORDER BY x;
     """
 
+    // the correlated WHERE (r.r1 = l.x) under a GROUP BY aggregate and the correlated HAVING
+    // (r.r2 = l.x) above it. the analyzer inserts redundant passthrough projects around the
+    // aggregate which used to block UnCorrelatedApplyAggregateFilter, so the WHERE predicate
+    // was silently dropped after apply-to-join and the wrong result (TRUE) was produced. with
+    // the passthrough projects eliminated before subquery unnesting, both correlated predicates
+    // must survive into the final semi join.
+    qt_sql22 """
+        SELECT l.x,
+               EXISTS (
+                 SELECT r.r1
+                 FROM (
+                   SELECT 0 AS r1, 2 AS r2
+                   UNION ALL
+                   SELECT 2 AS r1, 0 AS r2
+                 ) r
+                 WHERE r.r1 = l.x
+                 GROUP BY r.r1, r.r2
+                 HAVING r.r2 = l.x
+               ) AS pred
+        FROM (SELECT 0 AS x UNION ALL SELECT 2) l
+        ORDER BY x;
+    """
+
     sql """drop table if exists test_sql;"""
 
     sql """drop table if exists markjoin_t1;"""

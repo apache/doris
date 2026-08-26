@@ -70,6 +70,10 @@ true
 0	false
 2	false
 
+-- !sql22 --
+0	false
+2	false
+
 -- !select_m1 --
 \N
 false
