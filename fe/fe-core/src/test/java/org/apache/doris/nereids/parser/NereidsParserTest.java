@@ -327,13 +327,12 @@ public class NereidsParserTest extends ParserTestBase {
         String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        ReplayCommand replayCommand = (ReplayCommand) logicalPlan;
-        Assertions.assertEquals(ReplayCommand.ReplayType.DUMP, replayCommand.getReplayType());
-        sql = "plan replayer play 'path'";
-        logicalPlan = nereidsParser.parseSingle(sql);
-        replayCommand = (ReplayCommand) logicalPlan;
-        Assertions.assertEquals(ReplayCommand.ReplayType.PLAY, replayCommand.getReplayType());
-        Assertions.assertEquals("path", replayCommand.getDumpFileFullPath());
+        Assertions.assertInstanceOf(ReplayCommand.class, logicalPlan);
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("plan replayer play 'path'"));
+        // PLAY is no longer a keyword, so it is an ordinary identifier in any case.
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select pLaY from play"));
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select play.play as play from play"));
     }
 
     @Test

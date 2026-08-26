@@ -1020,6 +1020,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    # The offline minidump runner is gone; drop it from reused output trees too.
+    rm -rf "${DORIS_OUTPUT}/fe/minidump"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -1044,7 +1046,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
-    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
