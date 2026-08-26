@@ -106,8 +106,7 @@ suite("test_timestamp_ns_expressions") {
         order by id
     """
 
-    // Value-producing expressions require an explicit DATETIMEV2-to-TIMESTAMP_NS cast because
-    // DATETIMEV2 has a wider calendar range.
+    // Keep explicit casts here to cover nested casts in value-producing expressions.
     order_qt_mixed_condition_result """
         select id,
                if(id % 2 = 0, value,
@@ -141,8 +140,8 @@ suite("test_timestamp_ns_expressions") {
             cast('2024-02-29 04:34:56.123456+00:00' as timestamptz(6)), '12:34:56.123456')
     """
 
-    // Mixed TIMESTAMP_NS/DATETIMEV2 comparisons are evaluated directly without a narrowing cast.
-    // TIMESTAMPTZ has different timezone semantics, so convert it explicitly to TIMESTAMP_NS.
+    // Mixed TIMESTAMP_NS/DATETIMEV2 comparisons normalize DATETIMEV2 to TIMESTAMP_NS.
+    // Keep explicit TIMESTAMPTZ casts here to retain direct cast coverage.
     // Row 1 deliberately differs only below microsecond precision, while row 2 is exactly equal.
     order_qt_mixed_temporal_comparisons """
         select id,
@@ -154,10 +153,26 @@ suite("test_timestamp_ns_expressions") {
         from timestamp_ns_mixed_temporal
         order by id
     """
+    // The implicit DATETIMEV2-to-TIMESTAMP_NS normalization is strict, so values outside the
+    // Int64 epoch nanosecond range abort the query instead of being compared directly.
+    test {
+        sql """
+            select ts < cast('9999-12-31 23:59:59.999999' as datetimev2(6))
+            from timestamp_ns_mixed_temporal
+            where id = 1
+        """
+        exception "outside Int64 epoch nanosecond range"
+    }
+    test {
+        sql """
+            select ts > cast('1600-01-01 00:00:00.000000' as datetimev2(6))
+            from timestamp_ns_mixed_temporal
+            where id = 1
+        """
+        exception "outside Int64 epoch nanosecond range"
+    }
     qt_mixed_datetime_range_comparisons """
-        select ts < cast('9999-12-31 23:59:59.999999' as datetimev2(6)),
-               ts > cast('1600-01-01 00:00:00.000000' as datetimev2(6)),
-               ts > dt,
+        select ts > dt,
                ts < cast('2024-02-29 12:34:56.123457' as datetimev2(6))
         from timestamp_ns_mixed_temporal
         where id = 1

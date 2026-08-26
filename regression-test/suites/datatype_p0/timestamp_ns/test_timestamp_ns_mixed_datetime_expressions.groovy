@@ -17,6 +17,7 @@
 
 suite("test_timestamp_ns_mixed_datetime_expressions") {
     sql "set time_zone = '+08:00'"
+    sql "set enable_strict_cast = false"
     sql "drop table if exists timestamp_ns_mixed_datetime_expressions"
     sql """
         create table timestamp_ns_mixed_datetime_expressions (
@@ -33,14 +34,14 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         (1, '2024-02-29 12:34:56.123456789', '2024-02-29 12:34:56.123456'),
         (2, '2024-02-29 12:34:56.123456000', '2024-02-29 12:34:56.123456'),
         (3, '1969-12-31 23:59:59.999999999', '1969-12-31 23:59:59.999999'),
-        (4, '1677-09-21 00:12:43.145224192', '1677-09-21 00:12:43.145224'),
-        (5, '2262-04-11 23:47:16.854775807', '2262-04-11 23:47:16.854776'),
-        (6, '1970-01-01 00:00:00.000000000', '2500-01-01 00:00:00.000000'),
+        (4, '1677-09-21 00:12:43.145224192', '1700-01-01 00:00:00.000000'),
+        (5, '2262-04-11 23:47:16.854775807', '2200-01-01 00:00:00.000000'),
+        (6, '1970-01-01 00:00:00.000000000', '2025-01-01 00:00:00.000000'),
         (7, null, null)
     """
 
-    // Scalar comparisons have an exact mixed physical-type kernel. Exercise every comparison
-    // operator, both operand orders, nanosecond remainders, signed epoch values and NULL.
+    // Every mixed DATETIMEV2 operand is strictly promoted to TIMESTAMP_NS. Exercise every
+    // comparison operator, both operand orders, nanosecond remainders, signed epoch values and NULL.
     order_qt_mixed_comparisons """
         select id,
                ts = dt, dt = ts,
@@ -74,17 +75,16 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
     qt_mixed_range_literals """
         select
             cast('1677-09-21 00:12:43.145224192' as timestamp_ns)
-                > cast('1677-09-21 00:12:43.145224' as datetimev2(6)),
+                < cast('1700-01-01 00:00:00.000000' as datetimev2(6)),
             cast('2262-04-11 23:47:16.854775807' as timestamp_ns)
-                < cast('2262-04-11 23:47:16.854776' as datetimev2(6)),
+                > cast('2200-01-01 00:00:00.000000' as datetimev2(6)),
             cast('1970-01-01 00:00:00.000000000' as timestamp_ns)
-                < cast('9999-12-31 23:59:59.999999' as datetimev2(6)),
+                < cast('2200-12-31 23:59:59.999999' as datetimev2(6)),
             cast('1970-01-01 00:00:00.000000000' as timestamp_ns)
-                > cast('0001-01-01 00:00:00.000000' as datetimev2(6))
+                > cast('1700-01-01 00:00:00.000000' as datetimev2(6))
     """
 
-    // Ordinary arithmetic follows the existing date-like numeric compatibility behavior. It is
-    // deliberately distinct from interval arithmetic and from the exact comparison semantics.
+    // Ordinary arithmetic uses the same TIMESTAMP_NS normalization as other mixed expressions.
     qt_mixed_numeric_arithmetic """
         select
             cast('2024-02-29 12:34:56.123456789' as timestamp_ns)
@@ -113,8 +113,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         order by id
     """
 
-    // A DATETIMEV2 literal inside the TIMESTAMP_NS range is promoted to TIMESTAMP_NS. Cover all
-    // two-temporal-argument diff functions using the same mixed declared types.
+    // Cover all two-temporal-argument diff functions using the same mixed declared types.
     qt_mixed_diff_to_timestamp_ns """
         select
             datediff(
@@ -145,8 +144,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         where id = 1
     """
 
-    // In the reverse direction an exactly representable TIMESTAMP_NS literal is demoted to the
-    // DATETIMEV2 column/literal scale. Keep a representative for every diff return contract.
+    // Operand order does not affect coercion: the DATETIMEV2 operand is promoted to TIMESTAMP_NS.
     qt_mixed_diff_to_datetimev2 """
         select
             datediff(
@@ -170,7 +168,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         order by id
     """
 
-    // All floor/ceil units share the same exact-literal coercion rule for the custom origin.
+    // All floor/ceil units share the same TIMESTAMP_NS coercion rule for the custom origin.
     qt_mixed_floor_ceil_origin """
         select
             year_floor(
@@ -371,21 +369,18 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         contains "hashJoin"
     }
 
-    // DATEDIFF consumes the two civil day numbers independently. Other difference functions still
-    // require a common physical type and must reject two lossily convertible columns.
+    // All difference functions normalize mixed columns to TIMESTAMP_NS.
     def diffFunctions = [
         "timediff", "microseconds_diff", "milliseconds_diff",
         "seconds_diff", "minutes_diff", "hours_diff", "days_diff",
         "weeks_diff", "months_diff", "quarters_diff", "years_diff"
     ]
     diffFunctions.each { functionName ->
-        test {
-            sql """
-                select ${functionName}(ts, dt)
-                from timestamp_ns_mixed_datetime_expressions
-            """
-            exception "Can not find the compatibility function signature"
-        }
+        "order_qt_mixed_column_${functionName}" """
+            select id, ${functionName}(ts, dt), ${functionName}(dt, ts)
+            from timestamp_ns_mixed_datetime_expressions
+            order by id
+        """
     }
 
     def floorCeilFunctions = [
@@ -395,23 +390,21 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         "minute_floor", "minute_ceil", "second_floor", "second_ceil"
     ]
     floorCeilFunctions.each { functionName ->
-        test {
-            sql """
-                select ${functionName}(ts, 1, dt)
-                from timestamp_ns_mixed_datetime_expressions
-            """
-            exception "Can not find the compatibility function signature"
-        }
+        "order_qt_mixed_column_${functionName}" """
+            select id, ${functionName}(ts, 1, dt), ${functionName}(dt, 1, ts)
+            from timestamp_ns_mixed_datetime_expressions
+            where id between 1 and 3
+            order by id
+        """
     }
 
     for (def rangeFunction : ["array_range", "sequence"]) {
-        test {
-            sql """
-                select ${rangeFunction}(ts, dt, interval 1 second)
-                from timestamp_ns_mixed_datetime_expressions
-            """
-            exception "Can not find the compatibility function signature"
-        }
+        "order_qt_mixed_column_${rangeFunction}" """
+            select id, ${rangeFunction}(ts, dt, interval 1 second)
+            from timestamp_ns_mixed_datetime_expressions
+            where id in (2, 3)
+            order by id
+        """
     }
 
     order_qt_mixed_in_columns """
@@ -419,61 +412,37 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         from timestamp_ns_mixed_datetime_expressions
         order by id
     """
-    test {
-        sql """
-            select case when id = 1 then ts else dt end
-            from timestamp_ns_mixed_datetime_expressions
-        """
-        exception "Cannot find common type for case when"
-    }
-    for (def expression : [
-            "if(id = 1, ts, dt)",
-            "ifnull(ts, dt)",
-            "coalesce(ts, dt)",
-            "nvl(ts, dt)",
-            "nullif(ts, dt)",
-            "greatest(ts, dt)",
-            "least(ts, dt)",
-            "array(ts, dt)",
-            "map('ts', ts, 'dt', dt)"]) {
-        test {
-            sql """
-                select ${expression}
-                from timestamp_ns_mixed_datetime_expressions
-            """
-            exception "Can not find the compatibility function signature"
-        }
-    }
-    test {
-        sql """
-            select array_contains(array(ts), dt)
-            from timestamp_ns_mixed_datetime_expressions
-        """
-        exception "Cannot find an exact common type for indexed ANY arguments"
-    }
-    test {
-        sql """
-            select ts from timestamp_ns_mixed_datetime_expressions
-            union all
-            select dt from timestamp_ns_mixed_datetime_expressions
-        """
-        exception "Can not find compatible type"
-    }
-    test {
-        sql """
-            select ts from timestamp_ns_mixed_datetime_expressions
-            union all
-            select cast('2024-02-29 12:34:56.123456' as datetimev2(6))
-        """
-        exception "Can not find compatible type"
-    }
-
-    order_qt_mixed_datediff_without_lossy_cast """
+    order_qt_mixed_column_value_expressions """
         select id,
-               datediff(ts, cast('2500-01-01 00:00:00.000000' as datetimev2(6))),
-               datediff(dt, cast('2024-02-29 12:34:56.123456001' as timestamp_ns))
+               case when id = 1 then ts else dt end,
+               if(id = 1, ts, dt),
+               ifnull(ts, dt),
+               coalesce(ts, dt),
+               nvl(ts, dt),
+               nullif(ts, dt),
+               greatest(ts, dt),
+               least(ts, dt),
+               array(ts, dt),
+               map('ts', ts, 'dt', dt),
+               array_contains(array(ts), dt)
         from timestamp_ns_mixed_datetime_expressions
         order by id
+    """
+    order_qt_mixed_union_columns """
+        select value from (
+            select ts as value from timestamp_ns_mixed_datetime_expressions
+            union all
+            select dt from timestamp_ns_mixed_datetime_expressions
+        ) mixed_union_columns
+        order by value
+    """
+    order_qt_mixed_union_literal """
+        select value from (
+            select ts as value from timestamp_ns_mixed_datetime_expressions
+            union all
+            select cast('2024-02-29 12:34:56.123456' as datetimev2(6))
+        ) mixed_union_literal
+        order by value
     """
 
     sql "drop table if exists timestamp_ns_mixed_date_families"
@@ -483,7 +452,8 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
             ts timestamp_ns,
             d date,
             d2 datev2,
-            dt datetime
+            dt datetime,
+            tz timestamptz(6)
         )
         duplicate key(id)
         distributed by hash(id) buckets 1
@@ -491,18 +461,24 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
     """
     sql """
         insert into timestamp_ns_mixed_date_families values
-        (1, '2024-01-02 00:00:00.000000000', '2024-01-02', '2024-01-02', '2024-01-02 00:00:00'),
-        (2, '2024-01-02 00:00:00.000000001', '2024-01-02', '2024-01-02', '2024-01-02 00:00:00'),
-        (3, '1677-09-21 00:12:43.145224192', '1677-09-21', '1677-09-21', '1677-09-21 00:00:00'),
-        (4, '2262-04-11 23:47:16.854775807', '2262-04-11', '2262-04-11', '2262-04-11 00:00:00'),
-        (5, '1970-01-01 00:00:00.000000000', '2500-01-01', '2500-01-01', '2500-01-01 00:00:00'),
-        (6, null, null, null, null)
+        (1, '2024-01-02 00:00:00.000000000', '2024-01-02', '2024-01-02',
+            '2024-01-02 00:00:00', cast('2024-01-02 00:00:00+08:00' as timestamptz(6))),
+        (2, '2024-01-02 00:00:00.000000001', '2024-01-02', '2024-01-02',
+            '2024-01-02 00:00:00', cast('2024-01-02 00:00:00+08:00' as timestamptz(6))),
+        (3, '1677-09-21 00:12:43.145224192', '1677-09-21', '1677-09-21',
+            '1700-01-01 00:00:00', cast('1700-01-01 00:00:00+08:00' as timestamptz(6))),
+        (4, '2262-04-11 23:47:16.854775807', '2262-04-11', '2262-04-11',
+            '2200-01-01 00:00:00', cast('2200-01-01 00:00:00+08:00' as timestamptz(6))),
+        (5, '1970-01-01 00:00:00.000000000', '2500-01-01', '2500-01-01',
+            '2200-01-01 00:00:00', cast('2200-01-01 00:00:00+08:00' as timestamptz(6))),
+        (6, null, null, null, null, null)
     """
     order_qt_mixed_date_family_comparisons """
         select id,
                ts = d, d = ts, ts < d, d < ts,
                ts = d2, d2 = ts, ts < d2, d2 < ts,
-               ts = dt, dt = ts, ts < dt, dt < ts
+               ts = dt, dt = ts, ts < dt, dt < ts,
+               ts = tz, tz = ts, ts < tz, tz < ts
         from timestamp_ns_mixed_date_families
         order by id
     """
@@ -511,7 +487,7 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
                ts in (d), d in (ts),
                ts in (d2), d2 in (ts),
                ts in (dt), dt in (ts),
-               ts in (d, d2, dt)
+               ts in (tz), tz in (ts)
         from timestamp_ns_mixed_date_families
         order by id
     """
@@ -523,6 +499,80 @@ suite("test_timestamp_ns_mixed_datetime_expressions") {
         from timestamp_ns_mixed_date_families
         order by id
     """
+
+    order_qt_mixed_datetime_family_functions """
+        select id,
+               seconds_diff(ts, dt), seconds_diff(dt, ts),
+               seconds_diff(ts, tz), seconds_diff(tz, ts),
+               greatest(ts, dt), least(ts, tz)
+        from timestamp_ns_mixed_date_families
+        order by id
+    """
+
+    sql "drop table if exists timestamp_ns_mixed_datetime_overflow"
+    sql """
+        create table timestamp_ns_mixed_datetime_overflow (
+            id int,
+            dt datetime,
+            dtv2 datetimev2(6),
+            tz timestamptz(6)
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_mixed_datetime_overflow values
+        (1, '2500-01-01 00:00:00', '2500-01-01 00:00:00.000000',
+            cast('2262-04-11 23:47:16.854776+08:00' as timestamptz(6)))
+    """
+
+    // Implicit normalization is strict even when ordinary CAST is non-strict. Verify the main
+    // coercion entry points and every supported DATETIME-family type abort the whole query.
+    test {
+        sql """
+            select cast('1970-01-01 00:00:00' as timestamp_ns) = dt
+            from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
+    test {
+        sql """
+            select seconds_diff(cast('1970-01-01 00:00:00' as timestamp_ns), dtv2)
+            from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
+    test {
+        sql """
+            select greatest(cast('1970-01-01 00:00:00' as timestamp_ns), tz)
+            from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "can not cast timestamptz"
+    }
+    test {
+        sql """
+            select case when id = 0 then cast('1970-01-01 00:00:00' as timestamp_ns)
+                        else dtv2 end
+            from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
+    test {
+        sql """
+            select array(cast('1970-01-01 00:00:00' as timestamp_ns), dtv2)
+            from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
+    test {
+        sql """
+            select cast('1970-01-01 00:00:00' as timestamp_ns)
+            union all
+            select dtv2 from timestamp_ns_mixed_datetime_overflow
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
 
     // Single-temporal-argument functions do not perform mixed-type resolution and are covered by
     // test_timestamp_ns_functions.groovy. Explicit casts remain the user-controlled escape hatch.

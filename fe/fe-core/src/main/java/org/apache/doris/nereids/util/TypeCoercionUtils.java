@@ -374,6 +374,20 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, TimeStampTzType.class);
     }
 
+    public static boolean hasTimeStampNsType(DataType dataType) {
+        return hasSpecifiedType(dataType, TimeStampNsType.class);
+    }
+
+    private static boolean hasTimeStampNsCompatibleDateTimeType(DataType dataType) {
+        return hasSpecifiedType(dataType, type -> type instanceof DateTimeType
+                || type instanceof DateTimeV2Type || type instanceof TimeStampTzType);
+    }
+
+    private static boolean containsMixedTimeStampNsDateTimeTypes(List<DataType> dataTypes) {
+        return dataTypes.stream().anyMatch(TypeCoercionUtils::hasTimeStampNsType)
+                && dataTypes.stream().anyMatch(TypeCoercionUtils::hasTimeStampNsCompatibleDateTimeType);
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         return hasSpecifiedType(dataType, type -> specifiedType.isAssignableFrom(type.getClass()));
     }
@@ -579,6 +593,25 @@ public class TypeCoercionUtils {
         }
     }
 
+    /** Cast a DATETIME-family value to TIMESTAMP_NS and abort on conversion overflow. */
+    public static Expression castIfNotSameTypeForTimeStampNsCoercion(Expression input, DataType targetType) {
+        if (hasTimeStampNsType(targetType)
+                && hasTimeStampNsCompatibleDateTimeType(input.getDataType())) {
+            return strictCastIfNotSameType(input, targetType);
+        }
+        return castIfNotSameType(input, targetType);
+    }
+
+    /** Preserve strict type matching while making DATETIME-family to TIMESTAMP_NS casts fail-fast. */
+    public static Expression castIfNotSameTypeStrictForTimeStampNsCoercion(
+            Expression input, DataType targetType) {
+        if (hasTimeStampNsType(targetType)
+                && hasTimeStampNsCompatibleDateTimeType(input.getDataType())) {
+            return strictCastIfNotSameType(input, targetType);
+        }
+        return castIfNotSameTypeStrict(input, targetType);
+    }
+
     public static boolean canCastTo(DataType input, DataType target) {
         return CheckCast.checkWithLooseAggState(input, target, SessionVariable.enableStrictCast());
     }
@@ -757,7 +790,9 @@ public class TypeCoercionUtils {
     public static Expression implicitCastInputTypes(Expression expr, List<DataType> expectedInputTypes) {
         List<Optional<DataType>> inputImplicitCastTypes
                 = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
-        return castInputs(expr, inputImplicitCastTypes);
+        boolean strictTimeStampNsCoercion = containsMixedTimeStampNsDateTimeTypes(
+                expr.children().stream().map(Expression::getDataType).collect(Collectors.toList()));
+        return castInputs(expr, inputImplicitCastTypes, strictTimeStampNsCoercion);
     }
 
     private static List<Optional<DataType>> getInputImplicitCastTypes(
@@ -781,11 +816,16 @@ public class TypeCoercionUtils {
         return implicitCastTypes.build();
     }
 
-    private static Expression castInputs(Expression expr, List<Optional<DataType>> castTypes) {
+    private static Expression castInputs(Expression expr, List<Optional<DataType>> castTypes,
+            boolean strictTimeStampNsCoercion) {
         return expr.withChildren((child, childIndex) -> {
             DataType argType = child.getDataType();
             Optional<DataType> castType = castTypes.get(childIndex);
             if (castType.isPresent() && !castType.get().equals(argType)) {
+                if (strictTimeStampNsCoercion && hasTimeStampNsType(castType.get())
+                        && hasTimeStampNsCompatibleDateTimeType(argType)) {
+                    return strictCastIfNotSameType(child, castType.get());
+                }
                 return TypeCoercionUtils.castIfNotMatchType(child, castType.get());
             } else {
                 return child;
@@ -816,6 +856,10 @@ public class TypeCoercionUtils {
 
         Expression left = divide.left();
         Expression right = divide.right();
+        if (isTimeStampNsAndCompatibleDateTimePair(left.getDataType(), right.getDataType())) {
+            left = strictCastIfNotSameType(left, TimeStampNsType.INSTANCE);
+            right = strictCastIfNotSameType(right, TimeStampNsType.INSTANCE);
+        }
 
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
@@ -857,6 +901,10 @@ public class TypeCoercionUtils {
 
         Expression left = divide.left();
         Expression right = divide.right();
+        if (isTimeStampNsAndCompatibleDateTimePair(left.getDataType(), right.getDataType())) {
+            left = strictCastIfNotSameType(left, TimeStampNsType.INSTANCE);
+            right = strictCastIfNotSameType(right, TimeStampNsType.INSTANCE);
+        }
 
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
@@ -921,6 +969,10 @@ public class TypeCoercionUtils {
 
         Expression left = binaryArithmetic.left();
         Expression right = binaryArithmetic.right();
+        if (isTimeStampNsAndCompatibleDateTimePair(left.getDataType(), right.getDataType())) {
+            left = strictCastIfNotSameType(left, TimeStampNsType.INSTANCE);
+            right = strictCastIfNotSameType(right, TimeStampNsType.INSTANCE);
+        }
 
         // 1. choose default numeric type for left and right
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
@@ -1080,13 +1132,14 @@ public class TypeCoercionUtils {
         return Optional.empty();
     }
 
-    /** Choose TIMESTAMP_NS only when the other operand has a total conversion. */
+    /** Choose TIMESTAMP_NS for compatible DATETIME-family coercion. */
     private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
         if (otherType instanceof TimeStampNsType) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
-        // Every other date-like type has a wider calendar domain. Value-producing expressions
-        // must require an explicit cast instead of producing NULL for a valid source value.
+        if (isTimeStampNsCompatibleDateTimeType(otherType)) {
+            return Optional.of(TimeStampNsType.INSTANCE);
+        }
         if (otherType.isDateLikeType()) {
             return Optional.empty();
         }
@@ -1434,9 +1487,10 @@ public class TypeCoercionUtils {
         left = comparisonPredicate.left();
         right = comparisonPredicate.right();
 
-        if (isJoinCondition && comparisonPredicate instanceof EqualPredicate
-                && isTimeStampNsAndJoinCompatibleTemporalPair(
-                        left.getDataType(), right.getDataType())) {
+        if (isTimeStampNsAndCompatibleDateTimePair(left.getDataType(), right.getDataType())
+                || (isJoinCondition && comparisonPredicate instanceof EqualPredicate
+                        && isTimeStampNsAndJoinCompatibleTemporalPair(
+                                left.getDataType(), right.getDataType()))) {
             left = strictCastIfNotSameType(left, TimeStampNsType.INSTANCE);
             right = strictCastIfNotSameType(right, TimeStampNsType.INSTANCE);
             return comparisonPredicate.withChildren(left, right);
@@ -1549,7 +1603,8 @@ public class TypeCoercionUtils {
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = fmtInPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
+                            .map(e -> TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(
+                                    e, commonType))
                             .collect(ImmutableList.toImmutableList());
                     return fmtInPredicate.withChildren(newChildren);
                 })
@@ -1608,6 +1663,8 @@ public class TypeCoercionUtils {
         DateTimeV2Type dateTimeV2Type = widestDateTimeV2Type(inPredicate.children());
         Expression compareExpr = originalCompareType instanceof TimeStampNsType
                 ? originalCompareExpr : castIfNotSameType(originalCompareExpr, dateTimeV2Type);
+        boolean compareWasDateOnly = originalCompareType instanceof DateType
+                || originalCompareType instanceof DateV2Type;
         DataType compareType = compareExpr.getDataType();
         List<Expression> normalizedOptions = new ArrayList<>(inPredicate.getOptions().size());
         List<Expression> mixedEqualities = new ArrayList<>();
@@ -1631,7 +1688,11 @@ public class TypeCoercionUtils {
             // the equality is impossible. Non-literals use the exact mixed comparison kernel.
             Optional<Literal> optionLiteral = getLiteralAfterExplicitCast(option);
             if (!optionLiteral.isPresent()) {
-                mixedEqualities.add(processComparisonPredicate(new EqualTo(compareExpr, normalizedOption)));
+                ComparisonPredicate equality = new EqualTo(compareExpr, normalizedOption);
+                boolean optionWasDateOnly = option.getDataType() instanceof DateType
+                        || option.getDataType() instanceof DateV2Type;
+                mixedEqualities.add(compareWasDateOnly || optionWasDateOnly
+                        ? equality : processComparisonPredicate(equality));
                 continue;
             }
             Literal literal = optionLiteral.get();
@@ -1767,8 +1828,9 @@ public class TypeCoercionUtils {
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
-                                Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
-                                        wc.getResult(), commonType);
+                                Expression valueExpr = TypeCoercionUtils
+                                        .castIfNotSameTypeForTimeStampNsCoercion(
+                                                wc.getResult(), commonType);
                                 // we must cast every child to the common type, and then
                                 // FoldConstantRuleOnFe can eliminate some branches and direct
                                 // return a branch value
@@ -1780,7 +1842,8 @@ public class TypeCoercionUtils {
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
                             .map(dv -> {
-                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, commonType);
+                                Expression defaultExpr = TypeCoercionUtils
+                                        .castIfNotSameTypeForTimeStampNsCoercion(dv, commonType);
                                 if (!defaultExpr.getDataType().equals(commonType)) {
                                     defaultExpr = new Cast(defaultExpr, commonType);
                                 }
@@ -1881,6 +1944,16 @@ public class TypeCoercionUtils {
     private static boolean isTimeStampNsAndJoinCompatibleTemporalPair(DataType left, DataType right) {
         return (left instanceof TimeStampNsType && isJoinCompatibleTemporalType(right))
                 || (right instanceof TimeStampNsType && isJoinCompatibleTemporalType(left));
+    }
+
+    private static boolean isTimeStampNsAndCompatibleDateTimePair(DataType left, DataType right) {
+        return left instanceof TimeStampNsType && isTimeStampNsCompatibleDateTimeType(right)
+                || right instanceof TimeStampNsType && isTimeStampNsCompatibleDateTimeType(left);
+    }
+
+    private static boolean isTimeStampNsCompatibleDateTimeType(DataType dataType) {
+        return dataType instanceof DateTimeType || dataType instanceof DateTimeV2Type
+                || dataType instanceof TimeStampTzType;
     }
 
     private static boolean isJoinCompatibleTemporalType(DataType dataType) {
@@ -2027,6 +2100,13 @@ public class TypeCoercionUtils {
                 .anyMatch(type -> type.isDateLikeType() && !(type instanceof TimeStampNsType));
         if (!containsTimeStampNs || !containsOtherDateLike) {
             return Optional.of(dataTypes);
+        }
+
+        if (dataTypes.stream().anyMatch(TypeCoercionUtils::isTimeStampNsCompatibleDateTimeType)) {
+            return Optional.of(dataTypes.stream()
+                    .map(dataType -> isTimeStampNsCompatibleDateTimeType(dataType)
+                            ? TimeStampNsType.INSTANCE : dataType)
+                    .collect(Collectors.toList()));
         }
 
         boolean allOtherDateLikeValuesFitTimeStampNs = true;
@@ -2491,9 +2571,8 @@ public class TypeCoercionUtils {
         for (DataType dataType : dataTypes) {
             if (dataType instanceof TimeStampNsType) {
                 containsTimeStampNs = true;
-            } else if (dataType.isDateLikeType()) {
-                return false;
-            } else if (!dataType.isNullType() && !(dataType instanceof TimeV2Type)) {
+            } else if (!isTimeStampNsCompatibleDateTimeType(dataType)
+                    && !dataType.isNullType() && !(dataType instanceof TimeV2Type)) {
                 return false;
             }
         }
