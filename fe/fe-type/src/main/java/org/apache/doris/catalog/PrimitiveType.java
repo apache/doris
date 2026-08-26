@@ -287,6 +287,11 @@ public enum PrimitiveType {
     }
 
     public TPrimitiveType toThrift() {
+        if (this == TIMESTAMP_NS && Config.be_exec_version < Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION) {
+            throw new IllegalStateException("TIMESTAMP_NS requires all participating backends to support "
+                    + "execution version " + Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION
+                    + " or newer; current be_exec_version is " + Config.be_exec_version);
+        }
         return thriftType;
     }
 
