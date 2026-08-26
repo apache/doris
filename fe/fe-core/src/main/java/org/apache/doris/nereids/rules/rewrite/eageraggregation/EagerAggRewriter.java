@@ -756,11 +756,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     @Override
-    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, PushDownAggContext context) {
-        return agg;
-    }
-
-    @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PushDownAggContext context) {
         if (filter.getConjuncts().stream().anyMatch(Expression::containsVolatileExpression)) {
             return genAggregate(filter, context);
