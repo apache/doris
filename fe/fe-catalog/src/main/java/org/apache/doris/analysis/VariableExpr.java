@@ -17,13 +17,17 @@
 
 package org.apache.doris.analysis;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.math.BigDecimal;
 import java.util.Objects;
 
 // Variable expr: including the system variable and user define variable.
 // Converted to StringLiteral in analyze, if this variable is not exist, throw AnalysisException.
 public class VariableExpr extends Expr {
+    @SerializedName("n")
     private String name;
+    @SerializedName("st")
     private SetType setType;
     private boolean isNull;
     private boolean boolValue;
