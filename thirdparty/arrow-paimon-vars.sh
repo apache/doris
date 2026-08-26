@@ -60,7 +60,7 @@ PAIMON_BUILD_SCHEMA_VERSION="1"
 ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="ab79ab0bbfbf93f9860050fb751b20fee9e40d96"
 # Dependency ordering does not change the installed Paimon artifacts, so existing
 # complete prebuilts remain compatible with the corrected clean-build graph.
-PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="fe08a2f6c995dd469baa774245dc7edb1475b435"
+PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="9887cf1ec13106da4250f8d7ea931a258879089c"
 ARROW_LEGACY_BUILD_FINGERPRINTS=(
     9d03645dd1cded5184a8126f5c7f4a6eb9b92b53
 )
