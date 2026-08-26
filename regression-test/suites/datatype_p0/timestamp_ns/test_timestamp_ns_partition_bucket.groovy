@@ -234,7 +234,7 @@ suite("test_timestamp_ns_partition_bucket") {
         """
         contains "partitions=1/3 (p1)"
     }
-    sql """
+    order_qt_datetimev2_cast_timestamp_ns_eq """
         select id from datetimev2_cast_timestamp_ns_prune
         where cast(dt as timestamp_ns) =
               cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
@@ -262,7 +262,7 @@ suite("test_timestamp_ns_partition_bucket") {
         """
         contains "VEMPTYSET"
     }
-    sql """
+    qt_datetimev2_cast_timestamp_ns_unreachable_in """
         select id from datetimev2_cast_timestamp_ns_prune
         where cast(dt as timestamp_ns) in (
             cast('2024-01-01 00:00:00.000001001' as timestamp_ns),
